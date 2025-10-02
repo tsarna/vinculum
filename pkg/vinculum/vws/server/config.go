@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tsarna/vinculum/pkg/vinculum/bus"
-	"github.com/tsarna/vinculum/pkg/vinculum/o11y"
-	"github.com/tsarna/vinculum/pkg/vinculum/transform"
+	"github.com/tsarna/vinculum-bus"
+	"github.com/tsarna/vinculum-bus/o11y"
+	"github.com/tsarna/vinculum-bus/transform"
 	"go.uber.org/zap"
 )
 

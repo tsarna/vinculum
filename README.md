@@ -6,8 +6,6 @@ It interconnects the minds of all the drones."
 
 Vinculum is several things:
 
-- **[Core EventBus](pkg/vinculum/bus/README.md)** - A high-performance, feature-rich in-process EventBus for Go with MQTT-style topic patterns and optional observability.
-- **[Observability](pkg/vinculum/o11y/README.md)** - Pluggable observability interfaces with standalone metrics provider and OpenTelemetry integration.
 - **WebSocket Protocol** - A simple, JSON-based protocol with server implementation to expose the bus over WebSockets, enabling real-time web applications.
 - **WebSocket Client** - A client implementation of the protocol for connecting Go applications to Vinculum WebSocket servers.
 
@@ -36,8 +34,6 @@ Connect to Vinculum WebSocket servers from Go applications:
 📖 **[WebSocket Client Documentation](pkg/vinculum/vws/client/README.md)**
 
 ## 🚀 Quick Start
-
-For EventBus usage, see the **[EventBus Documentation](pkg/vinculum/bus/README.md#-quick-start)**.
 
 For WebSocket usage, see the individual component documentation:
 

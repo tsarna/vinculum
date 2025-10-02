@@ -6,7 +6,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
-	"github.com/tsarna/vinculum/pkg/vinculum/bus"
+	"github.com/tsarna/vinculum-bus"
 	"github.com/zclconf/go-cty/cty"
 )
 

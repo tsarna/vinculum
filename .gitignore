@@ -7,6 +7,7 @@
 *.dll
 *.so
 *.dylib
+/vinculum
 
 # Test binary, built with `go test -c`
 *.test
@@ -29,6 +30,10 @@ go.work.sum
 
 # Notes
 FUTURE
+
+# Test files
+test.vcl
+x
 
 # Editor/IDE
 .idea/

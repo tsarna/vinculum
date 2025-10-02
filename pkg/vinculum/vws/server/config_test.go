@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tsarna/vinculum/pkg/vinculum/bus"
+	"github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum/pkg/vinculum/vws"
 	"go.uber.org/zap"
 )

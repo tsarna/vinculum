@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/tsarna/vinculum/pkg/vinculum/bus"
-	"github.com/tsarna/vinculum/pkg/vinculum/subutils"
+	"github.com/tsarna/vinculum-bus"
+	"github.com/tsarna/vinculum-bus/subutils"
 	"github.com/tsarna/vinculum/pkg/vinculum/vws"
 	"go.uber.org/zap"
 )

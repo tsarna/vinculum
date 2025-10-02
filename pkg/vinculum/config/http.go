@@ -45,11 +45,11 @@ type handlerDefinition struct {
 }
 
 type HandlerServer interface {
-	Server
+	Listener
 	GetHandler() http.Handler
 }
 
-func ProcessHttpServerBlock(config *Config, block *hcl.Block, remainingBody hcl.Body) (Server, hcl.Diagnostics) {
+func ProcessHttpServerBlock(config *Config, block *hcl.Block, remainingBody hcl.Body) (Listener, hcl.Diagnostics) {
 	serverDef := HttpServerDefinition{}
 	diags := gohcl.DecodeBody(remainingBody, config.evalCtx, &serverDef)
 	if diags.HasErrors() {
@@ -58,7 +58,7 @@ func ProcessHttpServerBlock(config *Config, block *hcl.Block, remainingBody hcl.
 
 	httpServers, ok := config.Servers["http"]
 	if !ok {
-		httpServers = make(map[string]Server)
+		httpServers = make(map[string]Listener)
 		config.Servers["http"] = httpServers
 	}
 

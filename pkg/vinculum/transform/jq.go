@@ -8,7 +8,8 @@ import (
 
 	"github.com/itchyny/gojq"
 	"github.com/tsarna/go2cty2go"
-	"github.com/tsarna/vinculum/pkg/vinculum/bus"
+	bus "github.com/tsarna/vinculum-bus"
+	"github.com/tsarna/vinculum-bus/transform"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -125,7 +126,7 @@ func containsStructs(v any) bool {
 // Error Handling:
 // When a logger is provided, all runtime errors during transformation are logged but the transform
 // continues gracefully by passing through the original message unchanged.
-func JqTransform(jqQuery string, logger *zap.Logger) (MessageTransformFunc, error) {
+func JqTransform(jqQuery string, logger *zap.Logger) (transform.MessageTransformFunc, error) {
 	// Parse the JQ query
 	query, err := gojq.Parse(jqQuery)
 	if err != nil {

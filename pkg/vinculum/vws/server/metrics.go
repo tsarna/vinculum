@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/tsarna/vinculum/pkg/vinculum/o11y"
+	"github.com/tsarna/vinculum-bus/o11y"
 )
 
 // WebSocketMetrics defines the standard metrics collected by the WebSocket server.

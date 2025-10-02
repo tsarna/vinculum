@@ -7,6 +7,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/tsarna/go2cty2go"
+	vbxform "github.com/tsarna/vinculum-bus/transform"
 	"github.com/tsarna/vinculum/pkg/vinculum/transform"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
@@ -14,7 +15,7 @@ import (
 
 // MessageTransformWrapper wraps a MessageTransformFunc for use in cty capsules
 type MessageTransformWrapper struct {
-	Func transform.MessageTransformFunc
+	Func vbxform.MessageTransformFunc
 }
 
 // MessageTransformCapsuleType is a cty capsule type for wrapping MessageTransformFunc instances
@@ -28,13 +29,13 @@ var MessageTransformCapsuleType = cty.CapsuleWithOps("transform", reflect.TypeOf
 })
 
 // NewMessageTransformCapsule creates a new cty capsule value wrapping a MessageTransformFunc
-func NewMessageTransformCapsule(transformFunc transform.MessageTransformFunc) cty.Value {
+func NewMessageTransformCapsule(transformFunc vbxform.MessageTransformFunc) cty.Value {
 	wrapper := &MessageTransformWrapper{Func: transformFunc}
 	return cty.CapsuleVal(MessageTransformCapsuleType, wrapper)
 }
 
 // GetMessageTransformFromCapsule extracts a MessageTransformFunc from a cty capsule value
-func GetMessageTransformFromCapsule(val cty.Value) (transform.MessageTransformFunc, error) {
+func GetMessageTransformFromCapsule(val cty.Value) (vbxform.MessageTransformFunc, error) {
 	if val.Type() != MessageTransformCapsuleType {
 		return nil, fmt.Errorf("expected Message Transform capsule, got %s", val.Type().FriendlyName())
 	}
@@ -47,7 +48,7 @@ func GetMessageTransformFromCapsule(val cty.Value) (transform.MessageTransformFu
 	return wrapper.Func, nil
 }
 
-func (config *Config) GetMessageTransforms(expr hcl.Expression) (transforms []transform.MessageTransformFunc, diags hcl.Diagnostics) {
+func (config *Config) GetMessageTransforms(expr hcl.Expression) (transforms []vbxform.MessageTransformFunc, diags hcl.Diagnostics) {
 	evalCtx := config.getTransformExprEvalCtx()
 	vals, diags := expr.Value(evalCtx)
 	if diags.HasErrors() {
@@ -57,7 +58,7 @@ func (config *Config) GetMessageTransforms(expr hcl.Expression) (transforms []tr
 	return config.ctyToTransforms(expr, vals)
 }
 
-func (config *Config) ctyToTransforms(expr hcl.Expression, vals cty.Value) (transforms []transform.MessageTransformFunc, diags hcl.Diagnostics) {
+func (config *Config) ctyToTransforms(expr hcl.Expression, vals cty.Value) (transforms []vbxform.MessageTransformFunc, diags hcl.Diagnostics) {
 	// Accept both a single transform or a list/tuple of transforms
 	if vals.Type() == MessageTransformCapsuleType {
 		// Single transformFunc, wrap in slice
@@ -74,7 +75,7 @@ func (config *Config) ctyToTransforms(expr hcl.Expression, vals cty.Value) (tran
 			})
 			return nil, diags
 		}
-		return []transform.MessageTransformFunc{transformFunc}, diags
+		return []vbxform.MessageTransformFunc{transformFunc}, diags
 	} else if vals.Type().IsTupleType() || vals.Type().IsListType() {
 		// handled below
 	} else {
@@ -90,7 +91,7 @@ func (config *Config) ctyToTransforms(expr hcl.Expression, vals cty.Value) (tran
 		return nil, diags
 	}
 
-	transforms = make([]transform.MessageTransformFunc, 0, vals.LengthInt())
+	transforms = make([]vbxform.MessageTransformFunc, 0, vals.LengthInt())
 
 	for _, val := range vals.AsValueSlice() {
 		transformFunc, err := GetMessageTransformFromCapsule(val)
@@ -139,7 +140,7 @@ var DropTopicPatternTransform = function.New(&function.Spec{
 	},
 	Type: function.StaticReturnType(MessageTransformCapsuleType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-		capsule := NewMessageTransformCapsule(transform.DropTopicPattern(args[0].AsString()))
+		capsule := NewMessageTransformCapsule(vbxform.DropTopicPattern(args[0].AsString()))
 		return capsule, nil
 	},
 })
@@ -150,7 +151,7 @@ var DropTopicPrefixTransform = function.New(&function.Spec{
 	},
 	Type: function.StaticReturnType(MessageTransformCapsuleType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-		capsule := NewMessageTransformCapsule(transform.DropTopicPrefix(args[0].AsString()))
+		capsule := NewMessageTransformCapsule(vbxform.DropTopicPrefix(args[0].AsString()))
 		return capsule, nil
 	},
 })
@@ -161,7 +162,7 @@ var AddTopicPrefixTransform = function.New(&function.Spec{
 	},
 	Type: function.StaticReturnType(MessageTransformCapsuleType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-		capsule := NewMessageTransformCapsule(transform.AddTopicPrefix(args[0].AsString()))
+		capsule := NewMessageTransformCapsule(vbxform.AddTopicPrefix(args[0].AsString()))
 		return capsule, nil
 	},
 })
@@ -174,7 +175,7 @@ var ChainTransformsTransform = function.New(&function.Spec{
 	},
 	Type: function.StaticReturnType(MessageTransformCapsuleType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-		var transforms []transform.MessageTransformFunc
+		var transforms []vbxform.MessageTransformFunc
 		for _, arg := range args {
 			transform, err := GetMessageTransformFromCapsule(arg)
 			if err != nil {
@@ -182,7 +183,7 @@ var ChainTransformsTransform = function.New(&function.Spec{
 			}
 			transforms = append(transforms, transform)
 		}
-		capsule := NewMessageTransformCapsule(transform.ChainTransforms(transforms...))
+		capsule := NewMessageTransformCapsule(vbxform.ChainTransforms(transforms...))
 		return capsule, nil
 	},
 })
@@ -198,7 +199,7 @@ var IfPatternTransform = function.New(&function.Spec{
 		if err != nil {
 			return cty.NullVal(retType), err
 		}
-		capsule := NewMessageTransformCapsule(transform.IfPattern(args[0].AsString(), transformFunc))
+		capsule := NewMessageTransformCapsule(vbxform.IfPattern(args[0].AsString(), transformFunc))
 		return capsule, nil
 	},
 })
@@ -214,7 +215,7 @@ var IfPrefixTransform = function.New(&function.Spec{
 		if err != nil {
 			return cty.NullVal(retType), err
 		}
-		capsule := NewMessageTransformCapsule(transform.IfPrefix(args[0].AsString(), transformFunc))
+		capsule := NewMessageTransformCapsule(vbxform.IfPrefix(args[0].AsString(), transformFunc))
 		return capsule, nil
 	},
 })
@@ -235,7 +236,7 @@ var IfElsePatternTransform = function.New(&function.Spec{
 		if err != nil {
 			return cty.NullVal(retType), err
 		}
-		capsule := NewMessageTransformCapsule(transform.IfElsePattern(args[0].AsString(), ifTransform, elseTransform))
+		capsule := NewMessageTransformCapsule(vbxform.IfElsePattern(args[0].AsString(), ifTransform, elseTransform))
 		return capsule, nil
 	},
 })
@@ -256,7 +257,7 @@ var IfElsePrefixTransform = function.New(&function.Spec{
 		if err != nil {
 			return cty.NullVal(retType), err
 		}
-		capsule := NewMessageTransformCapsule(transform.IfElsePrefix(args[0].AsString(), ifTransform, elseTransform))
+		capsule := NewMessageTransformCapsule(vbxform.IfElsePrefix(args[0].AsString(), ifTransform, elseTransform))
 		return capsule, nil
 	},
 })
@@ -268,7 +269,7 @@ var DiffTransform = function.New(&function.Spec{
 	},
 	Type: function.StaticReturnType(MessageTransformCapsuleType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-		capsule := NewMessageTransformCapsule(transform.ModifyPayload(transform.DiffTransform(args[0].AsString(), args[1].AsString())))
+		capsule := NewMessageTransformCapsule(vbxform.ModifyPayload(vbxform.DiffTransform(args[0].AsString(), args[1].AsString())))
 		return capsule, nil
 	},
 })
@@ -277,7 +278,7 @@ var StopTransforms = function.New(&function.Spec{
 	Params: []function.Parameter{},
 	Type:   function.StaticReturnType(MessageTransformCapsuleType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-		capsule := NewMessageTransformCapsule(transform.StopTransforms())
+		capsule := NewMessageTransformCapsule(vbxform.StopTransforms())
 		return capsule, nil
 	},
 })
@@ -313,7 +314,7 @@ func cty2goSimpleTransform(ctx context.Context, payload any, fields map[string]s
 	return payload
 }
 
-var cty2goTransform = transform.ModifyPayload(cty2goSimpleTransform)
+var cty2goTransform = vbxform.ModifyPayload(cty2goSimpleTransform)
 
 var Cty2GoTransformFunc = function.New(&function.Spec{
 	Params: []function.Parameter{},

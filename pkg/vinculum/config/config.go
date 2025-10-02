@@ -6,7 +6,7 @@ import (
 	"github.com/hashicorp/go-cty-funcs/filesystem"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/robfig/cron/v3"
-	"github.com/tsarna/vinculum/pkg/vinculum/bus"
+	"github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum/pkg/vinculum/config/functions"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
@@ -37,7 +37,7 @@ type Config struct {
 	CtyBusMap      map[string]cty.Value
 	Buses          map[string]bus.EventBus
 	CtyServerMap   map[string]cty.Value
-	Servers        map[string]map[string]Server
+	Servers        map[string]map[string]Listener
 
 	Crons map[string]*cron.Cron
 }
@@ -72,7 +72,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		SigActions:   NewSignalActionHandler(cb.logger),
 		Buses:        make(map[string]bus.EventBus),
 		CtyBusMap:    make(map[string]cty.Value),
-		Servers:      make(map[string]map[string]Server),
+		Servers:      make(map[string]map[string]Listener),
 		CtyServerMap: make(map[string]cty.Value),
 		Crons:        make(map[string]*cron.Cron),
 	}

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tsarna/vinculum/pkg/vinculum/bus"
+	"github.com/tsarna/vinculum-bus"
 	"go.uber.org/zap"
 )
 

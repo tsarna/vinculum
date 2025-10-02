@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tsarna/vinculum/pkg/vinculum/bus"
-	"github.com/tsarna/vinculum/pkg/vinculum/o11y"
+	"github.com/tsarna/vinculum-bus"
+	"github.com/tsarna/vinculum-bus/o11y"
 	"github.com/tsarna/vinculum/pkg/vinculum/vws/server"
 	"go.uber.org/zap"
 )

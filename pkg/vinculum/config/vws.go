@@ -9,7 +9,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
-	"github.com/tsarna/vinculum/pkg/vinculum/transform"
+	"github.com/tsarna/vinculum-bus/transform"
 	"github.com/tsarna/vinculum/pkg/vinculum/vws"
 	"github.com/tsarna/vinculum/pkg/vinculum/vws/server"
 	"github.com/zclconf/go-cty/cty"
@@ -35,7 +35,7 @@ type VinculumWebsocketsServerDefinition struct {
 	DefRange             hcl.Range      `hcl:",def_range"`
 }
 
-func ProcessVinculumWebsocketsServerBlock(config *Config, block *hcl.Block, remainingBody hcl.Body) (Server, hcl.Diagnostics) {
+func ProcessVinculumWebsocketsServerBlock(config *Config, block *hcl.Block, remainingBody hcl.Body) (Listener, hcl.Diagnostics) {
 	serverDef := VinculumWebsocketsServerDefinition{}
 	diags := gohcl.DecodeBody(remainingBody, config.evalCtx, &serverDef)
 	if diags.HasErrors() {
@@ -44,8 +44,8 @@ func ProcessVinculumWebsocketsServerBlock(config *Config, block *hcl.Block, rema
 
 	vinculumWebsocketsServers, ok := config.Servers["vws"]
 	if !ok {
-		vinculumWebsocketsServers = make(map[string]Server)
-		config.Servers["vinculum-ws"] = vinculumWebsocketsServers
+		vinculumWebsocketsServers = make(map[string]Listener)
+		config.Servers["vws"] = vinculumWebsocketsServers
 	}
 
 	existing, ok := vinculumWebsocketsServers[block.Labels[1]]

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/tsarna/vinculum/cmd/vinculum/cmd"
+	"github.com/tsarna/vinculum/cmd"
 )
 
 func main() {

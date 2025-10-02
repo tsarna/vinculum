@@ -43,7 +43,7 @@ func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 
 	servers, ok := config.Servers[block.Labels[0]]
 	if !ok {
-		servers = make(map[string]Server)
+		servers = make(map[string]Listener)
 		config.Servers[block.Labels[0]] = servers
 	}
 
@@ -59,7 +59,7 @@ func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 		}
 	}
 
-	var server Server
+	var server Listener
 
 	switch block.Labels[0] {
 	case "http":
@@ -67,6 +67,9 @@ func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 
 	case "vws":
 		server, diags = ProcessVinculumWebsocketsServerBlock(config, block, serverDef.RemainingBody)
+
+	case "websocket":
+		server, diags = ProcessWebsocketsServerBlock(config, block, serverDef.RemainingBody)
 
 	default:
 		return hcl.Diagnostics{
@@ -90,7 +93,7 @@ func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	return nil
 }
 
-type Server interface {
+type Listener interface {
 	GetName() string
 	GetDefRange() hcl.Range
 }
@@ -119,25 +122,25 @@ var ServerCapsuleType = cty.CapsuleWithOps("server", reflect.TypeOf((*any)(nil))
 })
 
 // NewEventBusCapsule creates a new cty capsule value wrapping an EventBus
-func NewServerCapsule(server Server) cty.Value {
+func NewServerCapsule(server Listener) cty.Value {
 	return cty.CapsuleVal(ServerCapsuleType, server)
 }
 
 // GetServerFromCapsule extracts an Server from a cty capsule value
-func GetServerFromCapsule(val cty.Value) (Server, error) {
+func GetServerFromCapsule(val cty.Value) (Listener, error) {
 	if val.Type() != ServerCapsuleType {
 		return nil, fmt.Errorf("expected Server capsule, got %s", val.Type().FriendlyName())
 	}
 
 	encapsulated := val.EncapsulatedValue()
-	server, ok := encapsulated.(Server)
+	server, ok := encapsulated.(Listener)
 	if !ok {
 		return nil, fmt.Errorf("encapsulated value is not an Server, got %T", encapsulated)
 	}
 	return server, nil
 }
 
-func GetServerFromExpression(config *Config, busExpr hcl.Expression) (Server, hcl.Diagnostics) {
+func GetServerFromExpression(config *Config, busExpr hcl.Expression) (Listener, hcl.Diagnostics) {
 	serverCapsule, diags := busExpr.Value(config.evalCtx)
 	if diags.HasErrors() {
 		return nil, diags

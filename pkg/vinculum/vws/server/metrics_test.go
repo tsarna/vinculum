@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tsarna/vinculum/pkg/vinculum/o11y"
+	"github.com/tsarna/vinculum-bus/o11y"
 )
 
 // testMetricsProvider implements MetricsProvider for testing
