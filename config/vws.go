@@ -10,8 +10,8 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
 	"github.com/tsarna/vinculum-bus/transform"
-	"github.com/tsarna/vinculum/pkg/vinculum/vws"
-	"github.com/tsarna/vinculum/pkg/vinculum/vws/server"
+	"github.com/tsarna/vinculum-vws"
+	"github.com/tsarna/vinculum-vws/server"
 	"github.com/zclconf/go-cty/cty"
 )
 

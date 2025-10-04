@@ -5,7 +5,6 @@ go 1.24.5
 require go.uber.org/zap v1.27.0
 
 require (
-	github.com/amir-yaghoubi/mqttpattern v0.0.0-20250829083210-f7d8d46a786e
 	github.com/coder/websocket v1.8.13
 	github.com/hashicorp/go-cty-funcs v0.0.0-20250818135842-6aab67130928
 	github.com/hashicorp/hcl/v2 v2.24.0
@@ -18,10 +17,12 @@ require (
 	github.com/tsarna/go2cty2go v0.1.0
 	github.com/tsarna/hcl-jqfunc v0.1.0
 	github.com/tsarna/vinculum-bus v0.9.0
+	github.com/tsarna/vinculum-vws v0.9.0
 	golang.org/x/sys v0.36.0
 )
 
 require (
+	github.com/amir-yaghoubi/mqttpattern v0.0.0-20250829083210-f7d8d46a786e // indirect
 	github.com/apparentlymart/go-cidr v1.0.1 // indirect
 	github.com/bmatcuk/doublestar v1.1.5 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
@@ -29,7 +30,6 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/itchyny/timefmt-go v0.1.6 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
-	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	golang.org/x/crypto v0.38.0 // indirect
 )

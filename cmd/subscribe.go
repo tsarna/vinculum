@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/tsarna/vinculum-bus"
-	"github.com/tsarna/vinculum/pkg/vinculum/vws/client"
+	bus "github.com/tsarna/vinculum-bus"
+	"github.com/tsarna/vinculum-vws/client"
 	"go.uber.org/zap"
 )
 

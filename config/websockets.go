@@ -7,7 +7,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/vinculum-bus/transform"
-	"github.com/tsarna/vinculum/pkg/vinculum/websockets/server"
+	"github.com/tsarna/vinculum/websockets/server"
 )
 
 type WebsocketServer struct {

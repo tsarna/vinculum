@@ -8,7 +8,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
-	"github.com/tsarna/vinculum/pkg/vinculum/config/platform"
+	"github.com/tsarna/vinculum/platform"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )

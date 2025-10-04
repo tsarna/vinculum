@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/tsarna/vinculum/pkg/vinculum/vws/client"
+	"github.com/tsarna/vinculum-vws/client"
 	"go.uber.org/zap"
 )
 

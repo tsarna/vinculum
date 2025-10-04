@@ -55,7 +55,7 @@ import (
     "net/http"
     
     "github.com/tsarna/vinculum-bus"
-    "github.com/tsarna/vinculum/pkg/vinculum/websockets/server"
+    "github.com/tsarna/vinculum/websockets/server"
     "go.uber.org/zap"
 )
 
@@ -192,7 +192,7 @@ Transform functions can:
 #### Built-in Transforms
 
 ```go
-import "github.com/tsarna/vinculum/pkg/vinculum/transform"
+import "github.com/tsarna/vinculum/transform"
 
 // Drop messages from debug topics
 transform.DropTopicPrefix("debug/")

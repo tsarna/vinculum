@@ -8,7 +8,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/tsarna/go2cty2go"
 	vbxform "github.com/tsarna/vinculum-bus/transform"
-	"github.com/tsarna/vinculum/pkg/vinculum/transform"
+	"github.com/tsarna/vinculum/transform"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 )

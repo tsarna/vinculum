@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/tsarna/vinculum-bus/subutils"
-	"github.com/tsarna/vinculum/pkg/vinculum/config"
+	"github.com/tsarna/vinculum/config"
 	"go.uber.org/zap"
 )
 

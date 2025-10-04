@@ -63,6 +63,8 @@ github.com/tsarna/go2cty2go v0.1.0 h1:HzkvWmCLOGnclJGX9SMEAd4ugQPbOEsQXYs0lBfEpZ
 github.com/tsarna/go2cty2go v0.1.0/go.mod h1:q/355nO0BfutFSi4OYNSdw86Fi9OvDSteYrw//Drm7E=
 github.com/tsarna/vinculum-bus v0.9.0 h1:BZR4q0NYEe0+4I7WzccJQ0tlLBpwny945UglUdTKAZ8=
 github.com/tsarna/vinculum-bus v0.9.0/go.mod h1:oe0L1HoHOn2a+KxrYJ9GHUUbhTiBa6cdZoKOKk/Q++c=
+github.com/tsarna/vinculum-vws v0.9.0 h1:jOzbbTHBGaLtoWtpCLO4Ck8hsH0UR9/BR64Smc4Kuho=
+github.com/tsarna/vinculum-vws v0.9.0/go.mod h1:JBCGCd/8wOT9ons//DQQFKtl0LXdYyQKAjMzQzjD8mY=
 github.com/zclconf/go-cty v1.17.0 h1:seZvECve6XX4tmnvRzWtJNHdscMtYEx5R7bnnVyd/d0=
 github.com/zclconf/go-cty v1.17.0/go.mod h1:wqFzcImaLTI6A5HfsRwB0nj5n0MRZFwmey8YoFPPs3U=
 github.com/zclconf/go-cty-debug v0.0.0-20240509010212-0d6042c53940 h1:4r45xpDWB6ZMSMNJFMOjqrGHynW3DIBuR2H9j0ug+Mo=
