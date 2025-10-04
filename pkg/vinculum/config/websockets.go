@@ -25,7 +25,8 @@ type WebsocketsServerDefinition struct {
 	PingInterval         hcl.Expression `hcl:"ping_interval,optional"`
 	WriteTimeout         hcl.Expression `hcl:"write_timeout,optional"`
 	InitialSubscriptions []string       `hcl:"initial_subscriptions,optional"`
-	Transforms           hcl.Expression `hcl:"message_transforms,optional"`
+	OutboundTransforms   hcl.Expression `hcl:"outbound_transforms,optional"`
+	InboundTransforms    hcl.Expression `hcl:"inbound_transforms,optional"`
 	DefRange             hcl.Range      `hcl:",def_range"`
 }
 
@@ -90,15 +91,27 @@ func ProcessWebsocketsServerBlock(config *Config, block *hcl.Block, remainingBod
 	}
 
 	transforms := make([]transform.MessageTransformFunc, 0)
-	if IsExpressionProvided(serverDef.Transforms) {
-		transforms, diags = config.GetMessageTransforms(serverDef.Transforms)
+	if IsExpressionProvided(serverDef.OutboundTransforms) {
+		transforms, diags = config.GetMessageTransforms(serverDef.OutboundTransforms)
 		if diags.HasErrors() {
 			return nil, diags
 		}
 	}
 
 	transforms = append(transforms, cty2goTransform)
-	listenerBuilder = listenerBuilder.WithMessageTransforms(transforms...)
+	listenerBuilder = listenerBuilder.WithOutboundTransforms(transforms...)
+
+	inboundTransforms := make([]transform.MessageTransformFunc, 0)
+	if IsExpressionProvided(serverDef.InboundTransforms) {
+		inboundTransforms, diags = config.GetMessageTransforms(serverDef.InboundTransforms)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+	}
+
+	if len(inboundTransforms) > 0 {
+		listenerBuilder = listenerBuilder.WithInboundTransforms(inboundTransforms...)
+	}
 
 	listener, err := listenerBuilder.Build()
 	if err != nil {

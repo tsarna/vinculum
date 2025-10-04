@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/tsarna/vinculum-bus"
+	bus "github.com/tsarna/vinculum-bus"
 	"go.uber.org/zap"
 )
 
@@ -148,7 +148,7 @@ func (t *testSubscriptionController) Subscribe(ctx context.Context, eventBus bus
 		return fmt.Errorf("subscription denied")
 	}
 	// Make the actual EventBus call for allowed subscriptions
-	return eventBus.Subscribe(ctx, subscriber, topicPattern)
+	return eventBus.Subscribe(ctx, topicPattern, subscriber)
 }
 
 func (t *testSubscriptionController) Unsubscribe(ctx context.Context, eventBus bus.EventBus, subscriber bus.Subscriber, topicPattern string) error {
@@ -157,7 +157,7 @@ func (t *testSubscriptionController) Unsubscribe(ctx context.Context, eventBus b
 		return fmt.Errorf("unsubscription denied")
 	}
 	// Make the actual EventBus call for allowed unsubscriptions
-	return eventBus.Unsubscribe(ctx, subscriber, topicPattern)
+	return eventBus.Unsubscribe(ctx, topicPattern, subscriber)
 }
 
 func (t *testSubscriptionController) UnsubscribeAll(ctx context.Context, eventBus bus.EventBus, subscriber bus.Subscriber) error {
@@ -170,11 +170,15 @@ func (t *testSubscriptionController) UnsubscribeAll(ctx context.Context, eventBu
 type mockEventBus struct{}
 
 // EventBus methods
-func (m *mockEventBus) Subscribe(ctx context.Context, subscriber bus.Subscriber, topicPattern string) error {
+func (m *mockEventBus) Subscribe(ctx context.Context, topic string, subscriber bus.Subscriber) error {
 	return nil
 }
 
-func (m *mockEventBus) Unsubscribe(ctx context.Context, subscriber bus.Subscriber, topicPattern string) error {
+func (m *mockEventBus) SubscribeFunc(ctx context.Context, topic string, receiver bus.EventReceiver) (bus.Subscriber, error) {
+	return nil, nil
+}
+
+func (m *mockEventBus) Unsubscribe(ctx context.Context, topic string, subscriber bus.Subscriber) error {
 	return nil
 }
 

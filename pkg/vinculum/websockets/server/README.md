@@ -82,7 +82,8 @@ func main() {
         WithReceivedTextTopic("messages/text").
         WithReceivedBinaryTopic("messages/binary").
         WithMetricsProvider(metricsProvider).
-        WithMessageTransforms(transform.DropTopicPrefix("debug/")).
+        WithOutboundTransforms(transform.DropTopicPrefix("debug/")).
+        WithInboundTransforms(transform.AddField("source", "websocket")).
         Build()
     if err != nil {
         log.Fatal(err)
@@ -142,8 +143,8 @@ server := server.NewServer().
     Build()
 
 // Subscribe to received messages
-eventBus.Subscribe(ctx, mySubscriber, "client/text")
-eventBus.Subscribe(ctx, mySubscriber, "client/binary")
+eventBus.Subscribe(ctx, "client/text", mySubscriber)
+eventBus.Subscribe(ctx, "client/binary", mySubscriber)
 ```
 
 ### Message Handling
@@ -237,7 +238,8 @@ transforms := []transform.MessageTransformFunc{
 listener := server.NewServer().
     WithEventBus(eventBus).
     WithLogger(logger).
-    WithMessageTransforms(transforms...).
+    WithOutboundTransforms(transforms...).
+    WithInboundTransforms(inboundTransforms...).
     Build()
 ```
 

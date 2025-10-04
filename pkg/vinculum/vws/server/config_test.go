@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tsarna/vinculum-bus"
+	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum/pkg/vinculum/vws"
 	"go.uber.org/zap"
 )
@@ -247,7 +247,7 @@ func TestListenerConfig_BuilderPattern(t *testing.T) {
 	t.Run("message transforms configuration", func(t *testing.T) {
 		// Default should be no message transforms
 		config := NewListener()
-		assert.Empty(t, config.messageTransforms)
+		assert.Empty(t, config.outboundTransforms)
 
 		// Test setting message transforms using new transform package
 		transform1 := func(msg *bus.EventBusMessage) (*bus.EventBusMessage, bool) {
@@ -257,16 +257,16 @@ func TestListenerConfig_BuilderPattern(t *testing.T) {
 			return msg, false
 		}
 
-		config.WithMessageTransforms(transform1, transform2)
-		assert.Len(t, config.messageTransforms, 2)
+		config.WithOutboundTransforms(transform1, transform2)
+		assert.Len(t, config.outboundTransforms, 2)
 
 		// Test fluent interface
 		config2 := NewListener().
 			WithEventBus(eventBus).
 			WithLogger(logger).
-			WithMessageTransforms(transform1)
+			WithOutboundTransforms(transform1)
 
-		assert.Len(t, config2.messageTransforms, 1)
+		assert.Len(t, config2.outboundTransforms, 1)
 		assert.Equal(t, eventBus, config2.eventBus)
 		assert.Equal(t, logger, config2.logger)
 	})

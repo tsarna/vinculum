@@ -8,8 +8,9 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/tsarna/vinculum-bus"
+	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum-bus/subutils"
+	"github.com/tsarna/vinculum-bus/transform"
 	"github.com/tsarna/vinculum/pkg/vinculum/vws"
 	"go.uber.org/zap"
 )
@@ -67,8 +68,8 @@ func newConnection(ctx context.Context, conn *websocket.Conn, config *ListenerCo
 	var wrappedSubscriber bus.Subscriber = baseConnection
 
 	// Add TransformingSubscriber if new transforms are configured
-	if len(config.messageTransforms) > 0 {
-		wrappedSubscriber = subutils.NewTransformingSubscriber(wrappedSubscriber, config.messageTransforms...)
+	if len(config.outboundTransforms) > 0 {
+		wrappedSubscriber = subutils.NewTransformingSubscriber(wrappedSubscriber, config.outboundTransforms...)
 	}
 
 	asyncSubscriber := subutils.NewAsyncQueueingSubscriber(wrappedSubscriber, config.queueSize)
@@ -98,7 +99,7 @@ func (c *Connection) Start() {
 	// Perform initial subscriptions using the async subscriber wrapper
 	// (bypass subscription controller since these are server-initiated)
 	for _, topic := range c.config.initialSubscriptions {
-		if err := c.eventBus.Subscribe(c.ctx, c.asyncSubscriber, topic); err != nil {
+		if err := c.eventBus.Subscribe(c.ctx, topic, c.asyncSubscriber); err != nil {
 			c.logger.Warn("Failed to create initial subscription",
 				zap.String("topic", topic),
 				zap.Error(err),
@@ -445,11 +446,11 @@ func handleRequest(c *Connection, ctx context.Context, request vws.WireMessage) 
 				// Event silently dropped by authorization function (nil return with no error)
 				// Don't publish anything, but still send ACK response (err remains nil)
 			} else {
-				// Event authorized, use modified message if provided
-				msgToPublish := modifiedMsg
-
-				// Publish to EventBus
-				err = c.eventBus.Publish(ctx, msgToPublish.Topic, msgToPublish.Data)
+				// Apply inbound transforms
+				transformedMsg, _ := transform.ApplyTransforms(ctx, modifiedMsg.Topic, modifiedMsg.Data, c.config.inboundTransforms)
+				if transformedMsg != nil {
+					err = c.eventBus.Publish(ctx, transformedMsg.Topic, transformedMsg.Payload)
+				}
 			}
 		}
 

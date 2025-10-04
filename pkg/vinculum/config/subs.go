@@ -8,7 +8,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
-	"github.com/tsarna/vinculum-bus"
+	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum-bus/subutils"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
@@ -102,7 +102,7 @@ func (h *SubscriptionBlockHandler) Process(config *Config, block *hcl.Block) hcl
 	}
 
 	for _, topic := range subscriptionDef.Topics {
-		err := eventBus.Subscribe(context.Background(), subscriber, topic) // TODO: context for otel
+		err := eventBus.Subscribe(context.Background(), topic, subscriber) // TODO: context for otel
 		if err != nil {
 			diags = diags.Append(
 				&hcl.Diagnostic{

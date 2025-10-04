@@ -9,7 +9,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tsarna/vinculum-bus"
+	bus "github.com/tsarna/vinculum-bus"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -67,7 +67,7 @@ func TestSendFunctions(t *testing.T) {
 
 	// Create mock subscriber
 	subscriber := &mockSubscriber{}
-	err = eventBus.Subscribe(context.Background(), subscriber, "test/topic")
+	err = eventBus.Subscribe(context.Background(), "test/topic", subscriber)
 	require.NoError(t, err)
 
 	// Create subscriber capsule for direct testing

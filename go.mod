@@ -17,7 +17,7 @@ require (
 	github.com/tsarna/go-structdiff v0.2.0
 	github.com/tsarna/go2cty2go v0.1.0
 	github.com/tsarna/hcl-jqfunc v0.1.0
-	github.com/tsarna/vinculum-bus v0.8.0
+	github.com/tsarna/vinculum-bus v0.9.0
 	golang.org/x/sys v0.36.0
 )
 

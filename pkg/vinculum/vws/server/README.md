@@ -78,7 +78,8 @@ listener, err := server.NewListener().
     WithEventAuth(server.AllowTopicPrefix("client/")).     // Event authorization
     WithSubscriptionController(myControllerFactory).       // Custom subscription control
     WithInitialSubscriptions("system/alerts", "status").   // Auto-subscribe new connections
-    WithMessageTransforms(filterSensitive, addTimestamp).  // Message transformations
+    WithOutboundTransforms(filterSensitive, addTimestamp).  // Outbound message transformations
+    WithInboundTransforms(validateInput, addSource).        // Inbound message transformations
     Build()
 ```
 
@@ -164,7 +165,8 @@ func filterSensitive(msg *vws.WireMessage) *vws.WireMessage {
     return msg
 }
 
-.WithMessageTransforms(addTimestamp, filterSensitive)
+.WithOutboundTransforms(addTimestamp, filterSensitive)
+.WithInboundTransforms(validatePayload, addClientInfo)
 ```
 
 ## Monitoring & Metrics

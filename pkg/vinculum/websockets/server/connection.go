@@ -7,8 +7,9 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/tsarna/vinculum-bus"
+	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum-bus/subutils"
+	"github.com/tsarna/vinculum-bus/transform"
 	"go.uber.org/zap"
 )
 
@@ -20,6 +21,7 @@ type Connection struct {
 	eventBus    bus.EventBus
 	logger      *zap.Logger
 	metrics     *WebSocketMetrics
+	config      *Config
 	sendBinary  bool
 	textTopic   string
 	binaryTopic string
@@ -41,6 +43,7 @@ func newConnection(ctx context.Context, conn *websocket.Conn, eventBus bus.Event
 		eventBus:    eventBus,
 		logger:      config.logger,
 		metrics:     metrics,
+		config:      config,
 		sendBinary:  config.sendBinary,
 		textTopic:   config.textTopic,
 		binaryTopic: config.binaryTopic,
@@ -54,8 +57,8 @@ func newConnection(ctx context.Context, conn *websocket.Conn, eventBus bus.Event
 	var wrappedSubscriber bus.Subscriber = baseConnection
 
 	// Add TransformingSubscriber if transforms are configured
-	if len(config.messageTransforms) > 0 {
-		wrappedSubscriber = subutils.NewTransformingSubscriber(wrappedSubscriber, config.messageTransforms...)
+	if len(config.outboundTransforms) > 0 {
+		wrappedSubscriber = subutils.NewTransformingSubscriber(wrappedSubscriber, config.outboundTransforms...)
 	}
 
 	// Create AsyncQueueingSubscriber with configured queue size and start it
@@ -152,14 +155,17 @@ func (c *Connection) messageReader(listener *Listener) {
 		// Record received message metrics
 		c.metrics.RecordMessageReceived(c.ctx, len(data), messageType.String())
 
-		// Publish received message to EventBus
-		if err := c.eventBus.Publish(c.ctx, topic, data); err != nil {
-			c.logger.Error("Failed to publish received message to EventBus",
-				zap.Error(err),
-				zap.String("topic", topic),
-				zap.Int("data_length", len(data)),
-			)
-			c.metrics.RecordMessageError(c.ctx, "publish_failed", messageType.String())
+		transformedMsg, _ := transform.ApplyTransforms(c.ctx, topic, data, c.config.inboundTransforms)
+		// Transform and publish received message to EventBus, unless transformed message is nil
+		if transformedMsg != nil {
+			if err := c.eventBus.Publish(c.ctx, transformedMsg.Topic, transformedMsg.Payload); err != nil {
+				c.logger.Error("Failed to publish received message to EventBus",
+					zap.Error(err),
+					zap.String("topic", topic),
+					zap.Int("data_length", len(data)),
+				)
+				c.metrics.RecordMessageError(c.ctx, "publish_failed", messageType.String())
+			}
 		}
 	}
 }

@@ -61,8 +61,8 @@ github.com/tsarna/go-structdiff v0.2.0 h1:F3W0IdoyKkD5stHXZrUTKN4JxQ5f/8qBLBe4Ju
 github.com/tsarna/go-structdiff v0.2.0/go.mod h1:qT9sz9Oy4t+/404n5tRYYSXfjX2YdregsuIBIGYH8wU=
 github.com/tsarna/go2cty2go v0.1.0 h1:HzkvWmCLOGnclJGX9SMEAd4ugQPbOEsQXYs0lBfEpZk=
 github.com/tsarna/go2cty2go v0.1.0/go.mod h1:q/355nO0BfutFSi4OYNSdw86Fi9OvDSteYrw//Drm7E=
-github.com/tsarna/vinculum-bus v0.8.0 h1:56yABM17ntapeR/Lxu5AkC8IyZNZpyf106V53cyX++g=
-github.com/tsarna/vinculum-bus v0.8.0/go.mod h1:oe0L1HoHOn2a+KxrYJ9GHUUbhTiBa6cdZoKOKk/Q++c=
+github.com/tsarna/vinculum-bus v0.9.0 h1:BZR4q0NYEe0+4I7WzccJQ0tlLBpwny945UglUdTKAZ8=
+github.com/tsarna/vinculum-bus v0.9.0/go.mod h1:oe0L1HoHOn2a+KxrYJ9GHUUbhTiBa6cdZoKOKk/Q++c=
 github.com/zclconf/go-cty v1.17.0 h1:seZvECve6XX4tmnvRzWtJNHdscMtYEx5R7bnnVyd/d0=
 github.com/zclconf/go-cty v1.17.0/go.mod h1:wqFzcImaLTI6A5HfsRwB0nj5n0MRZFwmey8YoFPPs3U=
 github.com/zclconf/go-cty-debug v0.0.0-20240509010212-0d6042c53940 h1:4r45xpDWB6ZMSMNJFMOjqrGHynW3DIBuR2H9j0ug+Mo=

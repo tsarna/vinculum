@@ -3,7 +3,7 @@ package server
 import (
 	"fmt"
 
-	"github.com/tsarna/vinculum-bus"
+	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum-bus/o11y"
 	"github.com/tsarna/vinculum-bus/transform"
 	"go.uber.org/zap"
@@ -21,7 +21,8 @@ type Config struct {
 	sendBinary           bool
 	textTopic            string
 	binaryTopic          string
-	messageTransforms    []transform.MessageTransformFunc
+	outboundTransforms   []transform.MessageTransformFunc
+	inboundTransforms    []transform.MessageTransformFunc
 }
 
 const (
@@ -43,7 +44,7 @@ const (
 //	    WithReceivedTextTopic("messages/text").
 //	    WithReceivedBinaryTopic("messages/binary").
 //	    WithMetricsProvider(metricsProvider).
-//	    WithMessageTransforms(transform.DropTopicPrefix("debug/")).
+//	    WithOutboundTransforms(transform.DropTopicPrefix("debug/")).
 //	    Build()
 func NewServer() *Config {
 	return &Config{
@@ -146,7 +147,7 @@ func (c *Config) WithReceivedBinaryTopic(topic string) *Config {
 	return c
 }
 
-// WithMessageTransforms sets the message transformation functions that will be
+// WithOutboundTransforms sets the message transformation functions that will be
 // applied to outbound messages from the EventBus before sending to WebSocket clients.
 // These transforms use the transform.MessageTransformFunc type and operate on
 // EventBusMessage.
@@ -167,13 +168,41 @@ func (c *Config) WithReceivedBinaryTopic(topic string) *Config {
 //	        }
 //	    }),
 //	}
-//	config.WithMessageTransforms(transforms...)
+//	config.WithOutboundTransforms(transforms...)
 //
 // Default: No transforms (messages sent as-is)
-func (c *Config) WithMessageTransforms(transforms ...transform.MessageTransformFunc) *Config {
+func (c *Config) WithOutboundTransforms(transforms ...transform.MessageTransformFunc) *Config {
 	if len(transforms) > 0 {
-		c.messageTransforms = make([]transform.MessageTransformFunc, len(transforms))
-		copy(c.messageTransforms, transforms)
+		c.outboundTransforms = make([]transform.MessageTransformFunc, len(transforms))
+		copy(c.outboundTransforms, transforms)
+	}
+	return c
+}
+
+// WithInboundTransforms sets the message transformation functions that will be
+// applied to inbound messages from WebSocket clients before publishing to the EventBus.
+// These transforms use the transform.MessageTransformFunc type and operate on
+// EventBusMessage created from the WebSocket message.
+//
+// Transform functions are called in the order they are provided and can:
+//   - Modify message content (topic, payload, fields)
+//   - Drop messages (return nil message)
+//   - Stop the transform pipeline (return false)
+//
+// Example:
+//
+//	transforms := []transform.MessageTransformFunc{
+//	    transform.FilterByTopicPrefix("allowed/"),
+//	    transform.AddField("source", "websocket"),
+//	    transform.ValidatePayload(),
+//	}
+//	config.WithInboundTransforms(transforms...)
+//
+// Default: No transforms (messages published as-is)
+func (c *Config) WithInboundTransforms(transforms ...transform.MessageTransformFunc) *Config {
+	if len(transforms) > 0 {
+		c.inboundTransforms = make([]transform.MessageTransformFunc, len(transforms))
+		copy(c.inboundTransforms, transforms)
 	}
 	return c
 }

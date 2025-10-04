@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tsarna/vinculum-bus"
+	bus "github.com/tsarna/vinculum-bus"
 	"go.uber.org/zap"
 )
 
@@ -20,11 +20,15 @@ func (m *testEventBus) Stop() error {
 	return nil
 }
 
-func (m *testEventBus) Subscribe(ctx context.Context, subscriber bus.Subscriber, topic string) error {
+func (m *testEventBus) Subscribe(ctx context.Context, topic string, subscriber bus.Subscriber) error {
 	return nil
 }
 
-func (m *testEventBus) Unsubscribe(ctx context.Context, subscriber bus.Subscriber, topic string) error {
+func (m *testEventBus) SubscribeFunc(ctx context.Context, topic string, receiver bus.EventReceiver) (bus.Subscriber, error) {
+	return nil, nil
+}
+
+func (m *testEventBus) Unsubscribe(ctx context.Context, topic string, subscriber bus.Subscriber) error {
 	return nil
 }
 

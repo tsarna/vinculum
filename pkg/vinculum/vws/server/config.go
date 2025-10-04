@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tsarna/vinculum-bus"
+	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum-bus/o11y"
 	"github.com/tsarna/vinculum-bus/transform"
 	"go.uber.org/zap"
@@ -23,7 +23,8 @@ type ListenerConfig struct {
 	eventAuth              EventAuthFunc
 	subscriptionController SubscriptionControllerFactory
 	initialSubscriptions   []string
-	messageTransforms      []transform.MessageTransformFunc
+	outboundTransforms     []transform.MessageTransformFunc
+	inboundTransforms      []transform.MessageTransformFunc
 }
 
 const (
@@ -58,7 +59,7 @@ const (
 //	    WithEventAuth(AllowTopicPrefix("client/")).
 //	    WithSubscriptionController(myControllerFactory).
 //	    WithInitialSubscriptions("system/alerts", "server/status").
-//	    WithMessageTransforms(filterSensitive, addTimestamp).
+//	    WithOutboundTransforms(filterSensitive, addTimestamp).
 //	    Build()
 func NewListener() *ListenerConfig {
 	return &ListenerConfig{
@@ -193,7 +194,7 @@ func (c *ListenerConfig) WithInitialSubscriptions(topics ...string) *ListenerCon
 	return c
 }
 
-// WithMessageTransforms sets the message transformation functions that will be
+// WithOutboundTransforms sets the message transformation functions that will be
 // applied to outbound messages from the EventBus before sending to WebSocket clients.
 // These transforms use the new transform.MessageTransformFunc type and operate on
 // EventBusMessage rather than WebSocketMessage.
@@ -208,13 +209,41 @@ func (c *ListenerConfig) WithInitialSubscriptions(topics ...string) *ListenerCon
 //	    transform.AddTimestamp(),
 //	    transform.FilterByTopicPrefix("public/"),
 //	}
-//	config.WithMessageTransforms(transforms...)
+//	config.WithOutboundTransforms(transforms...)
 //
 // Default: No transforms (messages sent as-is)
-func (c *ListenerConfig) WithMessageTransforms(transforms ...transform.MessageTransformFunc) *ListenerConfig {
+func (c *ListenerConfig) WithOutboundTransforms(transforms ...transform.MessageTransformFunc) *ListenerConfig {
 	if len(transforms) > 0 {
-		c.messageTransforms = make([]transform.MessageTransformFunc, len(transforms))
-		copy(c.messageTransforms, transforms)
+		c.outboundTransforms = make([]transform.MessageTransformFunc, len(transforms))
+		copy(c.outboundTransforms, transforms)
+	}
+	return c
+}
+
+// WithInboundTransforms sets the message transformation functions that will be
+// applied to inbound messages from WebSocket clients before publishing to the EventBus.
+// These transforms use the transform.MessageTransformFunc type and operate on
+// EventBusMessage created from the WebSocket message.
+//
+// Transform functions are called in the order they are provided and can:
+//   - Modify message content (topic, payload, fields)
+//   - Drop messages (return nil message)
+//   - Stop the transform pipeline (return false)
+//
+// Example:
+//
+//	transforms := []transform.MessageTransformFunc{
+//	    transform.FilterByTopicPrefix("allowed/"),
+//	    transform.AddField("source", "websocket"),
+//	    transform.ValidatePayload(),
+//	}
+//	config.WithInboundTransforms(transforms...)
+//
+// Default: No transforms (messages published as-is after authorization)
+func (c *ListenerConfig) WithInboundTransforms(transforms ...transform.MessageTransformFunc) *ListenerConfig {
+	if len(transforms) > 0 {
+		c.inboundTransforms = make([]transform.MessageTransformFunc, len(transforms))
+		copy(c.inboundTransforms, transforms)
 	}
 	return c
 }

@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/tsarna/vinculum/pkg/vinculum/config"
 	"github.com/tsarna/vinculum-bus/subutils"
+	"github.com/tsarna/vinculum/pkg/vinculum/config"
 	"go.uber.org/zap"
 )
 
@@ -72,7 +72,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	// TODO remove, just for debugging
 	logSub := subutils.NewLoggingSubscriber(nil, cfg.Logger, zap.InfoLevel)
-	cfg.Buses["main"].Subscribe(context.Background(), logSub, "#")
+	cfg.Buses["main"].Subscribe(context.Background(), "#", logSub)
 
 	for _, startable := range cfg.Startables {
 		err := startable.Start()

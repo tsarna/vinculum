@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/tsarna/vinculum-bus"
+	bus "github.com/tsarna/vinculum-bus"
 	"go.uber.org/zap"
 )
 
@@ -62,12 +62,12 @@ func NewPassthroughSubscriptionController(logger *zap.Logger) SubscriptionContro
 
 // Subscribe allows the subscription as-is by calling EventBus.Subscribe directly.
 func (p *PassthroughSubscriptionController) Subscribe(ctx context.Context, eventBus bus.EventBus, subscriber bus.Subscriber, topicPattern string) error {
-	return eventBus.Subscribe(ctx, subscriber, topicPattern)
+	return eventBus.Subscribe(ctx, topicPattern, subscriber)
 }
 
 // Unsubscribe allows the unsubscription as-is by calling EventBus.Unsubscribe directly.
 func (p *PassthroughSubscriptionController) Unsubscribe(ctx context.Context, eventBus bus.EventBus, subscriber bus.Subscriber, topicPattern string) error {
-	return eventBus.Unsubscribe(ctx, subscriber, topicPattern)
+	return eventBus.Unsubscribe(ctx, topicPattern, subscriber)
 }
 
 // UnsubscribeAll allows the unsubscribe all as-is by calling EventBus.UnsubscribeAll directly.

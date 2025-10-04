@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/tsarna/vinculum-bus"
+	bus "github.com/tsarna/vinculum-bus"
 	"go.uber.org/zap"
 )
 
@@ -84,7 +84,7 @@ func (s *Listener) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Subscribe to initial subscriptions using the connection's async subscriber
 	// (which already has transforms and queueing configured)
 	for _, topic := range s.config.initialSubscriptions {
-		if err := s.eventBus.Subscribe(r.Context(), connection.AsyncSubscriber, topic); err != nil {
+		if err := s.eventBus.Subscribe(r.Context(), topic, connection.AsyncSubscriber); err != nil {
 			s.config.logger.Warn("Failed to create initial subscription",
 				zap.String("topic", topic),
 				zap.Error(err),

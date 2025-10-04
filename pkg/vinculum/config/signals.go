@@ -24,8 +24,6 @@ type SignalsDefinition struct {
 
 type SignalsBlockHandler struct {
 	BlockHandlerBase
-
-	addedStartable bool
 }
 
 func NewSignalsBlockHandler() *SignalsBlockHandler {
