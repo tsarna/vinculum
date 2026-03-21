@@ -8,6 +8,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/sosodev/duration"
+	bus "github.com/tsarna/vinculum-bus"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -132,4 +133,38 @@ func IsConstantExpression(expr hcl.Expression) (cty.Value, bool) {
 	}
 
 	return val, true
+}
+
+type ReconnectDefinition struct {
+	InitialDelay  hcl.Expression `hcl:"initial_delay,optional"`
+	MaxDelay      hcl.Expression `hcl:"max_delay,optional"`
+	BackoffFactor *float64       `hcl:"backoff_factor,optional"`
+	MaxRetries    *int           `hcl:"max_retries,optional"`
+	DefRange      hcl.Range      `hcl:",def_range"`
+}
+
+func (c *Config) CreateReconnector(def ReconnectDefinition) (*bus.AutoReconnector, hcl.Diagnostics) {
+	builder := bus.NewAutoReconnector()
+	if IsExpressionProvided(def.InitialDelay) {
+		duration, diags := c.ParseDuration(def.InitialDelay)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		builder = builder.WithInitialDelay(duration)
+	}
+	if IsExpressionProvided(def.MaxDelay) {
+		duration, diags := c.ParseDuration(def.MaxDelay)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		builder = builder.WithMaxDelay(duration)
+	}
+	if def.BackoffFactor != nil {
+		builder = builder.WithBackoffFactor(*def.BackoffFactor)
+	}
+	if def.MaxRetries != nil {
+		builder = builder.WithMaxRetries(*def.MaxRetries)
+	}
+
+	return builder.Build(), nil
 }

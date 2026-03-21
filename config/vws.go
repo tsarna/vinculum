@@ -9,8 +9,10 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
+	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum-bus/transform"
-	"github.com/tsarna/vinculum-vws"
+	vws "github.com/tsarna/vinculum-vws"
+	"github.com/tsarna/vinculum-vws/client"
 	"github.com/tsarna/vinculum-vws/server"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -186,4 +188,107 @@ func (config *Config) MakeAllowSend(expr hcl.Expression) server.EventAuthFunc {
 
 		return nil, errors.New("allow_send expression must return a boolean or string")
 	}
+}
+
+// Client
+
+type VinculumWebsocketClient struct {
+	BaseClient
+	ClientBuilder *client.ClientBuilder
+}
+
+func (c *VinculumWebsocketClient) Build() (bus.Client, error) {
+	if c.Subscriber != nil {
+		c.ClientBuilder = c.ClientBuilder.WithSubscriber(c.Subscriber)
+	} else {
+		c.ClientBuilder = c.ClientBuilder.WithSubscriber(&bus.BaseSubscriber{})
+	}
+
+	client, err := c.ClientBuilder.Build()
+	if err != nil {
+		return nil, err
+	}
+	c.Client = client
+
+	return client, nil
+}
+
+type VinculumWebsocketsClientDefinition struct {
+	Url            string               `hcl:"url"`
+	DialTimeout    hcl.Expression       `hcl:"dial_timeout,optional"`
+	WriteQueueSize *int                 `hcl:"write_queue_size,optional"`
+	AuthExpression hcl.Expression       `hcl:"auth,optional"`
+	Headers        map[string]string    `hcl:"headers,optional"`
+	Reconnect      *ReconnectDefinition `hcl:"reconnect,optional"`
+	DefRange       hcl.Range            `hcl:",def_range"`
+}
+
+func ProcessVinculumWebsocketsClientBlock(config *Config, block *hcl.Block, remainingBody hcl.Body) (Client, hcl.Diagnostics) {
+	clientDef := VinculumWebsocketsClientDefinition{}
+	diags := gohcl.DecodeBody(remainingBody, config.evalCtx, &clientDef)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	vinculumWebsocketsClients, ok := config.Clients["vws"]
+	if !ok {
+		vinculumWebsocketsClients = make(map[string]Client)
+		config.Clients["vws"] = vinculumWebsocketsClients
+	}
+
+	existing, ok := vinculumWebsocketsClients[block.Labels[1]]
+	if ok {
+		return nil, hcl.Diagnostics{
+			&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Vinculum WebSockets client already defined",
+				Detail:   fmt.Sprintf("Vinculum WebSockets client %s already defined at %s", block.Labels[1], existing.GetDefRange()),
+				Subject:  &clientDef.DefRange,
+			},
+		}
+	}
+
+	clientBuilder := client.NewClient().
+		WithLogger(config.Logger).
+		WithURL(clientDef.Url)
+
+	if IsExpressionProvided(clientDef.DialTimeout) {
+		dialTimeout, diags := config.ParseDuration(clientDef.DialTimeout)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		clientBuilder = clientBuilder.WithDialTimeout(dialTimeout)
+	}
+
+	if clientDef.WriteQueueSize != nil {
+		clientBuilder = clientBuilder.WithWriteChannelSize(*clientDef.WriteQueueSize)
+	}
+
+	if clientDef.Headers != nil {
+		for key, value := range clientDef.Headers {
+			clientBuilder = clientBuilder.WithHeader(key, value)
+		}
+	}
+
+	if IsExpressionProvided(clientDef.AuthExpression) {
+		// @@@ TODO
+	}
+
+	if clientDef.Reconnect != nil {
+		reconnector, diags := config.CreateReconnector(*clientDef.Reconnect)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		clientBuilder = clientBuilder.WithMonitor(reconnector)
+	}
+
+	client := VinculumWebsocketClient{
+		BaseClient: BaseClient{
+			Name:     block.Labels[1],
+			DefRange: clientDef.DefRange,
+		},
+		ClientBuilder: clientBuilder,
+	}
+
+	return &client, nil
 }

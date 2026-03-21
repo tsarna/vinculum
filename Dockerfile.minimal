@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1
+#
+# Minimal (scratch-based) Vinculum image.
+# Contains only: the static binary, CA certs, timezone data, and /etc/passwd.
+#
+#   docker build -f Dockerfile.minimal -t vinculum:minimal .
+
+# ── Build stage ───────────────────────────────────────────────────────────────
+FROM golang:1.24-alpine AS builder
+
+RUN apk add --no-cache git tzdata ca-certificates-bundle
+
+WORKDIR /src
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/vinculum .
+
+# Pre-create empty mount-point directories so Docker volumes work out of the box
+RUN mkdir -p /out/rootfs/conf /out/rootfs/data /out/rootfs/tmp
+
+# ── Runtime stage (scratch) ───────────────────────────────────────────────────
+FROM scratch
+
+# TLS root certificates
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
+# Timezone data (required for time.LoadLocation)
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+
+# Minimal /etc/passwd and /etc/group so the process can run as nobody
+COPY --from=builder /etc/passwd  /etc/passwd
+COPY --from=builder /etc/group   /etc/group
+
+# Pre-created mount-point directories
+COPY --from=builder /out/rootfs/conf /conf
+COPY --from=builder /out/rootfs/data /data
+COPY --from=builder /out/rootfs/tmp  /tmp
+
+# The binary
+COPY --from=builder /out/vinculum /vinculum
+
+USER nobody
+
+ENTRYPOINT ["/vinculum"]
+CMD ["server", "-f", "/data", "/conf"]

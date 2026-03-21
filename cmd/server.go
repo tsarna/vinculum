@@ -3,7 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"strings"
+"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/tsarna/vinculum-bus/subutils"

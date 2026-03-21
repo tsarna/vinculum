@@ -36,6 +36,8 @@ type Config struct {
 	BusCapsuleType cty.Type
 	CtyBusMap      map[string]cty.Value
 	Buses          map[string]bus.EventBus
+	CtyClientMap   map[string]cty.Value
+	Clients        map[string]map[string]Client
 	CtyServerMap   map[string]cty.Value
 	Servers        map[string]map[string]Listener
 
@@ -72,6 +74,8 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		SigActions:   NewSignalActionHandler(cb.logger),
 		Buses:        make(map[string]bus.EventBus),
 		CtyBusMap:    make(map[string]cty.Value),
+		Clients:      make(map[string]map[string]Client),
+		CtyClientMap: make(map[string]cty.Value),
 		Servers:      make(map[string]map[string]Listener),
 		CtyServerMap: make(map[string]cty.Value),
 		Crons:        make(map[string]*cron.Cron),

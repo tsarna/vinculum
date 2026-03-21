@@ -81,7 +81,7 @@ Vinculum implements a number of protocols as servers, clients, or both. Dependin
 
 #### HTTP Server
 
-The HTTP Server protocol can have actions configured in response to GET, POST, PUT, etc HTTP calls on paths. Multiple routes msy be configured, each with their own action.
+The HTTP Server protocol can have actions configured in response to GET, POST, PUT, etc HTTP calls on paths. Multiple routes may be configured, each with their own action.
 
 It can also be configured to serve static files.
 

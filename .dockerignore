@@ -1,0 +1,21 @@
+# Compiled artifacts
+vinculum
+*.test
+*.out
+coverage.*
+
+# Test/dev files
+test.vcl
+x
+
+# Local Go workspace (not needed for build)
+go.work
+go.work.sum
+
+# IDE / tooling
+.idea/
+.vscode/
+.env
+
+# Git metadata
+.git/

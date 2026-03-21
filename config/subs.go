@@ -18,7 +18,7 @@ import (
 
 type SubscriptionDefinition struct {
 	Name       string         `hcl:",label"`
-	BusExpr    hcl.Expression `hcl:"bus,optional"`
+	TargetExpr hcl.Expression `hcl:"target,optional"`
 	Topics     []string       `hcl:"topics"`
 	QueueSize  *int           `hcl:"queue_size,optional"`
 	Transforms hcl.Expression `hcl:"transforms,optional"`
@@ -55,10 +55,17 @@ func (h *SubscriptionBlockHandler) Process(config *Config, block *hcl.Block) hcl
 		subscriptionDef.Name = block.Labels[0]
 	}
 
-	eventBus, diags := GetEventBusFromExpression(config, subscriptionDef.BusExpr)
-	if diags.HasErrors() {
-		return diags
-	}
+	/*
+		eventBus, diags := GetEventBusFromExpression(config, subscriptionDef.TargetExpr)
+		if diags.HasErrors() {
+			client, diags := GetClientFromExpression(config, subscriptionDef.TargetExpr)
+			if diags.HasErrors() {
+				return diags
+			}
+			eventBus = client.GetClient()
+			return diags
+		}
+	*/
 
 	// Check if expressions are actually present (not just empty HCL expressions)
 	hasSubscriber := IsExpressionProvided(subscriptionDef.Subscriber)
@@ -101,20 +108,92 @@ func (h *SubscriptionBlockHandler) Process(config *Config, block *hcl.Block) hcl
 		subscriber = subutils.NewAsyncQueueingSubscriber(subscriber, *subscriptionDef.QueueSize)
 	}
 
-	for _, topic := range subscriptionDef.Topics {
-		err := eventBus.Subscribe(context.Background(), topic, subscriber) // TODO: context for otel
+	target, diags := GetTargetFromExpression(config, subscriptionDef.TargetExpr)
+	if diags.HasErrors() {
+		return diags
+	}
+
+	switch target := target.(type) {
+	case bus.EventBus:
+		for _, topic := range subscriptionDef.Topics {
+			err := target.Subscribe(context.Background(), topic, subscriber) // TODO: context for otel
+			if err != nil {
+				diags = diags.Append(
+					&hcl.Diagnostic{
+						Severity: hcl.DiagError,
+						Summary:  "Failed to subscribe to bus",
+						Detail:   err.Error(),
+						Subject:  &block.DefRange,
+					})
+			}
+		}
+
+	case Client:
+		target.SetSubscriber(subscriber)
+		_, err := target.Build()
 		if err != nil {
-			diags = diags.Append(
+			return hcl.Diagnostics{
 				&hcl.Diagnostic{
 					Severity: hcl.DiagError,
-					Summary:  "Failed to subscribe to bus",
+					Summary:  "Failed to build client",
 					Detail:   err.Error(),
 					Subject:  &block.DefRange,
-				})
+				},
+			}
 		}
+
+		/* @@@ TODO
+		for _, topic := range subscriptionDef.Topics {
+			// OnSubscribe the connection monitor to pre-register the subscriptions
+		}
+		*/
+
+		return nil
 	}
 
 	return diags
+}
+
+func GetTargetFromExpression(config *Config, targetExpr hcl.Expression) (any, hcl.Diagnostics) {
+	targetCapsule, diags := targetExpr.Value(config.evalCtx)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+	if targetCapsule.Type() == EventBusCapsuleType {
+		eventBus, err := GetEventBusFromCapsule(targetCapsule)
+		if err != nil {
+			return nil, hcl.Diagnostics{
+				&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "Failed to get event bus from expression",
+					Detail:   err.Error(),
+					Subject:  targetExpr.Range().Ptr(),
+				},
+			}
+		}
+		return eventBus, nil
+		/*	} else if targetCapsule.Type() == ClientCapsuleType {
+			client, err := GetClientFromCapsule(targetCapsule)
+			if err != nil {
+				return nil, hcl.Diagnostics{
+					&hcl.Diagnostic{
+						Severity: hcl.DiagError,
+						Summary:  "Failed to get client from expression",
+						Detail:   err.Error(),
+						Subject:  targetExpr.Range().Ptr(),
+					},
+				}
+			}
+			return client, nil*/
+	}
+
+	return nil, hcl.Diagnostics{
+		&hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "Failed to get target from expression",
+			Detail:   fmt.Sprintf("expected EventBus or Client capsule, got %s", targetCapsule.Type().FriendlyName()),
+		},
+	}
 }
 
 func CreateActionSubscriber(config *Config, subscriptionDef *SubscriptionDefinition) (bus.Subscriber, hcl.Diagnostics) {

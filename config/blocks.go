@@ -42,10 +42,58 @@ func GetBlockHandlers() map[string]BlockHandler {
 	return map[string]BlockHandler{
 		"assert":       NewAssertBlockHandler(),
 		"bus":          NewBusBlockHandler(),
+		"client":       NewClientBlockHandler(),
 		"const":        NewConstBlockHandler(),
 		"cron":         NewCronBlockHandler(),
 		"server":       NewServerBlockHandler(),
 		"signals":      NewSignalsBlockHandler(),
 		"subscription": NewSubscriptionBlockHandler(),
 	}
+}
+
+var blockSchema = []hcl.BlockHeaderSchema{
+	{
+		Type:       "assert",
+		LabelNames: []string{"name"},
+	},
+	{
+		Type:       "bus",
+		LabelNames: []string{"name"},
+	},
+	{
+		Type:       "client",
+		LabelNames: []string{"type", "name"},
+	},
+	{
+		Type:       "const",
+		LabelNames: []string{},
+	},
+	{
+		Type:       "cron",
+		LabelNames: []string{"name"},
+	},
+	{
+		Type:       "function",
+		LabelNames: []string{"name"},
+	},
+	{
+		Type:       "jq",
+		LabelNames: []string{"name"},
+	},
+	{
+		Type:       "server",
+		LabelNames: []string{"type", "name"},
+	},
+	{
+		Type:       "signals",
+		LabelNames: []string{},
+	},
+	{
+		Type:       "subscription",
+		LabelNames: []string{"name"},
+	},
+}
+
+var configSchema = &hcl.BodySchema{
+	Blocks: blockSchema,
 }

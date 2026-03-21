@@ -17,7 +17,7 @@ require (
 	github.com/tsarna/go2cty2go v0.1.0
 	github.com/tsarna/hcl-jqfunc v0.1.0
 	github.com/tsarna/vinculum-bus v0.9.0
-	github.com/tsarna/vinculum-vws v0.9.0
+	github.com/tsarna/vinculum-vws v0.9.1
 	golang.org/x/sys v0.36.0
 )
 
@@ -51,4 +51,3 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/tsarna/hcl-jqfunc => ../hcl-jqfunc
