@@ -9,6 +9,7 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tsarna/vinculum/functions"
 	"github.com/yosida95/uritemplate/v3"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
@@ -22,10 +23,16 @@ func parseExpr(t *testing.T, src string) hcl.Expression {
 	return expr
 }
 
-// emptyEvalCtx returns an empty HCL eval context for testing.
+// emptyEvalCtx returns an HCL eval context for testing with the standard
+// functions that production config normally provides to the MCP server.
 func emptyEvalCtx() *hcl.EvalContext {
+	funcs := functions.GetStandardLibraryFunctions()
+	for name, fn := range functions.GetMcpFunctions() {
+		funcs[name] = fn
+	}
 	return &hcl.EvalContext{
 		Variables: map[string]cty.Value{},
+		Functions: funcs,
 	}
 }
 
