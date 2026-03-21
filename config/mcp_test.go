@@ -12,6 +12,9 @@ import (
 //go:embed testdata/mcp_resources.vcl
 var mcpResourcesVCL []byte
 
+//go:embed testdata/mcp_tools.vcl
+var mcpToolsVCL []byte
+
 func TestMcpResourcesConfig(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
@@ -35,4 +38,15 @@ func TestMcpResourcesConfig(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "expected McpServer in Startables")
+}
+
+func TestMcpToolsConfig(t *testing.T) {
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+
+	cfg, diags := NewConfig().WithSources(mcpToolsVCL).WithLogger(logger).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+
+	assert.Contains(t, cfg.Servers, "mcp")
+	assert.Contains(t, cfg.Servers["mcp"], "tools_test")
 }
