@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/sosodev/duration"
 	bus "github.com/tsarna/vinculum-bus"
+	"github.com/tsarna/vinculum/internal/hclutil"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -17,7 +18,7 @@ import (
 // but empty expressions have Start.Byte == End.Byte (zero-length range).
 // Real expressions have End.Byte > Start.Byte (non-zero length range).
 func IsExpressionProvided(expr hcl.Expression) bool {
-	return expr != nil && expr.Range().End.Byte > expr.Range().Start.Byte
+	return hclutil.IsExpressionProvided(expr)
 }
 
 // ParseDuration parses a duration from an HCL expression.
@@ -124,15 +125,10 @@ func (c *Config) ParseDuration(expr hcl.Expression) (time.Duration, hcl.Diagnost
 	}
 }
 
-// If the expression is a constant, return the value and true, otherwise return false
+// IsConstantExpression checks if an expression is a constant (evaluatable with nil context).
+// Returns the value and true if constant, or cty.NilVal and false otherwise.
 func IsConstantExpression(expr hcl.Expression) (cty.Value, bool) {
-	// Try to evaluate with nil context - only works for literals/constants
-	val, diags := expr.Value(nil)
-	if diags.HasErrors() {
-		return cty.NilVal, false
-	}
-
-	return val, true
+	return hclutil.IsConstantExpression(expr)
 }
 
 type ReconnectDefinition struct {

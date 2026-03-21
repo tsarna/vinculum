@@ -71,6 +71,9 @@ func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	case "websocket":
 		server, diags = ProcessWebsocketsServerBlock(config, block, serverDef.RemainingBody)
 
+	case "mcp":
+		server, diags = ProcessMcpServerBlock(config, block, serverDef.RemainingBody)
+
 	default:
 		return hcl.Diagnostics{
 			&hcl.Diagnostic{
