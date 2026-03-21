@@ -21,7 +21,7 @@ MacGyver together a solution with a few lines of configuration.
 
 ## Documentation
 
-See [DOCUMENTATION.md](DOCUMENTATION.md) for full documentation including:
+See [doc/overview.md](doc/overview.md) for full documentation including:
 - Core concepts (buses, topics, subscribers, transformations)
 - Configuration language reference
 - Protocol details
