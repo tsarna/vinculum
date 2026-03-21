@@ -6,7 +6,6 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/tsarna/vinculum/internal/hclutil"
 	"github.com/zclconf/go-cty/cty"
-	"github.com/zclconf/go-cty/cty/function"
 )
 
 // buildResourceEvalContext builds a per-request eval context for a resource handler.
@@ -15,12 +14,10 @@ func buildResourceEvalContext(
 	parent *hcl.EvalContext,
 	serverName, uri string,
 	templateVars map[string]string,
-	extraFuncs map[string]function.Function,
 ) (*hcl.EvalContext, hcl.Diagnostics) {
 	b := hclutil.NewContext(goCtx).
 		WithStringAttribute("server_name", serverName).
-		WithStringAttribute("uri", uri).
-		WithFunctions(extraFuncs)
+		WithStringAttribute("uri", uri)
 	for k, v := range templateVars {
 		b = b.WithStringAttribute(k, v)
 	}
@@ -33,7 +30,6 @@ func buildToolEvalContext(
 	parent *hcl.EvalContext,
 	serverName, toolName string,
 	args map[string]cty.Value,
-	extraFuncs map[string]function.Function,
 ) (*hcl.EvalContext, hcl.Diagnostics) {
 	var argsVal cty.Value
 	if len(args) == 0 {
@@ -45,7 +41,6 @@ func buildToolEvalContext(
 		WithStringAttribute("server_name", serverName).
 		WithStringAttribute("tool_name", toolName).
 		WithAttribute("args", argsVal).
-		WithFunctions(extraFuncs).
 		BuildEvalContext(parent)
 }
 
@@ -55,7 +50,6 @@ func buildPromptEvalContext(
 	parent *hcl.EvalContext,
 	serverName, promptName string,
 	args map[string]cty.Value,
-	extraFuncs map[string]function.Function,
 ) (*hcl.EvalContext, hcl.Diagnostics) {
 	var argsVal cty.Value
 	if len(args) == 0 {
@@ -67,6 +61,5 @@ func buildPromptEvalContext(
 		WithStringAttribute("server_name", serverName).
 		WithStringAttribute("prompt_name", promptName).
 		WithAttribute("args", argsVal).
-		WithFunctions(extraFuncs).
 		BuildEvalContext(parent)
 }

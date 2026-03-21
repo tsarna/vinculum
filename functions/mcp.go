@@ -111,8 +111,10 @@ var MCPAssistantMessageFunc = function.New(&function.Spec{
 	},
 })
 
-// GetMcpFunctions returns all MCP-specific cty functions for injection into
-// per-request eval contexts. These are NOT added to the global stdlib context.
+// GetMcpFunctions returns all MCP-specific cty functions.
+// These are included in the global function set so they are available in any
+// action expression, including bus subscriptions that construct MCP values
+// for async handlers.
 func GetMcpFunctions() map[string]function.Function {
 	return map[string]function.Function{
 		"mcp_image":             MCPImageFunc,

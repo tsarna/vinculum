@@ -6,9 +6,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/tsarna/vinculum/functions"
 	"go.uber.org/zap"
-	"github.com/zclconf/go-cty/cty/function"
 )
 
 // ServerConfig holds all parsed configuration needed to create an MCP Server.
@@ -37,7 +35,6 @@ type Server struct {
 	httpHandler   http.Handler
 	logger        *zap.Logger
 	parentEvalCtx *hcl.EvalContext
-	mcpFuncs      map[string]function.Function
 }
 
 // New creates a new MCP server from the given configuration.
@@ -68,7 +65,6 @@ func New(cfg ServerConfig) (*Server, error) {
 		sdkServer:     sdkSrv,
 		logger:        cfg.Logger,
 		parentEvalCtx: cfg.ParentEvalCtx,
-		mcpFuncs:      functions.GetMcpFunctions(),
 	}
 
 	registerResources(s, cfg.Resources)

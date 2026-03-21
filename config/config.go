@@ -170,6 +170,10 @@ func (c *Config) GetFunctions(userFuncs map[string]function.Function) (map[strin
 		funcs[name] = function
 	}
 
+	for name, function := range functions.GetMcpFunctions() {
+		funcs[name] = function
+	}
+
 	funcs["diff"] = functions.DiffFunc
 	funcs["error"] = functions.ErrorFunc
 	funcs["patch"] = functions.PatchFunc

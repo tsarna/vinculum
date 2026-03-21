@@ -71,7 +71,7 @@ func makeResourceHandler(s *Server, def ResourceDef) sdkmcp.ResourceHandler {
 			}
 		}
 
-		evalCtx, diags := buildResourceEvalContext(goCtx, s.parentEvalCtx, s.name, uri, templateVars, s.mcpFuncs)
+		evalCtx, diags := buildResourceEvalContext(goCtx, s.parentEvalCtx, s.name, uri, templateVars)
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("building eval context: %s", diags.Error())
 		}
