@@ -15,6 +15,9 @@ var mcpResourcesVCL []byte
 //go:embed testdata/mcp_tools.vcl
 var mcpToolsVCL []byte
 
+//go:embed testdata/mcp_prompts.vcl
+var mcpPromptsVCL []byte
+
 func TestMcpResourcesConfig(t *testing.T) {
 	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
@@ -49,4 +52,15 @@ func TestMcpToolsConfig(t *testing.T) {
 
 	assert.Contains(t, cfg.Servers, "mcp")
 	assert.Contains(t, cfg.Servers["mcp"], "tools_test")
+}
+
+func TestMcpPromptsConfig(t *testing.T) {
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+
+	cfg, diags := NewConfig().WithSources(mcpPromptsVCL).WithLogger(logger).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+
+	assert.Contains(t, cfg.Servers, "mcp")
+	assert.Contains(t, cfg.Servers["mcp"], "prompts_test")
 }
