@@ -161,7 +161,7 @@ func TestSendFunctions(t *testing.T) {
 		// Verify the content matches our expected structure
 		expectedGo := map[string]any{
 			"message": "hello world",
-			"count":   int64(42), // Our custom converter returns int64 for exact integers
+			"count":   42,
 			"active":  true,
 		}
 		assert.Equal(t, expectedGo, goValue)
@@ -214,17 +214,17 @@ func TestSendFunctions(t *testing.T) {
 		expectedNested := map[string]any{
 			"user": map[string]any{
 				"name": "Alice",
-				"age":  int64(30),
+				"age":  30,
 				"profile": map[string]any{
 					"email":    "alice@example.com",
 					"verified": true,
 				},
 			},
 			"tags":   []any{"admin", "premium"},
-			"scores": []any{int64(95), 87.5},
+			"scores": []any{95, 87.5},
 			"metadata": map[string]any{
 				"source":    "api",
-				"timestamp": int64(1234567890),
+				"timestamp": 1234567890,
 			},
 		}
 		assert.Equal(t, expectedNested, goValue)
