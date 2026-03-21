@@ -4,63 +4,42 @@
 It interconnects the minds of all the drones."
    -- Seven of Nine (In Voyager episode "Infinite Regress")
 
-Vinculum is several things:
+Vinculum is a no-code/low-code system for gluing together different systems and
+bridging multiple protocols. Think of it as a Swiss Army Knife for communications:
+while not the best tool for demanding tasks where you'd want a purpose-built solution,
+it handles a large variety of integration tasks adequately — letting you quickly
+MacGyver together a solution with a few lines of configuration.
 
-- **WebSocket Protocol** - A simple, JSON-based protocol with server implementation to expose the bus over WebSockets, enabling real-time web applications.
-- **WebSocket Client** - A client implementation of the protocol for connecting Go applications to Vinculum WebSocket servers.
+## Key Features
 
-## 🌐 WebSocket Components
+- **HCL Configuration** — Declarative configuration in HashiCorp Config Language (similar to Terraform)
+- **Publish/Subscribe Messaging** — MQTT-style topic routing with wildcards and parameter extraction
+- **Protocol Support** — HTTP server, Vinculum WebSocket server and client, and more
+- **Cron Scheduling** — Built-in cron-style scheduler for time-driven actions
+- **JQ Transformations** — Data transformations using the JQ language
+- **Observability** — Context propagation, tracing, and metrics throughout
 
-Vinculum includes WebSocket client and server implementations for real-time web communication:
+## Documentation
 
-### 📡 **WebSocket Server**
-Expose your EventBus over WebSockets for real-time web applications:
-- **Real-time event streaming** to web clients
-- **Bidirectional communication** (subscribe + publish)
-- **Flexible authentication** and authorization policies
-- **Built-in metrics** and connection management
-- **Message transformations** and filtering
+See [DOCUMENTATION.md](DOCUMENTATION.md) for full documentation including:
+- Core concepts (buses, topics, subscribers, transformations)
+- Configuration language reference
+- Protocol details
+- Examples
 
-📖 **[WebSocket Server Documentation](pkg/vinculum/vws/server/README.md)**
+## Related Projects
 
-### 🔌 **WebSocket Client**
-Connect to Vinculum WebSocket servers from Go applications:
-- **Auto-reconnection** with exponential backoff
-- **Subscription management** and persistence
-- **Thread-safe** operations
-- **Comprehensive error handling**
-- **Builder pattern** for easy configuration
+Vinculum is built on top of two standalone Go libraries that can be used independently:
 
-📖 **[WebSocket Client Documentation](pkg/vinculum/vws/client/README.md)**
+| Project | Description |
+|---------|-------------|
+| [vinculum-bus](https://github.com/tsarna/vinculum-bus) | High-performance in-process EventBus with MQTT-style topic patterns and optional OpenTelemetry observability |
+| [vinculum-vws](https://github.com/tsarna/vinculum-vws) | Vinculum WebSocket Protocol — client and server for exposing an EventBus over WebSockets |
 
-## 🚀 Quick Start
-
-For WebSocket usage, see the individual component documentation:
-
-
-### 📋 **Protocol**
-Both components implement the Vinculum WebSocket Protocol:
-- **JSON-based** with compact message format
-- **MQTT-style** topic patterns
-- **Request/response** correlation
-- **Error handling** and acknowledgments
-
-📖 **[Protocol Specification](pkg/vinculum/vws/PROTOCOL.md)**
-
-## 🎯 Use Cases
-
-- **Microservice communication** within a process
-- **Event-driven architectures** 
-- **Decoupled component communication**
-- **Real-time data processing pipelines**
-- **Plugin systems** with event coordination
-- **Application telemetry** and monitoring
-- **Real-time web applications** with WebSocket integration
-
-## 📄 License
+## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-**Vinculum** (Latin: "bond" or "link") - connecting your application components with reliable, observable messaging.
+**Vinculum** (Latin: "bond" or "link") — connecting your systems with reliable, configurable messaging.
