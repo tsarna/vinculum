@@ -11,6 +11,23 @@ Configuration files use the `.vcl` extension (Vinculum Configuration Language).
 
 ---
 
+## Documentation
+
+User-facing documentation lives in `doc/`. Each file covers one topic:
+
+| File | Contents |
+|---|---|
+| `doc/overview.md` | Introduction, concepts, table of contents |
+| `doc/config.md` | HCL syntax, variables, all block types (`bus`, `const`, `cron`, `function`, `jq`, `server`, `signals`, `subscription`) |
+| `doc/functions.md` | Built-in callable functions (logging, messaging, data, MCP, file, HTTP) |
+| `doc/transforms.md` | Message transform pipeline DSL (`add_topic_prefix`, `jq`, `chain`, etc.) |
+| `doc/server-http.md` | `server "http"`: handle/files blocks, context vars, request functions |
+| `doc/server-mcp.md` | `server "mcp"`: resources, tools, prompts, MCP functions |
+| `doc/server-vws.md` | `server "vws"` and `client "vws"`: VWS protocol, allow_send, reconnect |
+| `doc/server-websocket.md` | `server "websocket"`: simple raw WebSocket push server |
+
+---
+
 ## Repository Layout
 
 ```
