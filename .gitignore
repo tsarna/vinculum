@@ -30,10 +30,17 @@ go.work.sum
 
 # Notes
 FUTURE
+TODO.md
+*-SPEC.md
+*-MVP.md
 
-# Test files
+# Test/scratch files
 test.vcl
+mcp-smoke-test.vcl
 x
+
+# Local MCP config
+.mcp.json
 
 # Editor/IDE
 .idea/
