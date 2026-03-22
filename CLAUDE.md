@@ -30,7 +30,17 @@ config/         Core configuration parsing and all block implementations
   parse.go      HCL file/directory/bytes parsing
   transforms.go message transform functions
   testdata/     .vcl fixtures for tests
-functions/      Built-in HCL functions (log, stdlib, jq, diff, etc.)
+functions/      Built-in HCL functions (log, stdlib, jq, diff, mcp_*, etc.)
+internal/
+  hclutil/      Shared HCL helpers (ContextObjectBuilder, capsule utilities)
+mcp/            MCP server implementation (server "mcp" block)
+  server.go     Server struct, New(), Start(), GetHandler()
+  resources.go  Resource + ResourceTemplate registration and handlers
+  tools.go      Tool registration and handlers
+  prompts.go    Prompt registration and handlers
+  context.go    Per-request eval context builders for each handler type
+  schema.go     JSON schema generation for tool input params
+  testdata/     .vcl fixtures for mcp tests
 platform/       OS signal handling
 transform/      Message transform pipeline types
 websockets/     Low-level WebSocket server helper
@@ -267,19 +277,32 @@ them in the right order.
 
 ### MCP Server
 
-An MCP (Model Context Protocol) server is being designed. See:
-- `MCP-SPEC.md` — full feature specification
-- `MCP-MVP.md` — minimum viable product scope
+The MCP (Model Context Protocol) server MVP is partially implemented in `mcp/`.
+See `MCP-SPEC.md` (full spec) and `MCP-MVP.md` (MVP scope) for details.
 
-Key design decisions already made:
-- `server "mcp" "name"` block with `resource`, `tool`, `prompt` sub-blocks
-- Streamable HTTP transport (MCP spec 2025-03-26)
-- Action-based (sync) and bus-based (async) handler patterns
-- Plain string return = text content; `mcp_image()`, `mcp_error()` etc. for other types
-- Notifications via `mcp_notify_*()` functions sent to the server as a subscriber
-- Reply topics use format `$server/mcp/<server-name>/reply/<uuid>`
-- Progress and final results share the same reply topic (distinguished by payload type)
+**What's implemented (MVP Phase 0–3):**
+- `server "mcp" "name"` block parsed in `config/mcp.go`, dispatched via `ServerBlockHandler`
+- Streamable HTTP transport using `github.com/modelcontextprotocol/go-sdk`
+- Static and URI-template resources with action-based handlers
+- Tools with typed params and action-based handlers
+- Prompts with params and action-based handlers
+- `mcp_image()`, `mcp_error()`, `mcp_user_message()`, `mcp_assistant_message()` — available globally in all action expressions (not just MCP handlers)
+- Unit tests for all three handler types using in-process SDK client
+
+**Key design decisions:**
+- `mcp_*` functions live in `functions/mcp.go` and are included in `GetFunctions()` so bus subscriptions and other handlers can construct MCP values for future async support
+- `ctx` is the only top-level variable in every action eval context (consistent with all other vinculum handlers); MCP-specific data is nested under it (`ctx.uri`, `ctx.args.expression`, etc.)
+- Reply topics use format `$server/mcp/<server-name>/reply/<uuid>` (for future async)
 - OAuth2 via external OIDC issuer only (no built-in auth server)
+
+**Not yet implemented (deferred from MVP):**
+- Bus-based async handlers
+- `mcp_progress()` (depends on async)
+- Notifications (`mcp_notify_*()`)
+- OAuth2
+- Pagination (`mcp_text_page()`)
+- Complex param types (array/object with nested JSON schema)
+- Mounting under `server "http"` block
 
 ---
 
