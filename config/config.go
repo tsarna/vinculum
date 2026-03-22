@@ -183,6 +183,8 @@ func (c *Config) GetFunctions(userFuncs map[string]function.Function) (map[strin
 		funcs[name] = fn
 	}
 
+	funcs["call"] = CallFunction(c)
+	funcs["llm_wrap"] = functions.LLMWrapFunc
 	funcs["diff"] = functions.DiffFunc
 	funcs["error"] = functions.ErrorFunc
 	funcs["patch"] = functions.PatchFunc

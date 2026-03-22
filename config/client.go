@@ -66,6 +66,9 @@ func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	case "vws":
 		client, diags = ProcessVinculumWebsocketsClientBlock(config, block, clientDef.RemainingBody)
 
+	case "openai":
+		client, diags = ProcessOpenAIClientBlock(config, block, clientDef.RemainingBody)
+
 	default:
 		return hcl.Diagnostics{
 			&hcl.Diagnostic{
@@ -88,20 +91,25 @@ func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	return nil
 }
 
+// Client is the base identity interface for all client types.
 type Client interface {
-	Build() (bus.Client, error)
-	GetClient() bus.Client
 	GetName() string
 	GetDefRange() hcl.Range
+}
+
+// BusClient is a client backed by the vinculum-bus pub/sub system (e.g. VWS).
+type BusClient interface {
+	Client
+	Build() (bus.Client, error)
+	GetClient() bus.Client
 	GetSubscriber() bus.Subscriber
 	SetSubscriber(subscriber bus.Subscriber)
 }
 
+// BaseClient holds the minimal fields common to all client types.
 type BaseClient struct {
-	Name       string
-	DefRange   hcl.Range
-	Subscriber bus.Subscriber
-	Client     bus.Client
+	Name     string
+	DefRange hcl.Range
 }
 
 func (s *BaseClient) GetName() string {
@@ -112,19 +120,26 @@ func (s *BaseClient) GetDefRange() hcl.Range {
 	return s.DefRange
 }
 
-func (s *BaseClient) GetSubscriber() bus.Subscriber {
+// BaseBusClient is the base struct for bus-backed clients (VWS, etc.).
+type BaseBusClient struct {
+	BaseClient
+	Subscriber bus.Subscriber
+	Client     bus.Client
+}
+
+func (s *BaseBusClient) GetSubscriber() bus.Subscriber {
 	return s.Subscriber
 }
 
-func (s *BaseClient) SetSubscriber(subscriber bus.Subscriber) {
+func (s *BaseBusClient) SetSubscriber(subscriber bus.Subscriber) {
 	s.Subscriber = subscriber
 }
 
-func (s *BaseClient) GetClient() bus.Client {
+func (s *BaseBusClient) GetClient() bus.Client {
 	return s.Client
 }
 
-// ServerCapsuleType is a cty capsule type for wrapping Server instances
+// ClientCapsuleType is a cty capsule type for wrapping Client instances.
 var ClientCapsuleType = cty.CapsuleWithOps("client", reflect.TypeOf((*any)(nil)).Elem(), &cty.CapsuleOps{
 	GoString: func(val interface{}) string {
 		return fmt.Sprintf("client(%p)", val)
@@ -134,12 +149,12 @@ var ClientCapsuleType = cty.CapsuleWithOps("client", reflect.TypeOf((*any)(nil))
 	},
 })
 
-// NewEventBusCapsule creates a new cty capsule value wrapping an EventBus
+// NewClientCapsule creates a new cty capsule value wrapping a Client.
 func NewClientCapsule(client Client) cty.Value {
 	return cty.CapsuleVal(ClientCapsuleType, client)
 }
 
-// GetServerFromCapsule extracts an Server from a cty capsule value
+// GetClientFromCapsule extracts a Client from a cty capsule value.
 func GetClientFromCapsule(val cty.Value) (Client, error) {
 	if val.Type() != ClientCapsuleType {
 		return nil, fmt.Errorf("expected Client capsule, got %s", val.Type().FriendlyName())
@@ -148,7 +163,7 @@ func GetClientFromCapsule(val cty.Value) (Client, error) {
 	encapsulated := val.EncapsulatedValue()
 	client, ok := encapsulated.(Client)
 	if !ok {
-		return nil, fmt.Errorf("encapsulated value is not an Client, got %T", encapsulated)
+		return nil, fmt.Errorf("encapsulated value is not a Client, got %T", encapsulated)
 	}
 	return client, nil
 }
@@ -166,7 +181,7 @@ func GetClientFromExpression(config *Config, clientExpr hcl.Expression) (Client,
 		return nil, hcl.Diagnostics{
 			&hcl.Diagnostic{
 				Severity: hcl.DiagError,
-				Summary:  "Failed to get server from expression",
+				Summary:  "Failed to get client from expression",
 				Detail:   err.Error(),
 				Subject:  &exprRange,
 			},

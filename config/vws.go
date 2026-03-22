@@ -193,7 +193,7 @@ func (config *Config) MakeAllowSend(expr hcl.Expression) server.EventAuthFunc {
 // Client
 
 type VinculumWebsocketClient struct {
-	BaseClient
+	BaseBusClient
 	ClientBuilder *client.ClientBuilder
 }
 
@@ -204,13 +204,13 @@ func (c *VinculumWebsocketClient) Build() (bus.Client, error) {
 		c.ClientBuilder = c.ClientBuilder.WithSubscriber(&bus.BaseSubscriber{})
 	}
 
-	client, err := c.ClientBuilder.Build()
+	busClient, err := c.ClientBuilder.Build()
 	if err != nil {
 		return nil, err
 	}
-	c.Client = client
+	c.Client = busClient
 
-	return client, nil
+	return busClient, nil
 }
 
 type VinculumWebsocketsClientDefinition struct {
@@ -283,9 +283,11 @@ func ProcessVinculumWebsocketsClientBlock(config *Config, block *hcl.Block, rema
 	}
 
 	client := VinculumWebsocketClient{
-		BaseClient: BaseClient{
-			Name:     block.Labels[1],
-			DefRange: clientDef.DefRange,
+		BaseBusClient: BaseBusClient{
+			BaseClient: BaseClient{
+				Name:     block.Labels[1],
+				DefRange: clientDef.DefRange,
+			},
 		},
 		ClientBuilder: clientBuilder,
 	}

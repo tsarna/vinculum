@@ -133,7 +133,7 @@ func (h *SubscriptionBlockHandler) Process(config *Config, block *hcl.Block) hcl
 			}
 		}
 
-	case Client:
+	case BusClient:
 		target.SetSubscriber(subscriber)
 		_, err := target.Build()
 		if err != nil {

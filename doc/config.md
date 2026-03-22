@@ -38,6 +38,7 @@ for the full expression language reference.
 
 - `bus.<name>`: Each bus defined may be referenced by name. `bus.main` always exists,
   even if not declared explicitly.
+- `client.<name>`: Each client defined via a `client` block may be referenced by name.
 - `env.<name>`: Environment variables are exposed through the `env` object. For
   example, `env.HOME` is the value of the `HOME` environment variable.
 - `http_status.<name>`: Constants for each HTTP status code. For example,
@@ -238,6 +239,28 @@ const {
 
 ---
 
+### `client`
+
+```hcl
+client "type" "name" {
+    disabled = false  # optional
+    ...
+}
+```
+
+Defines a client connection to an external service. The `type` label determines
+the client type. The client is available in expressions as `client.<name>`. All
+clients share a single name namespace.
+
+`disabled`, if true, causes the block to be skipped entirely.
+
+For details on each client type, see the dedicated pages:
+
+- [`client "openai"`](client-llm.md) — OpenAI and OpenAI-compatible LLM APIs
+- [`client "vws"`](server-vws.md#client-vws) — Vinculum WebSocket Protocol client
+
+---
+
 ### `server`
 
 ```hcl
@@ -258,7 +281,6 @@ For details on each server type, see the dedicated pages:
 - [`server "http"`](server-http.md) — HTTP request handlers and static file serving
 - [`server "websocket"`](server-websocket.md) — Simple WebSocket server (raw frames)
 - [`server "vws"`](server-vws.md) — Vinculum WebSocket Protocol server
-- [`client "vws"`](server-vws.md#client-vws) — Vinculum WebSocket Protocol client
 - [`server "mcp"`](server-mcp.md) — Model Context Protocol server
 
 ---
