@@ -66,6 +66,19 @@ variables using the `var` block. Both are described in the Block Reference below
 
 ---
 
+## Block Ordering
+
+Declaration order does not matter. Vinculum automatically determines the correct
+initialization order by analysing dependencies between blocks — similar to how
+Terraform handles resource dependencies. For example, you can declare a
+`subscription` before the `bus` it targets, and vinculum will ensure the bus is
+initialized first.
+
+If a circular dependency is detected, vinculum reports an error at startup rather
+than silently processing blocks in an incorrect order.
+
+---
+
 ## Block Reference
 
 ### `assert`

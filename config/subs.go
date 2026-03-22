@@ -39,6 +39,11 @@ func (h *SubscriptionBlockHandler) GetBlockDependencyId(block *hcl.Block) (strin
 	return "subscription." + block.Labels[0], nil
 }
 
+func (h *SubscriptionBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, hcl.Diagnostics) {
+	// Exclude "action": it is runtime-evaluated (in OnEvent) and must not create config-time deps.
+	return ExtractBlockDependencies(block, "action"), nil
+}
+
 func (h *SubscriptionBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {
 	subscriptionDef := SubscriptionDefinition{}
 	diags := gohcl.DecodeBody(block.Body, config.evalCtx, &subscriptionDef)

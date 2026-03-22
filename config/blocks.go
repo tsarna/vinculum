@@ -27,7 +27,7 @@ func (b *BlockHandlerBase) GetBlockDependencyId(block *hcl.Block) (string, hcl.D
 }
 
 func (b *BlockHandlerBase) GetBlockDependencies(block *hcl.Block) ([]string, hcl.Diagnostics) {
-	return nil, nil
+	return ExtractBlockDependencies(block), nil
 }
 
 func (b *BlockHandlerBase) Process(config *Config, block *hcl.Block) hcl.Diagnostics {
