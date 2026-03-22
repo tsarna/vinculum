@@ -47,6 +47,9 @@ for the full expression language reference.
 - `server.<name>`: Each server defined may be referenced by name. All server types
   share a single namespace — you cannot have both an HTTP server and a WebSocket
   server with the same name.
+- `var.<name>`: Each variable defined via a `var` block may be referenced by name.
+  Variables are mutable and goroutine-safe; use `get()`, `set()`, and `increment()`
+  to read and write their values.
 
 ### Context Variables
 
@@ -56,9 +59,10 @@ depend on the context and are described alongside the relevant block type. Some
 functions (such as `send`) require `ctx` to be passed as a parameter for
 observability purposes.
 
-### User-defined Constants
+### User-defined Constants and Variables
 
-Users may define their own constants using the `const` block described below.
+Users may define their own constants using the `const` block, and mutable runtime
+variables using the `var` block. Both are described in the Block Reference below.
 
 ---
 
@@ -363,5 +367,45 @@ subscription "from_upstream" {
     target     = client.upstream
     topics     = ["#"]
     action     = send(ctx, bus.main, ctx.topic, ctx.msg)
+}
+```
+
+---
+
+### `var`
+
+```hcl
+var "name" {
+    value = expression  # optional; defaults to null
+}
+```
+
+Declares a mutable variable. The variable is available in expressions as `var.<name>`.
+For example, `var "counter" {}` creates `var.counter`.
+
+Unlike `const`, variables are not static — their value can be changed at runtime using
+`set()` and `increment()`. Variables are goroutine-safe and may be read and written
+from concurrent subscription handlers and cron jobs.
+
+The optional `value` attribute sets the initial value at startup. If omitted, the
+variable starts as `null`.
+
+Use `get()`, `set()`, and `increment()` to access and modify variables at runtime;
+see [functions.md](functions.md#variables) for details.
+
+Example — count received messages and log a warning every 100:
+
+```hcl
+var "message_count" {
+    value = 0
+}
+
+subscription "counter" {
+    target = bus.main
+    topics = ["#"]
+    action = [
+        increment(var.message_count, 1),
+        get(var.message_count) % 100 == 0 ? log_warn("milestone", {count = get(var.message_count)}) : true,
+    ]
 }
 ```

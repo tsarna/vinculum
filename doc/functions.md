@@ -32,6 +32,29 @@ All logging functions return `true`.
 - `jsondecode(json_string)`: Parse a JSON string and return the decoded value.
 - `typeof(value)`: Return a string describing the type of `value` (e.g. `"string"`, `"number"`, `"bool"`, `"object"`).
 
+### Variables
+
+These functions read and write mutable variables declared with `var` blocks. The
+`thing` argument is a `var.<name>` reference. The interface-based design allows
+future capsule types to support these functions as well.
+
+- `get(thing, default?)`: Return the current value of `thing`. If the value is `null`
+  and `default` is provided, returns `default` instead.
+- `set(thing, value)`: Set the value of `thing` to `value`. Returns the new value.
+- `increment(thing, delta)`: Add `delta` to the current numeric value of `thing` and
+  return the new value. Both the current value and `delta` must be numbers; errors
+  otherwise.
+
+```hcl
+var "hits" { value = 0 }
+
+# In a subscription action:
+action = [
+    increment(var.hits, 1),
+    log_info("hits", {total = get(var.hits)}),
+]
+```
+
 ### Control Flow
 
 - `error(message)`: Abort evaluation with the given error message. Useful for asserting preconditions in expressions.

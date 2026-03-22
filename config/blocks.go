@@ -48,6 +48,7 @@ func GetBlockHandlers() map[string]BlockHandler {
 		"server":       NewServerBlockHandler(),
 		"signals":      NewSignalsBlockHandler(),
 		"subscription": NewSubscriptionBlockHandler(),
+		"var":          NewVariableBlockHandler(),
 	}
 }
 
@@ -90,6 +91,10 @@ var blockSchema = []hcl.BlockHeaderSchema{
 	},
 	{
 		Type:       "subscription",
+		LabelNames: []string{"name"},
+	},
+	{
+		Type:       "var",
 		LabelNames: []string{"name"},
 	},
 }

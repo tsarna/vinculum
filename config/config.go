@@ -40,6 +40,7 @@ type Config struct {
 	Clients        map[string]map[string]Client
 	CtyServerMap   map[string]cty.Value
 	Servers        map[string]map[string]Listener
+	CtyVarMap      map[string]cty.Value
 
 	Crons map[string]*cron.Cron
 }
@@ -78,6 +79,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		CtyClientMap: make(map[string]cty.Value),
 		Servers:      make(map[string]map[string]Listener),
 		CtyServerMap: make(map[string]cty.Value),
+		CtyVarMap:    make(map[string]cty.Value),
 		Crons:        make(map[string]*cron.Cron),
 	}
 
@@ -181,6 +183,10 @@ func (c *Config) GetFunctions(userFuncs map[string]function.Function) (map[strin
 	funcs["sendjson"] = SendJSONFunction(c)
 	funcs["sendgo"] = SendGoFunction(c)
 	funcs["typeof"] = functions.TypeOfFunc
+
+	for name, fn := range GetVariableFunctions() {
+		funcs[name] = fn
+	}
 
 	if c.BaseDir != "" {
 		funcs["abspath"] = filesystem.AbsPathFunc
