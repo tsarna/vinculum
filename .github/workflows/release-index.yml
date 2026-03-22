@@ -1,0 +1,57 @@
+name: Build and publish VCL index
+
+# Runs when a GitHub release is published, attaching a pre-built FAISS index
+# as a release asset (vinculum-index.tar.gz).
+#
+# vinculum-ai auto-downloads this file from the latest release:
+#   https://github.com/tsarna/vinculum/releases/latest/download/vinculum-index.tar.gz
+#
+# The index is built with fastembed BAAI/bge-small-en-v1.5 (384-dim vectors).
+# vinculum-ai users must use the same embedding model when querying — this is
+# the default, so no configuration is needed on the user side.
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-index:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # required to upload release assets
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache fastembed model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/fastembed
+          key: fastembed-BAAI-bge-small-en-v1.5
+          # No restore-keys fallback — the model must exactly match or re-download.
+
+      - name: Install indexing dependencies
+        run: |
+          pip install --quiet \
+            langchain-core \
+            langchain-community \
+            langchain-text-splitters \
+            fastembed \
+            faiss-cpu
+
+      - name: Build index
+        run: python scripts/build_index.py --docs-dir doc --output vcl-index
+
+      - name: Package index
+        run: |
+          tar -czf vinculum-index.tar.gz -C vcl-index .
+          echo "Archive size: $(du -sh vinculum-index.tar.gz | cut -f1)"
+
+      - name: Upload index to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" vinculum-index.tar.gz
