@@ -21,7 +21,7 @@ type MetricValue interface {
 
 // --- Capsule type ---
 
-var MetricCapsuleType = cty.CapsuleWithOps("metric", reflect.TypeOf((*MetricValue)(nil)).Elem(), &cty.CapsuleOps{
+var MetricCapsuleType = cty.CapsuleWithOps("metric", reflect.TypeOf((*any)(nil)).Elem(), &cty.CapsuleOps{
 	GoString: func(val interface{}) string {
 		return fmt.Sprintf("metric(%p)", val)
 	},

@@ -28,6 +28,31 @@ type Incrementable interface {
 	Increment(delta cty.Value) (cty.Value, error)
 }
 
+// LabeledGettable is implemented by types that support labeled get().
+type LabeledGettable interface {
+	GetWithLabels(labels cty.Value) cty.Value
+}
+
+// LabeledSettable is implemented by types that support labeled set().
+type LabeledSettable interface {
+	SetWithLabels(value cty.Value, labels cty.Value) (cty.Value, error)
+}
+
+// LabeledIncrementable is implemented by types that support labeled increment().
+type LabeledIncrementable interface {
+	IncrementWithLabels(delta cty.Value, labels cty.Value) (cty.Value, error)
+}
+
+// Observable is implemented by types that support observe() (histograms).
+type Observable interface {
+	Observe(value cty.Value) (cty.Value, error)
+}
+
+// LabeledObservable is implemented by types that support labeled observe().
+type LabeledObservable interface {
+	ObserveWithLabels(value cty.Value, labels cty.Value) (cty.Value, error)
+}
+
 // --- Variable ---
 
 // Variable is a mutable, goroutine-safe value container.
@@ -184,6 +209,7 @@ func GetVariableFunctions() map[string]function.Function {
 		"get":       makeGetFunction(),
 		"set":       makeSetFunction(),
 		"increment": makeIncrementFunction(),
+		"observe":   makeObserveFunction(),
 	}
 }
 
@@ -217,8 +243,20 @@ func makeSetFunction() function.Function {
 			{Name: "thing", Type: cty.DynamicPseudoType},
 			{Name: "value", Type: cty.DynamicPseudoType},
 		},
-		Type: function.StaticReturnType(cty.DynamicPseudoType),
+		VarParam: &function.Parameter{Name: "labels", Type: cty.DynamicPseudoType},
+		Type:     function.StaticReturnType(cty.DynamicPseudoType),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+			if len(args) > 2 {
+				m, err := extractMetric(args[0])
+				if err != nil {
+					return cty.NilVal, err
+				}
+				ls, ok := m.(LabeledSettable)
+				if !ok {
+					return cty.NilVal, fmt.Errorf("set: metric does not support labeled set()")
+				}
+				return ls.SetWithLabels(args[1], args[2])
+			}
 			s, err := extractSettable(args[0])
 			if err != nil {
 				return cty.NilVal, err
@@ -234,8 +272,20 @@ func makeIncrementFunction() function.Function {
 			{Name: "thing", Type: cty.DynamicPseudoType},
 			{Name: "delta", Type: cty.DynamicPseudoType},
 		},
-		Type: function.StaticReturnType(cty.DynamicPseudoType),
+		VarParam: &function.Parameter{Name: "labels", Type: cty.DynamicPseudoType},
+		Type:     function.StaticReturnType(cty.DynamicPseudoType),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+			if len(args) > 2 {
+				m, err := extractMetric(args[0])
+				if err != nil {
+					return cty.NilVal, err
+				}
+				li, ok := m.(LabeledIncrementable)
+				if !ok {
+					return cty.NilVal, fmt.Errorf("increment: metric does not support labeled increment()")
+				}
+				return li.IncrementWithLabels(args[1], args[2])
+			}
 			i, err := extractIncrementable(args[0])
 			if err != nil {
 				return cty.NilVal, err
@@ -245,9 +295,55 @@ func makeIncrementFunction() function.Function {
 	})
 }
 
+func makeObserveFunction() function.Function {
+	return function.New(&function.Spec{
+		Params: []function.Parameter{
+			{Name: "thing", Type: cty.DynamicPseudoType},
+			{Name: "value", Type: cty.DynamicPseudoType},
+		},
+		VarParam: &function.Parameter{Name: "labels", Type: cty.DynamicPseudoType},
+		Type:     function.StaticReturnType(cty.DynamicPseudoType),
+		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+			m, err := extractMetric(args[0])
+			if err != nil {
+				return cty.NilVal, err
+			}
+			if len(args) > 2 {
+				lo, ok := m.(LabeledObservable)
+				if !ok {
+					return cty.NilVal, fmt.Errorf("observe: metric does not support labeled observe()")
+				}
+				return lo.ObserveWithLabels(args[1], args[2])
+			}
+			o, ok := m.(Observable)
+			if !ok {
+				return cty.NilVal, fmt.Errorf("observe: metric does not support observe()")
+			}
+			return o.Observe(args[1])
+		},
+	})
+}
+
+func extractMetric(val cty.Value) (MetricValue, error) {
+	if val.Type() != MetricCapsuleType {
+		return nil, fmt.Errorf("expected a metric, got %s", val.Type().FriendlyName())
+	}
+	return GetMetricFromCapsule(val)
+}
+
 func extractGettable(val cty.Value) (Gettable, error) {
 	if val.Type() == VariableCapsuleType {
 		return GetVariableFromCapsule(val)
+	}
+	if val.Type() == MetricCapsuleType {
+		m, err := GetMetricFromCapsule(val)
+		if err != nil {
+			return nil, err
+		}
+		if g, ok := m.(Gettable); ok {
+			return g, nil
+		}
+		return nil, fmt.Errorf("get: metric does not support get() (histograms are not gettable)")
 	}
 	return nil, fmt.Errorf("get: argument does not support get() (got %s)", val.Type().FriendlyName())
 }
@@ -256,12 +352,32 @@ func extractSettable(val cty.Value) (Settable, error) {
 	if val.Type() == VariableCapsuleType {
 		return GetVariableFromCapsule(val)
 	}
+	if val.Type() == MetricCapsuleType {
+		m, err := GetMetricFromCapsule(val)
+		if err != nil {
+			return nil, err
+		}
+		if s, ok := m.(Settable); ok {
+			return s, nil
+		}
+		return nil, fmt.Errorf("set: metric does not support set() (counters and histograms are not settable)")
+	}
 	return nil, fmt.Errorf("set: argument does not support set() (got %s)", val.Type().FriendlyName())
 }
 
 func extractIncrementable(val cty.Value) (Incrementable, error) {
 	if val.Type() == VariableCapsuleType {
 		return GetVariableFromCapsule(val)
+	}
+	if val.Type() == MetricCapsuleType {
+		m, err := GetMetricFromCapsule(val)
+		if err != nil {
+			return nil, err
+		}
+		if i, ok := m.(Incrementable); ok {
+			return i, nil
+		}
+		return nil, fmt.Errorf("increment: metric does not support increment() (histograms are not incrementable)")
 	}
 	return nil, fmt.Errorf("increment: argument does not support increment() (got %s)", val.Type().FriendlyName())
 }

@@ -74,6 +74,12 @@ func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	case "mcp":
 		server, diags = ProcessMcpServerBlock(config, block, serverDef.RemainingBody)
 
+	case "metrics":
+		server, diags = ProcessMetricsServerBlock(config, block, serverDef.RemainingBody)
+		if !diags.HasErrors() {
+			config.Startables = append(config.Startables, server.(*MetricsServer))
+		}
+
 	default:
 		return hcl.Diagnostics{
 			&hcl.Diagnostic{
