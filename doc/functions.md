@@ -32,28 +32,91 @@ All logging functions return `true`.
 - `jsondecode(json_string)`: Parse a JSON string and return the decoded value.
 - `typeof(value)`: Return a string describing the type of `value` (e.g. `"string"`, `"number"`, `"bool"`, `"object"`).
 
-### Variables
+### Random
 
-These functions read and write mutable variables declared with `var` blocks. The
-`thing` argument is a `var.<name>` reference. The interface-based design allows
-future capsule types to support these functions as well.
+- `random()`: Return a random float in `[0.0, 1.0)`.
+- `randint(a, b)`: Return a random integer N such that `a <= N <= b` (both bounds inclusive).
+- `randuniform(a, b)`: Return a random float N such that `a <= N <= b`.
+- `randgauss(mu, sigma)`: Return a random float drawn from a Gaussian (normal) distribution
+  with the given mean (`mu`) and standard deviation (`sigma`).
+- `randchoice(list)`: Return a single random element from `list`. Errors if the list is empty.
+- `randsample(list, k)`: Return a new list of `k` unique elements chosen at random from `list`,
+  without replacement. Errors if `k` exceeds the length of `list`.
+- `randshuffle(list)`: Return a shuffled copy of `list`. The original list is not modified.
 
-- `get(thing, default?)`: Return the current value of `thing`. If the value is `null`
-  and `default` is provided, returns `default` instead.
-- `set(thing, value)`: Set the value of `thing` to `value`. Returns the new value.
-- `increment(thing, delta)`: Add `delta` to the current numeric value of `thing` and
-  return the new value. Both the current value and `delta` must be numbers; errors
-  otherwise.
+### Variables and Metrics
+
+These functions read and write mutable variables (`var` blocks) and Prometheus
+metrics (`metric` blocks). The first argument is a `var.<name>` or `metric.<name>`
+reference. Dispatch is based on the type of the first argument at runtime.
+
+#### `get(thing, default_or_labels?)`
+
+Returns the current value of `thing`.
+
+- **Variable**: if the value is `null` and a second argument is provided, returns
+  the second argument as the default.
+- **Metric (no-label series)**: returns the current in-process accumulated value.
+- **Metric (labeled series)**: pass a label object as the second argument:
+  `get(metric.m, {queue = "fast"})`.
+
+Histograms are not gettable — calling `get` on a histogram is a runtime error.
+
+#### `set(thing, value, labels?)`
+
+Sets the value of `thing` to `value`. Returns the new value.
+
+- **Variable**: `set(var.counter, 0)`.
+- **Metric gauge (no-label)**: `set(metric.temperature, 21.5)`.
+- **Metric gauge (labeled)**: `set(metric.active_jobs, 3, {queue = "default"})`.
+
+Calling `set` on a counter or histogram is a runtime error.
+
+#### `increment(thing, delta, labels?)`
+
+Adds `delta` to the current numeric value of `thing` and returns the new value.
+Delta must be a number; for counters it must be ≥ 0.
+
+- **Variable**: `increment(var.hits, 1)`.
+- **Metric (no-label)**: `increment(metric.errors_total, 1)`.
+- **Metric (labeled)**: `increment(metric.requests_total, 1, {method = "POST"})`.
+
+#### `observe(metric, value, labels?)`
+
+Records a single observation on a histogram metric. Only valid on `metric` values
+of type `histogram`.
+
+- **No-label**: `observe(metric.request_duration, elapsed)`.
+- **Labeled**: `observe(metric.request_duration, elapsed, {route = "/api/v1"})`.
+
+Calling `observe` on a gauge, counter, or variable is a runtime error.
+
+#### Examples
 
 ```hcl
 var "hits" { value = 0 }
 
-# In a subscription action:
+metric "counter" "requests_total" {
+    help        = "Total requests"
+    label_names = ["method"]
+}
+
+metric "histogram" "request_duration_seconds" {
+    help        = "Request processing time"
+    label_names = ["method"]
+    buckets     = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+}
+
+# In an HTTP server handle action:
 action = [
     increment(var.hits, 1),
-    log_info("hits", {total = get(var.hits)}),
+    increment(metric.requests_total, 1, {method = ctx.method}),
+    observe(metric.request_duration_seconds, ctx.elapsed, {method = ctx.method}),
+    respond(httpstatus.OK, {hits = get(var.hits)}),
 ]
 ```
+
+See [metric.md](metric.md) for the full reference on declaring and using metrics.
 
 ### Control Flow
 

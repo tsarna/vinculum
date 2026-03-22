@@ -42,6 +42,8 @@ type Config struct {
 	Servers        map[string]map[string]Listener
 	CtyVarMap      map[string]cty.Value
 
+	MetricsServers map[string]*MetricsServer
+
 	Crons map[string]*cron.Cron
 }
 
@@ -79,8 +81,9 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		CtyClientMap: make(map[string]cty.Value),
 		Servers:      make(map[string]map[string]Listener),
 		CtyServerMap: make(map[string]cty.Value),
-		CtyVarMap:    make(map[string]cty.Value),
-		Crons:        make(map[string]*cron.Cron),
+		CtyVarMap:      make(map[string]cty.Value),
+		MetricsServers: make(map[string]*MetricsServer),
+		Crons:          make(map[string]*cron.Cron),
 	}
 
 	bodies, diags := ParseConfigFiles(cb.sources...)
@@ -174,6 +177,10 @@ func (c *Config) GetFunctions(userFuncs map[string]function.Function) (map[strin
 
 	for name, function := range functions.GetMcpFunctions() {
 		funcs[name] = function
+	}
+
+	for name, fn := range functions.GetRandomFunctions() {
+		funcs[name] = fn
 	}
 
 	funcs["diff"] = functions.DiffFunc

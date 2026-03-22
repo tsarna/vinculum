@@ -1,0 +1,511 @@
+package config
+
+import (
+	"fmt"
+	"math/big"
+	"reflect"
+	"sync"
+
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/zclconf/go-cty/cty"
+)
+
+// --- MetricValue marker interface ---
+
+// MetricValue is implemented by all metric types (gauge, counter, histogram).
+type MetricValue interface {
+	metricValue()
+}
+
+// --- Capsule type ---
+
+var MetricCapsuleType = cty.CapsuleWithOps("metric", reflect.TypeOf((*MetricValue)(nil)).Elem(), &cty.CapsuleOps{
+	GoString: func(val interface{}) string {
+		return fmt.Sprintf("metric(%p)", val)
+	},
+	TypeGoString: func(_ reflect.Type) string {
+		return "metric"
+	},
+})
+
+func NewMetricCapsule(m MetricValue) cty.Value {
+	return cty.CapsuleVal(MetricCapsuleType, m)
+}
+
+func GetMetricFromCapsule(val cty.Value) (MetricValue, error) {
+	if val.Type() != MetricCapsuleType {
+		return nil, fmt.Errorf("expected metric capsule, got %s", val.Type().FriendlyName())
+	}
+	encapsulated := val.EncapsulatedValue()
+	m, ok := encapsulated.(MetricValue)
+	if !ok {
+		return nil, fmt.Errorf("encapsulated value is not a MetricValue, got %T", encapsulated)
+	}
+	return m, nil
+}
+
+// --- labelsFromCtyObject ---
+
+// labelsFromCtyObject converts an HCL object value to a prometheus.Labels map.
+// It validates that the keys exactly match labelNames.
+func labelsFromCtyObject(val cty.Value, labelNames []string) (prometheus.Labels, error) {
+	if !val.Type().IsObjectType() {
+		return nil, fmt.Errorf("labels must be an object, got %s", val.Type().FriendlyName())
+	}
+
+	attrs := val.Type().AttributeTypes()
+	if len(attrs) != len(labelNames) {
+		return nil, fmt.Errorf("expected %d label(s) %v, got %d", len(labelNames), labelNames, len(attrs))
+	}
+
+	labels := make(prometheus.Labels, len(labelNames))
+	for _, name := range labelNames {
+		attrVal, ok := val.GetAttr(name), true
+		_ = ok
+		if !val.Type().HasAttribute(name) {
+			return nil, fmt.Errorf("missing label %q", name)
+		}
+		attrVal = val.GetAttr(name)
+		if attrVal.Type() != cty.String {
+			return nil, fmt.Errorf("label %q must be a string, got %s", name, attrVal.Type().FriendlyName())
+		}
+		labels[name] = attrVal.AsString()
+	}
+
+	// Check for extra keys
+	for attrName := range attrs {
+		found := false
+		for _, name := range labelNames {
+			if attrName == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("unexpected label %q (declared label_names: %v)", attrName, labelNames)
+		}
+	}
+
+	return labels, nil
+}
+
+// --- GaugeMetric ---
+
+// GaugeMetric implements Gettable, Settable, Incrementable (no-label),
+// LabeledGettable, LabeledSettable, LabeledIncrementable (with labels).
+type GaugeMetric struct {
+	vec        *prometheus.GaugeVec
+	labelNames []string
+	mu         sync.RWMutex
+	noLabelVal float64            // cached value for Get on unlabelled gauge
+	labelVals  map[string]float64 // key = labelSetKey(labels), cached for GetWithLabels
+}
+
+func (m *GaugeMetric) metricValue() {}
+
+// --- Gettable ---
+func (m *GaugeMetric) Get(_ cty.Value) cty.Value {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cty.NumberFloatVal(m.noLabelVal)
+}
+
+// --- Settable ---
+func (m *GaugeMetric) Set(value cty.Value) (cty.Value, error) {
+	f, err := valueToFloat64(value)
+	if err != nil {
+		return cty.NilVal, fmt.Errorf("set: %w", err)
+	}
+	m.mu.Lock()
+	m.noLabelVal = f
+	m.mu.Unlock()
+	m.vec.WithLabelValues().Set(f)
+	return value, nil
+}
+
+// --- Incrementable ---
+func (m *GaugeMetric) Increment(delta cty.Value) (cty.Value, error) {
+	f, err := valueToFloat64(delta)
+	if err != nil {
+		return cty.NilVal, fmt.Errorf("increment: %w", err)
+	}
+	m.mu.Lock()
+	m.noLabelVal += f
+	cur := m.noLabelVal
+	m.mu.Unlock()
+	m.vec.WithLabelValues().Add(f)
+	return cty.NumberFloatVal(cur), nil
+}
+
+// --- LabeledGettable ---
+func (m *GaugeMetric) GetWithLabels(labels cty.Value) cty.Value {
+	pl, err := labelsFromCtyObject(labels, m.labelNames)
+	if err != nil {
+		return cty.NilVal
+	}
+	key := labelSetKey(pl, m.labelNames)
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cty.NumberFloatVal(m.labelVals[key])
+}
+
+// --- LabeledSettable ---
+func (m *GaugeMetric) SetWithLabels(value cty.Value, labels cty.Value) (cty.Value, error) {
+	f, err := valueToFloat64(value)
+	if err != nil {
+		return cty.NilVal, fmt.Errorf("set: %w", err)
+	}
+	pl, err := labelsFromCtyObject(labels, m.labelNames)
+	if err != nil {
+		return cty.NilVal, fmt.Errorf("set: %w", err)
+	}
+	key := labelSetKey(pl, m.labelNames)
+	m.mu.Lock()
+	if m.labelVals == nil {
+		m.labelVals = make(map[string]float64)
+	}
+	m.labelVals[key] = f
+	m.mu.Unlock()
+	m.vec.With(pl).Set(f)
+	return value, nil
+}
+
+// --- LabeledIncrementable ---
+func (m *GaugeMetric) IncrementWithLabels(delta cty.Value, labels cty.Value) (cty.Value, error) {
+	f, err := valueToFloat64(delta)
+	if err != nil {
+		return cty.NilVal, fmt.Errorf("increment: %w", err)
+	}
+	pl, err := labelsFromCtyObject(labels, m.labelNames)
+	if err != nil {
+		return cty.NilVal, fmt.Errorf("increment: %w", err)
+	}
+	key := labelSetKey(pl, m.labelNames)
+	m.mu.Lock()
+	if m.labelVals == nil {
+		m.labelVals = make(map[string]float64)
+	}
+	m.labelVals[key] += f
+	cur := m.labelVals[key]
+	m.mu.Unlock()
+	m.vec.With(pl).Add(f)
+	return cty.NumberFloatVal(cur), nil
+}
+
+// --- CounterMetric ---
+
+// CounterMetric implements Gettable, Incrementable (no-label),
+// LabeledGettable, LabeledIncrementable (with labels).
+// set() is not supported on counters.
+type CounterMetric struct {
+	vec        *prometheus.CounterVec
+	labelNames []string
+	mu         sync.Mutex
+	noLabelVal float64 // cached for Get
+}
+
+func (m *CounterMetric) metricValue() {}
+
+// --- Gettable ---
+func (m *CounterMetric) Get(_ cty.Value) cty.Value {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return cty.NumberFloatVal(m.noLabelVal)
+}
+
+// --- Incrementable ---
+func (m *CounterMetric) Increment(delta cty.Value) (cty.Value, error) {
+	f, err := valueToFloat64(delta)
+	if err != nil {
+		return cty.NilVal, fmt.Errorf("increment: %w", err)
+	}
+	if f < 0 {
+		return cty.NilVal, fmt.Errorf("increment: counter delta must be >= 0, got %v", f)
+	}
+	m.mu.Lock()
+	m.noLabelVal += f
+	cur := m.noLabelVal
+	m.mu.Unlock()
+	m.vec.WithLabelValues().Add(f)
+	return cty.NumberFloatVal(cur), nil
+}
+
+// --- LabeledGettable ---
+func (m *CounterMetric) GetWithLabels(labels cty.Value) cty.Value {
+	_, err := labelsFromCtyObject(labels, m.labelNames)
+	if err != nil {
+		return cty.NilVal
+	}
+	// prometheus CounterVec doesn't expose a Get; return 0
+	return cty.NumberIntVal(0)
+}
+
+// --- LabeledIncrementable ---
+func (m *CounterMetric) IncrementWithLabels(delta cty.Value, labels cty.Value) (cty.Value, error) {
+	f, err := valueToFloat64(delta)
+	if err != nil {
+		return cty.NilVal, fmt.Errorf("increment: %w", err)
+	}
+	if f < 0 {
+		return cty.NilVal, fmt.Errorf("increment: counter delta must be >= 0, got %v", f)
+	}
+	pl, err := labelsFromCtyObject(labels, m.labelNames)
+	if err != nil {
+		return cty.NilVal, fmt.Errorf("increment: %w", err)
+	}
+	m.vec.With(pl).Add(f)
+	return delta, nil
+}
+
+// --- HistogramMetric ---
+
+// HistogramMetric implements Observable (no-label), LabeledObservable (with labels).
+type HistogramMetric struct {
+	vec        *prometheus.HistogramVec
+	labelNames []string
+}
+
+func (m *HistogramMetric) metricValue() {}
+
+// --- Observable ---
+func (m *HistogramMetric) Observe(value cty.Value) (cty.Value, error) {
+	f, err := valueToFloat64(value)
+	if err != nil {
+		return cty.NilVal, fmt.Errorf("observe: %w", err)
+	}
+	m.vec.WithLabelValues().Observe(f)
+	return value, nil
+}
+
+// --- LabeledObservable ---
+func (m *HistogramMetric) ObserveWithLabels(value cty.Value, labels cty.Value) (cty.Value, error) {
+	f, err := valueToFloat64(value)
+	if err != nil {
+		return cty.NilVal, fmt.Errorf("observe: %w", err)
+	}
+	pl, err := labelsFromCtyObject(labels, m.labelNames)
+	if err != nil {
+		return cty.NilVal, fmt.Errorf("observe: %w", err)
+	}
+	m.vec.With(pl).Observe(f)
+	return value, nil
+}
+
+// --- helpers ---
+
+// labelSetKey produces a stable string key for a prometheus.Labels map,
+// ordered by labelNames, suitable for use as a map key.
+func labelSetKey(pl prometheus.Labels, labelNames []string) string {
+	key := ""
+	for _, name := range labelNames {
+		key += name + "=" + pl[name] + "\x00"
+	}
+	return key
+}
+
+func valueToFloat64(v cty.Value) (float64, error) {
+	if v.Type() != cty.Number {
+		return 0, fmt.Errorf("expected number, got %s", v.Type().FriendlyName())
+	}
+	f, _ := new(big.Float).SetPrec(64).Set(v.AsBigFloat()).Float64()
+	return f, nil
+}
+
+// --- MetricBlockHandler ---
+
+type MetricBlockHandler struct {
+	BlockHandlerBase
+	names   []string            // declaration order for duplicate check
+	metrics map[string]cty.Value // name → capsule, populated during Process
+}
+
+func NewMetricBlockHandler() *MetricBlockHandler {
+	return &MetricBlockHandler{
+		metrics: make(map[string]cty.Value),
+	}
+}
+
+func (h *MetricBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {
+	return "metric." + block.Labels[1], nil
+}
+
+func (h *MetricBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, hcl.Diagnostics) {
+	return ExtractBlockDependencies(block), nil
+}
+
+func (h *MetricBlockHandler) Preprocess(block *hcl.Block) hcl.Diagnostics {
+	kind := block.Labels[0]
+	switch kind {
+	case "gauge", "counter", "histogram":
+		// valid
+	default:
+		return hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "Invalid metric type",
+			Detail:   fmt.Sprintf("Metric type must be \"gauge\", \"counter\", or \"histogram\", got %q", kind),
+			Subject:  block.DefRange.Ptr(),
+		}}
+	}
+
+	name := block.Labels[1]
+	if _, exists := h.metrics[name]; exists {
+		return hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "Duplicate metric",
+			Detail:   fmt.Sprintf("Metric %q is already defined", name),
+			Subject:  block.DefRange.Ptr(),
+		}}
+	}
+	// Reserve the name so duplicate check works across preprocess calls
+	h.metrics[name] = cty.NilVal
+	h.names = append(h.names, name)
+	return nil
+}
+
+func (h *MetricBlockHandler) FinishPreprocessing(config *Config) hcl.Diagnostics {
+	if len(h.names) == 0 {
+		return nil
+	}
+	// Pre-populate an empty metric namespace so that subscription blocks that
+	// reference metric.* don't get "variable not defined" errors during
+	// dependency extraction. The actual capsule values are filled in Process.
+	placeholder := make(map[string]cty.Value, len(h.names))
+	for _, name := range h.names {
+		placeholder[name] = cty.NullVal(cty.DynamicPseudoType)
+	}
+	config.Constants["metric"] = cty.ObjectVal(placeholder)
+	return nil
+}
+
+// MetricDefinition holds the decoded HCL body of a metric block.
+type MetricDefinition struct {
+	Help       string         `hcl:"help"`
+	LabelNames []string       `hcl:"label_names,optional"`
+	Namespace  string         `hcl:"namespace,optional"`
+	Buckets    []float64      `hcl:"buckets,optional"`
+	Server     hcl.Expression `hcl:"server,optional"`
+	DefRange   hcl.Range      `hcl:",def_range"`
+}
+
+func (h *MetricBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {
+	kind := block.Labels[0]
+	name := block.Labels[1]
+
+	def := MetricDefinition{}
+	diags := gohcl.DecodeBody(block.Body, config.evalCtx, &def)
+	if diags.HasErrors() {
+		return diags
+	}
+
+	// Resolve the registry
+	var ms *MetricsServer
+	if def.Server != nil && IsExpressionProvided(def.Server) {
+		var msDiags hcl.Diagnostics
+		ms, msDiags = GetMetricsServerFromExpression(config, def.Server)
+		if msDiags.HasErrors() {
+			return msDiags
+		}
+	} else {
+		provider, defDiags := config.GetDefaultMetricsProvider()
+		if defDiags.HasErrors() {
+			return defDiags
+		}
+		if provider == nil {
+			return hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "No metrics server",
+				Detail:   "No metrics server is available. Either declare a server \"metrics\" block or set server = server.<name> on the metric block.",
+				Subject:  def.DefRange.Ptr(),
+			}}
+		}
+		// Find the MetricsServer that owns this provider
+		for _, candidate := range config.MetricsServers {
+			if candidate.GetMetricsProvider() == provider {
+				ms = candidate
+				break
+			}
+		}
+		if ms == nil {
+			return hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "Internal error",
+				Detail:   "Could not locate MetricsServer for the default metrics provider",
+				Subject:  def.DefRange.Ptr(),
+			}}
+		}
+	}
+
+	reg := ms.GetRegistry()
+
+	fullName := name
+	if def.Namespace != "" {
+		fullName = def.Namespace + "_" + name
+	}
+
+	labelNames := def.LabelNames
+	if labelNames == nil {
+		labelNames = []string{}
+	}
+
+	var capsule cty.Value
+
+	switch kind {
+	case "gauge":
+		vec := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: fullName, Help: def.Help}, labelNames)
+		if err := reg.Register(vec); err != nil {
+			return hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "Failed to register gauge metric",
+				Detail:   err.Error(),
+				Subject:  def.DefRange.Ptr(),
+			}}
+		}
+		capsule = NewMetricCapsule(&GaugeMetric{vec: vec, labelNames: labelNames})
+
+	case "counter":
+		vec := prometheus.NewCounterVec(prometheus.CounterOpts{Name: fullName, Help: def.Help}, labelNames)
+		if err := reg.Register(vec); err != nil {
+			return hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "Failed to register counter metric",
+				Detail:   err.Error(),
+				Subject:  def.DefRange.Ptr(),
+			}}
+		}
+		capsule = NewMetricCapsule(&CounterMetric{vec: vec, labelNames: labelNames})
+
+	case "histogram":
+		buckets := prometheus.DefBuckets
+		if len(def.Buckets) > 0 {
+			buckets = def.Buckets
+		}
+		vec := prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: fullName, Help: def.Help, Buckets: buckets}, labelNames)
+		if err := reg.Register(vec); err != nil {
+			return hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "Failed to register histogram metric",
+				Detail:   err.Error(),
+				Subject:  def.DefRange.Ptr(),
+			}}
+		}
+		capsule = NewMetricCapsule(&HistogramMetric{vec: vec, labelNames: labelNames})
+	}
+
+	h.metrics[name] = capsule
+
+	// Rebuild the metric namespace object with real capsule values.
+	// Only include metrics that have been fully processed (non-nil capsule).
+	metricMap := make(map[string]cty.Value)
+	for _, n := range h.names {
+		if v := h.metrics[n]; v != cty.NilVal {
+			metricMap[n] = v
+		}
+	}
+	if len(metricMap) > 0 {
+		config.Constants["metric"] = cty.ObjectVal(metricMap)
+	}
+
+	return nil
+}
