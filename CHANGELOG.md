@@ -9,24 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.15.0] - 2026-03-23
 
+### Breaking Change!
+
+- **Logging functions renamed** — underscores removed for naming consistency: `log_debug` →
+  `logdebug`, `log_info` → `loginfo`, `log_warn` → `logwarn`, `log_error` → `logerror`,
+  `log_msg` → `logmsg`
+
 ### Added
 
 - **MCP server mounting under HTTP** — MCP server blocks no longer require a `listen` address;
   omit `listen` and reference the server via `handler = server.<name>` in an HTTP `handle` block
   to serve MCP alongside other routes on a shared port
-
-## [0.14.1] - 2026-03-23
-
-### Added
-
 - **`sys.*` built-in variable namespace** — read-only VCL variables exposing process and host
   identity captured at config-build time: `sys.pid`, `sys.hostname`, `sys.user`, `sys.uid`,
   `sys.group`, `sys.gid`, `sys.os`, `sys.arch`, `sys.cpus`, `sys.executable`, `sys.cwd`,
-  `sys.homedir`, `sys.tempdir`, `sys.filepath`, `sys.writepath`
+  `sys.homedir`, `sys.tempdir`, `sys.filepath`, `sys.writepath`, `sys.starttime`, `sys.boottime`
 - **File write functions** — `filewrite(path, content)` and `fileappend(path, content)`, gated by
   `--write-path <dir>` and sandboxed to that directory; `sys.writepath` exposes the configured
   path in VCL
-- **`templatefile(path, vars)` and `gotemplatefile(path, vars)` functions** — render a Jinja-style
+- **`templatefile(path, vars)` and `gotemplatefile(path, vars)` functions** — render a HCL-style
   or Go `text/template` template file with a variable map
 - **Time and duration types and functions** — two new first-class VCL capsule types (`time`,
   `duration`) and a full function library:
@@ -45,16 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   format); `nextzoneserial(s[, t])` computes the next valid serial, `parsezoneserial(s)` converts
   back to an approximate time
 
-### Changed
+## [0.14.1] - 2026-03-22
 
-- **`--allow-file-write` replaced by `--write-path <dir>`** — now takes a directory path (which
-  must be at or within `--file-path`) rather than a boolean; `sys.filewrite` replaced by
-  `sys.writepath` (string)
-- **Logging functions renamed** — underscores removed for naming consistency: `log_debug` →
-  `logdebug`, `log_info` → `loginfo`, `log_warn` → `logwarn`, `log_error` → `logerror`,
-  `log_msg` → `logmsg`
-- Random functions extracted to the standalone `github.com/tsarna/rand-cty-funcs` module
-- Time/duration functions extracted to the standalone `github.com/tsarna/time-cty-funcs` module
+No functional changes. This release just adds a documentation index for the benefit of the
+vinculum-ai tool (see github.com/tsarna/vscode-vinculum)
 
 ## [0.14.0] - 2026-03-22
 
