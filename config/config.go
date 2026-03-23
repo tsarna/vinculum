@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/go-cty-funcs/filesystem"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/robfig/cron/v3"
+	randcty "github.com/tsarna/rand-cty-funcs"
 	timecty "github.com/tsarna/time-cty-funcs"
 	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum/functions"
@@ -210,7 +211,7 @@ func (c *Config) GetFunctions(userFuncs map[string]function.Function) (map[strin
 		funcs[name] = function
 	}
 
-	for name, fn := range functions.GetRandomFunctions() {
+	for name, fn := range randcty.GetRandomFunctions() {
 		funcs[name] = fn
 	}
 

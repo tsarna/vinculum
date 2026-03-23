@@ -93,6 +93,8 @@ github.com/tsarna/go2cty2go v0.1.2 h1:mSEqG5eHUkqaABA1XRgLoLpyEgN99XBZojuZqbFxFk
 github.com/tsarna/go2cty2go v0.1.2/go.mod h1:IRpRWApZVoPjsCKzI2Yptu5Y1jySTSykG2wMETwoWXc=
 github.com/tsarna/hcl-jqfunc v0.1.1 h1:WhlZ2STzPKJw1XoZy1lG/T7m0Tq6Vb1bEea2Cp+2aiU=
 github.com/tsarna/hcl-jqfunc v0.1.1/go.mod h1:DoYToInVWbY45eenJ+VFdVbf9PZPz2OPu6kelnTymY8=
+github.com/tsarna/rand-cty-funcs v0.1.0 h1:yM0iQpXTkpvwAvVwah/ED+VM3lZ9vUybyGGlFoj+utU=
+github.com/tsarna/rand-cty-funcs v0.1.0/go.mod h1:Xsw9Z69Xsowq/HWqE319t/7FvyjSJnFKnDOCPNDMjV8=
 github.com/tsarna/time-cty-funcs v0.1.0 h1:PbY1KYMwrhLBatE35rnFi7AvMWSvR8M0oRqkmUP83cw=
 github.com/tsarna/time-cty-funcs v0.1.0/go.mod h1:ajKYbRPnFkMmpnZYfuEYcB1K7CjXo6ZaYQbOEqyGAuE=
 github.com/tsarna/vinculum-bus v0.9.2 h1:npQgq4JeJGHxh4j7QKXBG8/L18j0o0/EjMeU/d34odM=

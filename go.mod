@@ -19,6 +19,7 @@ require (
 	github.com/tsarna/go-structdiff v0.2.1
 	github.com/tsarna/go2cty2go v0.1.2
 	github.com/tsarna/hcl-jqfunc v0.1.1
+	github.com/tsarna/rand-cty-funcs v0.1.0
 	github.com/tsarna/time-cty-funcs v0.1.0
 	github.com/tsarna/vinculum-bus v0.9.2
 	github.com/tsarna/vinculum-vws v0.9.2
