@@ -7,7 +7,7 @@ server, exposing resources, tools, and prompts to MCP clients such as AI assista
 
 ```hcl
 server "mcp" "name" {
-    listen         = ":8080"
+    listen         = ":8080"       # required unless mounted under an HTTP server
     path           = "/mcp"        # optional, default "/"
     server_name    = "My Server"   # optional
     server_version = "1.0.0"       # optional
@@ -19,7 +19,7 @@ server "mcp" "name" {
 }
 ```
 
-- `listen` — address and port to listen on (e.g. `":9000"`)
+- `listen` — address and port to listen on (e.g. `":9000"`). Omit when mounting under an HTTP server (see [Mounting under HTTP](#mounting-under-http)).
 - `path` — URL path to mount the MCP endpoint on
 - `server_name` / `server_version` — reported to clients during capability negotiation
 - `disabled` — if true, the server block is skipped entirely
@@ -200,6 +200,38 @@ See [functions.md](functions.md#mcp-functions) for full details.
 | `mcp_error(message)` | Tool error | tools only |
 | `mcp_user_message(content)` | User-role prompt message | prompts |
 | `mcp_assistant_message(content)` | Assistant-role prompt message | prompts |
+
+---
+
+## Mounting under HTTP
+
+An MCP server can be mounted at a path of an existing HTTP server instead of
+listening on its own port. Omit `listen` from the MCP block and reference it
+from the HTTP server's `handle` block:
+
+```hcl
+server "mcp" "mytools" {
+    # no listen — mounted under HTTP below
+    server_name = "My Tools"
+
+    tool "echo" {
+        description = "Echo the input"
+        param "text" { type = "string"; required = true }
+        action = ctx.args.text
+    }
+}
+
+server "http" "main" {
+    listen = ":8080"
+
+    handle "/mcp/" {
+        handler = server.mytools
+    }
+}
+```
+
+The MCP endpoint is then reachable at `http://host:8080/mcp/`. This is useful
+when you want to serve MCP alongside other HTTP routes on a single port.
 
 ---
 
