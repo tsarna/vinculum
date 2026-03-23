@@ -94,6 +94,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	// Add environment variables to the evaluation context
 	config.Constants["env"] = GetEnvObject()
 	config.Constants["httpstatus"] = getStatusCodeObject()
+	config.Constants["sys"] = GetSysObject()
 
 	// Create evaluation context that will be updated as we process
 	config.evalCtx = &hcl.EvalContext{

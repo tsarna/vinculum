@@ -227,7 +227,7 @@ bus "main" {
 
 subscription "logger" {
     bus = bus.main
-    topics = ["app/*"]
+    topics = ["app/#"]
     action = log_info("Received message", ctx.msg)
 }
 
@@ -246,7 +246,7 @@ cron "heartbeat" {
 ```hcl
 subscription "data_processor" {
     bus = bus.main
-    topics = ["raw/data/*"]
+    topics = ["raw/data/#"]
     transforms = [
         jq("select(.valid == true)"),
         add_topic_prefix("processed/"),
@@ -287,10 +287,10 @@ const {
 
 subscription "event_router" {
     bus = bus.main
-    topics = ["events/*"]
+    topics = ["events/#"]
     transforms = [
         if_else_topic_pattern(
-            "events/user/*",
+            "events/user/#",
             processors.user_events,
             processors.system_events
         )

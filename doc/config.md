@@ -48,6 +48,21 @@ for the full expression language reference.
 - `server.<name>`: Each server defined may be referenced by name. All server types
   share a single namespace — you cannot have both an HTTP server and a WebSocket
   server with the same name.
+- `sys.*`: Process and host identity facts captured at startup. All values are
+  read-only. Available attributes:
+  - `sys.pid` (number): Process ID of the running process.
+  - `sys.hostname` (string): Hostname of the machine.
+  - `sys.user` (string): Username the process is running as.
+  - `sys.uid` (number): Numeric user ID.
+  - `sys.group` (string): Primary group name.
+  - `sys.gid` (number): Numeric primary group ID.
+  - `sys.os` (string): Operating system (e.g. `"linux"`, `"darwin"`, `"windows"`).
+  - `sys.arch` (string): CPU architecture (e.g. `"amd64"`, `"arm64"`).
+  - `sys.cpus` (number): Number of logical CPUs available.
+  - `sys.executable` (string): Path to the running executable.
+  - `sys.cwd` (string): Current working directory at startup.
+  - `sys.homedir` (string): Home directory of the current user.
+  - `sys.tempdir` (string): Default directory for temporary files.
 - `var.<name>`: Each variable defined via a `var` block may be referenced by name.
   Variables are mutable and goroutine-safe; use `get()`, `set()`, and `increment()`
   to read and write their values.
