@@ -71,6 +71,13 @@ for the full expression language reference.
     empty string if not set. This is the base directory used by the `filewrite`
     and `fileappend` functions; it must be within `sys.filepath`. See
     [File Write Functions](functions.md#file-write-functions) for details.
+  - `sys.starttime` (time): Approximate process start time, captured once when
+    the process loads. Use with
+    `since(sys.starttime)` to compute process uptime.
+  - `sys.boottime` (time): Approximate system boot time. On macOS this is exact
+    (via `kern.boottime` sysctl); on Linux it is accurate to ±1 second (via
+    `sysinfo(2)`). On other platforms it falls back to `sys.starttime`. Use with
+    `since(sys.boottime)` to compute host uptime.
 - `var.<name>`: Each variable defined via a `var` block may be referenced by name.
   Variables are mutable and goroutine-safe; use `get()`, `set()`, and `increment()`
   to read and write their values.

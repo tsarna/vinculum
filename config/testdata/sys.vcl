@@ -57,3 +57,11 @@ assert "sys.filepath is a string" {
 assert "sys.writepath is a string" {
     condition = strlen(sys.writepath) >= 0
 }
+
+assert "sys.starttime is a time value" {
+    condition = sys.starttime != parsetime("2000-01-01T00:00:00Z")
+}
+
+assert "sys.boottime is a time value" {
+    condition = sys.boottime != parsetime("2000-01-01T00:00:00Z")
+}

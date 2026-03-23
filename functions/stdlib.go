@@ -67,7 +67,8 @@ func GetStandardLibraryFunctions() map[string]function.Function {
 
 		// Date/time functions
 		"formatdate": stdlib.FormatDateFunc,
-		"timeadd":    stdlib.TimeAddFunc,
+		// Note: "timeadd" is registered via GetTimeFunctions() with an upgraded
+		// implementation that also accepts capsule types while remaining backward-compatible.
 
 		// Type conversion functions (using MakeToFunc)
 		"tostring": stdlib.MakeToFunc(cty.String),

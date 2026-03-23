@@ -5,9 +5,16 @@ import (
 	"os/user"
 	"runtime"
 	"strconv"
+	"time"
 
+	"github.com/tsarna/vinculum/internal/hclutil"
 	"github.com/zclconf/go-cty/cty"
 )
+
+// processStartTime is captured once at package initialization so that
+// sys.starttime reflects the true process start time even after a config
+// rebuild (e.g. on SIGHUP).
+var processStartTime = time.Now()
 
 // GetSysObject returns a cty object containing process and host identity
 // information, suitable for providing to an HCL evaluation context as "sys".
@@ -78,6 +85,12 @@ func GetSysObject(baseDir string, writeDir string) cty.Value {
 
 	// Base directory for file write functions (--write-path flag); empty if not set
 	sysMap["writepath"] = cty.StringVal(writeDir)
+
+	// Approximate process start time (captured at package init, not config-build time)
+	sysMap["starttime"] = hclutil.NewTimeCapsule(processStartTime)
+
+	// System boot time (platform-specific; falls back to processStartTime on unsupported OSes)
+	sysMap["boottime"] = hclutil.NewTimeCapsule(getBootTime())
 
 	return cty.ObjectVal(sysMap)
 }

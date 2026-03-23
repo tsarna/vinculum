@@ -227,6 +227,10 @@ func (c *Config) GetFunctions(userFuncs map[string]function.Function) (map[strin
 		funcs[name] = fn
 	}
 
+	for name, fn := range functions.GetTimeFunctions() {
+		funcs[name] = fn
+	}
+
 	if c.BaseDir != "" {
 		funcs["abspath"] = filesystem.AbsPathFunc
 		funcs["basename"] = filesystem.BasenameFunc

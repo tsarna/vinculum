@@ -44,6 +44,136 @@ All logging functions return `true`.
   without replacement. Errors if `k` exceeds the length of `list`.
 - `randshuffle(list)`: Return a shuffled copy of `list`. The original list is not modified.
 
+### Time and Duration
+
+VCL has two native time types — `time` (a point in time) and `duration` (a length of time). Both
+support `==` and `!=`. Ordering comparisons (`<`, `>`, etc.) and require the dedicated comparison
+functions listed below, because go-cty does not dispatch those operators to capsule types.
+
+Duration strings are accepted in two formats:
+
+- **Go format** — `5m`, `1h30m`, `2h3m4s`, `500ms`, `1.5s`. Units: `ns`, `us`, `µs`, `ms`, `s`, `m`, `h`.
+- **ISO 8601 P-notation** — `PT5M`, `PT1H30M`, `P1DT12H`, `PT0.5S`. Calendar fields (`P1Y`, `P1M`)
+  are rejected — they cannot be represented as a fixed duration; use `addyears()` / `addmonths()`
+  (Phase 2) for calendar arithmetic.
+
+#### Timestamp Creation
+
+- `now()`: Return the current time in the local system timezone.
+- `now(tz)`: Return the current time in the named IANA timezone, e.g. `now("UTC")`, `now("America/New_York")`.
+- `parsetime(s)`: Parse an RFC 3339 timestamp string (timezone required). Accepts sub-second
+  precision. Example: `parsetime("2024-01-15T10:30:00Z")`.
+
+#### Timestamp Formatting
+
+- `formattime(format, t)`: Format `t` using Go's reference-time layout. The reference moment is
+  `Mon Jan 2 15:04:05 MST 2006`; use those specific values as placeholders in the format string.
+  Example: `formattime("2006-01-02", now("UTC"))` → `"2024-01-15"`.
+
+  A format string starting with `@` selects a predefined layout *(Phase 3)*:
+
+  | Name | Equivalent format string | Example output |
+  |------|--------------------------|----------------|
+  | `@ansic` | `Mon Jan _2 15:04:05 2006` | `Mon Jan 15 10:30:00 2024` |
+  | `@unixdate` | `Mon Jan _2 15:04:05 MST 2006` | `Mon Jan 15 10:30:00 UTC 2024` |
+  | `@rubydate` | `Mon Jan 02 15:04:05 -0700 2006` | `Mon Jan 15 10:30:00 +0000 2024` |
+  | `@rfc822` | `02 Jan 06 15:04 MST` | `15 Jan 24 10:30 UTC` |
+  | `@rfc822z` | `02 Jan 06 15:04 -0700` | `15 Jan 24 10:30 +0000` |
+  | `@rfc850` | `Monday, 02-Jan-06 15:04:05 MST` | `Monday, 15-Jan-24 10:30:00 UTC` |
+  | `@rfc1123` | `Mon, 02 Jan 2006 15:04:05 MST` | `Mon, 15 Jan 2024 10:30:00 UTC` |
+  | `@rfc1123z` | `Mon, 02 Jan 2006 15:04:05 -0700` | `Mon, 15 Jan 2024 10:30:00 +0000` |
+  | `@rfc3339` | `2006-01-02T15:04:05Z07:00` | `2024-01-15T10:30:00Z` |
+  | `@rfc3339nano` | `2006-01-02T15:04:05.999999999Z07:00` | `2024-01-15T10:30:00.123Z` |
+  | `@kitchen` | `3:04PM` | `10:30AM` |
+  | `@stamp` | `Jan _2 15:04:05` | `Jan 15 10:30:00` |
+  | `@stampmilli` | `Jan _2 15:04:05.000` | `Jan 15 10:30:00.000` |
+  | `@stampmicro` | `Jan _2 15:04:05.000000` | `Jan 15 10:30:00.000000` |
+  | `@stampnano` | `Jan _2 15:04:05.000000000` | `Jan 15 10:30:00.000000000` |
+  | `@datetime` | `2006-01-02 15:04:05` | `2024-01-15 10:30:00` |
+  | `@date` | `2006-01-02` | `2024-01-15` |
+  | `@time` | `15:04:05` | `10:30:00` |
+
+  The same `@name` aliases will be accepted by `parsetime` once multi-format parsing is added.
+
+- `formatdate(fmt, ts)`: A legacy hcl function, prefer `formattime`. Format an RFC 3339 timestamp *string*
+  using a token-based format (`YYYY`, `MM`, `DD`, `HH`, `mm`, `ss`, `Z`). Operates on strings
+  only; for `time` capsule values use `formattime` instead.
+
+#### Timestamp Arithmetic
+
+- `timeadd(ts, dur)`: Add a duration to a time. Accepts four type combinations:
+
+  | `ts` type | `dur` type | Return type | Notes |
+  |-----------|------------|-------------|-------|
+  | `string`  | `string`   | `string`    | Backward-compatible: RFC 3339 in, RFC 3339 out; duration in Go format |
+  | `time`    | `duration` | `time`      | Native capsule path |
+  | `time`    | `string`   | `time`      | Duration string auto-parsed (Go or ISO 8601) |
+  | `string`  | `duration` | `time`      | Timestamp string auto-parsed as RFC 3339 |
+
+- `timesub(t1, t2)`: Subtract. Return type depends on argument types:
+  - `timesub(time, time)` → `duration` — elapsed from `t2` to `t1`; negative if `t1 < t2`.
+  - `timesub(time, duration)` → `time` — `t` minus `d`.
+- `since(t)`: Duration elapsed since `t` (equivalent to `timesub(now(), t)`).
+- `until(t)`: Duration remaining until `t` (equivalent to `timesub(t, now())`).
+
+#### Timestamp Comparison
+
+The `<`/`>`/`<=`/`>=` operators do not work on `time` values (go-cty limitation). Use:
+
+- `timebefore(t1, t2)`: `true` if `t1` is before `t2`. *(Phase 2)*
+- `timeafter(t1, t2)`: `true` if `t1` is after `t2`. *(Phase 2)*
+
+#### Duration Creation
+
+- `duration(s)`: Parse a duration string — Go format (`"5m30s"`) or ISO 8601 (`"PT5M30S"`).
+- `duration(n, unit)`: Create a duration from a number and a unit string.
+  Valid units: `"h"`, `"m"`, `"s"`, `"ms"`, `"us"`, `"ns"`. Fractional values are accepted
+  (e.g. `duration(1.5, "s")` = 1500ms).
+
+#### Duration Formatting
+
+- `formatduration(d)`: Format `d` in Go format, e.g. `"1h30m0s"`.
+- `formatduration(d, fmt)`: Format with explicit format. `fmt` is `"go"` (default) or `"iso"`
+  (ISO 8601 P-notation, e.g. `"PT1H30M"`).
+
+#### Duration Comparison
+
+- `durationlt(d1, d2)`: `true` if `d1 < d2`. *(Phase 2)*
+- `durationgt(d1, d2)`: `true` if `d1 > d2`. *(Phase 2)*
+
+#### Examples
+
+```hcl
+# Current time
+now("UTC")                                      # → time in UTC
+now("America/New_York")                         # → time in Eastern timezone
+
+# Parse and format
+t = parsetime("2024-01-15T10:30:00Z")
+formattime("2006-01-02", t)                     # → "2024-01-15"
+formattime("15:04:05", t)                       # → "10:30:00"
+
+# Arithmetic
+timeadd(now("UTC"), duration("1h30m"))          # → 1.5 hours from now
+timeadd(now("UTC"), duration(90, "m"))          # → same
+timesub(ctx.end_time, ctx.start_time)           # → duration elapsed
+timesub(ctx.deadline, duration("30m"))          # → 30 minutes before deadline
+
+# Elapsed / remaining
+since(sys.starttime)                            # → process uptime
+since(sys.boottime)                             # → host uptime
+since(ctx.start_time)                           # → duration since start
+formatduration(since(ctx.start_time))           # → "5m32s"
+formatduration(since(ctx.start_time), "iso")    # → "PT5M32S"
+
+# Comparison (use functions, not operators)
+timebefore(ctx.expires_at, now("UTC"))          # → true if already expired   [Phase 2]
+durationgt(since(ctx.last_seen), duration(24, "h"))  # → true if inactive > 1 day [Phase 2]
+
+# Backward-compatible string form of timeadd
+timeadd("2024-01-15T10:30:00Z", "1h")          # → "2024-01-15T11:30:00Z"
+```
+
 ### Variables and Metrics
 
 These functions read and write mutable variables (`var` blocks) and Prometheus
