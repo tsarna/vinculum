@@ -15,20 +15,20 @@ func GetLogFunctions(logger *zap.Logger) map[string]function.Function {
 	if logger == nil {
 		// Return no-op functions if no logger is provided
 		return map[string]function.Function{
-			"log_debug": makeNoOpLogFunc(),
-			"log_info":  makeNoOpLogFunc(),
-			"log_warn":  makeNoOpLogFunc(),
-			"log_error": makeNoOpLogFunc(),
-			"log_level": makeNoOpLogLevelFunc(),
+			"logdebug": makeNoOpLogFunc(),
+			"loginfo":  makeNoOpLogFunc(),
+			"logwarn":  makeNoOpLogFunc(),
+			"logerror": makeNoOpLogFunc(),
+			"logmsg":   makeNoOpLogLevelFunc(),
 		}
 	}
 
 	return map[string]function.Function{
-		"log_debug": makeLogFunc(logger, zapcore.DebugLevel),
-		"log_info":  makeLogFunc(logger, zapcore.InfoLevel),
-		"log_warn":  makeLogFunc(logger, zapcore.WarnLevel),
-		"log_error": makeLogFunc(logger, zapcore.ErrorLevel),
-		"log_msg":   makeLogLevelFunc(logger),
+		"logdebug": makeLogFunc(logger, zapcore.DebugLevel),
+		"loginfo":  makeLogFunc(logger, zapcore.InfoLevel),
+		"logwarn":  makeLogFunc(logger, zapcore.WarnLevel),
+		"logerror": makeLogFunc(logger, zapcore.ErrorLevel),
+		"logmsg":   makeLogLevelFunc(logger),
 	}
 }
 
@@ -219,7 +219,7 @@ func makeNoOpLogFunc() function.Function {
 	})
 }
 
-// makeNoOpLogLevelFunc creates a no-op log_level function when no logger is available
+// makeNoOpLogLevelFunc creates a no-op logmsg function when no logger is available
 func makeNoOpLogLevelFunc() function.Function {
 	return function.New(&function.Spec{
 		Params: []function.Parameter{

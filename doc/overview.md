@@ -228,7 +228,7 @@ bus "main" {
 subscription "logger" {
     bus = bus.main
     topics = ["app/#"]
-    action = log_info("Received message", ctx.msg)
+    action = loginfo("Received message", ctx.msg)
 }
 
 cron "heartbeat" {

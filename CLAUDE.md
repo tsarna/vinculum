@@ -226,7 +226,7 @@ effects (logging, sending messages, etc.).
 
 ```hcl
 action = [
-    log_info("doing thing", {key = val}),
+    loginfo("doing thing", {key = val}),
     send(ctx, bus.main, "topic", "payload"),
     "final return value",
 ]
