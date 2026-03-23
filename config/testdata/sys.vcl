@@ -54,6 +54,6 @@ assert "sys.filepath is a string" {
     condition = strlen(sys.filepath) >= 0
 }
 
-assert "sys.filewrite is a bool" {
-    condition = sys.filewrite == true || sys.filewrite == false
+assert "sys.writepath is a string" {
+    condition = strlen(sys.writepath) >= 0
 }

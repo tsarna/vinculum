@@ -30,9 +30,9 @@ Examples:
 }
 
 var (
-	logLevel       string
-	filePath       string
-	allowFileWrite bool
+	logLevel  string
+	filePath  string
+	writePath string
 )
 
 func init() {
@@ -40,7 +40,7 @@ func init() {
 
 	serverCmd.Flags().StringVarP(&logLevel, "log-level", "l", "info", "log level (debug, info, warn, error)")
 	serverCmd.Flags().StringVarP(&filePath, "file-path", "f", "", "base directory for file functions (enables file, fileexists, fileset functions)")
-	serverCmd.Flags().BoolVarP(&allowFileWrite, "allow-file-write", "w", false, "enable file write functions (requires --file-path)")
+	serverCmd.Flags().StringVarP(&writePath, "write-path", "w", "", "base directory for file write functions; must be under --file-path")
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
@@ -64,8 +64,8 @@ func runServer(cmd *cobra.Command, args []string) error {
 	if filePath != "" {
 		configBuilder = configBuilder.WithBaseDir(filePath)
 	}
-	if allowFileWrite {
-		configBuilder = configBuilder.WithAllowFileWrite(true)
+	if writePath != "" {
+		configBuilder = configBuilder.WithWriteDir(writePath)
 	}
 
 	cfg, diags := configBuilder.Build()

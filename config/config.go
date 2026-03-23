@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/hashicorp/go-cty-funcs/filesystem"
 	"github.com/hashicorp/hcl/v2"
@@ -14,11 +16,11 @@ import (
 )
 
 type ConfigBuilder struct {
-	logger         *zap.Logger
-	sources        []any
-	baseDir        string
-	allowFileWrite bool
-	blockHandlers  map[string]BlockHandler
+	logger        *zap.Logger
+	sources       []any
+	baseDir       string
+	writeDir      string
+	blockHandlers map[string]BlockHandler
 }
 
 type Startable interface {
@@ -31,7 +33,7 @@ type Config struct {
 	Constants      map[string]cty.Value
 	evalCtx        *hcl.EvalContext
 	BaseDir        string
-	AllowFileWrite bool
+	WriteDir string
 
 	SigActions     *SignalActionHandler
 	Startables     []Startable
@@ -71,16 +73,16 @@ func (c *ConfigBuilder) WithBaseDir(baseDir string) *ConfigBuilder {
 	return c
 }
 
-func (c *ConfigBuilder) WithAllowFileWrite(allow bool) *ConfigBuilder {
-	c.allowFileWrite = allow
+func (c *ConfigBuilder) WithWriteDir(writeDir string) *ConfigBuilder {
+	c.writeDir = writeDir
 	return c
 }
 
 func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	config := &Config{
 		Logger:         cb.logger,
-		BaseDir:        cb.baseDir,
-		AllowFileWrite: cb.allowFileWrite,
+		BaseDir:   cb.baseDir,
+		WriteDir:  cb.writeDir,
 		Constants:      make(map[string]cty.Value),
 		SigActions:   NewSignalActionHandler(cb.logger),
 		Buses:        make(map[string]bus.EventBus),
@@ -94,6 +96,25 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		Crons:          make(map[string]*cron.Cron),
 	}
 
+	// Validate write-path is under file-path
+	if config.WriteDir != "" {
+		if config.BaseDir == "" {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "Invalid --write-path",
+				Detail:   "--write-path requires --file-path to also be set",
+			}}
+		}
+		rel, err := filepath.Rel(filepath.Clean(config.BaseDir), filepath.Clean(config.WriteDir))
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "Invalid --write-path",
+				Detail:   fmt.Sprintf("--write-path %q must be within --file-path %q", config.WriteDir, config.BaseDir),
+			}}
+		}
+	}
+
 	bodies, diags := ParseConfigFiles(cb.sources...)
 	if diags.HasErrors() {
 		return nil, diags
@@ -102,7 +123,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	// Add environment variables to the evaluation context
 	config.Constants["env"] = GetEnvObject()
 	config.Constants["httpstatus"] = getStatusCodeObject()
-	config.Constants["sys"] = GetSysObject(config.BaseDir, config.AllowFileWrite)
+	config.Constants["sys"] = GetSysObject(config.BaseDir, config.WriteDir)
 
 	// Create evaluation context that will be updated as we process
 	config.evalCtx = &hcl.EvalContext{
@@ -217,9 +238,9 @@ func (c *Config) GetFunctions(userFuncs map[string]function.Function) (map[strin
 		funcs["pathexpand"] = filesystem.PathExpandFunc
 	}
 
-	if c.BaseDir != "" && c.AllowFileWrite {
-		funcs["filewrite"] = functions.MakeFileWriteFunc(c.BaseDir)
-		funcs["fileappend"] = functions.MakeFileAppendFunc(c.BaseDir)
+	if c.WriteDir != "" {
+		funcs["filewrite"] = functions.MakeFileWriteFunc(c.WriteDir)
+		funcs["fileappend"] = functions.MakeFileAppendFunc(c.WriteDir)
 	}
 
 	for name, function := range userFuncs {

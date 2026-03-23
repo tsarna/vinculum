@@ -170,10 +170,10 @@ The base directory is also accessible as `sys.filepath`.
 ### File Write Functions
 
 These functions modify files on disk. They require **both** `--file-path <dir>` **and**
-`--allow-file-write` (`-w`) to be set. All paths are resolved relative to the
-`--file-path` base directory; attempts to write outside that directory are rejected
-with an error. The current state of these flags is also readable as `sys.filepath`
-and `sys.filewrite`.
+`--write-path <dir>` (`-w`) to be set. `--write-path` must be equal to or a
+subdirectory of `--file-path`. All paths are resolved relative to `--write-path`;
+attempts to write outside that directory are rejected. The configured paths are
+readable as `sys.filepath` and `sys.writepath`.
 
 - `filewrite(path, content)`: Write `content` to `path`, creating or overwriting the file. Returns `true`.
 - `fileappend(path, content)`: Append `content` to `path` (creates the file if absent). Returns `true`.

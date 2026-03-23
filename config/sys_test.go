@@ -25,23 +25,23 @@ func TestSys(t *testing.T) {
 }
 
 func TestGetSysObject(t *testing.T) {
-	val := GetSysObject("", false)
+	val := GetSysObject("", "")
 	assert.Equal(t, cty.Object(map[string]cty.Type{
-		"pid":       cty.Number,
-		"hostname":  cty.String,
-		"user":      cty.String,
-		"uid":       cty.Number,
-		"group":     cty.String,
-		"gid":       cty.Number,
-		"os":        cty.String,
-		"arch":      cty.String,
-		"cpus":      cty.Number,
+		"pid":        cty.Number,
+		"hostname":   cty.String,
+		"user":       cty.String,
+		"uid":        cty.Number,
+		"group":      cty.String,
+		"gid":        cty.Number,
+		"os":         cty.String,
+		"arch":       cty.String,
+		"cpus":       cty.Number,
 		"executable": cty.String,
-		"cwd":       cty.String,
-		"homedir":   cty.String,
-		"tempdir":   cty.String,
-		"filepath":  cty.String,
-		"filewrite": cty.Bool,
+		"cwd":        cty.String,
+		"homedir":    cty.String,
+		"tempdir":    cty.String,
+		"filepath":   cty.String,
+		"writepath":  cty.String,
 	}), val.Type())
 
 	attrs := val.AsValueMap()
@@ -65,15 +65,13 @@ func TestGetSysObject(t *testing.T) {
 	// tempdir should match
 	assert.Equal(t, os.TempDir(), attrs["tempdir"].AsString())
 
-	// filepath empty when not set
+	// filepath and writepath empty when not set
 	assert.Equal(t, "", attrs["filepath"].AsString())
+	assert.Equal(t, "", attrs["writepath"].AsString())
 
-	// filewrite false when not set
-	assert.Equal(t, cty.False, attrs["filewrite"])
-
-	// filepath and filewrite reflect values when set
-	val2 := GetSysObject("/tmp/myfiles", true)
+	// filepath and writepath reflect values when set
+	val2 := GetSysObject("/tmp/myfiles", "/tmp/myfiles/out")
 	attrs2 := val2.AsValueMap()
 	assert.Equal(t, "/tmp/myfiles", attrs2["filepath"].AsString())
-	assert.Equal(t, cty.True, attrs2["filewrite"])
+	assert.Equal(t, "/tmp/myfiles/out", attrs2["writepath"].AsString())
 }

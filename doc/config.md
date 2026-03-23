@@ -67,8 +67,9 @@ for the full expression language reference.
     command line, or empty string if it was not specified. This is the base
     directory used by the file read and write functions.
     See [File Functions](functions.md#file-functions) for details.
-  - `sys.filewrite` (bool): `true` if `--allow-file-write` (`-w`) was set,
-    enabling the `filewrite` and `fileappend` functions. See
+  - `sys.writepath` (string): The value of the `--write-path` flag (`-w`), or
+    empty string if not set. This is the base directory used by the `filewrite`
+    and `fileappend` functions; it must be within `sys.filepath`. See
     [File Write Functions](functions.md#file-write-functions) for details.
 - `var.<name>`: Each variable defined via a `var` block may be referenced by name.
   Variables are mutable and goroutine-safe; use `get()`, `set()`, and `increment()`

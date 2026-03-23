@@ -24,7 +24,7 @@ func safeResolvePath(baseDir, path string) (string, error) {
 
 	cleanBase := filepath.Clean(baseDir)
 	rel, err := filepath.Rel(cleanBase, path)
-	if err != nil || strings.HasPrefix(rel, "..") {
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("path %q is outside the permitted base directory %q", path, baseDir)
 	}
 
