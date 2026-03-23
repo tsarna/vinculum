@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/go-cty-funcs/filesystem"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/robfig/cron/v3"
+	timecty "github.com/tsarna/time-cty-funcs"
 	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum/functions"
 	"github.com/zclconf/go-cty/cty"
@@ -227,7 +228,7 @@ func (c *Config) GetFunctions(userFuncs map[string]function.Function) (map[strin
 		funcs[name] = fn
 	}
 
-	for name, fn := range functions.GetTimeFunctions() {
+	for name, fn := range timecty.GetTimeFunctions() {
 		funcs[name] = fn
 	}
 

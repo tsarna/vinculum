@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/tsarna/vinculum/internal/hclutil"
+	timecty "github.com/tsarna/time-cty-funcs"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -87,10 +87,10 @@ func GetSysObject(baseDir string, writeDir string) cty.Value {
 	sysMap["writepath"] = cty.StringVal(writeDir)
 
 	// Approximate process start time (captured at package init, not config-build time)
-	sysMap["starttime"] = hclutil.NewTimeCapsule(processStartTime)
+	sysMap["starttime"] = timecty.NewTimeCapsule(processStartTime)
 
 	// System boot time (platform-specific; falls back to processStartTime on unsupported OSes)
-	sysMap["boottime"] = hclutil.NewTimeCapsule(getBootTime())
+	sysMap["boottime"] = timecty.NewTimeCapsule(getBootTime())
 
 	return cty.ObjectVal(sysMap)
 }
