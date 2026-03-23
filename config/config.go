@@ -14,10 +14,11 @@ import (
 )
 
 type ConfigBuilder struct {
-	logger        *zap.Logger
-	sources       []any
-	baseDir       string
-	blockHandlers map[string]BlockHandler
+	logger         *zap.Logger
+	sources        []any
+	baseDir        string
+	allowFileWrite bool
+	blockHandlers  map[string]BlockHandler
 }
 
 type Startable interface {
@@ -26,10 +27,11 @@ type Startable interface {
 
 type Config struct {
 	Logger    *zap.Logger
-	Functions map[string]function.Function
-	Constants map[string]cty.Value
-	evalCtx   *hcl.EvalContext
-	BaseDir   string
+	Functions      map[string]function.Function
+	Constants      map[string]cty.Value
+	evalCtx        *hcl.EvalContext
+	BaseDir        string
+	AllowFileWrite bool
 
 	SigActions     *SignalActionHandler
 	Startables     []Startable
@@ -69,11 +71,17 @@ func (c *ConfigBuilder) WithBaseDir(baseDir string) *ConfigBuilder {
 	return c
 }
 
+func (c *ConfigBuilder) WithAllowFileWrite(allow bool) *ConfigBuilder {
+	c.allowFileWrite = allow
+	return c
+}
+
 func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	config := &Config{
-		Logger:       cb.logger,
-		BaseDir:      cb.baseDir,
-		Constants:    make(map[string]cty.Value),
+		Logger:         cb.logger,
+		BaseDir:        cb.baseDir,
+		AllowFileWrite: cb.allowFileWrite,
+		Constants:      make(map[string]cty.Value),
 		SigActions:   NewSignalActionHandler(cb.logger),
 		Buses:        make(map[string]bus.EventBus),
 		CtyBusMap:    make(map[string]cty.Value),
@@ -94,7 +102,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	// Add environment variables to the evaluation context
 	config.Constants["env"] = GetEnvObject()
 	config.Constants["httpstatus"] = getStatusCodeObject()
-	config.Constants["sys"] = GetSysObject(config.BaseDir)
+	config.Constants["sys"] = GetSysObject(config.BaseDir, config.AllowFileWrite)
 
 	// Create evaluation context that will be updated as we process
 	config.evalCtx = &hcl.EvalContext{
@@ -205,9 +213,13 @@ func (c *Config) GetFunctions(userFuncs map[string]function.Function) (map[strin
 		funcs["file"] = filesystem.MakeFileFunc(c.BaseDir, false)
 		funcs["fileexists"] = filesystem.MakeFileExistsFunc(c.BaseDir)
 		funcs["fileset"] = filesystem.MakeFileSetFunc(c.BaseDir)
-		funcs["file"] = filesystem.MakeFileFunc(c.BaseDir, true)
 		funcs["filebase64"] = filesystem.MakeFileFunc(c.BaseDir, true)
 		funcs["pathexpand"] = filesystem.PathExpandFunc
+	}
+
+	if c.BaseDir != "" && c.AllowFileWrite {
+		funcs["filewrite"] = functions.MakeFileWriteFunc(c.BaseDir)
+		funcs["fileappend"] = functions.MakeFileAppendFunc(c.BaseDir)
 	}
 
 	for name, function := range userFuncs {

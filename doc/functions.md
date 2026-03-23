@@ -159,6 +159,17 @@ The base directory is also accessible as `sys.filepath`.
 - `fileexists(path)`: Return `true` if the file exists, `false` otherwise.
 - `fileset(dir, pattern)`: Return a set of file paths within `dir` that match `pattern` (glob syntax).
 
+### File Write Functions
+
+These functions modify files on disk. They require **both** `--file-path <dir>` **and**
+`--allow-file-write` (`-w`) to be set. All paths are resolved relative to the
+`--file-path` base directory; attempts to write outside that directory are rejected
+with an error. The current state of these flags is also readable as `sys.filepath`
+and `sys.filewrite`.
+
+- `filewrite(path, content)`: Write `content` to `path`, creating or overwriting the file. Returns `true`.
+- `fileappend(path, content)`: Append `content` to `path` (creates the file if absent). Returns `true`.
+
 ---
 
 ## MCP Functions

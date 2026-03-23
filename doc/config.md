@@ -65,8 +65,11 @@ for the full expression language reference.
   - `sys.tempdir` (string): Default directory for temporary files.
   - `sys.filepath` (string): The value of the `--file-path` flag passed on the
     command line, or empty string if it was not specified. This is the base
-    directory used by the `file`, `filebase64`, `fileexists`, and `fileset`
-    functions. See [File Functions](functions.md#file-functions) for details.
+    directory used by the file read and write functions.
+    See [File Functions](functions.md#file-functions) for details.
+  - `sys.filewrite` (bool): `true` if `--allow-file-write` (`-w`) was set,
+    enabling the `filewrite` and `fileappend` functions. See
+    [File Write Functions](functions.md#file-write-functions) for details.
 - `var.<name>`: Each variable defined via a `var` block may be referenced by name.
   Variables are mutable and goroutine-safe; use `get()`, `set()`, and `increment()`
   to read and write their values.

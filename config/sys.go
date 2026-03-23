@@ -13,7 +13,8 @@ import (
 // information, suitable for providing to an HCL evaluation context as "sys".
 // All values are captured once at config-build time. baseDir is the value of
 // the --file-path flag, or empty string if it was not specified.
-func GetSysObject(baseDir string) cty.Value {
+// allowFileWrite reflects whether --allow-file-write was set.
+func GetSysObject(baseDir string, allowFileWrite bool) cty.Value {
 	sysMap := make(map[string]cty.Value)
 
 	// Process ID
@@ -74,6 +75,9 @@ func GetSysObject(baseDir string) cty.Value {
 
 	// Base directory for file functions (--file-path flag); empty if not set
 	sysMap["filepath"] = cty.StringVal(baseDir)
+
+	// Whether --allow-file-write was set
+	sysMap["filewrite"] = cty.BoolVal(allowFileWrite)
 
 	return cty.ObjectVal(sysMap)
 }
