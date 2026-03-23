@@ -268,6 +268,7 @@ func (c *Config) GetFunctions(userFuncs map[string]function.Function) (map[strin
 			return result
 		}
 		funcs["templatefile"] = functions.MakeTemplateFileFunc(c.BaseDir, c.Constants, funcsGetter)
+		funcs["gotemplatefile"] = functions.MakeGoTemplateFileFunc(c.BaseDir, c.Constants)
 	}
 
 	return funcs, diags

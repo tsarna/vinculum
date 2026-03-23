@@ -166,6 +166,15 @@ The base directory is also accessible as `sys.filepath`.
   `%{ for item in list }…%{ endfor }` for iteration. A template that consists of a
   single `${expr}` interpolation preserves the type of the expression; all others
   produce a string.
+- `gotemplatefile(path, vars)`: Like `templatefile`, but uses Go's `text/template`
+  syntax instead of HCL templates. Always returns a string. The template data (`.`)
+  is a merged map of standard VCL variables and `vars`; entries in `vars` shadow
+  same-named standard variables. Standard VCL namespaces are nested exactly as in
+  VCL — `var.foo` is `{{.var.foo}}`, `env.HOME` is `{{.env.HOME}}` — while keys
+  passed in `vars` are top-level: `gotemplatefile("t.tmpl", {bar: "x"})` exposes
+  `{{.bar}}`. Example syntax: `{{.name}}` for interpolation,
+  `{{if .flag}}…{{else}}…{{end}}` for conditionals, and
+  `{{range .items}}…{{end}}` for iteration.
 
 ### File Write Functions
 
