@@ -334,6 +334,331 @@ func TestDurationCapsuleEquality(t *testing.T) {
 	assert.True(t, d1.Equals(d2).False())
 }
 
+// --- Phase 2: fromunix / unix ---
+
+func TestFromUnixSeconds(t *testing.T) {
+	result, err := FromUnixFunc.Call([]cty.Value{cty.NumberIntVal(0)})
+	require.NoError(t, err)
+	got, _ := hclutil.GetTime(result)
+	assert.Equal(t, time.Unix(0, 0).UTC(), got)
+}
+
+func TestFromUnixFractionalSeconds(t *testing.T) {
+	result, err := FromUnixFunc.Call([]cty.Value{cty.NumberFloatVal(1.5)})
+	require.NoError(t, err)
+	got, _ := hclutil.GetTime(result)
+	assert.Equal(t, time.Unix(1, 500_000_000).UTC(), got)
+}
+
+func TestFromUnixUnits(t *testing.T) {
+	base := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
+	tests := []struct {
+		n    int64
+		unit string
+	}{
+		{base.Unix(), "s"},
+		{base.UnixMilli(), "ms"},
+		{base.UnixMicro(), "us"},
+		{base.UnixNano(), "ns"},
+	}
+	for _, tt := range tests {
+		result, err := FromUnixFunc.Call([]cty.Value{cty.NumberIntVal(tt.n), cty.StringVal(tt.unit)})
+		require.NoError(t, err, "fromunix(%d, %q)", tt.n, tt.unit)
+		got, _ := hclutil.GetTime(result)
+		assert.True(t, base.Equal(got), "fromunix(%d, %q): got %v", tt.n, tt.unit, got)
+	}
+}
+
+func TestFromUnixInvalidUnit(t *testing.T) {
+	_, err := FromUnixFunc.Call([]cty.Value{cty.NumberIntVal(0), cty.StringVal("days")})
+	assert.Error(t, err)
+}
+
+func TestUnixSeconds(t *testing.T) {
+	ts := hclutil.NewTimeCapsule(time.Unix(1705312200, 500_000_000).UTC())
+	result, err := UnixFunc.Call([]cty.Value{ts})
+	require.NoError(t, err)
+	f, _ := result.AsBigFloat().Float64()
+	assert.InDelta(t, 1705312200.5, f, 1e-6)
+}
+
+func TestUnixUnits(t *testing.T) {
+	base := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
+	ts := hclutil.NewTimeCapsule(base)
+	tests := []struct {
+		unit string
+		want int64
+	}{
+		{"ms", base.UnixMilli()},
+		{"us", base.UnixMicro()},
+		{"ns", base.UnixNano()},
+	}
+	for _, tt := range tests {
+		result, err := UnixFunc.Call([]cty.Value{ts, cty.StringVal(tt.unit)})
+		require.NoError(t, err)
+		got, _ := result.AsBigFloat().Int64()
+		assert.Equal(t, tt.want, got, "unix(t, %q)", tt.unit)
+	}
+}
+
+// --- Phase 2: timepart ---
+
+func TestTimePart(t *testing.T) {
+	// 2024-01-15 (Monday) 10:30:45.123456789 UTC, day 15, yearday 15
+	ts := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 10, 30, 45, 123456789, time.UTC))
+	tests := []struct {
+		part string
+		want int64
+	}{
+		{"year", 2024},
+		{"month", 1},
+		{"day", 15},
+		{"hour", 10},
+		{"minute", 30},
+		{"second", 45},
+		{"nanosecond", 123456789},
+		{"weekday", 1}, // Monday
+		{"yearday", 15},
+	}
+	for _, tt := range tests {
+		result, err := TimePartFunc.Call([]cty.Value{ts, cty.StringVal(tt.part)})
+		require.NoError(t, err, "timepart(t, %q)", tt.part)
+		got, _ := result.AsBigFloat().Int64()
+		assert.Equal(t, tt.want, got, "timepart(t, %q)", tt.part)
+	}
+}
+
+func TestTimePartInvalid(t *testing.T) {
+	ts := hclutil.NewTimeCapsule(time.Now())
+	_, err := TimePartFunc.Call([]cty.Value{ts, cty.StringVal("quarter")})
+	assert.Error(t, err)
+}
+
+func TestTimePartUsesStoredTimezone(t *testing.T) {
+	// 10:30 UTC = 05:30 New York (EST, UTC-5)
+	utc := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
+	ny, _ := time.LoadLocation("America/New_York")
+	ts := hclutil.NewTimeCapsule(utc.In(ny))
+	result, err := TimePartFunc.Call([]cty.Value{ts, cty.StringVal("hour")})
+	require.NoError(t, err)
+	got, _ := result.AsBigFloat().Int64()
+	assert.Equal(t, int64(5), got) // 05:30 in New York
+}
+
+// --- Phase 2: durationpart ---
+
+func TestDurationPart(t *testing.T) {
+	base := 90*time.Minute + 30*time.Second + 500*time.Millisecond
+	d := hclutil.NewDurationCapsule(base)
+
+	floatCases := []struct {
+		unit string
+		want float64
+	}{
+		{"h", base.Hours()},
+		{"m", base.Minutes()},
+		{"s", base.Seconds()},
+	}
+	for _, tt := range floatCases {
+		result, err := DurationPartFunc.Call([]cty.Value{d, cty.StringVal(tt.unit)})
+		require.NoError(t, err, "durationpart(d, %q)", tt.unit)
+		got, _ := result.AsBigFloat().Float64()
+		assert.InDelta(t, tt.want, got, 1e-9, "durationpart(d, %q)", tt.unit)
+	}
+
+	intCases := []struct {
+		unit string
+		want int64
+	}{
+		{"ms", base.Milliseconds()},
+		{"us", base.Microseconds()},
+		{"ns", base.Nanoseconds()},
+	}
+	for _, tt := range intCases {
+		result, err := DurationPartFunc.Call([]cty.Value{d, cty.StringVal(tt.unit)})
+		require.NoError(t, err, "durationpart(d, %q)", tt.unit)
+		got, _ := result.AsBigFloat().Int64()
+		assert.Equal(t, tt.want, got, "durationpart(d, %q)", tt.unit)
+	}
+}
+
+// --- Phase 2: timezone / intimezone ---
+
+func TestTimezoneNoArgs(t *testing.T) {
+	result, err := TimezoneFunc.Call([]cty.Value{})
+	require.NoError(t, err)
+	assert.Equal(t, cty.String, result.Type())
+	// Should be a non-empty string
+	assert.NotEmpty(t, result.AsString())
+}
+
+func TestTimezoneWithTime(t *testing.T) {
+	utc := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC))
+	result, err := TimezoneFunc.Call([]cty.Value{utc})
+	require.NoError(t, err)
+	assert.Equal(t, "UTC", result.AsString())
+}
+
+func TestTimezoneNamedZone(t *testing.T) {
+	ny, _ := time.LoadLocation("America/New_York")
+	ts := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 10, 0, 0, 0, ny))
+	result, err := TimezoneFunc.Call([]cty.Value{ts})
+	require.NoError(t, err)
+	assert.Equal(t, "America/New_York", result.AsString())
+}
+
+func TestInTimezone(t *testing.T) {
+	utc := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	ts := hclutil.NewTimeCapsule(utc)
+	result, err := InTimezoneFunc.Call([]cty.Value{ts, cty.StringVal("America/New_York")})
+	require.NoError(t, err)
+	got, _ := hclutil.GetTime(result)
+	// Same instant
+	assert.True(t, utc.Equal(got))
+	// Different display timezone
+	assert.Equal(t, "America/New_York", got.Location().String())
+	// 10:00 UTC = 05:00 EST
+	assert.Equal(t, 5, got.Hour())
+}
+
+func TestInTimezoneInvalidZone(t *testing.T) {
+	ts := hclutil.NewTimeCapsule(time.Now())
+	_, err := InTimezoneFunc.Call([]cty.Value{ts, cty.StringVal("Not/ATimezone")})
+	assert.Error(t, err)
+}
+
+// --- Phase 2: absduration ---
+
+func TestAbsDurationPositive(t *testing.T) {
+	d := hclutil.NewDurationCapsule(5 * time.Minute)
+	result, err := AbsDurationFunc.Call([]cty.Value{d})
+	require.NoError(t, err)
+	got, _ := hclutil.GetDuration(result)
+	assert.Equal(t, 5*time.Minute, got)
+}
+
+func TestAbsDurationNegative(t *testing.T) {
+	d := hclutil.NewDurationCapsule(-5 * time.Minute)
+	result, err := AbsDurationFunc.Call([]cty.Value{d})
+	require.NoError(t, err)
+	got, _ := hclutil.GetDuration(result)
+	assert.Equal(t, 5*time.Minute, got)
+}
+
+// --- Phase 2: calendar arithmetic ---
+
+func TestAddYears(t *testing.T) {
+	ts := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC))
+	result, err := AddYearsFunc.Call([]cty.Value{ts, cty.NumberIntVal(2)})
+	require.NoError(t, err)
+	got, _ := hclutil.GetTime(result)
+	assert.Equal(t, 2026, got.Year())
+	assert.Equal(t, time.January, got.Month())
+	assert.Equal(t, 15, got.Day())
+}
+
+func TestAddYearsLeapDay(t *testing.T) {
+	// Feb 29 on leap year + 1 year = Feb 28 on non-leap year (Go's AddDate behaviour)
+	ts := hclutil.NewTimeCapsule(time.Date(2024, 2, 29, 0, 0, 0, 0, time.UTC))
+	result, err := AddYearsFunc.Call([]cty.Value{ts, cty.NumberIntVal(1)})
+	require.NoError(t, err)
+	got, _ := hclutil.GetTime(result)
+	assert.Equal(t, 2025, got.Year())
+	assert.Equal(t, time.March, got.Month()) // Go normalises Feb 29 → Mar 1
+	assert.Equal(t, 1, got.Day())
+}
+
+func TestAddMonths(t *testing.T) {
+	ts := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC))
+	result, err := AddMonthsFunc.Call([]cty.Value{ts, cty.NumberIntVal(3)})
+	require.NoError(t, err)
+	got, _ := hclutil.GetTime(result)
+	assert.Equal(t, time.April, got.Month())
+	assert.Equal(t, 15, got.Day())
+}
+
+func TestAddDays(t *testing.T) {
+	ts := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC))
+	result, err := AddDaysFunc.Call([]cty.Value{ts, cty.NumberIntVal(20)})
+	require.NoError(t, err)
+	got, _ := hclutil.GetTime(result)
+	assert.Equal(t, time.February, got.Month())
+	assert.Equal(t, 4, got.Day())
+}
+
+func TestAddDaysNegative(t *testing.T) {
+	ts := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC))
+	result, err := AddDaysFunc.Call([]cty.Value{ts, cty.NumberIntVal(-5)})
+	require.NoError(t, err)
+	got, _ := hclutil.GetTime(result)
+	assert.Equal(t, time.January, got.Month())
+	assert.Equal(t, 10, got.Day())
+}
+
+// --- Phase 2: comparison functions ---
+
+func TestTimeBefore(t *testing.T) {
+	t1 := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC))
+	t2 := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 11, 0, 0, 0, time.UTC))
+
+	result, err := TimeBeforeFunc.Call([]cty.Value{t1, t2})
+	require.NoError(t, err)
+	assert.True(t, result.True())
+
+	result, err = TimeBeforeFunc.Call([]cty.Value{t2, t1})
+	require.NoError(t, err)
+	assert.False(t, result.True())
+
+	// Equal times: not before
+	result, err = TimeBeforeFunc.Call([]cty.Value{t1, t1})
+	require.NoError(t, err)
+	assert.False(t, result.True())
+}
+
+func TestTimeAfter(t *testing.T) {
+	t1 := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC))
+	t2 := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 11, 0, 0, 0, time.UTC))
+
+	result, err := TimeAfterFunc.Call([]cty.Value{t2, t1})
+	require.NoError(t, err)
+	assert.True(t, result.True())
+
+	result, err = TimeAfterFunc.Call([]cty.Value{t1, t2})
+	require.NoError(t, err)
+	assert.False(t, result.True())
+}
+
+func TestDurationLt(t *testing.T) {
+	d1 := hclutil.NewDurationCapsule(5 * time.Minute)
+	d2 := hclutil.NewDurationCapsule(10 * time.Minute)
+
+	result, err := DurationLtFunc.Call([]cty.Value{d1, d2})
+	require.NoError(t, err)
+	assert.True(t, result.True())
+
+	result, err = DurationLtFunc.Call([]cty.Value{d2, d1})
+	require.NoError(t, err)
+	assert.False(t, result.True())
+
+	// Equal: not less than
+	result, err = DurationLtFunc.Call([]cty.Value{d1, d1})
+	require.NoError(t, err)
+	assert.False(t, result.True())
+}
+
+func TestDurationGt(t *testing.T) {
+	d1 := hclutil.NewDurationCapsule(5 * time.Minute)
+	d2 := hclutil.NewDurationCapsule(10 * time.Minute)
+
+	result, err := DurationGtFunc.Call([]cty.Value{d2, d1})
+	require.NoError(t, err)
+	assert.True(t, result.True())
+
+	result, err = DurationGtFunc.Call([]cty.Value{d1, d2})
+	require.NoError(t, err)
+	assert.False(t, result.True())
+}
+
 // --- durationToISO8601 helper ---
 
 func TestDurationToISO8601(t *testing.T) {

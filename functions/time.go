@@ -314,10 +314,369 @@ var FormatDurationFunc = function.New(&function.Spec{
 	},
 })
 
+// --- Unix interop ---
+
+// FromUnixFunc creates a time from a Unix epoch value.
+// Called as fromunix(n) for seconds (possibly fractional), or fromunix(n, unit)
+// where unit is "s", "ms", "us", or "ns". Always returns UTC.
+var FromUnixFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "n", Type: cty.Number},
+	},
+	VarParam: &function.Parameter{
+		Name: "unit",
+		Type: cty.String,
+	},
+	Type: function.StaticReturnType(hclutil.TimeCapsuleType),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		unit := "s"
+		if len(args) > 1 {
+			unit = args[1].AsString()
+		}
+		n, _ := args[0].AsBigFloat().Float64()
+		switch unit {
+		case "s":
+			secs := int64(n)
+			nanos := int64((n - float64(secs)) * 1e9)
+			return hclutil.NewTimeCapsule(time.Unix(secs, nanos).UTC()), nil
+		case "ms":
+			return hclutil.NewTimeCapsule(time.UnixMilli(int64(n)).UTC()), nil
+		case "us":
+			return hclutil.NewTimeCapsule(time.UnixMicro(int64(n)).UTC()), nil
+		case "ns":
+			return hclutil.NewTimeCapsule(time.Unix(0, int64(n)).UTC()), nil
+		default:
+			return cty.NilVal, fmt.Errorf("fromunix: unknown unit %q; valid units: s, ms, us, ns", unit)
+		}
+	},
+})
+
+// UnixFunc returns the Unix epoch value for a time.
+// Called as unix(t) for fractional seconds, or unix(t, unit) where unit is
+// "s" (float), "ms", "us", or "ns" (integers).
+var UnixFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "t", Type: hclutil.TimeCapsuleType},
+	},
+	VarParam: &function.Parameter{
+		Name: "unit",
+		Type: cty.String,
+	},
+	Type: function.StaticReturnType(cty.Number),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		t, err := hclutil.GetTime(args[0])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		unit := "s"
+		if len(args) > 1 {
+			unit = args[1].AsString()
+		}
+		switch unit {
+		case "s":
+			return cty.NumberFloatVal(float64(t.UnixNano()) / 1e9), nil
+		case "ms":
+			return cty.NumberIntVal(t.UnixMilli()), nil
+		case "us":
+			return cty.NumberIntVal(t.UnixMicro()), nil
+		case "ns":
+			return cty.NumberIntVal(t.UnixNano()), nil
+		default:
+			return cty.NilVal, fmt.Errorf("unix: unknown unit %q; valid units: s, ms, us, ns", unit)
+		}
+	},
+})
+
+// --- Decomposition ---
+
+// TimePartFunc extracts a named calendar field from a time value in its stored timezone.
+// Called as timepart(t, "year"), timepart(t, "month"), etc.
+// Valid parts: year, month, day, hour, minute, second, nanosecond, weekday, yearday.
+var TimePartFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "t", Type: hclutil.TimeCapsuleType},
+		{Name: "part", Type: cty.String},
+	},
+	Type: function.StaticReturnType(cty.Number),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		t, err := hclutil.GetTime(args[0])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		switch args[1].AsString() {
+		case "year":
+			return cty.NumberIntVal(int64(t.Year())), nil
+		case "month":
+			return cty.NumberIntVal(int64(t.Month())), nil
+		case "day":
+			return cty.NumberIntVal(int64(t.Day())), nil
+		case "hour":
+			return cty.NumberIntVal(int64(t.Hour())), nil
+		case "minute":
+			return cty.NumberIntVal(int64(t.Minute())), nil
+		case "second":
+			return cty.NumberIntVal(int64(t.Second())), nil
+		case "nanosecond":
+			return cty.NumberIntVal(int64(t.Nanosecond())), nil
+		case "weekday":
+			return cty.NumberIntVal(int64(t.Weekday())), nil
+		case "yearday":
+			return cty.NumberIntVal(int64(t.YearDay())), nil
+		default:
+			return cty.NilVal, fmt.Errorf("timepart: unknown part %q; valid parts: year, month, day, hour, minute, second, nanosecond, weekday, yearday", args[1].AsString())
+		}
+	},
+})
+
+// DurationPartFunc extracts a duration expressed in the given unit.
+// "h", "m", "s" return floats; "ms", "us", "ns" return integers.
+var DurationPartFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "d", Type: hclutil.DurationCapsuleType},
+		{Name: "unit", Type: cty.String},
+	},
+	Type: function.StaticReturnType(cty.Number),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		d, err := hclutil.GetDuration(args[0])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		switch args[1].AsString() {
+		case "h":
+			return cty.NumberFloatVal(d.Hours()), nil
+		case "m":
+			return cty.NumberFloatVal(d.Minutes()), nil
+		case "s":
+			return cty.NumberFloatVal(d.Seconds()), nil
+		case "ms":
+			return cty.NumberIntVal(d.Milliseconds()), nil
+		case "us":
+			return cty.NumberIntVal(d.Microseconds()), nil
+		case "ns":
+			return cty.NumberIntVal(d.Nanoseconds()), nil
+		default:
+			return cty.NilVal, fmt.Errorf("durationpart: unknown unit %q; valid units: h, m, s, ms, us, ns", args[1].AsString())
+		}
+	},
+})
+
+// --- Timezone ---
+
+// TimezoneFunc returns the timezone name.
+// Called as timezone() for the local system timezone, or timezone(t) for the
+// timezone stored in a time value.
+var TimezoneFunc = function.New(&function.Spec{
+	VarParam: &function.Parameter{
+		Name: "t",
+		Type: cty.DynamicPseudoType,
+	},
+	Type: func(args []cty.Value) (cty.Type, error) {
+		if len(args) > 1 {
+			return cty.NilType, fmt.Errorf("timezone() takes 0 or 1 arguments")
+		}
+		if len(args) == 1 {
+			t := args[0].Type()
+			if t != hclutil.TimeCapsuleType && t != cty.DynamicPseudoType {
+				return cty.NilType, fmt.Errorf("timezone: argument must be a time value, got %s", t.FriendlyName())
+			}
+		}
+		return cty.String, nil
+	},
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		if len(args) == 0 {
+			return cty.StringVal(time.Local.String()), nil
+		}
+		t, err := hclutil.GetTime(args[0])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		return cty.StringVal(t.Location().String()), nil
+	},
+})
+
+// InTimezoneFunc re-expresses a time in a different IANA timezone.
+// The instant is unchanged; only the displayed timezone changes.
+var InTimezoneFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "t", Type: hclutil.TimeCapsuleType},
+		{Name: "tz", Type: cty.String},
+	},
+	Type: function.StaticReturnType(hclutil.TimeCapsuleType),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		t, err := hclutil.GetTime(args[0])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		loc, err := time.LoadLocation(args[1].AsString())
+		if err != nil {
+			return cty.NilVal, fmt.Errorf("intimezone: invalid timezone %q: %s", args[1].AsString(), err)
+		}
+		return hclutil.NewTimeCapsule(t.In(loc)), nil
+	},
+})
+
+// Phase 2: Duration misc
+
+// AbsDurationFunc returns the absolute value of a duration.
+var AbsDurationFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "d", Type: hclutil.DurationCapsuleType},
+	},
+	Type: function.StaticReturnType(hclutil.DurationCapsuleType),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		d, err := hclutil.GetDuration(args[0])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		if d < 0 {
+			d = -d
+		}
+		return hclutil.NewDurationCapsule(d), nil
+	},
+})
+
+// --- Calendar arithmetic ---
+
+// AddYearsFunc adds n calendar years to a time (calls time.Time.AddDate).
+var AddYearsFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "t", Type: hclutil.TimeCapsuleType},
+		{Name: "n", Type: cty.Number},
+	},
+	Type: function.StaticReturnType(hclutil.TimeCapsuleType),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		t, err := hclutil.GetTime(args[0])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		n, _ := args[1].AsBigFloat().Int64()
+		return hclutil.NewTimeCapsule(t.AddDate(int(n), 0, 0)), nil
+	},
+})
+
+// AddMonthsFunc adds n calendar months to a time (calls time.Time.AddDate).
+var AddMonthsFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "t", Type: hclutil.TimeCapsuleType},
+		{Name: "n", Type: cty.Number},
+	},
+	Type: function.StaticReturnType(hclutil.TimeCapsuleType),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		t, err := hclutil.GetTime(args[0])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		n, _ := args[1].AsBigFloat().Int64()
+		return hclutil.NewTimeCapsule(t.AddDate(0, int(n), 0)), nil
+	},
+})
+
+// AddDaysFunc adds n calendar days to a time (calls time.Time.AddDate).
+var AddDaysFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "t", Type: hclutil.TimeCapsuleType},
+		{Name: "n", Type: cty.Number},
+	},
+	Type: function.StaticReturnType(hclutil.TimeCapsuleType),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		t, err := hclutil.GetTime(args[0])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		n, _ := args[1].AsBigFloat().Int64()
+		return hclutil.NewTimeCapsule(t.AddDate(0, 0, int(n))), nil
+	},
+})
+
+// --- Comparison functions ---
+// go-cty does not dispatch </>/<= etc. to capsule types, so ordering comparisons
+// are provided as explicit functions.
+
+// TimeBeforeFunc returns true if t1 is before t2.
+var TimeBeforeFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "t1", Type: hclutil.TimeCapsuleType},
+		{Name: "t2", Type: hclutil.TimeCapsuleType},
+	},
+	Type: function.StaticReturnType(cty.Bool),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		t1, err := hclutil.GetTime(args[0])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		t2, err := hclutil.GetTime(args[1])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		return cty.BoolVal(t1.Before(t2)), nil
+	},
+})
+
+// TimeAfterFunc returns true if t1 is after t2.
+var TimeAfterFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "t1", Type: hclutil.TimeCapsuleType},
+		{Name: "t2", Type: hclutil.TimeCapsuleType},
+	},
+	Type: function.StaticReturnType(cty.Bool),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		t1, err := hclutil.GetTime(args[0])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		t2, err := hclutil.GetTime(args[1])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		return cty.BoolVal(t1.After(t2)), nil
+	},
+})
+
+// DurationLtFunc returns true if d1 < d2.
+var DurationLtFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "d1", Type: hclutil.DurationCapsuleType},
+		{Name: "d2", Type: hclutil.DurationCapsuleType},
+	},
+	Type: function.StaticReturnType(cty.Bool),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		d1, err := hclutil.GetDuration(args[0])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		d2, err := hclutil.GetDuration(args[1])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		return cty.BoolVal(d1 < d2), nil
+	},
+})
+
+// DurationGtFunc returns true if d1 > d2.
+var DurationGtFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "d1", Type: hclutil.DurationCapsuleType},
+		{Name: "d2", Type: hclutil.DurationCapsuleType},
+	},
+	Type: function.StaticReturnType(cty.Bool),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		d1, err := hclutil.GetDuration(args[0])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		d2, err := hclutil.GetDuration(args[1])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		return cty.BoolVal(d1 > d2), nil
+	},
+})
+
 // GetTimeFunctions returns all time-related functions for registration in the eval context.
 // The "timeadd" entry here replaces the stdlib version.
 func GetTimeFunctions() map[string]function.Function {
 	return map[string]function.Function{
+		// Phase 1
 		"now":            NowFunc,
 		"parsetime":      ParseTimeFunc,
 		"duration":       DurationFunc,
@@ -327,6 +686,21 @@ func GetTimeFunctions() map[string]function.Function {
 		"until":          UntilFunc,
 		"formattime":     FormatTimeFunc,
 		"formatduration": FormatDurationFunc,
+		// Phase 2
+		"fromunix":     FromUnixFunc,
+		"unix":         UnixFunc,
+		"timepart":     TimePartFunc,
+		"durationpart": DurationPartFunc,
+		"timezone":     TimezoneFunc,
+		"intimezone":   InTimezoneFunc,
+		"absduration":  AbsDurationFunc,
+		"addyears":     AddYearsFunc,
+		"addmonths":    AddMonthsFunc,
+		"adddays":      AddDaysFunc,
+		"timebefore":   TimeBeforeFunc,
+		"timeafter":    TimeAfterFunc,
+		"durationlt":   DurationLtFunc,
+		"durationgt":   DurationGtFunc,
 	}
 }
 

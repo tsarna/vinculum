@@ -55,7 +55,7 @@ Duration strings are accepted in two formats:
 - **Go format** — `5m`, `1h30m`, `2h3m4s`, `500ms`, `1.5s`. Units: `ns`, `us`, `µs`, `ms`, `s`, `m`, `h`.
 - **ISO 8601 P-notation** — `PT5M`, `PT1H30M`, `P1DT12H`, `PT0.5S`. Calendar fields (`P1Y`, `P1M`)
   are rejected — they cannot be represented as a fixed duration; use `addyears()` / `addmonths()`
-  (Phase 2) for calendar arithmetic.
+  for calendar arithmetic.
 
 #### Timestamp Creation
 
@@ -120,8 +120,8 @@ Duration strings are accepted in two formats:
 
 The `<`/`>`/`<=`/`>=` operators do not work on `time` values (go-cty limitation). Use:
 
-- `timebefore(t1, t2)`: `true` if `t1` is before `t2`. *(Phase 2)*
-- `timeafter(t1, t2)`: `true` if `t1` is after `t2`. *(Phase 2)*
+- `timebefore(t1, t2)`: `true` if `t1` is before `t2`.
+- `timeafter(t1, t2)`: `true` if `t1` is after `t2`.
 
 #### Duration Creation
 
@@ -138,8 +138,72 @@ The `<`/`>`/`<=`/`>=` operators do not work on `time` values (go-cty limitation)
 
 #### Duration Comparison
 
-- `durationlt(d1, d2)`: `true` if `d1 < d2`. *(Phase 2)*
-- `durationgt(d1, d2)`: `true` if `d1 > d2`. *(Phase 2)*
+- `durationlt(d1, d2)`: `true` if `d1 < d2`.
+- `durationgt(d1, d2)`: `true` if `d1 > d2`.
+
+#### Timestamp — Unix Interop
+
+- `fromunix(sec)`: Create a `time` from a Unix epoch value. The argument may be an
+  integer (whole seconds) or a float (seconds with sub-second precision, up to nanoseconds).
+- `unix(t)`: Return a `time` as a Unix epoch float (seconds since 1970-01-01T00:00:00Z,
+  fractional if sub-second). Equivalent to calling `fromunix(unix(t))` round-trips the value.
+
+#### Timestamp — Decomposition
+
+- `timepart(t, part)`: Extract a component of `t` as a number. `part` is one of:
+
+  | Part string | Description |
+  |-------------|-------------|
+  | `"year"` | Four-digit year |
+  | `"month"` | Month 1–12 |
+  | `"day"` | Day of month 1–31 |
+  | `"hour"` | Hour 0–23 |
+  | `"minute"` | Minute 0–59 |
+  | `"second"` | Second 0–59 |
+  | `"nanosecond"` | Nanosecond 0–999999999 |
+  | `"weekday"` | Day of week 0 (Sunday) – 6 (Saturday) |
+  | `"yearday"` | Day of year 1–366 |
+  | `"isoweek"` | ISO 8601 week number 1–53 |
+  | `"isoyear"` | ISO 8601 week-year (may differ from calendar year at year boundaries) |
+
+#### Timestamp — Timezone
+
+- `timezone()`: Return the name of the local system timezone (e.g. `"UTC"`, `"America/New_York"`).
+- `timezone(t)`: Return the name of the timezone stored in `t`.
+- `intimezone(t, tz)`: Return a new `time` equal to `t` but displayed in the named timezone `tz`.
+  Does not change the instant — only the timezone used for display and decomposition.
+
+#### Calendar Arithmetic
+
+These functions add calendar-based offsets. Unlike `timeadd`, they respect month lengths and
+leap years — adding one month to January 31 yields February 28 (or 29 in a leap year).
+
+- `adddays(t, n)`: Add `n` calendar days to `t`. `n` may be negative.
+- `addmonths(t, n)`: Add `n` calendar months to `t`. `n` may be negative.
+- `addyears(t, n)`: Add `n` calendar years to `t`. `n` may be negative.
+
+#### Duration — Decomposition
+
+- `durationpart(d, part)`: Extract a component of `d`. `part` is one of:
+
+  | Part string | Description | Return type |
+  |-------------|-------------|-------------|
+  | `"hours"` | Integer hours | number |
+  | `"minutes"` | Integer minutes (0–59) | number |
+  | `"seconds"` | Integer seconds (0–59) | number |
+  | `"milliseconds"` | Integer milliseconds (0–999) | number |
+  | `"microseconds"` | Integer microseconds (0–999) | number |
+  | `"nanoseconds"` | Integer nanoseconds (0–999) | number |
+  | `"totalhours"` | Total duration as fractional hours | number |
+  | `"totalminutes"` | Total duration as fractional minutes | number |
+  | `"totalseconds"` | Total duration as fractional seconds | number |
+  | `"totalmilliseconds"` | Total duration as fractional milliseconds | number |
+  | `"totalmicroseconds"` | Total duration as fractional microseconds | number |
+  | `"totalnanoseconds"` | Total duration as integer nanoseconds | number |
+
+#### Duration — Misc
+
+- `absduration(d)`: Return the absolute value of `d`. Negative durations become positive.
 
 #### Examples
 
@@ -167,8 +231,27 @@ formatduration(since(ctx.start_time))           # → "5m32s"
 formatduration(since(ctx.start_time), "iso")    # → "PT5M32S"
 
 # Comparison (use functions, not operators)
-timebefore(ctx.expires_at, now("UTC"))          # → true if already expired   [Phase 2]
-durationgt(since(ctx.last_seen), duration(24, "h"))  # → true if inactive > 1 day [Phase 2]
+timebefore(ctx.expires_at, now("UTC"))          # → true if already expired
+durationgt(since(ctx.last_seen), duration(24, "h"))  # → true if inactive > 1 day
+
+# Unix interop
+fromunix(1705315800)                            # → 2024-01-15T10:30:00Z
+unix(now("UTC"))                                # → current epoch as float
+
+# Decomposition
+timepart(now("UTC"), "year")                    # → e.g. 2024
+timepart(now("UTC"), "weekday")                 # → 0 (Sunday) – 6 (Saturday)
+durationpart(since(ctx.start_time), "minutes")  # → integer minutes component
+
+# Timezone
+timezone()                                      # → local TZ name, e.g. "America/New_York"
+timezone(now("UTC"))                            # → "UTC"
+intimezone(now(), "UTC")                        # → same instant in UTC
+
+# Calendar arithmetic
+adddays(now("UTC"), 7)                          # → one week from now
+addmonths(now("UTC"), -1)                       # → one month ago
+addyears(now("UTC"), 1)                         # → same date next year
 
 # Backward-compatible string form of timeadd
 timeadd("2024-01-15T10:30:00Z", "1h")          # → "2024-01-15T11:30:00Z"
