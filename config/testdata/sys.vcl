@@ -49,3 +49,7 @@ assert "sys.homedir is non-empty" {
 assert "sys.tempdir is non-empty" {
     condition = strlen(sys.tempdir) > 0
 }
+
+assert "sys.filepath is a string" {
+    condition = strlen(sys.filepath) >= 0
+}

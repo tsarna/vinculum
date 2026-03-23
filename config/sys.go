@@ -11,8 +11,9 @@ import (
 
 // GetSysObject returns a cty object containing process and host identity
 // information, suitable for providing to an HCL evaluation context as "sys".
-// All values are captured once at config-build time.
-func GetSysObject() cty.Value {
+// All values are captured once at config-build time. baseDir is the value of
+// the --file-path flag, or empty string if it was not specified.
+func GetSysObject(baseDir string) cty.Value {
 	sysMap := make(map[string]cty.Value)
 
 	// Process ID
@@ -70,6 +71,9 @@ func GetSysObject() cty.Value {
 	sysMap["homedir"] = cty.StringVal(homedir)
 
 	sysMap["tempdir"] = cty.StringVal(os.TempDir())
+
+	// Base directory for file functions (--file-path flag); empty if not set
+	sysMap["filepath"] = cty.StringVal(baseDir)
 
 	return cty.ObjectVal(sysMap)
 }

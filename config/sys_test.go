@@ -25,7 +25,7 @@ func TestSys(t *testing.T) {
 }
 
 func TestGetSysObject(t *testing.T) {
-	val := GetSysObject()
+	val := GetSysObject("")
 	assert.Equal(t, cty.Object(map[string]cty.Type{
 		"pid":        cty.Number,
 		"hostname":   cty.String,
@@ -40,6 +40,7 @@ func TestGetSysObject(t *testing.T) {
 		"cwd":        cty.String,
 		"homedir":    cty.String,
 		"tempdir":    cty.String,
+		"filepath":  cty.String,
 	}), val.Type())
 
 	attrs := val.AsValueMap()
@@ -62,4 +63,11 @@ func TestGetSysObject(t *testing.T) {
 
 	// tempdir should match
 	assert.Equal(t, os.TempDir(), attrs["tempdir"].AsString())
+
+	// filepath empty when not set
+	assert.Equal(t, "", attrs["filepath"].AsString())
+
+	// filepath reflects baseDir when set
+	val2 := GetSysObject("/tmp/myfiles")
+	assert.Equal(t, "/tmp/myfiles", val2.AsValueMap()["filepath"].AsString())
 }

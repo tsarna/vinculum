@@ -137,11 +137,22 @@ These functions are only available inside `handle` block action expressions in [
 - `respond(code, body)`: Write an HTTP response. `code` is the integer status code. If `body` is a string it is written as-is; otherwise it is JSON-encoded and `Content-Type: application/json` is set. Returns `true`.
 - `set_header(key, value)`: Set a response header. Must be called before `respond`. Returns `true`.
 
+### Path Functions
+
+These functions manipulate file path strings and are always available regardless
+of whether `--file-path` is set.
+
+- `abspath(path)`: Convert `path` to an absolute path (resolves relative to the process working directory).
+- `basename(path)`: Return the final element of `path` (the filename component).
+- `dirname(path)`: Return all but the final element of `path` (the directory component).
+- `pathexpand(path)`: Expand a leading `~` to the current user's home directory.
+
 ### File Functions
 
-These functions are available when Vinculum is started with a configuration directory
-(which is always the case in normal use). Relative paths are resolved against the
-configuration base directory.
+These functions read files from disk. They are only available when Vinculum is
+started with `--file-path <dir>` (`-f <dir>`), which sets the base directory for
+all file operations. Relative paths are resolved against that base directory.
+The base directory is also accessible as `sys.filepath`.
 
 - `file(path)`: Read a file and return its contents as a string.
 - `filebase64(path)`: Read a file and return its contents as a base64-encoded string.
