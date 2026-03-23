@@ -158,6 +158,14 @@ The base directory is also accessible as `sys.filepath`.
 - `filebase64(path)`: Read a file and return its contents as a base64-encoded string.
 - `fileexists(path)`: Return `true` if the file exists, `false` otherwise.
 - `fileset(dir, pattern)`: Return a set of file paths within `dir` that match `pattern` (glob syntax).
+- `templatefile(path, vars)`: Read `path` as an HCL template, evaluate it with the
+  variables in `vars` (an object/map), and return the result. Standard VCL variables
+  (`env`, `sys`, `var`, `metric`, etc.) are also available in the template. Variables
+  in `vars` shadow any same-named standard variables. Uses HCL's native template syntax:
+  `${expr}` for interpolation, `%{ if cond }…%{ endif }` for conditionals, and
+  `%{ for item in list }…%{ endfor }` for iteration. A template that consists of a
+  single `${expr}` interpolation preserves the type of the expression; all others
+  produce a string.
 
 ### File Write Functions
 

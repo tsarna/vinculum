@@ -234,6 +234,21 @@ func (c *Config) GetFunctions(userFuncs map[string]function.Function) (map[strin
 		funcs[name] = function
 	}
 
+	// templatefile is registered last so its funcsGetter closure sees the fully
+	// populated funcs map (including user-defined functions) at evaluation time.
+	if c.BaseDir != "" {
+		funcsGetter := func() map[string]function.Function {
+			result := make(map[string]function.Function, len(funcs))
+			for k, v := range funcs {
+				if k != "templatefile" {
+					result[k] = v
+				}
+			}
+			return result
+		}
+		funcs["templatefile"] = functions.MakeTemplateFileFunc(c.BaseDir, c.Constants, funcsGetter)
+	}
+
 	return funcs, diags
 }
 
