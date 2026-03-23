@@ -90,16 +90,6 @@ func ProcessMcpServerBlock(config *Config, block *hcl.Block, remainingBody hcl.B
 
 	name := block.Labels[1]
 
-	if def.Listen == "" {
-		diags = diags.Append(&hcl.Diagnostic{
-			Severity: hcl.DiagError,
-			Summary:  "Missing listen address",
-			Detail:   "MCP server requires a 'listen' address (e.g. \":8080\")",
-			Subject:  &def.DefRange,
-		})
-		return nil, diags
-	}
-
 	// Build resource defs
 	resources, resourceDiags := buildResourceDefs(def.Resources, block)
 	diags = diags.Extend(resourceDiags)
@@ -148,7 +138,9 @@ func ProcessMcpServerBlock(config *Config, block *hcl.Block, remainingBody hcl.B
 		server:     srv,
 	}
 
-	config.Startables = append(config.Startables, mcpSrv)
+	if def.Listen != "" {
+		config.Startables = append(config.Startables, mcpSrv)
+	}
 
 	return mcpSrv, nil
 }
