@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	timefmt "github.com/itchyny/timefmt-go"
 	isoduration "github.com/sosodev/duration"
 	"github.com/tsarna/vinculum/internal/hclutil"
 	"github.com/zclconf/go-cty/cty"
@@ -32,22 +33,57 @@ var NowFunc = function.New(&function.Spec{
 	},
 })
 
-// ParseTimeFunc parses an RFC 3339 timestamp string into a time value.
-// The string must include a timezone; strings without timezone are rejected.
-// Called as parsetime("2024-01-15T10:30:00Z").
+// ParseTimeFunc parses a timestamp string into a time value.
+//
+// Forms:
+//
+//	parsetime(s)              — RFC 3339 (timezone required)
+//	parsetime(format, s)      — parse s using Go layout (or @name alias)
+//	parsetime(format, s, tz)  — same, but interpret s in the given IANA timezone
 var ParseTimeFunc = function.New(&function.Spec{
-	Params: []function.Parameter{
-		{Name: "s", Type: cty.String},
-	},
-	Type: function.StaticReturnType(hclutil.TimeCapsuleType),
-	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
-		s := args[0].AsString()
-		// RFC3339Nano handles both with and without sub-second precision.
-		t, err := time.Parse(time.RFC3339Nano, s)
-		if err != nil {
-			return cty.NilVal, fmt.Errorf("invalid RFC 3339 timestamp %q: %s", s, err)
+	VarParam: &function.Parameter{Name: "args", Type: cty.String},
+	Type: func(args []cty.Value) (cty.Type, error) {
+		if len(args) < 1 || len(args) > 3 {
+			return cty.NilType, fmt.Errorf("parsetime() takes 1 to 3 arguments")
 		}
-		return hclutil.NewTimeCapsule(t), nil
+		return hclutil.TimeCapsuleType, nil
+	},
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		switch len(args) {
+		case 1:
+			s := args[0].AsString()
+			t, err := time.Parse(time.RFC3339Nano, s)
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("parsetime: invalid RFC 3339 timestamp %q: %s", s, err)
+			}
+			return hclutil.NewTimeCapsule(t), nil
+		case 2:
+			layout, err := resolveFormat(args[0].AsString())
+			if err != nil {
+				return cty.NilVal, err
+			}
+			t, err := time.Parse(layout, args[1].AsString())
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("parsetime: cannot parse %q with format %q: %s", args[1].AsString(), args[0].AsString(), err)
+			}
+			return hclutil.NewTimeCapsule(t), nil
+		case 3:
+			layout, err := resolveFormat(args[0].AsString())
+			if err != nil {
+				return cty.NilVal, err
+			}
+			loc, err := time.LoadLocation(args[2].AsString())
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("parsetime: invalid timezone %q: %s", args[2].AsString(), err)
+			}
+			t, err := time.ParseInLocation(layout, args[1].AsString(), loc)
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("parsetime: cannot parse %q with format %q: %s", args[1].AsString(), args[0].AsString(), err)
+			}
+			return hclutil.NewTimeCapsule(t), nil
+		default:
+			return cty.NilVal, fmt.Errorf("parsetime() takes 1 to 3 arguments")
+		}
 	},
 })
 
@@ -265,8 +301,8 @@ var UntilFunc = function.New(&function.Spec{
 	},
 })
 
-// FormatTimeFunc formats a time value using Go's reference-time format.
-// Called as formattime("2006-01-02", t).
+// FormatTimeFunc formats a time value using Go's reference-time format or a @name alias.
+// Called as formattime("2006-01-02", t) or formattime("@rfc3339", t).
 var FormatTimeFunc = function.New(&function.Spec{
 	Params: []function.Parameter{
 		{Name: "format", Type: cty.String},
@@ -274,12 +310,15 @@ var FormatTimeFunc = function.New(&function.Spec{
 	},
 	Type: function.StaticReturnType(cty.String),
 	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
-		format := args[0].AsString()
+		layout, err := resolveFormat(args[0].AsString())
+		if err != nil {
+			return cty.NilVal, err
+		}
 		t, err := hclutil.GetTime(args[1])
 		if err != nil {
 			return cty.NilVal, err
 		}
-		return cty.StringVal(t.Format(format)), nil
+		return cty.StringVal(t.Format(layout)), nil
 	},
 })
 
@@ -422,8 +461,14 @@ var TimePartFunc = function.New(&function.Spec{
 			return cty.NumberIntVal(int64(t.Weekday())), nil
 		case "yearday":
 			return cty.NumberIntVal(int64(t.YearDay())), nil
+		case "isoweek":
+			_, week := t.ISOWeek()
+			return cty.NumberIntVal(int64(week)), nil
+		case "isoyear":
+			year, _ := t.ISOWeek()
+			return cty.NumberIntVal(int64(year)), nil
 		default:
-			return cty.NilVal, fmt.Errorf("timepart: unknown part %q; valid parts: year, month, day, hour, minute, second, nanosecond, weekday, yearday", args[1].AsString())
+			return cty.NilVal, fmt.Errorf("timepart: unknown part %q; valid parts: year, month, day, hour, minute, second, nanosecond, weekday, yearday, isoweek, isoyear", args[1].AsString())
 		}
 	},
 })
@@ -672,6 +717,146 @@ var DurationGtFunc = function.New(&function.Spec{
 	},
 })
 
+// --- strftime / strptime ---
+
+// StrftimeFunc formats a time using a strftime-style format string (via itchyny/timefmt-go).
+// Called as strftime("%Y-%m-%d", t).
+var StrftimeFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "format", Type: cty.String},
+		{Name: "t", Type: hclutil.TimeCapsuleType},
+	},
+	Type: function.StaticReturnType(cty.String),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		t, err := hclutil.GetTime(args[1])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		return cty.StringVal(timefmt.Format(t, args[0].AsString())), nil
+	},
+})
+
+// StrptimeFunc parses a time string using a strftime-style format (via itchyny/timefmt-go).
+// Called as strptime("%Y-%m-%d", "2024-01-15") or strptime("%Y-%m-%d", "2024-01-15", "UTC").
+var StrptimeFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "format", Type: cty.String},
+		{Name: "s", Type: cty.String},
+	},
+	VarParam: &function.Parameter{Name: "tz", Type: cty.String},
+	Type: func(args []cty.Value) (cty.Type, error) {
+		if len(args) > 3 {
+			return cty.NilType, fmt.Errorf("strptime() takes 2 or 3 arguments")
+		}
+		return hclutil.TimeCapsuleType, nil
+	},
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		t, err := timefmt.Parse(args[1].AsString(), args[0].AsString())
+		if err != nil {
+			return cty.NilVal, fmt.Errorf("strptime: cannot parse %q with format %q: %s", args[1].AsString(), args[0].AsString(), err)
+		}
+		if len(args) == 3 {
+			loc, err := time.LoadLocation(args[2].AsString())
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("strptime: invalid timezone %q: %s", args[2].AsString(), err)
+			}
+			// Reinterpret the parsed wall-clock components as being in the given timezone,
+			// rather than converting the UTC instant.
+			t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
+		}
+		return hclutil.NewTimeCapsule(t), nil
+	},
+})
+
+// --- duration arithmetic ---
+
+// DurationAddFunc adds two durations: d1 + d2
+var DurationAddFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "d1", Type: hclutil.DurationCapsuleType},
+		{Name: "d2", Type: hclutil.DurationCapsuleType},
+	},
+	Type: function.StaticReturnType(hclutil.DurationCapsuleType),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		d1, _ := hclutil.GetDuration(args[0])
+		d2, _ := hclutil.GetDuration(args[1])
+		return hclutil.NewDurationCapsule(d1 + d2), nil
+	},
+})
+
+// DurationSubFunc subtracts durations: d1 - d2
+var DurationSubFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "d1", Type: hclutil.DurationCapsuleType},
+		{Name: "d2", Type: hclutil.DurationCapsuleType},
+	},
+	Type: function.StaticReturnType(hclutil.DurationCapsuleType),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		d1, _ := hclutil.GetDuration(args[0])
+		d2, _ := hclutil.GetDuration(args[1])
+		return hclutil.NewDurationCapsule(d1 - d2), nil
+	},
+})
+
+// DurationMulFunc multiplies a duration by a scalar: d * n
+var DurationMulFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "d", Type: hclutil.DurationCapsuleType},
+		{Name: "n", Type: cty.Number},
+	},
+	Type: function.StaticReturnType(hclutil.DurationCapsuleType),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		d, _ := hclutil.GetDuration(args[0])
+		n, _ := args[1].AsBigFloat().Float64()
+		return hclutil.NewDurationCapsule(time.Duration(float64(d) * n)), nil
+	},
+})
+
+// DurationDivFunc divides a duration by a scalar: d / n (returns duration)
+var DurationDivFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "d", Type: hclutil.DurationCapsuleType},
+		{Name: "n", Type: cty.Number},
+	},
+	Type: function.StaticReturnType(hclutil.DurationCapsuleType),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		d, _ := hclutil.GetDuration(args[0])
+		n, _ := args[1].AsBigFloat().Float64()
+		if n == 0 {
+			return cty.NilVal, fmt.Errorf("durationdiv: division by zero")
+		}
+		return hclutil.NewDurationCapsule(time.Duration(float64(d) / n)), nil
+	},
+})
+
+// DurationTruncateFunc truncates d to a multiple of m: d.Truncate(m)
+var DurationTruncateFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "d", Type: hclutil.DurationCapsuleType},
+		{Name: "m", Type: hclutil.DurationCapsuleType},
+	},
+	Type: function.StaticReturnType(hclutil.DurationCapsuleType),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		d, _ := hclutil.GetDuration(args[0])
+		m, _ := hclutil.GetDuration(args[1])
+		return hclutil.NewDurationCapsule(d.Truncate(m)), nil
+	},
+})
+
+// DurationRoundFunc rounds d to the nearest multiple of m: d.Round(m)
+var DurationRoundFunc = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "d", Type: hclutil.DurationCapsuleType},
+		{Name: "m", Type: hclutil.DurationCapsuleType},
+	},
+	Type: function.StaticReturnType(hclutil.DurationCapsuleType),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		d, _ := hclutil.GetDuration(args[0])
+		m, _ := hclutil.GetDuration(args[1])
+		return hclutil.NewDurationCapsule(d.Round(m)), nil
+	},
+})
+
 // GetTimeFunctions returns all time-related functions for registration in the eval context.
 // The "timeadd" entry here replaces the stdlib version.
 func GetTimeFunctions() map[string]function.Function {
@@ -701,7 +886,53 @@ func GetTimeFunctions() map[string]function.Function {
 		"timeafter":    TimeAfterFunc,
 		"durationlt":   DurationLtFunc,
 		"durationgt":   DurationGtFunc,
+		// Phase 3
+		"strftime":          StrftimeFunc,
+		"strptime":          StrptimeFunc,
+		"durationadd":       DurationAddFunc,
+		"durationsub":       DurationSubFunc,
+		"durationmul":       DurationMulFunc,
+		"durationdiv":       DurationDivFunc,
+		"durationtruncate":  DurationTruncateFunc,
+		"durationround":     DurationRoundFunc,
 	}
+}
+
+// --- Phase 3 helpers ---
+
+// namedFormats maps @name aliases to Go reference-time layout strings.
+var namedFormats = map[string]string{
+	"ansic":       time.ANSIC,
+	"unixdate":    time.UnixDate,
+	"rubydate":    time.RubyDate,
+	"rfc822":      time.RFC822,
+	"rfc822z":     time.RFC822Z,
+	"rfc850":      time.RFC850,
+	"rfc1123":     time.RFC1123,
+	"rfc1123z":    time.RFC1123Z,
+	"rfc3339":     time.RFC3339,
+	"rfc3339nano": time.RFC3339Nano,
+	"kitchen":     time.Kitchen,
+	"stamp":       time.Stamp,
+	"stampmilli":  time.StampMilli,
+	"stampmicro":  time.StampMicro,
+	"stampnano":   time.StampNano,
+	"datetime":    time.DateTime,
+	"date":        time.DateOnly,
+	"time":        time.TimeOnly,
+}
+
+// resolveFormat resolves an @-prefixed named format to its Go layout string.
+// Strings not starting with @ are returned unchanged.
+func resolveFormat(s string) (string, error) {
+	if !strings.HasPrefix(s, "@") {
+		return s, nil
+	}
+	name := strings.ToLower(s[1:])
+	if layout, ok := namedFormats[name]; ok {
+		return layout, nil
+	}
+	return "", fmt.Errorf("unknown named format %q; valid names: @ansic, @unixdate, @rubydate, @rfc822, @rfc822z, @rfc850, @rfc1123, @rfc1123z, @rfc3339, @rfc3339nano, @kitchen, @stamp, @stampmilli, @stampmicro, @stampnano, @datetime, @date, @time", s)
 }
 
 // --- helpers ---

@@ -334,7 +334,7 @@ func TestDurationCapsuleEquality(t *testing.T) {
 	assert.True(t, d1.Equals(d2).False())
 }
 
-// --- Phase 2: fromunix / unix ---
+// --- fromunix / unix ---
 
 func TestFromUnixSeconds(t *testing.T) {
 	result, err := FromUnixFunc.Call([]cty.Value{cty.NumberIntVal(0)})
@@ -401,7 +401,7 @@ func TestUnixUnits(t *testing.T) {
 	}
 }
 
-// --- Phase 2: timepart ---
+// --- timepart ---
 
 func TestTimePart(t *testing.T) {
 	// 2024-01-15 (Monday) 10:30:45.123456789 UTC, day 15, yearday 15
@@ -445,7 +445,7 @@ func TestTimePartUsesStoredTimezone(t *testing.T) {
 	assert.Equal(t, int64(5), got) // 05:30 in New York
 }
 
-// --- Phase 2: durationpart ---
+// --- durationpart ---
 
 func TestDurationPart(t *testing.T) {
 	base := 90*time.Minute + 30*time.Second + 500*time.Millisecond
@@ -482,7 +482,7 @@ func TestDurationPart(t *testing.T) {
 	}
 }
 
-// --- Phase 2: timezone / intimezone ---
+// --- timezone / intimezone ---
 
 func TestTimezoneNoArgs(t *testing.T) {
 	result, err := TimezoneFunc.Call([]cty.Value{})
@@ -527,7 +527,7 @@ func TestInTimezoneInvalidZone(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// --- Phase 2: absduration ---
+// --- absduration ---
 
 func TestAbsDurationPositive(t *testing.T) {
 	d := hclutil.NewDurationCapsule(5 * time.Minute)
@@ -545,7 +545,7 @@ func TestAbsDurationNegative(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, got)
 }
 
-// --- Phase 2: calendar arithmetic ---
+// --- calendar arithmetic ---
 
 func TestAddYears(t *testing.T) {
 	ts := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC))
@@ -595,7 +595,7 @@ func TestAddDaysNegative(t *testing.T) {
 	assert.Equal(t, 10, got.Day())
 }
 
-// --- Phase 2: comparison functions ---
+// --- comparison functions ---
 
 func TestTimeBefore(t *testing.T) {
 	t1 := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC))
@@ -657,6 +657,245 @@ func TestDurationGt(t *testing.T) {
 	result, err = DurationGtFunc.Call([]cty.Value{d1, d2})
 	require.NoError(t, err)
 	assert.False(t, result.True())
+}
+
+// --- timepart isoweek/isoyear ---
+
+func TestTimePartISOWeek(t *testing.T) {
+	// 2024-01-01 is week 1 of ISO year 2024 (Monday)
+	ts := hclutil.NewTimeCapsule(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
+	week, err := TimePartFunc.Call([]cty.Value{ts, cty.StringVal("isoweek")})
+	require.NoError(t, err)
+	w, _ := week.AsBigFloat().Int64()
+	assert.Equal(t, int64(1), w)
+
+	year, err := TimePartFunc.Call([]cty.Value{ts, cty.StringVal("isoyear")})
+	require.NoError(t, err)
+	y, _ := year.AsBigFloat().Int64()
+	assert.Equal(t, int64(2024), y)
+}
+
+func TestTimePartISOYearBoundary(t *testing.T) {
+	// 2019-12-30 is ISO week 1 of ISO year 2020
+	ts := hclutil.NewTimeCapsule(time.Date(2019, 12, 30, 0, 0, 0, 0, time.UTC))
+	year, err := TimePartFunc.Call([]cty.Value{ts, cty.StringVal("isoyear")})
+	require.NoError(t, err)
+	y, _ := year.AsBigFloat().Int64()
+	assert.Equal(t, int64(2020), y)
+}
+
+// --- resolveFormat / @name aliases ---
+
+func TestResolveFormatPassthrough(t *testing.T) {
+	layout, err := resolveFormat("2006-01-02")
+	require.NoError(t, err)
+	assert.Equal(t, "2006-01-02", layout)
+}
+
+func TestResolveFormatNamedAliases(t *testing.T) {
+	tests := []struct {
+		name   string
+		layout string
+	}{
+		{"@rfc3339", time.RFC3339},
+		{"@rfc3339nano", time.RFC3339Nano},
+		{"@date", time.DateOnly},
+		{"@time", time.TimeOnly},
+		{"@datetime", time.DateTime},
+		{"@RFC3339", time.RFC3339}, // case-insensitive
+	}
+	for _, tt := range tests {
+		got, err := resolveFormat(tt.name)
+		require.NoError(t, err, "resolveFormat(%q)", tt.name)
+		assert.Equal(t, tt.layout, got, "resolveFormat(%q)", tt.name)
+	}
+}
+
+func TestResolveFormatUnknown(t *testing.T) {
+	_, err := resolveFormat("@bogus")
+	assert.Error(t, err)
+}
+
+// --- formattime with @name ---
+
+func TestFormatTimeNamedFormat(t *testing.T) {
+	ts := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC))
+	result, err := FormatTimeFunc.Call([]cty.Value{cty.StringVal("@date"), ts})
+	require.NoError(t, err)
+	assert.Equal(t, "2024-01-15", result.AsString())
+}
+
+func TestFormatTimeNamedFormatRFC3339(t *testing.T) {
+	ts := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC))
+	result, err := FormatTimeFunc.Call([]cty.Value{cty.StringVal("@rfc3339"), ts})
+	require.NoError(t, err)
+	assert.Equal(t, "2024-01-15T10:30:00Z", result.AsString())
+}
+
+// --- parsetime multi-arg ---
+
+func TestParseTimeOneArg(t *testing.T) {
+	result, err := ParseTimeFunc.Call([]cty.Value{cty.StringVal("2024-01-15T10:30:00Z")})
+	require.NoError(t, err)
+	got, _ := hclutil.GetTime(result)
+	assert.Equal(t, time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC), got)
+}
+
+func TestParseTimeTwoArgs(t *testing.T) {
+	result, err := ParseTimeFunc.Call([]cty.Value{
+		cty.StringVal("2006-01-02"),
+		cty.StringVal("2024-01-15"),
+	})
+	require.NoError(t, err)
+	got, _ := hclutil.GetTime(result)
+	assert.Equal(t, time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC), got)
+}
+
+func TestParseTimeTwoArgsNamedFormat(t *testing.T) {
+	result, err := ParseTimeFunc.Call([]cty.Value{
+		cty.StringVal("@rfc3339"),
+		cty.StringVal("2024-01-15T10:30:00Z"),
+	})
+	require.NoError(t, err)
+	got, _ := hclutil.GetTime(result)
+	assert.Equal(t, time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC), got)
+}
+
+func TestParseTimeThreeArgs(t *testing.T) {
+	// parse date-only string with explicit timezone
+	result, err := ParseTimeFunc.Call([]cty.Value{
+		cty.StringVal("2006-01-02"),
+		cty.StringVal("2024-01-15"),
+		cty.StringVal("America/New_York"),
+	})
+	require.NoError(t, err)
+	got, _ := hclutil.GetTime(result)
+	assert.Equal(t, "America/New_York", got.Location().String())
+	assert.Equal(t, 15, got.Day())
+}
+
+func TestParseTimeInvalidFormat(t *testing.T) {
+	_, err := ParseTimeFunc.Call([]cty.Value{
+		cty.StringVal("@bogus"),
+		cty.StringVal("2024-01-15"),
+	})
+	assert.Error(t, err)
+}
+
+// --- strftime / strptime ---
+
+func TestStrftime(t *testing.T) {
+	ts := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 10, 30, 45, 0, time.UTC))
+	result, err := StrftimeFunc.Call([]cty.Value{cty.StringVal("%Y-%m-%d"), ts})
+	require.NoError(t, err)
+	assert.Equal(t, "2024-01-15", result.AsString())
+}
+
+func TestStrftimeHourMinute(t *testing.T) {
+	ts := hclutil.NewTimeCapsule(time.Date(2024, 1, 15, 10, 30, 45, 0, time.UTC))
+	result, err := StrftimeFunc.Call([]cty.Value{cty.StringVal("%H:%M:%S"), ts})
+	require.NoError(t, err)
+	assert.Equal(t, "10:30:45", result.AsString())
+}
+
+func TestStrptime(t *testing.T) {
+	result, err := StrptimeFunc.Call([]cty.Value{
+		cty.StringVal("%Y-%m-%d"),
+		cty.StringVal("2024-01-15"),
+	})
+	require.NoError(t, err)
+	got, _ := hclutil.GetTime(result)
+	assert.Equal(t, 2024, got.Year())
+	assert.Equal(t, time.January, got.Month())
+	assert.Equal(t, 15, got.Day())
+}
+
+func TestStrptimeWithTimezone(t *testing.T) {
+	result, err := StrptimeFunc.Call([]cty.Value{
+		cty.StringVal("%Y-%m-%d"),
+		cty.StringVal("2024-01-15"),
+		cty.StringVal("America/New_York"),
+	})
+	require.NoError(t, err)
+	got, _ := hclutil.GetTime(result)
+	assert.Equal(t, "America/New_York", got.Location().String())
+	assert.Equal(t, 15, got.Day())
+}
+
+func TestStrptimeInvalidFormat(t *testing.T) {
+	_, err := StrptimeFunc.Call([]cty.Value{
+		cty.StringVal("%Q"),
+		cty.StringVal("2024-01-15"),
+	})
+	assert.Error(t, err)
+}
+
+// --- duration arithmetic ---
+
+func TestDurationAdd(t *testing.T) {
+	d1 := hclutil.NewDurationCapsule(30 * time.Minute)
+	d2 := hclutil.NewDurationCapsule(45 * time.Minute)
+	result, err := DurationAddFunc.Call([]cty.Value{d1, d2})
+	require.NoError(t, err)
+	got, _ := hclutil.GetDuration(result)
+	assert.Equal(t, 75*time.Minute, got)
+}
+
+func TestDurationSub(t *testing.T) {
+	d1 := hclutil.NewDurationCapsule(2 * time.Hour)
+	d2 := hclutil.NewDurationCapsule(30 * time.Minute)
+	result, err := DurationSubFunc.Call([]cty.Value{d1, d2})
+	require.NoError(t, err)
+	got, _ := hclutil.GetDuration(result)
+	assert.Equal(t, 90*time.Minute, got)
+}
+
+func TestDurationMul(t *testing.T) {
+	d := hclutil.NewDurationCapsule(30 * time.Minute)
+	result, err := DurationMulFunc.Call([]cty.Value{d, cty.NumberIntVal(3)})
+	require.NoError(t, err)
+	got, _ := hclutil.GetDuration(result)
+	assert.Equal(t, 90*time.Minute, got)
+}
+
+func TestDurationMulFractional(t *testing.T) {
+	d := hclutil.NewDurationCapsule(time.Hour)
+	result, err := DurationMulFunc.Call([]cty.Value{d, cty.NumberFloatVal(1.5)})
+	require.NoError(t, err)
+	got, _ := hclutil.GetDuration(result)
+	assert.Equal(t, 90*time.Minute, got)
+}
+
+func TestDurationDiv(t *testing.T) {
+	d := hclutil.NewDurationCapsule(time.Hour)
+	result, err := DurationDivFunc.Call([]cty.Value{d, cty.NumberIntVal(4)})
+	require.NoError(t, err)
+	got, _ := hclutil.GetDuration(result)
+	assert.Equal(t, 15*time.Minute, got)
+}
+
+func TestDurationDivByZero(t *testing.T) {
+	d := hclutil.NewDurationCapsule(time.Hour)
+	_, err := DurationDivFunc.Call([]cty.Value{d, cty.NumberIntVal(0)})
+	assert.Error(t, err)
+}
+
+func TestDurationTruncate(t *testing.T) {
+	d := hclutil.NewDurationCapsule(1*time.Hour + 37*time.Minute + 42*time.Second)
+	m := hclutil.NewDurationCapsule(time.Minute)
+	result, err := DurationTruncateFunc.Call([]cty.Value{d, m})
+	require.NoError(t, err)
+	got, _ := hclutil.GetDuration(result)
+	assert.Equal(t, 1*time.Hour+37*time.Minute, got)
+}
+
+func TestDurationRound(t *testing.T) {
+	d := hclutil.NewDurationCapsule(1*time.Hour + 37*time.Minute + 42*time.Second)
+	m := hclutil.NewDurationCapsule(time.Minute)
+	result, err := DurationRoundFunc.Call([]cty.Value{d, m})
+	require.NoError(t, err)
+	got, _ := hclutil.GetDuration(result)
+	assert.Equal(t, 1*time.Hour+38*time.Minute, got)
 }
 
 // --- durationToISO8601 helper ---

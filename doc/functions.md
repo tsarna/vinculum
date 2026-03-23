@@ -63,6 +63,10 @@ Duration strings are accepted in two formats:
 - `now(tz)`: Return the current time in the named IANA timezone, e.g. `now("UTC")`, `now("America/New_York")`.
 - `parsetime(s)`: Parse an RFC 3339 timestamp string (timezone required). Accepts sub-second
   precision. Example: `parsetime("2024-01-15T10:30:00Z")`.
+- `parsetime(format, s)`: Parse `s` using the given format (Go reference-time layout or `@name`
+  alias — see table under `formattime`). Example: `parsetime("2006-01-02", "2024-01-15")`.
+- `parsetime(format, s, tz)`: Parse `s` using `format`, interpreting the result as a local time
+  in the named IANA timezone. Example: `parsetime("2006-01-02", "2024-01-15", "America/New_York")`.
 
 #### Timestamp Formatting
 
@@ -70,7 +74,7 @@ Duration strings are accepted in two formats:
   `Mon Jan 2 15:04:05 MST 2006`; use those specific values as placeholders in the format string.
   Example: `formattime("2006-01-02", now("UTC"))` → `"2024-01-15"`.
 
-  A format string starting with `@` selects a predefined layout *(Phase 3)*:
+  A format string starting with `@` selects a predefined layout:
 
   | Name | Equivalent format string | Example output |
   |------|--------------------------|----------------|
@@ -93,7 +97,7 @@ Duration strings are accepted in two formats:
   | `@date` | `2006-01-02` | `2024-01-15` |
   | `@time` | `15:04:05` | `10:30:00` |
 
-  The same `@name` aliases will be accepted by `parsetime` once multi-format parsing is added.
+  The same `@name` aliases are accepted by `parsetime` and `strptime`.
 
 - `formatdate(fmt, ts)`: A legacy hcl function, prefer `formattime`. Format an RFC 3339 timestamp *string*
   using a token-based format (`YYYY`, `MM`, `DD`, `HH`, `mm`, `ss`, `Z`). Operates on strings
@@ -184,22 +188,18 @@ leap years — adding one month to January 31 yields February 28 (or 29 in a lea
 
 #### Duration — Decomposition
 
-- `durationpart(d, part)`: Extract a component of `d`. `part` is one of:
+- `durationpart(d, part)`: Return `d` expressed in the given unit. `part` is one of:
 
   | Part string | Description | Return type |
   |-------------|-------------|-------------|
-  | `"hours"` | Integer hours | number |
-  | `"minutes"` | Integer minutes (0–59) | number |
-  | `"seconds"` | Integer seconds (0–59) | number |
-  | `"milliseconds"` | Integer milliseconds (0–999) | number |
-  | `"microseconds"` | Integer microseconds (0–999) | number |
-  | `"nanoseconds"` | Integer nanoseconds (0–999) | number |
-  | `"totalhours"` | Total duration as fractional hours | number |
-  | `"totalminutes"` | Total duration as fractional minutes | number |
-  | `"totalseconds"` | Total duration as fractional seconds | number |
-  | `"totalmilliseconds"` | Total duration as fractional milliseconds | number |
-  | `"totalmicroseconds"` | Total duration as fractional microseconds | number |
-  | `"totalnanoseconds"` | Total duration as integer nanoseconds | number |
+  | `"h"` | Total duration in fractional hours | float |
+  | `"m"` | Total duration in fractional minutes | float |
+  | `"s"` | Total duration in fractional seconds | float |
+  | `"ms"` | Total duration in whole milliseconds | integer |
+  | `"us"` | Total duration in whole microseconds | integer |
+  | `"ns"` | Total duration in whole nanoseconds | integer |
+
+  All units are *total* (not components). For example, `durationpart(duration("1h30m"), "m")` → `90.0`.
 
 #### Duration — Misc
 
@@ -241,7 +241,7 @@ unix(now("UTC"))                                # → current epoch as float
 # Decomposition
 timepart(now("UTC"), "year")                    # → e.g. 2024
 timepart(now("UTC"), "weekday")                 # → 0 (Sunday) – 6 (Saturday)
-durationpart(since(ctx.start_time), "minutes")  # → integer minutes component
+durationpart(since(ctx.start_time), "m")        # → total minutes as float
 
 # Timezone
 timezone()                                      # → local TZ name, e.g. "America/New_York"
@@ -255,7 +255,56 @@ addyears(now("UTC"), 1)                         # → same date next year
 
 # Backward-compatible string form of timeadd
 timeadd("2024-01-15T10:30:00Z", "1h")          # → "2024-01-15T11:30:00Z"
+
+# Named format aliases
+formattime("@rfc3339", now("UTC"))              # → "2024-01-15T10:30:00Z"
+formattime("@date", now("UTC"))                 # → "2024-01-15"
+parsetime("@rfc3339", "2024-01-15T10:30:00Z")  # → time
+
+# Multi-arg parsetime
+parsetime("2006-01-02", "2024-01-15", "America/New_York")  # → time in New York
+
+# strftime / strptime
+strftime("%Y-%m-%d", now("UTC"))               # → "2024-01-15"
+strftime("%H:%M:%S", now("UTC"))               # → "10:30:00"
+strptime("%Y-%m-%d", "2024-01-15")             # → time (UTC midnight)
+strptime("%Y-%m-%d", "2024-01-15", "UTC")      # → time in UTC
+
+# Duration arithmetic
+durationadd(duration("1h"), duration("30m"))   # → 1h30m
+durationsub(duration("2h"), duration("30m"))   # → 1h30m
+durationmul(duration("15m"), 4)                # → 1h
+durationdiv(duration("1h"), 4)                 # → 15m
+durationtruncate(since(ctx.start_time), duration("1m"))   # → elapsed rounded down to minute
+durationround(since(ctx.start_time), duration("1s"))      # → elapsed rounded to second
 ```
+
+#### Timestamp — strftime/strptime
+
+These functions use strftime/strptime-style format strings (POSIX `%`-codes) via the
+[itchyny/timefmt-go](https://github.com/itchyny/timefmt-go) library.
+
+- `strftime(format, t)`: Format `t` using a `%`-code format string.
+  Example: `strftime("%Y-%m-%d", now("UTC"))` → `"2024-01-15"`.
+- `strptime(format, s)`: Parse `s` using a `%`-code format string. Missing components default to
+  zero (e.g. time components default to midnight).
+- `strptime(format, s, tz)`: Parse `s` and interpret the result as a local time in the named
+  IANA timezone. Example: `strptime("%Y-%m-%d", "2024-01-15", "America/New_York")`.
+
+The `@name` format aliases do **not** apply to strftime/strptime — use literal `%`-codes.
+
+#### Duration Arithmetic
+
+- `durationadd(d1, d2)`: Add two durations: `d1 + d2`.
+- `durationsub(d1, d2)`: Subtract durations: `d1 - d2`.
+- `durationmul(d, n)`: Multiply a duration by a scalar number. Fractional scalars are accepted:
+  `durationmul(duration("1h"), 1.5)` → `1h30m`.
+- `durationdiv(d, n)`: Divide a duration by a scalar number. Returns a duration.
+  `durationdiv(duration("1h"), 4)` → `15m`.
+- `durationtruncate(d, m)`: Truncate `d` to a multiple of `m` (equivalent to Go's `d.Truncate(m)`).
+  Example: truncating `1h37m42s` to `1m` → `1h37m`.
+- `durationround(d, m)`: Round `d` to the nearest multiple of `m` (equivalent to Go's `d.Round(m)`).
+  Example: rounding `1h37m42s` to `1m` → `1h38m`.
 
 ### Variables and Metrics
 
