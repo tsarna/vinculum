@@ -306,6 +306,39 @@ The `@name` format aliases do **not** apply to strftime/strptime — use literal
 - `durationround(d, m)`: Round `d` to the nearest multiple of `m` (equivalent to Go's `d.Round(m)`).
   Example: rounding `1h37m42s` to `1m` → `1h38m`.
 
+#### DNS Zone Serial Numbers
+
+DNS zone serial numbers conventionally encode a date and a per-day sequence number as
+`YYYYMMDDNN`, where `NN` is a two-digit counter starting at `00`. This gives 100 updates
+per day before overflow. Overflowing into what looks like the next day (or an invalid date)
+is acceptable per convention.
+
+- `nextzoneserial(s)` / `nextzoneserial(s, t)`: Compute the next zone serial after `s`.
+  `s` is the current serial (number or string). `t` is an optional `time` value; if omitted,
+  the current time is used. The date components are extracted from `t` in its stored timezone.
+
+  Computes `x` = first serial of `t`'s day (`YYYYMMDD * 100`), then returns `max(s + 1, x)`.
+  This means: if `s` is already within today, increment it; if it's from a previous day,
+  jump to the start of today.
+
+  ```hcl
+  nextzoneserial(0)                    # → first serial of today, e.g. 2026012300
+  nextzoneserial(var.serial)           # → next serial after var.serial
+  nextzoneserial(var.serial, now("UTC"))  # → explicit timezone
+  ```
+
+- `parsezoneserial(s)`: Convert a zone serial back to an approximate `time` value (UTC midnight
+  of the encoded date). The sequence number (`NN`) is ignored. `s` may be a number or string.
+
+  Out-of-range date components are snapped to the nearest valid date: month > 12 becomes
+  December 31; day > days in month becomes the last day of that month. This handles the
+  day-rollover case where `NN` reached 100+ on the last day.
+
+  ```hcl
+  parsezoneserial(2026012307)   # → 2026-01-23T00:00:00Z
+  parsezoneserial(2026123200)   # → 2026-12-31T00:00:00Z  (day 32 → Dec 31)
+  ```
+
 ### Variables and Metrics
 
 These functions read and write mutable variables (`var` blocks) and Prometheus
