@@ -30,6 +30,7 @@ type TopicMappingDefinition struct {
 
 // ProducerDefinition is one producer block inside a client "kafka" block.
 type ProducerDefinition struct {
+	Name                  string                   `hcl:",label"`
 	Acks                  string                   `hcl:"acks,optional"`
 	Compression           string                   `hcl:"compression,optional"`
 	ProduceMode           string                   `hcl:"produce_mode,optional"`
@@ -56,6 +57,7 @@ type TopicSubscriptionDefinition struct {
 
 // ConsumerDefinition is one consumer block inside a client "kafka" block.
 type ConsumerDefinition struct {
+	Name          string                        `hcl:",label"`
 	GroupID       string                        `hcl:"group_id"`
 	StartOffset   string                        `hcl:"start_offset,optional"`
 	Target        hcl.Expression                `hcl:"target"`
@@ -82,6 +84,7 @@ type KafkaClientDefinition struct {
 // builtProducerSpec holds what is known at config time about one producer,
 // ready to be handed to kproducer.ProducerBuilder in Start().
 type builtProducerSpec struct {
+	name          string
 	topicMappings []kproducer.TopicMapping
 	produceMode   kproducer.ProduceMode
 	defaultXform  kproducer.DefaultTopicTransform
@@ -90,11 +93,38 @@ type builtProducerSpec struct {
 // builtConsumerSpec holds what is known at config time about one consumer,
 // ready to be handed to kconsumer.ConsumerBuilder in Start().
 type builtConsumerSpec struct {
+	name          string
 	groupID       string
 	startOffset   kgo.Offset
 	commitMode    kconsumer.CommitMode
 	subscriptions []kconsumer.TopicSubscription
 	target        bus.Subscriber
+}
+
+// KafkaProducerProxy is a config-time bus.Subscriber that forwards OnEvent to
+// a named KafkaProducer. The actual producer is wired in KafkaClient.Start().
+type KafkaProducerProxy struct {
+	bus.BaseSubscriber
+	mu           sync.RWMutex
+	producer     *kproducer.KafkaProducer
+	clientName   string
+	producerName string
+}
+
+func (p *KafkaProducerProxy) wireProducer(prod *kproducer.KafkaProducer) {
+	p.mu.Lock()
+	p.producer = prod
+	p.mu.Unlock()
+}
+
+func (p *KafkaProducerProxy) OnEvent(ctx context.Context, topic string, msg any, fields map[string]string) error {
+	p.mu.RLock()
+	prod := p.producer
+	p.mu.RUnlock()
+	if prod == nil {
+		return fmt.Errorf("kafka client %q producer %q: not yet started", p.clientName, p.producerName)
+	}
+	return prod.OnEvent(ctx, topic, msg, fields)
 }
 
 // KafkaClient manages a franz-go producer client, zero or more KafkaProducers,
@@ -104,16 +134,41 @@ type KafkaClient struct {
 	BaseClient
 	bus.BaseSubscriber
 
-	kgoOpts   []kgo.Opt
-	prodSpecs []builtProducerSpec
-	consSpecs []builtConsumerSpec
-	logger    *zap.Logger
+	kgoOpts         []kgo.Opt
+	prodSpecs       []builtProducerSpec
+	consSpecs       []builtConsumerSpec
+	producerProxies map[string]*KafkaProducerProxy // created at config time, wired at Start()
+	logger          *zap.Logger
 
-	mu          sync.RWMutex
-	kgoClient   *kgo.Client
-	producers   []*kproducer.KafkaProducer
-	consumers   []*kconsumer.KafkaConsumer
-	consCancel  context.CancelFunc
+	mu         sync.RWMutex
+	kgoClient  *kgo.Client
+	producers  []*kproducer.KafkaProducer
+	consumers  []*kconsumer.KafkaConsumer
+	consCancel context.CancelFunc
+}
+
+// CtyValue returns the cty value used to expose this client in VCL expressions.
+//
+// For clients with producers the value is an object with:
+//   - "producers" — a subscriber capsule wrapping this KafkaClient; dispatches
+//     OnEvent to all producers (client.events.producers)
+//   - "producer"  — an object mapping each producer name to its own subscriber
+//     capsule (client.events.producer.name)
+//
+// For consumer-only clients (no producers) the value falls back to a plain
+// ClientCapsule since there is nothing producer-related to expose.
+func (c *KafkaClient) CtyValue() cty.Value {
+	if len(c.producerProxies) == 0 {
+		return NewClientCapsule(c)
+	}
+	prodMap := make(map[string]cty.Value, len(c.producerProxies))
+	for name, proxy := range c.producerProxies {
+		prodMap[name] = NewSubscriberCapsule(proxy)
+	}
+	return cty.ObjectVal(map[string]cty.Value{
+		"producers": NewSubscriberCapsule(c),
+		"producer":  cty.ObjectVal(prodMap),
+	})
 }
 
 // Start creates producer and consumer clients and starts all consumers.
@@ -130,7 +185,7 @@ func (c *KafkaClient) Start() error {
 	}
 
 	producers := make([]*kproducer.KafkaProducer, 0, len(c.prodSpecs))
-	for i, spec := range c.prodSpecs {
+	for _, spec := range c.prodSpecs {
 		b := kproducer.NewProducer().
 			WithClient(kgoClient).
 			WithProduceMode(spec.produceMode).
@@ -142,7 +197,10 @@ func (c *KafkaClient) Start() error {
 		p, err := b.Build()
 		if err != nil {
 			kgoClient.Close()
-			return fmt.Errorf("kafka client %q producer[%d]: %w", c.Name, i, err)
+			return fmt.Errorf("kafka client %q producer %q: %w", c.Name, spec.name, err)
+		}
+		if proxy, ok := c.producerProxies[spec.name]; ok {
+			proxy.wireProducer(p)
 		}
 		producers = append(producers, p)
 	}
@@ -151,7 +209,7 @@ func (c *KafkaClient) Start() error {
 	consumerCtx, consCancel := context.WithCancel(context.Background())
 	consumers := make([]*kconsumer.KafkaConsumer, 0, len(c.consSpecs))
 
-	for i, spec := range c.consSpecs {
+	for _, spec := range c.consSpecs {
 		b := kconsumer.NewConsumer().
 			WithBaseOpts(c.kgoOpts).
 			WithGroupID(spec.groupID).
@@ -171,7 +229,7 @@ func (c *KafkaClient) Start() error {
 			if kgoClient != nil {
 				kgoClient.Close()
 			}
-			return fmt.Errorf("kafka client %q consumer[%d]: %w", c.Name, i, err)
+			return fmt.Errorf("kafka client %q consumer %q: %w", c.Name, spec.name, err)
 		}
 		if err := cons.Start(consumerCtx); err != nil {
 			consCancel()
@@ -181,7 +239,7 @@ func (c *KafkaClient) Start() error {
 			if kgoClient != nil {
 				kgoClient.Close()
 			}
-			return fmt.Errorf("kafka client %q consumer[%d] start: %w", c.Name, i, err)
+			return fmt.Errorf("kafka client %q consumer %q start: %w", c.Name, spec.name, err)
 		}
 		consumers = append(consumers, cons)
 	}
@@ -279,6 +337,32 @@ func ProcessKafkaClientBlock(config *Config, block *hcl.Block, remainingBody hcl
 			Summary:  "kafka: at least one producer or consumer block is required",
 			Subject:  &def.DefRange,
 		}}
+	}
+
+	// Validate unique producer names
+	seenProducers := make(map[string]struct{}, len(def.Producers))
+	for _, p := range def.Producers {
+		if _, dup := seenProducers[p.Name]; dup {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  fmt.Sprintf("kafka: duplicate producer name %q", p.Name),
+				Subject:  &p.DefRange,
+			}}
+		}
+		seenProducers[p.Name] = struct{}{}
+	}
+
+	// Validate unique consumer names
+	seenConsumers := make(map[string]struct{}, len(def.Consumers))
+	for _, c := range def.Consumers {
+		if _, dup := seenConsumers[c.Name]; dup {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  fmt.Sprintf("kafka: duplicate consumer name %q", c.Name),
+				Subject:  &c.DefRange,
+			}}
+		}
+		seenConsumers[c.Name] = struct{}{}
 	}
 
 	// ── kgo.Client options (connection-level) ──────────────────────────────
@@ -381,15 +465,26 @@ func ProcessKafkaClientBlock(config *Config, block *hcl.Block, remainingBody hcl
 		return nil, consDiags
 	}
 
+	// ── Per-producer proxies (subscriber capsules for client.events.producer.name) ─
+
+	producerProxies := make(map[string]*KafkaProducerProxy, len(prodSpecs))
+	for _, spec := range prodSpecs {
+		producerProxies[spec.name] = &KafkaProducerProxy{
+			clientName:   block.Labels[1],
+			producerName: spec.name,
+		}
+	}
+
 	client := &KafkaClient{
 		BaseClient: BaseClient{
 			Name:     block.Labels[1],
 			DefRange: def.DefRange,
 		},
-		kgoOpts:   opts,
-		prodSpecs: prodSpecs,
-		consSpecs: consSpecs,
-		logger:    config.Logger,
+		kgoOpts:         opts,
+		prodSpecs:       prodSpecs,
+		consSpecs:       consSpecs,
+		producerProxies: producerProxies,
+		logger:          config.Logger,
 	}
 
 	config.Startables = append(config.Startables, client)
@@ -466,8 +561,8 @@ func parseCompression(comp string) (kgo.Opt, error) {
 
 func buildProducerSpecs(config *Config, defs []ProducerDefinition) ([]builtProducerSpec, hcl.Diagnostics) {
 	specs := make([]builtProducerSpec, 0, len(defs))
-	for i, def := range defs {
-		spec, diags := buildProducerSpec(config, def, i)
+	for _, def := range defs {
+		spec, diags := buildProducerSpec(config, def)
 		if diags.HasErrors() {
 			return nil, diags
 		}
@@ -476,8 +571,9 @@ func buildProducerSpecs(config *Config, defs []ProducerDefinition) ([]builtProdu
 	return specs, nil
 }
 
-func buildProducerSpec(config *Config, def ProducerDefinition, idx int) (builtProducerSpec, hcl.Diagnostics) {
+func buildProducerSpec(config *Config, def ProducerDefinition) (builtProducerSpec, hcl.Diagnostics) {
 	var spec builtProducerSpec
+	spec.name = def.Name
 
 	switch def.ProduceMode {
 	case "", "sync":
@@ -487,7 +583,7 @@ func buildProducerSpec(config *Config, def ProducerDefinition, idx int) (builtPr
 	default:
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("kafka producer[%d]: invalid produce_mode", idx),
+			Summary:  fmt.Sprintf("kafka producer %q: invalid produce_mode", def.Name),
 			Detail:   fmt.Sprintf("%q is not valid; use sync or async", def.ProduceMode),
 			Subject:  &def.DefRange,
 		}}
@@ -503,7 +599,7 @@ func buildProducerSpec(config *Config, def ProducerDefinition, idx int) (builtPr
 	default:
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("kafka producer[%d]: invalid default_topic_transform", idx),
+			Summary:  fmt.Sprintf("kafka producer %q: invalid default_topic_transform", def.Name),
 			Detail:   fmt.Sprintf("%q is not valid; use error, slash_to_dot, or ignore", def.DefaultTopicTransform),
 			Subject:  &def.DefRange,
 		}}
@@ -534,8 +630,8 @@ func buildProducerSpec(config *Config, def ProducerDefinition, idx int) (builtPr
 
 func buildConsumerSpecs(config *Config, defs []ConsumerDefinition) ([]builtConsumerSpec, hcl.Diagnostics) {
 	specs := make([]builtConsumerSpec, 0, len(defs))
-	for i, def := range defs {
-		spec, diags := buildConsumerSpec(config, def, i)
+	for _, def := range defs {
+		spec, diags := buildConsumerSpec(config, def)
 		if diags.HasErrors() {
 			return nil, diags
 		}
@@ -544,13 +640,14 @@ func buildConsumerSpecs(config *Config, defs []ConsumerDefinition) ([]builtConsu
 	return specs, nil
 }
 
-func buildConsumerSpec(config *Config, def ConsumerDefinition, idx int) (builtConsumerSpec, hcl.Diagnostics) {
+func buildConsumerSpec(config *Config, def ConsumerDefinition) (builtConsumerSpec, hcl.Diagnostics) {
 	var spec builtConsumerSpec
+	spec.name = def.Name
 
 	if def.GroupID == "" {
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("kafka consumer[%d]: group_id is required", idx),
+			Summary:  fmt.Sprintf("kafka consumer %q: group_id is required", def.Name),
 			Subject:  &def.DefRange,
 		}}
 	}
@@ -566,7 +663,7 @@ func buildConsumerSpec(config *Config, def ConsumerDefinition, idx int) (builtCo
 	default:
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("kafka consumer[%d]: invalid start_offset", idx),
+			Summary:  fmt.Sprintf("kafka consumer %q: invalid start_offset", def.Name),
 			Detail:   fmt.Sprintf("%q is not valid; use stored, earliest, or latest", def.StartOffset),
 			Subject:  &def.DefRange,
 		}}
@@ -582,7 +679,7 @@ func buildConsumerSpec(config *Config, def ConsumerDefinition, idx int) (builtCo
 	default:
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("kafka consumer[%d]: invalid commit_mode", idx),
+			Summary:  fmt.Sprintf("kafka consumer %q: invalid commit_mode", def.Name),
 			Detail:   fmt.Sprintf("%q is not valid; use after_process, periodic, or manual", def.CommitMode),
 			Subject:  &def.DefRange,
 		}}
@@ -597,7 +694,7 @@ func buildConsumerSpec(config *Config, def ConsumerDefinition, idx int) (builtCo
 	if len(def.Subscriptions) == 0 {
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("kafka consumer[%d]: at least one topic_subscription block is required", idx),
+			Summary:  fmt.Sprintf("kafka consumer %q: at least one topic_subscription block is required", def.Name),
 			Subject:  &def.DefRange,
 		}}
 	}
@@ -617,7 +714,7 @@ func buildConsumerSpec(config *Config, def ConsumerDefinition, idx int) (builtCo
 // makeVinculumTopicFunc returns a VinculumTopicFunc that evaluates expr
 // per-message with kafka_topic, key, fields, and msg in scope.
 func makeVinculumTopicFunc(cfg *Config, expr hcl.Expression) kconsumer.VinculumTopicFunc {
-	return func(kafkaTopic, key string, fields map[string]string, msg any) (string, error) {
+	return func(kafkaTopic string, key *string, fields map[string]string, msg any) (string, error) {
 		// []byte has no cty equivalent — convert to string before AnyToCty.
 		if b, ok := msg.([]byte); ok {
 			msg = string(b)
@@ -627,9 +724,16 @@ func makeVinculumTopicFunc(cfg *Config, expr hcl.Expression) kconsumer.VinculumT
 			return "", fmt.Errorf("kafka consumer: convert msg: %w", err)
 		}
 
+		var ctyKey cty.Value
+		if key == nil {
+			ctyKey = cty.NullVal(cty.String)
+		} else {
+			ctyKey = cty.StringVal(*key)
+		}
+
 		ctxBuilder := NewContext(context.Background()).
 			WithStringAttribute("kafka_topic", kafkaTopic).
-			WithStringAttribute("key", key).
+			WithAttribute("key", ctyKey).
 			WithAttribute("msg", ctyMsg)
 
 		if len(fields) > 0 {

@@ -88,7 +88,11 @@ func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	}
 
 	config.Clients[block.Labels[0]][block.Labels[1]] = client
-	config.CtyClientMap[block.Labels[1]] = NewClientCapsule(client)
+	if cv, ok := client.(CtyValuer); ok {
+		config.CtyClientMap[block.Labels[1]] = cv.CtyValue()
+	} else {
+		config.CtyClientMap[block.Labels[1]] = NewClientCapsule(client)
+	}
 	config.evalCtx.Variables["client"] = cty.ObjectVal(config.CtyClientMap)
 
 	return nil
@@ -140,6 +144,13 @@ func (s *BaseBusClient) SetSubscriber(subscriber bus.Subscriber) {
 
 func (s *BaseBusClient) GetClient() bus.Client {
 	return s.Client
+}
+
+// CtyValuer is an optional interface that Client implementations may satisfy
+// to provide a custom cty value for the eval context. If not implemented, the
+// client is wrapped in a plain ClientCapsule.
+type CtyValuer interface {
+	CtyValue() cty.Value
 }
 
 // ClientCapsuleType is a cty capsule type for wrapping Client instances.
