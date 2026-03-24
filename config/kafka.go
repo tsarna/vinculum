@@ -118,6 +118,24 @@ func (c *KafkaClient) Start() error {
 	return nil
 }
 
+// Stop implements config.Stoppable. It flushes all pending records and closes
+// the underlying franz-go client. Called on graceful shutdown.
+func (c *KafkaClient) Stop() error {
+	c.mu.RLock()
+	client := c.kgoClient
+	c.mu.RUnlock()
+
+	if client == nil {
+		return nil
+	}
+
+	if err := client.Flush(context.Background()); err != nil {
+		c.logger.Error("kafka: flush on shutdown failed", zap.String("client", c.Name), zap.Error(err))
+	}
+	client.Close()
+	return nil
+}
+
 // OnEvent implements bus.Subscriber. It dispatches to all producers; each
 // producer applies its own topic_mapping rules (first match wins per producer).
 func (c *KafkaClient) OnEvent(ctx context.Context, topic string, msg any, fields map[string]string) error {
@@ -273,6 +291,7 @@ func ProcessKafkaClientBlock(config *Config, block *hcl.Block, remainingBody hcl
 	}
 
 	config.Startables = append(config.Startables, client)
+	config.Stoppables = append(config.Stoppables, client)
 
 	return client, nil
 }

@@ -3,7 +3,10 @@ package cmd
 import (
 	"context"
 	"fmt"
-"strings"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/tsarna/vinculum-bus/subutils"
@@ -86,8 +89,18 @@ func runServer(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// For now, just wait indefinitely
-	select {}
+	// Wait for SIGINT or SIGTERM, then stop all stoppable components.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	logger.Info("Shutting down")
+	for i := len(cfg.Stoppables) - 1; i >= 0; i-- {
+		if err := cfg.Stoppables[i].Stop(); err != nil {
+			logger.Error("Failed to stop component", zap.Error(err))
+		}
+	}
+	return nil
 }
 
 func setupLogger() (*zap.Logger, error) {

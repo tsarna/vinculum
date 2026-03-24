@@ -29,6 +29,12 @@ type Startable interface {
 	Start() error
 }
 
+// Stoppable is implemented by components that need graceful shutdown.
+// Stop is called in reverse-start order on SIGINT/SIGTERM.
+type Stoppable interface {
+	Stop() error
+}
+
 type Config struct {
 	Logger    *zap.Logger
 	Functions      map[string]function.Function
@@ -39,6 +45,7 @@ type Config struct {
 
 	SigActions     *SignalActionHandler
 	Startables     []Startable
+	Stoppables     []Stoppable
 	BusCapsuleType cty.Type
 	CtyBusMap      map[string]cty.Value
 	Buses          map[string]bus.EventBus
