@@ -238,8 +238,6 @@ func (a *ActionSubscriber) OnEvent(ctx context.Context, topic string, message an
 		return diags
 	}
 
-	a.Config.Logger.Info("OnEvent called", zap.String("topic", topic), zap.Any("message", message), zap.Any("fields", fields))
-
 	_, diags = a.ActionExpr.Value(evalCtx)
 	if diags.HasErrors() {
 		return diags

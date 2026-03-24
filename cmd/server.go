@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -9,7 +8,6 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/tsarna/vinculum-bus/subutils"
 	"github.com/tsarna/vinculum/config"
 	"go.uber.org/zap"
 )
@@ -77,10 +75,6 @@ func runServer(cmd *cobra.Command, args []string) error {
 		logger.Error("Failed to build config", zap.Any("diags", diags))
 		return diags
 	}
-
-	// TODO remove, just for debugging
-	logSub := subutils.NewLoggingSubscriber(nil, cfg.Logger, zap.InfoLevel)
-	cfg.Buses["main"].Subscribe(context.Background(), "#", logSub)
 
 	for _, startable := range cfg.Startables {
 		err := startable.Start()
