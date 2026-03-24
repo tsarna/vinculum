@@ -63,6 +63,9 @@ func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	var client Client
 
 	switch block.Labels[0] {
+	case "kafka":
+		client, diags = ProcessKafkaClientBlock(config, block, clientDef.RemainingBody)
+
 	case "vws":
 		client, diags = ProcessVinculumWebsocketsClientBlock(config, block, clientDef.RemainingBody)
 

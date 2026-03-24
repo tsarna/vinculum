@@ -268,7 +268,15 @@ func GetSubscriberFromCapsule(val cty.Value) (bus.Subscriber, error) {
 	// A bus may be used as a subscriber
 	if val.Type() == EventBusCapsuleType {
 		return GetEventBusFromCapsule(val)
-	} else if val.Type() != SubscriberCapsuleType {
+	}
+	// A client that implements bus.Subscriber (e.g. KafkaClient) may also be used directly.
+	if val.Type() == ClientCapsuleType {
+		if sub, ok := val.EncapsulatedValue().(bus.Subscriber); ok {
+			return sub, nil
+		}
+		return nil, fmt.Errorf("client does not implement Subscriber")
+	}
+	if val.Type() != SubscriberCapsuleType {
 		return nil, fmt.Errorf("expected Subscriber capsule, got %s", val.Type().FriendlyName())
 	}
 

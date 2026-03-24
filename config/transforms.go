@@ -118,6 +118,7 @@ func (config *Config) getTransformExprEvalCtx() *hcl.EvalContext {
 	ctx := config.evalCtx.NewChild()
 	ctx.Functions = map[string]function.Function{
 		"add_topic_prefix":      AddTopicPrefixTransform,
+		"replace_in_topic":      ReplaceInTopicTransform,
 		"chain":                 ChainTransformsTransform,
 		"cty2go":                Cty2GoTransformFunc,
 		"diff":                  DiffTransform,
@@ -163,6 +164,18 @@ var AddTopicPrefixTransform = function.New(&function.Spec{
 	Type: function.StaticReturnType(MessageTransformCapsuleType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 		capsule := NewMessageTransformCapsule(vbxform.AddTopicPrefix(args[0].AsString()))
+		return capsule, nil
+	},
+})
+
+var ReplaceInTopicTransform = function.New(&function.Spec{
+	Params: []function.Parameter{
+		{Name: "old", Type: cty.String},
+		{Name: "new", Type: cty.String},
+	},
+	Type: function.StaticReturnType(MessageTransformCapsuleType),
+	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+		capsule := NewMessageTransformCapsule(vbxform.ReplaceInTopic(args[0].AsString(), args[1].AsString()))
 		return capsule, nil
 	},
 })
