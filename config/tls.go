@@ -10,28 +10,44 @@ import (
 	"github.com/hashicorp/hcl/v2"
 )
 
-// TLSConfig holds TLS configuration for client connections. It is designed
-// to be embedded in any client block that needs TLS (Kafka, future VWS TLS, etc.)
-// and decoded directly by gohcl.
+// TLSConfig holds TLS configuration for client or server connections. It is
+// designed to be embedded in any block that needs TLS and decoded by gohcl.
+//
+// For clients:
 //
 //	tls {
 //	  enabled              = true
-//	  ca_cert              = "/etc/certs/ca.crt"
-//	  client_cert          = "/etc/certs/client.crt"   # optional, for mTLS
-//	  client_key           = "/etc/certs/client.key"   # optional, for mTLS
+//	  ca_cert              = "/etc/certs/ca.crt"   # verify server cert
+//	  cert                 = "/etc/certs/client.crt"  # optional, for mTLS
+//	  key                  = "/etc/certs/client.key"  # optional, for mTLS
 //	  insecure_skip_verify = false
+//	}
+//
+// For servers:
+//
+//	tls {
+//	  enabled             = true
+//	  cert                = "/etc/certs/server.crt"
+//	  key                 = "/etc/certs/server.key"
+//	  ca_cert             = "/etc/certs/ca.crt"  # optional, require client certs
+//	  require_client_cert = true                  # optional, enforce mTLS
 //	}
 type TLSConfig struct {
 	Enabled            bool      `hcl:"enabled,optional"`
 	CACert             string    `hcl:"ca_cert,optional"`
-	ClientCert         string    `hcl:"client_cert,optional"`
-	ClientKey          string    `hcl:"client_key,optional"`
+	Cert               string    `hcl:"cert,optional"`
+	Key                string    `hcl:"key,optional"`
 	InsecureSkipVerify bool      `hcl:"insecure_skip_verify,optional"`
+	RequireClientCert  bool      `hcl:"require_client_cert,optional"`
 	DefRange           hcl.Range `hcl:",def_range"`
 }
 
-// BuildTLSClientConfig constructs a *tls.Config from the block. Returns nil
-// if Enabled is false. Relative file paths are resolved against baseDir.
+// BuildTLSClientConfig constructs a *tls.Config for use as a TLS client.
+// Returns nil if Enabled is false. Relative paths are resolved against baseDir.
+//
+// ca_cert sets the trusted CA pool (verifies the server certificate).
+// cert + key provide a client certificate for mTLS.
+// insecure_skip_verify disables server certificate verification.
 func (t *TLSConfig) BuildTLSClientConfig(baseDir string) (*tls.Config, error) {
 	if !t.Enabled {
 		return nil, nil
@@ -42,32 +58,84 @@ func (t *TLSConfig) BuildTLSClientConfig(baseDir string) (*tls.Config, error) {
 	}
 
 	if t.CACert != "" {
-		caPath := resolvePath(baseDir, t.CACert)
-		pem, err := os.ReadFile(caPath)
+		pool, err := loadCertPool(baseDir, t.CACert)
 		if err != nil {
-			return nil, fmt.Errorf("tls: read ca_cert %q: %w", caPath, err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("tls: no valid certificates found in ca_cert %q", caPath)
+			return nil, err
 		}
 		cfg.RootCAs = pool
 	}
 
-	if t.ClientCert != "" || t.ClientKey != "" {
-		if t.ClientCert == "" || t.ClientKey == "" {
-			return nil, fmt.Errorf("tls: client_cert and client_key must both be set for mTLS")
-		}
-		certPath := resolvePath(baseDir, t.ClientCert)
-		keyPath := resolvePath(baseDir, t.ClientKey)
-		cert, err := tls.LoadX509KeyPair(certPath, keyPath)
-		if err != nil {
-			return nil, fmt.Errorf("tls: load client cert/key: %w", err)
-		}
-		cfg.Certificates = []tls.Certificate{cert}
+	if err := loadCertKeyPair(baseDir, t.Cert, t.Key, cfg); err != nil {
+		return nil, err
 	}
 
 	return cfg, nil
+}
+
+// BuildTLSServerConfig constructs a *tls.Config for use as a TLS server.
+// Returns nil if Enabled is false. Relative paths are resolved against baseDir.
+//
+// cert + key are required (the server's certificate).
+// ca_cert sets the CA pool used to verify client certificates.
+// require_client_cert enables mTLS (RequireAndVerifyClientCert).
+func (t *TLSConfig) BuildTLSServerConfig(baseDir string) (*tls.Config, error) {
+	if !t.Enabled {
+		return nil, nil
+	}
+
+	if t.Cert == "" || t.Key == "" {
+		return nil, fmt.Errorf("tls: cert and key are required for server TLS")
+	}
+
+	cfg := &tls.Config{}
+
+	if err := loadCertKeyPair(baseDir, t.Cert, t.Key, cfg); err != nil {
+		return nil, err
+	}
+
+	if t.CACert != "" {
+		pool, err := loadCertPool(baseDir, t.CACert)
+		if err != nil {
+			return nil, err
+		}
+		cfg.ClientCAs = pool
+	}
+
+	if t.RequireClientCert {
+		cfg.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+
+	return cfg, nil
+}
+
+// loadCertPool reads a PEM file and returns a certificate pool.
+func loadCertPool(baseDir, caPath string) (*x509.CertPool, error) {
+	path := resolvePath(baseDir, caPath)
+	pem, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("tls: read ca_cert %q: %w", path, err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("tls: no valid certificates found in ca_cert %q", path)
+	}
+	return pool, nil
+}
+
+// loadCertKeyPair loads cert+key into cfg.Certificates. No-op if both are empty.
+func loadCertKeyPair(baseDir, certPath, keyPath string, cfg *tls.Config) error {
+	if certPath == "" && keyPath == "" {
+		return nil
+	}
+	if certPath == "" || keyPath == "" {
+		return fmt.Errorf("tls: cert and key must both be set")
+	}
+	cert, err := tls.LoadX509KeyPair(resolvePath(baseDir, certPath), resolvePath(baseDir, keyPath))
+	if err != nil {
+		return fmt.Errorf("tls: load cert/key: %w", err)
+	}
+	cfg.Certificates = []tls.Certificate{cert}
+	return nil
 }
 
 // resolvePath returns path as-is if absolute, otherwise joins it with baseDir.
