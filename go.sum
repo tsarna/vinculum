@@ -107,6 +107,8 @@ github.com/tsarna/vinculum-kafka v0.5.1 h1:L6BSS1PMu7FXDY72NOEjng54uwdhjRI7B6D+Z
 github.com/tsarna/vinculum-kafka v0.5.1/go.mod h1:qptS1eyotG2Yuah5w9gOi9CRbcIzqV5otkoBzsujmeQ=
 github.com/tsarna/vinculum-vws v0.9.2 h1:r1ZylDBXebjkycxDISWlx+TT6IOfprg/SLJE6tVbUHs=
 github.com/tsarna/vinculum-vws v0.9.2/go.mod h1:QstnLP7TJS7fW3RzKaaMCLJeWpNUxEYI2wpoebfAaBA=
+github.com/tsarna/vinculum-vws v0.9.3 h1:IISlwcOmuPjFR0BO2d1cXUcBgfP1AJtrEBX4xg9n6bY=
+github.com/tsarna/vinculum-vws v0.9.3/go.mod h1:91Ii28tKX4L07Rg87/ddo6ENfsx8YMzMB97e9KwGHOw=
 github.com/twmb/franz-go v1.18.1 h1:D75xxCDyvTqBSiImFx2lkPduE39jz1vaD7+FNc+vMkc=
 github.com/twmb/franz-go v1.18.1/go.mod h1:Uzo77TarcLTUZeLuGq+9lNpSkfZI+JErv7YJhlDjs9M=
 github.com/twmb/franz-go/pkg/kmsg v1.9.0 h1:JojYUph2TKAau6SBtErXpXGC7E3gg4vGZMv9xFU/B6M=
