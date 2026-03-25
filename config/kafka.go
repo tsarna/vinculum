@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
 	bus "github.com/tsarna/vinculum-bus"
+	"github.com/tsarna/vinculum-bus/o11y"
 	kconsumer "github.com/tsarna/vinculum-kafka/consumer"
 	kproducer "github.com/tsarna/vinculum-kafka/producer"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -144,6 +145,7 @@ type KafkaClient struct {
 	prodSpecs       []builtProducerSpec
 	consSpecs       []builtConsumerSpec
 	producerProxies map[string]*KafkaProducerProxy // created at config time, wired at Start()
+	metricsProvider o11y.MetricsProvider
 	logger          *zap.Logger
 
 	mu         sync.RWMutex
@@ -196,6 +198,7 @@ func (c *KafkaClient) Start() error {
 			WithClient(kgoClient).
 			WithProduceMode(spec.produceMode).
 			WithDefaultTransform(spec.defaultXform).
+			WithMetricsProvider(c.metricsProvider).
 			WithLogger(c.logger)
 		for _, tm := range spec.topicMappings {
 			b = b.WithTopicMapping(tm)
@@ -223,6 +226,7 @@ func (c *KafkaClient) Start() error {
 			WithCommitMode(spec.commitMode).
 			WithDLQTopic(spec.dlqTopic).
 			WithTarget(spec.target).
+			WithMetricsProvider(c.metricsProvider).
 			WithLogger(c.logger)
 		for _, sub := range spec.subscriptions {
 			b = b.WithSubscription(sub)
@@ -496,6 +500,11 @@ func ProcessKafkaClientBlock(config *Config, block *hcl.Block, remainingBody hcl
 		}
 	}
 
+	metricsProvider, metricsDiags := config.GetDefaultMetricsProvider()
+	if metricsDiags.HasErrors() {
+		return nil, metricsDiags
+	}
+
 	client := &KafkaClient{
 		BaseClient: BaseClient{
 			Name:     block.Labels[1],
@@ -505,6 +514,7 @@ func ProcessKafkaClientBlock(config *Config, block *hcl.Block, remainingBody hcl
 		prodSpecs:       prodSpecs,
 		consSpecs:       consSpecs,
 		producerProxies: producerProxies,
+		metricsProvider: metricsProvider,
 		logger:          config.Logger,
 	}
 
