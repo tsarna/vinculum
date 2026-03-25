@@ -65,7 +65,7 @@ but the metrics will not be scraped. This may be useful during development.
 
 ## The Default Metrics Server
 
-Many blocks (`bus`, `server "vws"`, `metric`) need a metrics provider. If none is
+Many blocks (`bus`, `server "vws"`, `client "kafka"`, `metric`) need a metrics provider. If none is
 explicitly configured on the block, Vinculum looks for a *default* metrics server
 using these rules:
 
@@ -131,6 +131,9 @@ The `bus` label identifies the bus by name on all metrics.
 
 When `metrics` is set on a `server "vws"`, WebSocket connection metrics (connection
 duration, active connections, message counts, etc.) are also exposed.
+
+`client "kafka"` picks up the default metrics provider automatically and exposes
+producer and consumer metrics — see [Kafka client observability](client-kafka.md#observability).
 
 ---
 

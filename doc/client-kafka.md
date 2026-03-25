@@ -312,6 +312,59 @@ subscription "sensors_only" {
 
 ---
 
+## Observability
+
+When a [`server "metrics"`](server-metrics.md) block is present, the Kafka
+client automatically exposes producer and consumer metrics. No extra
+configuration is needed — the default metrics server is used implicitly.
+
+### Producer metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `kafka_producer_records_sent_total` | counter | `topic` | Records successfully produced |
+| `kafka_producer_errors_total` | counter | `topic` | Production errors |
+| `kafka_producer_produce_duration_seconds` | histogram | `topic` | Time for `ProduceSync` to return (sync mode only) |
+
+### Consumer metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `kafka_consumer_records_received_total` | counter | `topic` | Records successfully processed |
+| `kafka_consumer_errors_total` | counter | `topic` | Processing errors (includes DLQ failures) |
+| `kafka_consumer_lag` | gauge | `topic`, `partition` | Records behind the high-water mark |
+| `kafka_consumer_process_duration_seconds` | histogram | `topic` | Time for `target.OnEvent` to return |
+| `kafka_consumer_commits_total` | counter | — | Successful offset commits |
+
+`kafka_consumer_lag` is updated at the end of every poll cycle. A value of 0
+means the consumer is caught up on that partition.
+
+### Example
+
+```hcl
+server "metrics" "metrics" {
+  listen = ":9090"
+}
+
+client "kafka" "events" {
+  brokers = ["kafka.internal:9093"]
+  # ... (metrics provider is wired automatically from server.metrics above)
+  consumer "main" { ... }
+  producer "main" { ... }
+}
+```
+
+After a few poll cycles, scraping `:9090/metrics` will show entries like:
+
+```
+kafka_consumer_lag{partition="0",topic="sensor.readings"} 0
+kafka_consumer_records_received_total{topic="sensor.readings"} 42
+kafka_producer_records_sent_total{topic="sensor.readings"} 42
+kafka_producer_produce_duration_seconds_sum{topic="sensor.readings"} 0.087
+```
+
+---
+
 ## Complete Example
 
 ```hcl
