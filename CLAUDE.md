@@ -188,6 +188,17 @@ Clients connect to external services. They follow the same pattern as servers:
 - Exposed as `client.<name>` in HCL expressions
 - Add a `case` to `ClientBlockHandler.Process()` in `config/client.go`
 
+### Shared sub-blocks
+
+Reusable sub-block definitions live in `config/` and are embedded by client (and
+server) implementations rather than duplicated per protocol:
+
+| File | Struct | Purpose |
+|---|---|---|
+| `config/tls.go` | `TLSConfig` | TLS/mTLS config; provides `TLSClientConfig() (*tls.Config, error)` |
+
+Add to this table as new shared sub-blocks are defined.
+
 ---
 
 ## VCL Language Reference
@@ -235,7 +246,11 @@ action = [
 ### Transforms
 
 Subscription `transforms` are a list of transform function values applied in order
-to each message before delivery:
+to each message before delivery. The transform functions (`add_topic_prefix`,
+`replace_in_topic`, `jq`, etc.) form a **DSL for declaring a transformation
+chain** — they are not part of the general VCL expression language. They are only
+present in the eval context for attributes that expect a transform list, and must
+not be added to the general function registry.
 
 ```hcl
 transforms = [
@@ -287,6 +302,28 @@ Check it early in `Process()` and return nil if set, before doing any real work.
 Blocks that reference other blocks (e.g., a server referencing a bus) should
 declare that dependency in `GetBlockDependencies()` so the topological sort runs
 them in the right order.
+
+### on_connect / on_disconnect for client blocks
+
+Every `client "type"` block should support optional `on_connect` and
+`on_disconnect` HCL expressions where it makes sense (i.e. the client has a
+meaningful connected/disconnected lifecycle).
+
+**Semantics:**
+
+- `on_connect` — evaluated **synchronously** after the connection is established
+  and ready. No messages are produced or consumed until it returns.
+- `on_disconnect` — evaluated **before any reconnection attempt** (hard
+  guarantee). On graceful shutdown, also evaluated before the connection is torn
+  down (best-effort — network failures cannot give advance notice).
+- `on_connect` / `on_disconnect` pairs bracket each connection session: every
+  `on_connect` is preceded by an `on_disconnect` (except the very first connect).
+
+**Evaluation context:** standard VCL context (`ctx`, `bus.*`, `send()`, etc.).
+No message variables (`topic`, `msg`, `fields`) — there is no message in flight.
+
+**Typical uses:** publish a lifecycle event to a bus, trigger a notification,
+log to an external system.
 
 ---
 
