@@ -31,6 +31,10 @@ func (h *ClientBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl
 	return "client." + block.Labels[1], nil
 }
 
+func (h *ClientBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, hcl.Diagnostics) {
+	return ExtractBlockDependencies(block, "action"), nil
+}
+
 func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {
 	clientDef := ClientDefinition{}
 	diags := gohcl.DecodeBody(block.Body, config.evalCtx, &clientDef)

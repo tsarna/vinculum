@@ -168,12 +168,14 @@ Applied when no `topic_mapping` matches.
 
 Each `consumer` sub-block creates a named Kafka consumer that runs an
 independent poll loop. Received messages are published to the configured
-`target` bus.
+`subscriber`.
 
 ```hcl
 consumer "main" {
   group_id     = "vinculum-prod"   # required: Kafka consumer group ID
-  target       = bus.main          # required: where to publish received messages
+  subscriber   = bus.main          # forward messages to a subscriber
+  # OR
+  # action     = expression        # evaluate an expression per message
 
   start_offset = "stored"          # stored | earliest | latest — default: stored
   commit_mode  = "after_process"   # after_process | periodic | manual — default: after_process
@@ -196,9 +198,22 @@ Required. The Kafka consumer group ID. Multiple vinculum instances sharing the
 same `group_id` will each process a subset of partitions — standard Kafka
 consumer group semantics.
 
-### `target`
+### `subscriber` / `action`
 
-Required. The bus to publish received messages to (e.g. `bus.main`).
+Exactly one must be specified.
+
+- `subscriber` — forward each received message to a bus or subscriber (e.g. `bus.main`).
+- `action` — evaluate an HCL expression for each message. See context variables below.
+
+#### Action context variables
+
+When `action` is used, `ctx` provides:
+
+| Variable | Description |
+|---|---|
+| `ctx.topic` | Vinculum topic of the received message |
+| `ctx.msg` | Message payload |
+| `ctx.fields` | Map of string metadata fields from Kafka record headers (only present if headers exist) |
 
 ### `start_offset`
 
@@ -215,13 +230,13 @@ partition.
 
 | Value | Behavior |
 |---|---|
-| `after_process` (default) | Commit the offset after `target.OnEvent` returns successfully. At-least-once delivery guarantee. Strongly recommended. |
+| `after_process` (default) | Commit the offset after `subscriber.OnEvent` returns successfully. At-least-once delivery guarantee. Strongly recommended. |
 | `periodic` | Auto-commit on a time interval (franz-go default behavior). Risk of duplicate or lost messages on crash. |
 | `manual` | Not committed automatically; reserved for future transactional use. |
 
 ### `dlq_topic`
 
-Optional. If set, records that fail processing (i.e. `target.OnEvent` returns
+Optional. If set, records that fail processing (i.e. `subscriber.OnEvent` returns
 an error) are forwarded to this Kafka topic instead of being dropped. The DLQ
 record preserves the original key and value, and adds the following headers:
 
@@ -340,7 +355,7 @@ client "kafka" "events" {
 | `kafka_consumer_records_received_total` | counter | `topic` | Records successfully processed |
 | `kafka_consumer_errors_total` | counter | `topic` | Processing errors (includes DLQ failures) |
 | `kafka_consumer_lag` | gauge | `topic`, `partition` | Records behind the high-water mark |
-| `kafka_consumer_process_duration_seconds` | histogram | `topic` | Time for `target.OnEvent` to return |
+| `kafka_consumer_process_duration_seconds` | histogram | `topic` | Time for `subscriber.OnEvent` to return |
 | `kafka_consumer_commits_total` | counter | — | Successful offset commits |
 
 `kafka_consumer_lag` is updated at the end of every poll cycle. A value of 0
@@ -406,8 +421,8 @@ client "kafka" "events" {
   }
 
   consumer "main" {
-    group_id  = "vinculum-prod"
-    target    = bus.main
+    group_id   = "vinculum-prod"
+    subscriber = bus.main
     dlq_topic = "vinculum.dlq"
 
     topic_subscription {
@@ -433,5 +448,23 @@ subscription "debug" {
   target = bus.main
   topics = ["#"]
   action = loginfo("event", {topic = ctx.topic, msg = ctx.msg})
+}
+```
+
+Consumer with `action` instead of `subscriber` — log each Kafka message directly:
+
+```hcl
+client "kafka" "events" {
+  brokers = ["kafka:9092"]
+
+  consumer "logger" {
+    group_id = "vinculum-logger"
+    action   = loginfo("kafka", {topic = ctx.topic, msg = ctx.msg})
+
+    topic_subscription {
+      kafka_topic    = "sensor.readings"
+      vinculum_topic = "sensor/readings"
+    }
+  }
 }
 ```

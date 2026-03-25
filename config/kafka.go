@@ -58,7 +58,8 @@ type ConsumerDefinition struct {
 	Name          string                        `hcl:",label"`
 	GroupID       string                        `hcl:"group_id"`
 	StartOffset   string                        `hcl:"start_offset,optional"`
-	Target        hcl.Expression                `hcl:"target"`
+	Subscriber    hcl.Expression                `hcl:"subscriber,optional"`
+	Action        hcl.Expression                `hcl:"action,optional"`
 	CommitMode    string                        `hcl:"commit_mode,optional"`
 	DLQTopic      string                        `hcl:"dlq_topic,optional"`
 	Subscriptions []TopicSubscriptionDefinition `hcl:"topic_subscription,block"`
@@ -107,7 +108,7 @@ type builtConsumerSpec struct {
 	commitMode    kconsumer.CommitMode
 	dlqTopic      string
 	subscriptions []kconsumer.TopicSubscription
-	target        bus.Subscriber
+	subscriber    bus.Subscriber
 }
 
 // KafkaProducerProxy is a config-time bus.Subscriber that forwards OnEvent to
@@ -227,7 +228,7 @@ func (c *KafkaClient) Start() error {
 			WithStartOffset(spec.startOffset).
 			WithCommitMode(spec.commitMode).
 			WithDLQTopic(spec.dlqTopic).
-			WithTarget(spec.target).
+			WithSubscriber(spec.subscriber).
 			WithMetricsProvider(c.metricsProvider).
 			WithLogger(c.logger)
 		for _, sub := range spec.subscriptions {
@@ -720,11 +721,30 @@ func buildConsumerSpec(config *Config, def ConsumerDefinition) (builtConsumerSpe
 
 	spec.dlqTopic = def.DLQTopic
 
-	target, diags := GetSubscriberFromExpression(config, def.Target)
-	if diags.HasErrors() {
-		return spec, diags
+	hasSubscriber := IsExpressionProvided(def.Subscriber)
+	hasAction := IsExpressionProvided(def.Action)
+	if hasSubscriber == hasAction {
+		return spec, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  fmt.Sprintf("kafka consumer %q: exactly one of subscriber or action must be specified", def.Name),
+			Subject:  &def.DefRange,
+		}}
 	}
-	spec.target = target
+
+	var subscriber bus.Subscriber
+	if hasSubscriber {
+		var diags hcl.Diagnostics
+		subscriber, diags = GetSubscriberFromExpression(config, def.Subscriber)
+		if diags.HasErrors() {
+			return spec, diags
+		}
+	} else {
+		subscriber = &ActionSubscriber{
+			Config:     config,
+			ActionExpr: def.Action,
+		}
+	}
+	spec.subscriber = subscriber
 
 	if len(def.Subscriptions) == 0 {
 		return spec, hcl.Diagnostics{{
