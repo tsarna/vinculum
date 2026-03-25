@@ -35,6 +35,8 @@ type ProducerDefinition struct {
 	Compression           string                   `hcl:"compression,optional"`
 	ProduceMode           string                   `hcl:"produce_mode,optional"`
 	Idempotent            *bool                    `hcl:"idempotent,optional"`
+	Linger                hcl.Expression           `hcl:"linger,optional"`
+	MaxRecords            *int                     `hcl:"max_records,optional"`
 	TopicMappings         []TopicMappingDefinition `hcl:"topic_mapping,block"`
 	DefaultTopicTransform string                   `hcl:"default_topic_transform,optional"`
 	DefRange              hcl.Range                `hcl:",def_range"`
@@ -422,8 +424,10 @@ func ProcessKafkaClientBlock(config *Config, block *hcl.Block, remainingBody hcl
 	}
 
 	// ── Producer-level options (only when producers are present) ──────────
-	// acks and compression are kgo.Client-level settings; with multiple
-	// producers sharing one client, the first producer's settings win.
+	// These are kgo.Client-level settings shared across all producers on the
+	// same client. When multiple producer blocks are present, the first
+	// producer's settings win for acks, compression, idempotent, linger, and
+	// max_records.
 
 	if len(def.Producers) > 0 {
 		firstProd := def.Producers[0]
@@ -439,6 +443,12 @@ func ProcessKafkaClientBlock(config *Config, block *hcl.Block, remainingBody hcl
 		}
 		opts = append(opts, acksOpt)
 
+		// idempotent = false explicitly disables the idempotent producer.
+		// By default franz-go enables it when acks = "all".
+		if firstProd.Idempotent != nil && !*firstProd.Idempotent {
+			opts = append(opts, kgo.DisableIdempotentWrite())
+		}
+
 		compOpt, err := parseCompression(firstProd.Compression)
 		if err != nil {
 			return nil, hcl.Diagnostics{{
@@ -449,6 +459,18 @@ func ProcessKafkaClientBlock(config *Config, block *hcl.Block, remainingBody hcl
 			}}
 		}
 		opts = append(opts, compOpt)
+
+		if IsExpressionProvided(firstProd.Linger) {
+			d, ddiags := config.ParseDuration(firstProd.Linger)
+			if ddiags.HasErrors() {
+				return nil, ddiags
+			}
+			opts = append(opts, kgo.ProducerLinger(d))
+		}
+
+		if firstProd.MaxRecords != nil {
+			opts = append(opts, kgo.MaxBufferedRecords(*firstProd.MaxRecords))
+		}
 	}
 
 	// ── Per-producer specs (topic mappings, produce mode) ──────────────────
