@@ -185,24 +185,34 @@ bus "main" {}
 
 ### Multiple registries, explicit wiring
 
+When two or more `server "metrics"` blocks are present, mark one `default = true` so
+that blocks with no explicit `metrics =` attribute know which registry to use.
+Blocks that need a different registry set `metrics` explicitly.
+
 ```hcl
+# :9090 — bus and application metrics (default for everything without explicit wiring)
 server "metrics" "app" {
     listen  = ":9090"
     default = true
 }
 
-server "metrics" "infra" {
+# :9091 — Kafka-only metrics, isolated from the bus registry
+server "metrics" "kafka" {
     listen = ":9091"
 }
 
-bus "main" {
-    metrics = server.app
-}
+bus "main" {}   # picks up server.app automatically (it is the default)
 
-bus "infra" {
-    metrics = server.infra
+client "kafka" "events" {
+    brokers = ["broker:9092"]
+    metrics = server.kafka   # explicit: goes to the kafka-only registry
+    ...
 }
 ```
+
+Scraping `:9090` will show only `eventbus_*` (and Go runtime) metrics.
+Scraping `:9091` will show only `kafka_consumer_*` and `kafka_producer_*`
+metrics. Each registry is completely isolated.
 
 ---
 
