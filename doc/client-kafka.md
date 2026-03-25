@@ -1,0 +1,377 @@
+# Kafka Client (`client "kafka"`)
+
+Vinculum can produce messages to and consume messages from Apache Kafka using
+`client "kafka"` blocks. The implementation uses
+[franz-go](https://github.com/twmb/franz-go) and supports TLS, SASL
+authentication, consumer groups, and dead-letter queues.
+
+A single `client "kafka"` block may contain any number of named `producer` and
+`consumer` sub-blocks (at least one total). All producers and consumers within
+a block share the same underlying broker connections, TLS configuration, and
+SASL credentials.
+
+---
+
+## `client "kafka" "<name>"`
+
+```hcl
+client "kafka" "events" {
+  # Bootstrap brokers — list 2-3 for redundancy.
+  # The client discovers the full cluster topology after first contact.
+  brokers = ["broker1:9092", "broker2:9092"]
+
+  # Optional TLS
+  tls {
+    enabled              = true
+    ca_cert              = "/etc/certs/ca.crt"
+    cert                 = "/etc/certs/client.crt"  # optional, for mTLS
+    key                  = "/etc/certs/client.key"  # optional, for mTLS
+    insecure_skip_verify = false                     # default: false
+  }
+
+  # Optional SASL authentication
+  sasl {
+    mechanism = "SCRAM-SHA-256"  # PLAIN | SCRAM-SHA-256 | SCRAM-SHA-512
+    username  = "vinculum"
+    password  = env.KAFKA_PASSWORD
+  }
+
+  # Producer delivery settings (apply to the shared connection)
+  acks        = "all"      # all | leader | none — default: all
+  compression = "snappy"   # none | gzip | snappy | lz4 | zstd — default: none
+  idempotent  = true       # default: true when acks = "all"
+  linger      = "5ms"      # max wait to fill a batch — default: 0 (immediate)
+  max_records = 10000      # max buffered records before ProduceSync blocks
+
+  # Connection timeouts
+  dial_timeout     = "10s"   # default: 10s
+  request_timeout  = "30s"   # default: 30s
+  metadata_max_age = "300s"  # how often to refresh broker/partition metadata
+
+  # Named producer blocks (zero or more)
+  producer "main" { ... }
+
+  # Named consumer blocks (zero or more)
+  consumer "main" { ... }
+}
+```
+
+### TLS
+
+The `tls` sub-block configures transport security.
+
+| Attribute | Type | Description |
+|---|---|---|
+| `enabled` | bool | Enable TLS. Required to be `true` for TLS to take effect. |
+| `ca_cert` | string | Path to a PEM-encoded CA certificate file for verifying the broker. If omitted, the system CA pool is used. |
+| `cert` | string | Path to a PEM-encoded client certificate (for mutual TLS). |
+| `key` | string | Path to the private key corresponding to `cert`. |
+| `insecure_skip_verify` | bool | Skip broker certificate verification. Not recommended outside of testing. Default: `false`. |
+
+### SASL
+
+The `sasl` sub-block configures authentication.
+
+| Attribute | Type | Description |
+|---|---|---|
+| `mechanism` | string | One of `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512`. |
+| `username` | string | SASL username. |
+| `password` | string | SASL password. Use `env.VAR_NAME` to avoid hardcoding credentials. |
+
+### Producer delivery settings
+
+These attributes are connection-level settings and apply to all producers
+within the block. They correspond directly to franz-go client options.
+
+| Attribute | Type | Default | Description |
+|---|---|---|---|
+| `acks` | string | `"all"` | `"all"` — wait for all in-sync replicas; `"leader"` — wait for partition leader only; `"none"` — fire and forget. |
+| `compression` | string | `"none"` | Compression codec: `none`, `gzip`, `snappy`, `lz4`, or `zstd`. |
+| `idempotent` | bool | `true` when `acks = "all"` | Enables idempotent producer, preventing duplicate records on retry. |
+| `linger` | duration | `"0"` | Maximum time to wait before flushing a batch. Higher values increase throughput at the cost of latency. |
+| `max_records` | number | unlimited | Maximum number of records buffered before `ProduceSync` blocks. |
+
+---
+
+## `producer "<name>"`
+
+Each `producer` sub-block creates a named Kafka producer. Producers are
+addressed in `subscription` blocks via `client.<client-name>.producer.<name>`
+(single producer) or `client.<client-name>.producers` (fan-out to all
+producers).
+
+```hcl
+producer "main" {
+  produce_mode = "sync"  # sync | async — default: sync
+
+  # Topic mappings — evaluated in order, first match wins.
+  topic_mapping {
+    pattern     = "sensor/+deviceId/reading"
+    kafka_topic = "sensor.readings"
+    key         = ctx.fields.deviceId   # HCL expression evaluated per message
+  }
+  topic_mapping {
+    pattern     = "alerts/#"
+    kafka_topic = "alerts"
+    key         = null              # null = no key (Kafka round-robins partitions)
+  }
+
+  # What to do when no topic_mapping matches:
+  #   slash_to_dot — replace "/" with "." in the vinculum topic (e.g. a/b/c → a.b.c)
+  #   error        — return an error (default)
+  #   ignore       — silently drop the message
+  default_topic_transform = "slash_to_dot"
+}
+```
+
+### `produce_mode`
+
+| Value | Behavior |
+|---|---|
+| `sync` (default) | Waits for broker acknowledgement before returning. Reliable; provides backpressure. |
+| `async` | Returns immediately after queueing the record internally. Higher throughput; errors are logged rather than returned to the caller. |
+
+### `topic_mapping`
+
+Each `topic_mapping` block maps a vinculum topic pattern to a Kafka topic and
+optional record key.
+
+| Attribute | Type | Description |
+|---|---|---|
+| `pattern` | string | MQTT-style pattern. `+name` captures one segment into `ctx.fields.name`; `#` matches any trailing segments. |
+| `kafka_topic` | string | Destination Kafka topic. |
+| `key` | expression | Record key expression (evaluated per message). `null` means no key. |
+
+**Key expression context** (all accessed via `ctx`):
+
+| Variable | Description |
+|---|---|
+| `ctx.topic` | The incoming vinculum topic string |
+| `ctx.msg` | The message payload |
+| `ctx.fields` | Named segments captured from the topic pattern (e.g. `ctx.fields.deviceId`) |
+
+Common key expressions: `ctx.fields.deviceId`, `ctx.msg.id`, `ctx.topic`, `null`.
+
+### `default_topic_transform`
+
+Applied when no `topic_mapping` matches.
+
+| Value | Behavior |
+|---|---|
+| `error` (default) | Return an error for unmatched topics. |
+| `slash_to_dot` | Convert the vinculum topic to a Kafka topic by replacing `/` with `.` (`a/b/c` → `a.b.c`). |
+| `ignore` | Silently discard the message. |
+
+---
+
+## `consumer "<name>"`
+
+Each `consumer` sub-block creates a named Kafka consumer that runs an
+independent poll loop. Received messages are published to the configured
+`target` bus.
+
+```hcl
+consumer "main" {
+  group_id     = "vinculum-prod"   # required: Kafka consumer group ID
+  target       = bus.main          # required: where to publish received messages
+
+  start_offset = "stored"          # stored | earliest | latest — default: stored
+  commit_mode  = "after_process"   # after_process | periodic | manual — default: after_process
+  dlq_topic    = "vinculum.dlq"    # optional: dead-letter queue topic
+
+  topic_subscription {
+    kafka_topic    = "sensor.readings"
+    vinculum_topic = "sensor/${ctx.fields.deviceId}/reading"
+  }
+  topic_subscription {
+    kafka_topic    = "alerts"
+    vinculum_topic = "alerts/kafka"
+  }
+}
+```
+
+### `group_id`
+
+Required. The Kafka consumer group ID. Multiple vinculum instances sharing the
+same `group_id` will each process a subset of partitions — standard Kafka
+consumer group semantics.
+
+### `target`
+
+Required. The bus to publish received messages to (e.g. `bus.main`).
+
+### `start_offset`
+
+Controls which offset to start from when no committed offset exists for a
+partition.
+
+| Value | Behavior |
+|---|---|
+| `stored` (default) | Resume from the last committed offset. Correct for production use. |
+| `earliest` | Read from the beginning of the topic. Useful for initial bootstrap; will reprocess all historical messages if the group offset is reset. |
+| `latest` | Skip existing messages; only receive new ones after the consumer starts. |
+
+### `commit_mode`
+
+| Value | Behavior |
+|---|---|
+| `after_process` (default) | Commit the offset after `target.OnEvent` returns successfully. At-least-once delivery guarantee. Strongly recommended. |
+| `periodic` | Auto-commit on a time interval (franz-go default behavior). Risk of duplicate or lost messages on crash. |
+| `manual` | Not committed automatically; reserved for future transactional use. |
+
+### `dlq_topic`
+
+Optional. If set, records that fail processing (i.e. `target.OnEvent` returns
+an error) are forwarded to this Kafka topic instead of being dropped. The DLQ
+record preserves the original key and value, and adds the following headers:
+
+| Header | Contents |
+|---|---|
+| `vinculum-error` | The error message from the failed handler |
+| `vinculum-original-topic` | The original Kafka topic the record came from |
+| `vinculum-timestamp` | ISO 8601 timestamp of when the failure occurred |
+
+The offset is committed only after a successful DLQ send. If the DLQ send
+itself fails, the record is not committed and will be redelivered.
+
+### `topic_subscription`
+
+Each `topic_subscription` block maps one Kafka topic to a vinculum topic.
+Multiple blocks may be declared within a single consumer.
+
+| Attribute | Type | Description |
+|---|---|---|
+| `kafka_topic` | string | Exact Kafka topic name to subscribe to. |
+| `vinculum_topic` | expression | Vinculum topic to publish the message under. May be a static string or an HCL string interpolation. |
+
+**`vinculum_topic` expression context** (all accessed via `ctx`):
+
+| Variable | Description |
+|---|---|
+| `ctx.kafka_topic` | The source Kafka topic name |
+| `ctx.key` | The record key as a string, or `null` if the record has no key |
+| `ctx.fields` | `map(string)` populated from Kafka record headers |
+| `ctx.msg` | The deserialized message payload |
+
+**Deserialization:** The Kafka record value is parsed as JSON if possible
+(producing `map`, `list`, or scalar values). If the bytes are not valid JSON,
+the raw `[]byte` is passed through unchanged. Kafka record headers become the
+`fields` map.
+
+**Static topic:**
+```hcl
+topic_subscription {
+  kafka_topic    = "alerts"
+  vinculum_topic = "alerts/kafka"
+}
+```
+
+**Dynamic topic from a record header:**
+```hcl
+topic_subscription {
+  kafka_topic    = "sensor.readings"
+  vinculum_topic = "sensor/${ctx.fields.deviceId}/reading"
+}
+```
+
+**Dynamic topic from the record key:**
+```hcl
+topic_subscription {
+  kafka_topic    = "sensor.readings"
+  vinculum_topic = "sensor/${ctx.key}/reading"
+}
+```
+
+---
+
+## Addressing Producers in Subscriptions
+
+`client.<name>` resolves to a cty object with two attributes for routing
+messages to Kafka producers:
+
+| Expression | Meaning |
+|---|---|
+| `client.<name>.producers` | Fan-out: dispatch `OnEvent` to **all** named producers. |
+| `client.<name>.producer.<prod-name>` | Route to a single named producer. |
+
+```hcl
+# Fan-out to all producers
+subscription "all_to_kafka" {
+  target     = bus.main
+  topics     = ["sensor/#", "alerts/#"]
+  subscriber = client.events.producers
+}
+
+# Single named producer
+subscription "sensors_only" {
+  target     = bus.main
+  topics     = ["sensor/#"]
+  subscriber = client.events.producer.main
+}
+```
+
+---
+
+## Complete Example
+
+```hcl
+bus "main" {}
+
+client "kafka" "events" {
+  brokers = ["kafka.internal:9093"]
+
+  tls {
+    enabled = true
+  }
+
+  sasl {
+    mechanism = "SCRAM-SHA-256"
+    username  = "vinculum"
+    password  = env.KAFKA_PASSWORD
+  }
+
+  acks        = "all"
+  compression = "snappy"
+  linger      = "5ms"
+
+  producer "main" {
+    produce_mode            = "sync"
+    default_topic_transform = "slash_to_dot"
+
+    topic_mapping {
+      pattern     = "sensor/+deviceId/reading"
+      kafka_topic = "sensor.readings"
+      key         = ctx.fields.deviceId
+    }
+  }
+
+  consumer "main" {
+    group_id  = "vinculum-prod"
+    target    = bus.main
+    dlq_topic = "vinculum.dlq"
+
+    topic_subscription {
+      kafka_topic    = "sensor.readings"
+      vinculum_topic = "sensor/${ctx.fields.deviceId}/reading"
+    }
+    topic_subscription {
+      kafka_topic    = "alerts"
+      vinculum_topic = "alerts/kafka"
+    }
+  }
+}
+
+# Forward internal bus events to Kafka
+subscription "to_kafka" {
+  target     = bus.main
+  topics     = ["vinculum/#"]
+  subscriber = client.events.producers
+}
+
+# Log everything that arrives from Kafka (and anything else on the bus)
+subscription "debug" {
+  target = bus.main
+  topics = ["#"]
+  action = loginfo("event", {topic = ctx.topic, msg = ctx.msg})
+}
+```

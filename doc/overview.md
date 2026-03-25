@@ -90,6 +90,17 @@ The HTTP Server protocol can have actions configured in response to GET, POST, P
 
 It can also be configured to serve static files.
 
+#### Kafka
+
+Vinculum can produce messages to and consume messages from Apache Kafka. A
+`client "kafka"` block may contain any number of named `producer` and
+`consumer` sub-blocks. Producers map vinculum topics to Kafka topics (with
+optional record keys) and implement `bus.Subscriber`, so they can be the target
+of any `subscription` block or used with the send() functions. Consumers run
+independent poll loops and publish received messages to a target bus, with
+configurable consumer groups, offset management, and dead-letter queue support. See
+[client-kafka.md](client-kafka.md) for the full reference.
+
 #### Vinculum Websocket Server
 
 Vinculum Websockets Server offers a simple MQTT-like publish/subscribe protocol to expose a bus over WebSockets.

@@ -286,6 +286,7 @@ clients share a single name namespace.
 
 For details on each client type, see the dedicated pages:
 
+- [`client "kafka"`](client-kafka.md) — Apache Kafka producer and consumer
 - [`client "openai"`](client-llm.md) — OpenAI and OpenAI-compatible LLM APIs
 - [`client "vws"`](server-vws.md#client-vws) — Vinculum WebSocket Protocol client
 
