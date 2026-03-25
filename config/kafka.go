@@ -82,6 +82,8 @@ type KafkaClientDefinition struct {
 	DialTimeout    hcl.Expression `hcl:"dial_timeout,optional"`
 	RequestTimeout hcl.Expression `hcl:"request_timeout,optional"`
 	MetadataMaxAge hcl.Expression `hcl:"metadata_max_age,optional"`
+	// Observability
+	Metrics        hcl.Expression `hcl:"metrics,optional"`
 	DefRange       hcl.Range      `hcl:",def_range"`
 }
 
@@ -500,7 +502,7 @@ func ProcessKafkaClientBlock(config *Config, block *hcl.Block, remainingBody hcl
 		}
 	}
 
-	metricsProvider, metricsDiags := config.GetDefaultMetricsProvider()
+	metricsProvider, metricsDiags := ResolveMetricsProvider(config, def.Metrics)
 	if metricsDiags.HasErrors() {
 		return nil, metricsDiags
 	}

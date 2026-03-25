@@ -315,8 +315,15 @@ subscription "sensors_only" {
 ## Observability
 
 When a [`server "metrics"`](server-metrics.md) block is present, the Kafka
-client automatically exposes producer and consumer metrics. No extra
-configuration is needed — the default metrics server is used implicitly.
+client automatically exposes producer and consumer metrics. The default metrics
+server is used implicitly, or you can wire a specific one explicitly:
+
+```hcl
+client "kafka" "events" {
+  metrics = server.mymetrics   # optional; uses default server if omitted
+  ...
+}
+```
 
 ### Producer metrics
 

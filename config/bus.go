@@ -11,10 +11,11 @@ import (
 )
 
 type BusDefinition struct {
-	Name      string   `hcl:",label"`
-	Type      *string  `hcl:"type,optional"`
-	QueueSize *int     `hcl:"queue_size,optional"`
-	Options   hcl.Body `hcl:",remain"`
+	Name      string         `hcl:",label"`
+	Type      *string        `hcl:"type,optional"`
+	QueueSize *int           `hcl:"queue_size,optional"`
+	Metrics   hcl.Expression `hcl:"metrics,optional"`
+	Options   hcl.Body       `hcl:",remain"`
 }
 
 type BusBlockHandler struct {
@@ -145,6 +146,14 @@ func (h *BusBlockHandler) BuildEventBus(config *Config, busDef *BusDefinition, d
 	busBuilder := bus.NewEventBus().WithLogger(config.Logger).WithName(busDef.Name)
 	if busDef.QueueSize != nil {
 		busBuilder = busBuilder.WithBufferSize(*busDef.QueueSize)
+	}
+
+	metricsProvider, diags := ResolveMetricsProvider(config, busDef.Metrics)
+	if diags.HasErrors() {
+		return diags
+	}
+	if metricsProvider != nil {
+		busBuilder = busBuilder.WithMetrics(metricsProvider)
 	}
 
 	eventBus, err := busBuilder.Build()

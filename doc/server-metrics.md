@@ -102,7 +102,11 @@ metric "counter" "requests_total" { help = "Total requests" }  # same
 
 ---
 
-## Wiring to Buses and VWS Servers
+## Wiring to Buses, VWS Servers, and Kafka Clients
+
+The `metrics` attribute is supported on `bus`, `server "vws"`, and
+`client "kafka"` blocks. It is optional — when omitted the default metrics
+server is used automatically.
 
 ```hcl
 bus "main" {
@@ -112,6 +116,12 @@ bus "main" {
 server "vws" "ws" {
     bus     = bus.main
     metrics = server.metrics   # optional; inferred from default otherwise
+}
+
+client "kafka" "events" {
+    brokers = ["broker:9092"]
+    metrics = server.metrics   # optional; inferred from default otherwise
+    ...
 }
 ```
 
@@ -134,6 +144,7 @@ duration, active connections, message counts, etc.) are also exposed.
 
 `client "kafka"` picks up the default metrics provider automatically and exposes
 producer and consumer metrics — see [Kafka client observability](client-kafka.md#observability).
+Explicit `metrics = server.<name>` wiring is also supported on all three block types.
 
 ---
 

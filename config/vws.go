@@ -35,6 +35,7 @@ type VinculumWebsocketsServerDefinition struct {
 	InitialSubscriptions []string       `hcl:"initial_subscriptions,optional"`
 	OutboundTransforms   hcl.Expression `hcl:"outbound_transforms,optional"`
 	InboundTransforms    hcl.Expression `hcl:"inbound_transforms,optional"`
+	Metrics              hcl.Expression `hcl:"metrics,optional"`
 	DefRange             hcl.Range      `hcl:",def_range"`
 }
 
@@ -131,6 +132,14 @@ func ProcessVinculumWebsocketsServerBlock(config *Config, block *hcl.Block, rema
 			// Dynamically evaluated expression
 			listenerBuilder = listenerBuilder.WithEventAuth(config.MakeAllowSend(serverDef.AllowSend))
 		}
+	}
+
+	metricsProvider, metricsDiags := ResolveMetricsProvider(config, serverDef.Metrics)
+	if metricsDiags.HasErrors() {
+		return nil, metricsDiags
+	}
+	if metricsProvider != nil {
+		listenerBuilder = listenerBuilder.WithMetricsProvider(metricsProvider)
 	}
 
 	listener, err := listenerBuilder.Build()

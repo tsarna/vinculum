@@ -155,6 +155,21 @@ func GetMetricsServerFromExpression(config *Config, expr hcl.Expression) (*Metri
 	return ms, nil
 }
 
+// ResolveMetricsProvider resolves an o11y.MetricsProvider from an optional HCL
+// expression. If the expression is provided it must reference a server "metrics"
+// block. If omitted, the default metrics provider is used. Returns nil, nil when
+// no metrics server is configured at all (metrics are simply disabled).
+func ResolveMetricsProvider(config *Config, expr hcl.Expression) (o11y.MetricsProvider, hcl.Diagnostics) {
+	if IsExpressionProvided(expr) {
+		ms, diags := GetMetricsServerFromExpression(config, expr)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		return ms.GetMetricsProvider(), nil
+	}
+	return config.GetDefaultMetricsProvider()
+}
+
 // GetDefaultMetricsProvider resolves the default metrics provider per these rules:
 //  1. Exactly one metrics server → use it
 //  2. Multiple, exactly one with IsDefault=true → use it
