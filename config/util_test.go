@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	timecty "github.com/tsarna/time-cty-funcs"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -171,6 +172,28 @@ func TestConfigParseDurationInvalidTypes(t *testing.T) {
 			assert.Contains(t, errorText, "type", "Error should mention type issue")
 		})
 	}
+}
+
+func TestConfigParseDurationCapsule(t *testing.T) {
+	logger := zap.NewNop()
+	cfg := &Config{
+		Logger:  logger,
+		evalCtx: &hcl.EvalContext{},
+	}
+
+	expected := 5 * time.Millisecond
+	capsuleVar := timecty.NewDurationCapsule(expected)
+
+	cfg.evalCtx = &hcl.EvalContext{
+		Variables: map[string]cty.Value{"d": capsuleVar},
+	}
+
+	expr, diags := hclsyntax.ParseExpression([]byte("d"), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+	require.False(t, diags.HasErrors())
+
+	got, parseDiags := cfg.ParseDuration(expr)
+	assert.False(t, parseDiags.HasErrors(), "Unexpected error: %v", parseDiags)
+	assert.Equal(t, expected, got)
 }
 
 func TestConfigParseDurationWithVariables(t *testing.T) {

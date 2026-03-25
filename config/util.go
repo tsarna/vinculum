@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/sosodev/duration"
 	bus "github.com/tsarna/vinculum-bus"
+	timecty "github.com/tsarna/time-cty-funcs"
 	"github.com/tsarna/vinculum/internal/hclutil"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -114,11 +115,15 @@ func (c *Config) ParseDuration(expr hcl.Expression) (time.Duration, hcl.Diagnost
 			return timeDuration, diags
 		}
 
+	case timecty.DurationCapsuleType:
+		d, _ := timecty.GetDuration(val) // type already confirmed by case
+		return d, diags
+
 	default:
 		diags = diags.Append(&hcl.Diagnostic{
 			Severity: hcl.DiagError,
 			Summary:  "Invalid duration type",
-			Detail:   fmt.Sprintf("Duration must be a number (seconds) or string, got %s", val.Type().FriendlyName()),
+			Detail:   fmt.Sprintf("Duration must be a number (seconds), string, or duration value, got %s", val.Type().FriendlyName()),
 			Subject:  expr.Range().Ptr(),
 		})
 		return 0, diags
