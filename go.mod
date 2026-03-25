@@ -21,8 +21,8 @@ require (
 	github.com/tsarna/hcl-jqfunc v0.1.1
 	github.com/tsarna/rand-cty-funcs v0.1.0
 	github.com/tsarna/time-cty-funcs v0.1.0
-	github.com/tsarna/vinculum-bus v0.9.2
-	github.com/tsarna/vinculum-kafka v0.2.0
+	github.com/tsarna/vinculum-bus v0.9.3
+	github.com/tsarna/vinculum-kafka v0.3.0
 	github.com/tsarna/vinculum-vws v0.9.2
 	github.com/twmb/franz-go v1.18.1
 	github.com/yosida95/uritemplate/v3 v3.0.2
