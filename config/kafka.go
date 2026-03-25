@@ -59,6 +59,7 @@ type ConsumerDefinition struct {
 	StartOffset   string                        `hcl:"start_offset,optional"`
 	Target        hcl.Expression                `hcl:"target"`
 	CommitMode    string                        `hcl:"commit_mode,optional"`
+	DLQTopic      string                        `hcl:"dlq_topic,optional"`
 	Subscriptions []TopicSubscriptionDefinition `hcl:"topic_subscription,block"`
 	DefRange      hcl.Range                     `hcl:",def_range"`
 }
@@ -101,6 +102,7 @@ type builtConsumerSpec struct {
 	groupID       string
 	startOffset   kgo.Offset
 	commitMode    kconsumer.CommitMode
+	dlqTopic      string
 	subscriptions []kconsumer.TopicSubscription
 	target        bus.Subscriber
 }
@@ -219,6 +221,7 @@ func (c *KafkaClient) Start() error {
 			WithGroupID(spec.groupID).
 			WithStartOffset(spec.startOffset).
 			WithCommitMode(spec.commitMode).
+			WithDLQTopic(spec.dlqTopic).
 			WithTarget(spec.target).
 			WithLogger(c.logger)
 		for _, sub := range spec.subscriptions {
@@ -702,6 +705,8 @@ func buildConsumerSpec(config *Config, def ConsumerDefinition) (builtConsumerSpe
 			Subject:  &def.DefRange,
 		}}
 	}
+
+	spec.dlqTopic = def.DLQTopic
 
 	target, diags := GetSubscriberFromExpression(config, def.Target)
 	if diags.HasErrors() {
