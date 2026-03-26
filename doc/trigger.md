@@ -11,9 +11,9 @@ trigger "type" "name" {
 ```
 
 All trigger types share a single name namespace — you cannot have two non-disabled
-triggers with the same name regardless of type. `trigger "after"`, `trigger "interval"`,
-`trigger "once"`, and `trigger "start"` blocks expose their result as `trigger.<name>`
-in the global evaluation context.
+triggers with the same name regardless of type. `trigger "after"`, `trigger "interval"`, `trigger "once"`, `trigger "start"`,
+and `trigger "watchdog"` blocks expose their result as `trigger.<name>` in the
+global evaluation context.
 
 ---
 
@@ -354,5 +354,88 @@ Example — log a startup message:
 ```hcl
 trigger "start" "hello" {
     action = loginfo("vinculum started", {host = sys.hostname})
+}
+```
+
+---
+
+## `trigger "watchdog"`
+
+```hcl
+trigger "watchdog" "name" {
+    window        = expression  # required — fires if not set() within this duration
+    action        = expression  # required — evaluated each time the watchdog fires
+    initial_grace = expression  # optional — grace period before first check; default: window
+    repeat        = false       # optional — if true, re-fires every window until set() again
+    disabled      = false       # optional
+}
+```
+
+Fires an action when a time window elapses without `set(trigger.<name>)` being
+called. It is the inverse of `trigger "interval"`: rather than doing work on a
+schedule, it detects when expected work *stops* happening.
+
+`set(trigger.<name>, value)` resets the countdown and stores the value.
+`set(trigger.<name>)` with no value resets the countdown and stores `null`.
+`get(trigger.<name>)` returns the last value passed to `set()`, or `null` if
+`set()` has never been called.
+
+**`repeat = false` (default)** — After firing, the watchdog goes dormant and
+waits for the next `set()` before re-arming. This avoids flooding repeated
+alerts for a condition that is already known to be broken.
+
+**`repeat = true`** — After firing, immediately re-arms with a fresh `window`
+countdown. Keeps firing on every window until `set()` is called. Useful for
+paging systems where ongoing alerting is desired.
+
+The `initial_grace` defaults to `window`, giving components time to start up
+and call `set()` for the first time before the watchdog can fire.
+
+When the action runs, `ctx` provides:
+
+| Variable | Description |
+|---|---|
+| `ctx.trigger` | `"watchdog"` |
+| `ctx.name` | Name of this trigger block |
+| `ctx.last_set` | Time of the last `set()` call (time capsule), or `null` if never set |
+| `ctx.miss_count` | Consecutive fires since the last `set()`; resets to 0 on `set()` |
+
+**Creates** `trigger.<name>` as a capsule; use `set()` to feed it and `get()` to
+read the last stored value.
+
+Example — heartbeat monitoring (alert if worker goes silent for 90 seconds):
+
+```hcl
+trigger "watchdog" "worker_alive" {
+    window = "90s"
+    action = logwarn("worker missed heartbeat", {missed = ctx.miss_count})
+}
+
+trigger "interval" "worker" {
+    delay  = "30s"
+    action = set(trigger.worker_alive, do_work(ctx))
+}
+```
+
+Example — repeated alerting until acknowledged:
+
+```hcl
+trigger "watchdog" "pipeline" {
+    window  = "5m"
+    repeat  = true
+    action  = send(ctx, bus.alerts, "pipeline/stalled", {
+        missed = ctx.miss_count,
+        since  = ctx.last_set,
+    })
+}
+```
+
+Example — allow 2 minutes for a dependency to start before monitoring begins:
+
+```hcl
+trigger "watchdog" "upstream" {
+    initial_grace = "2m"
+    window        = "30s"
+    action        = logwarn("upstream health check stopped", {name = ctx.name})
 }
 ```

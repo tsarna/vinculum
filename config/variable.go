@@ -66,9 +66,13 @@ func (v *Variable) Get(args []cty.Value) (cty.Value, error) {
 	return v.value, nil
 }
 
-// Set updates the value (args[0]) and returns it. Implements Settable.
+// Set updates the value (args[0]) and returns it. If called with no arguments,
+// sets the value to null. Implements Settable.
 func (v *Variable) Set(args []cty.Value) (cty.Value, error) {
-	value := args[0]
+	value := cty.NullVal(cty.DynamicPseudoType)
+	if len(args) > 0 {
+		value = args[0]
+	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.value = value
@@ -230,7 +234,6 @@ func makeSetFunction() function.Function {
 	return function.New(&function.Spec{
 		Params: []function.Parameter{
 			{Name: "thing", Type: cty.DynamicPseudoType},
-			{Name: "value", Type: cty.DynamicPseudoType},
 		},
 		VarParam: &function.Parameter{Name: "args", Type: cty.DynamicPseudoType},
 		Type:     function.StaticReturnType(cty.DynamicPseudoType),
@@ -290,6 +293,9 @@ func extractGettable(val cty.Value) (Gettable, error) {
 	if val.Type() == AfterCapsuleType {
 		return GetAfterTriggerFromCapsule(val)
 	}
+	if val.Type() == WatchdogCapsuleType {
+		return GetWatchdogTriggerFromCapsule(val)
+	}
 	if val.Type() == IntervalCapsuleType {
 		return GetIntervalTriggerFromCapsule(val)
 	}
@@ -309,6 +315,9 @@ func extractGettable(val cty.Value) (Gettable, error) {
 func extractSettable(val cty.Value) (Settable, error) {
 	if val.Type() == VariableCapsuleType {
 		return GetVariableFromCapsule(val)
+	}
+	if val.Type() == WatchdogCapsuleType {
+		return GetWatchdogTriggerFromCapsule(val)
 	}
 	if val.Type() == MetricCapsuleType {
 		m, err := GetMetricFromCapsule(val)

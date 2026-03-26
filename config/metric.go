@@ -125,6 +125,9 @@ func (m *GaugeMetric) Get(args []cty.Value) (cty.Value, error) {
 
 // --- Settable ---
 func (m *GaugeMetric) Set(args []cty.Value) (cty.Value, error) {
+	if len(args) == 0 {
+		return cty.NilVal, fmt.Errorf("set: gauge metric requires a numeric value")
+	}
 	value := args[0]
 	f, err := valueToFloat64(value)
 	if err != nil {
