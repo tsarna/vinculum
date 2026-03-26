@@ -130,6 +130,49 @@ func (c *Config) ParseDuration(expr hcl.Expression) (time.Duration, hcl.Diagnost
 	}
 }
 
+// parseDurationFromValue converts an already-evaluated cty.Value to a time.Duration.
+// Supports numbers (seconds), strings (Go or ISO 8601), and duration capsules.
+// Used when the expression must be evaluated against a dynamic context before conversion.
+func parseDurationFromValue(val cty.Value) (time.Duration, error) {
+	switch val.Type() {
+	case cty.Number:
+		seconds, _ := val.AsBigFloat().Float64()
+		if seconds < 0 {
+			return 0, fmt.Errorf("duration must be positive")
+		}
+		return time.Duration(seconds * float64(time.Second)), nil
+
+	case cty.String:
+		str := strings.TrimSpace(val.AsString())
+		if strings.HasPrefix(str, "P") {
+			dur, err := duration.Parse(str)
+			if err != nil {
+				return 0, fmt.Errorf("invalid ISO 8601 duration %q: %w", str, err)
+			}
+			d := dur.ToTimeDuration()
+			if d < 0 {
+				return 0, fmt.Errorf("duration must be positive")
+			}
+			return d, nil
+		}
+		d, err := time.ParseDuration(str)
+		if err != nil {
+			return 0, fmt.Errorf("invalid duration %q: %w", str, err)
+		}
+		if d < 0 {
+			return 0, fmt.Errorf("duration must be positive")
+		}
+		return d, nil
+
+	case timecty.DurationCapsuleType:
+		d, _ := timecty.GetDuration(val)
+		return d, nil
+
+	default:
+		return 0, fmt.Errorf("duration must be a number, string, or duration value, got %s", val.Type().FriendlyName())
+	}
+}
+
 // IsConstantExpression checks if an expression is a constant (evaluatable with nil context).
 // Returns the value and true if constant, or cty.NilVal and false otherwise.
 func IsConstantExpression(expr hcl.Expression) (cty.Value, bool) {

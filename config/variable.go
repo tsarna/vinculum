@@ -287,6 +287,9 @@ func extractGettable(val cty.Value) (Gettable, error) {
 	if val.Type() == OnceCapsuleType {
 		return GetOnceTriggerFromCapsule(val)
 	}
+	if val.Type() == IntervalCapsuleType {
+		return GetIntervalTriggerFromCapsule(val)
+	}
 	if val.Type() == MetricCapsuleType {
 		m, err := GetMetricFromCapsule(val)
 		if err != nil {

@@ -11,8 +11,9 @@ trigger "type" "name" {
 ```
 
 All trigger types share a single name namespace — you cannot have two non-disabled
-triggers with the same name regardless of type. `trigger "once"` and `trigger "start"`
-blocks expose their result as `trigger.<name>` in the global evaluation context.
+triggers with the same name regardless of type. `trigger "interval"`, `trigger "once"`,
+and `trigger "start"` blocks expose their result as `trigger.<name>` in the global
+evaluation context.
 
 ---
 
@@ -55,6 +56,91 @@ trigger "cron" "heartbeat" {
     at "@every 30s" "ping" {
         action = send(ctx, bus.main, "system/heartbeat", "ping")
     }
+}
+```
+
+---
+
+## `trigger "interval"`
+
+```hcl
+trigger "interval" "name" {
+    delay         = expression  # required — duration between runs
+    initial_delay = expression  # optional — duration before the very first run (default: delay)
+    error_delay   = expression  # optional — duration after a failed run (default: delay)
+    jitter        = 0.0         # optional — fraction in [0, 1]; actual delay uniform in [delay*(1-jitter/2), delay*(1+jitter/2)]
+    stop_when     = expression  # optional — boolean; trigger stops itself when this evaluates true
+    action        = expression  # required — evaluated each time the delay elapses
+    disabled      = false       # optional
+}
+```
+
+Repeatedly evaluates `action` on a dynamic schedule: wait the computed delay,
+evaluate the action, repeat. Both `delay` and `action` are re-evaluated each
+iteration against a context that includes the run count and the previous result,
+so the schedule can adapt at runtime — for example, polling more frequently when
+an object is moving fast, or backing off when errors occur.
+
+Durations may be expressed as numbers (seconds), Go duration strings (`"500ms"`,
+`"2m30s"`), ISO 8601 duration strings (`"PT5M"`), or duration capsule values.
+
+`get(trigger.<name>)` returns the most recent result of `action`, `null` before
+the first run, or an error if the most recent run failed.
+
+When each iteration runs, `ctx` provides:
+
+| Variable | Description |
+|---|---|
+| `ctx.trigger` | `"interval"` |
+| `ctx.name` | Name of this trigger block |
+| `ctx.run_count` | Number of completed action evaluations (0 on the first run) |
+| `ctx.last_result` | Result of the previous action evaluation, or `null` on the first run |
+| `ctx.last_error` | Error string from the previous evaluation, or `null` if it succeeded |
+
+`ctx` is available in `delay`, `error_delay`, and `action` (evaluated with the
+state *before* this iteration). `stop_when` is evaluated *after* the action
+completes, with `ctx.run_count` already incremented.
+
+**Creates** `trigger.<name>` as a capsule; read the most recent result with
+`get(trigger.<name>)`.
+
+Example — poll every 10 seconds, starting immediately:
+
+```hcl
+trigger "interval" "poller" {
+    initial_delay = "0s"
+    delay         = "10s"
+    action        = fetch(ctx, "https://example.com/status")
+}
+```
+
+Example — adaptive interval based on object speed (poll faster when moving faster):
+
+```hcl
+trigger "interval" "tracker" {
+    delay  = clamp(div(1.0, get(var.speed)), "100ms", "30s")
+    action = compute_position(ctx, get(var.speed))
+}
+```
+
+Example — retry quickly on errors, use normal cadence otherwise; stop after 100 runs:
+
+```hcl
+trigger "interval" "worker" {
+    delay       = "1m"
+    error_delay = "5s"
+    stop_when   = ctx.run_count >= 100
+    action      = do_work(ctx)
+}
+```
+
+Example — add jitter to desynchronize multiple instances running the same schedule:
+
+```hcl
+trigger "interval" "reporter" {
+    delay  = "30s"
+    jitter = 0.2  # actual delay uniform in [27s, 33s], average stays 30s
+    action = send_metrics(ctx)
 }
 ```
 
