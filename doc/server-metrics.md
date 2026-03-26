@@ -55,11 +55,12 @@ but the metrics will not be scraped. This may be useful during development.
 
 ## Attributes
 
-| Attribute | Type   | Required | Default      | Description |
-|-----------|--------|----------|--------------|-------------|
-| `listen`  | string | no       | —            | If set, starts a standalone HTTP server on this address (e.g. `":9090"`) |
-| `path`    | string | no       | `"/metrics"` | Metrics endpoint path; only used in standalone mode |
-| `default` | bool   | no       | see below    | Whether this is the default metrics server |
+| Attribute            | Type   | Required | Default      | Description |
+|----------------------|--------|----------|--------------|-------------|
+| `listen`             | string | no       | —            | If set, starts a standalone HTTP server on this address (e.g. `":9090"`) |
+| `path`               | string | no       | `"/metrics"` | Metrics endpoint path; only used in standalone mode |
+| `default`            | bool   | no       | see below    | Whether this is the default metrics server |
+| `include_go_metrics` | bool   | no       | `true`       | When `false`, the Go runtime (`go_*`) and process (`process_*`) collectors are not registered |
 
 ---
 
@@ -96,7 +97,7 @@ metric "counter" "requests_total" { help = "Total requests" }  # same
   global default registry, so unrelated Go library metrics are excluded).
 - A Go runtime collector (`go_goroutines`, `go_memstats_*`, etc.) and a process
   collector (`process_cpu_seconds_total`, `process_open_fds`, etc.) are registered
-  automatically.
+  automatically unless `include_go_metrics = false` is set.
 - The server is available in VCL expressions as `server.<name>` and can be passed
   wherever a metrics provider is accepted (e.g. `metrics = server.metrics`).
 
@@ -218,7 +219,8 @@ metrics. Each registry is completely isolated.
 
 ## Standard Go and Process Metrics
 
-The following collectors are registered automatically on every `server "metrics"` block.
+The following collectors are registered automatically on every `server "metrics"` block
+unless `include_go_metrics = false` is set.
 
 ### Go Runtime (`go_*`)
 
@@ -238,6 +240,5 @@ The following collectors are registered automatically on every `server "metrics"
 
 ## Future Attributes (not yet implemented)
 
-- `include_go_metrics = false` — disable Go runtime and process collectors.
 - `tls {}` sub-block for TLS (standalone mode only).
 - `basic_auth {}` sub-block for scrape authentication.

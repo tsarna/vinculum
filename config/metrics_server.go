@@ -67,12 +67,16 @@ func (s *MetricsServer) GetRegistry() *prometheus.Registry {
 }
 
 // newMetricsServer constructs a MetricsServer with a private registry.
-func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDefault bool) *MetricsServer {
+// When includeGoMetrics is true (the default), the Go runtime and process
+// collectors are registered automatically.
+func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDefault, includeGoMetrics bool) *MetricsServer {
 	reg := prometheus.NewRegistry()
-	reg.MustRegister(
-		collectors.NewGoCollector(),
-		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-	)
+	if includeGoMetrics {
+		reg.MustRegister(
+			collectors.NewGoCollector(),
+			collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+		)
+	}
 	provider := promadapter.New(reg)
 	handler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
 
@@ -89,10 +93,11 @@ func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDe
 
 // MetricsServerDefinition holds the decoded HCL attributes for a server "metrics" block.
 type MetricsServerDefinition struct {
-	Listen   *string   `hcl:"listen,optional"`
-	Path     *string   `hcl:"path,optional"`
-	Default  *bool     `hcl:"default,optional"`
-	DefRange hcl.Range `hcl:",def_range"`
+	Listen           *string   `hcl:"listen,optional"`
+	Path             *string   `hcl:"path,optional"`
+	Default          *bool     `hcl:"default,optional"`
+	IncludeGoMetrics *bool     `hcl:"include_go_metrics,optional"`
+	DefRange         hcl.Range `hcl:",def_range"`
 }
 
 // ProcessMetricsServerBlock decodes and creates a MetricsServer from a block body.
@@ -120,7 +125,12 @@ func ProcessMetricsServerBlock(config *Config, block *hcl.Block, remainingBody h
 		isDefault = *def.Default
 	}
 
-	srv := newMetricsServer(name, def.DefRange, listen, path, isDefault)
+	includeGoMetrics := true
+	if def.IncludeGoMetrics != nil {
+		includeGoMetrics = *def.IncludeGoMetrics
+	}
+
+	srv := newMetricsServer(name, def.DefRange, listen, path, isDefault, includeGoMetrics)
 
 	if config.MetricsServers == nil {
 		config.MetricsServers = make(map[string]*MetricsServer)
