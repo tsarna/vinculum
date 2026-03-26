@@ -11,8 +11,8 @@ trigger "type" "name" {
 ```
 
 All trigger types share a single name namespace — you cannot have two non-disabled
-triggers with the same name regardless of type. `trigger "start"` blocks additionally
-expose their result value as `trigger.<name>` in the global evaluation context.
+triggers with the same name regardless of type. `trigger "once"` and `trigger "start"`
+blocks expose their result as `trigger.<name>` in the global evaluation context.
 
 ---
 
@@ -56,6 +56,59 @@ trigger "cron" "heartbeat" {
         action = send(ctx, bus.main, "system/heartbeat", "ping")
     }
 }
+```
+
+---
+
+## `trigger "once"`
+
+```hcl
+trigger "once" "name" {
+    action   = expression
+    disabled = false  # optional
+}
+```
+
+Defers evaluation of `action` until the first time `get(trigger.<name>)` is
+called. The result is then cached — every subsequent call to
+`get(trigger.<name>)` returns the same value without re-evaluating the
+expression. This is useful for lazy initialization: an expensive or
+side-effecting operation that should run at most once, on demand.
+
+If the expression produces an error on the first call, that error is also
+cached and returned on every subsequent call.
+
+When the action runs, `ctx` provides:
+
+| Variable | Description |
+|---|---|
+| `ctx.trigger` | `"once"` |
+| `ctx.name` | Name of this trigger block |
+
+**Creates** `trigger.<name>` as a lazy capsule; read it with `get(trigger.<name>)`.
+
+Example — compute an expensive value once and reuse it everywhere:
+
+```hcl
+trigger "once" "value" {
+    action = some_expensive_computation(...)
+}
+
+# Any block can read the cached result on demand:
+# get(trigger.value)
+```
+
+Example — lazy initialization with a side effect that must only run once:
+
+```hcl
+var "counter" {}
+
+trigger "once" "init" {
+    action = set(var.counter, 0)
+}
+
+# First get() sets counter to 0 and returns 0.
+# Later calls return 0 from the cache without calling set() again.
 ```
 
 ---
