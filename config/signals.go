@@ -7,7 +7,6 @@ import (
 	"os/signal"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/vinculum/platform"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
@@ -20,14 +19,6 @@ type SignalsDefinition struct {
 	SigUsr2  hcl.Expression `hcl:"SIGUSR2,optional"`
 	Disabled bool           `hcl:"disabled,optional"`
 	DefRange hcl.Range      `hcl:",def_range"`
-}
-
-type SignalsBlockHandler struct {
-	BlockHandlerBase
-}
-
-func NewSignalsBlockHandler() *SignalsBlockHandler {
-	return &SignalsBlockHandler{}
 }
 
 type SignalActionHandler struct {
@@ -47,27 +38,6 @@ func NewSignalActionHandler(logger *zap.Logger) *SignalActionHandler {
 		SignalCtx:     make(map[platform.Signal]*hcl.EvalContext),
 		SigChannel:    make(chan os.Signal, 16),
 	}
-}
-
-func (h *SignalsBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {
-	diags := hcl.Diagnostics{}
-
-	signalsDef := SignalsDefinition{}
-	diags = diags.Extend(gohcl.DecodeBody(block.Body, config.evalCtx, &signalsDef))
-	if diags.HasErrors() {
-		return diags
-	}
-
-	if signalsDef.Disabled {
-		return nil
-	}
-
-	diags = diags.Extend(config.SetSignalAction("SIGHUP", signalsDef.SigHup))
-	diags = diags.Extend(config.SetSignalAction("SIGINFO", signalsDef.SigInfo))
-	diags = diags.Extend(config.SetSignalAction("SIGUSR1", signalsDef.SigUsr1))
-	diags = diags.Extend(config.SetSignalAction("SIGUSR2", signalsDef.SigUsr2))
-
-	return diags
 }
 
 func (config *Config) SetSignalAction(sigName string, action hcl.Expression) hcl.Diagnostics {

@@ -7,7 +7,6 @@ import (
 
 	"github.com/hashicorp/go-cty-funcs/filesystem"
 	"github.com/hashicorp/hcl/v2"
-	"github.com/robfig/cron/v3"
 	randcty "github.com/tsarna/rand-cty-funcs"
 	timecty "github.com/tsarna/time-cty-funcs"
 	bus "github.com/tsarna/vinculum-bus"
@@ -37,27 +36,27 @@ type Stoppable interface {
 
 type Config struct {
 	Logger    *zap.Logger
-	Functions      map[string]function.Function
-	Constants      map[string]cty.Value
-	evalCtx        *hcl.EvalContext
-	BaseDir        string
-	WriteDir string
+	Functions map[string]function.Function
+	Constants map[string]cty.Value
+	evalCtx   *hcl.EvalContext
+	BaseDir   string
+	WriteDir  string
 
-	SigActions     *SignalActionHandler
-	Startables     []Startable
-	Stoppables     []Stoppable
-	BusCapsuleType cty.Type
-	CtyBusMap      map[string]cty.Value
-	Buses          map[string]bus.EventBus
-	CtyClientMap   map[string]cty.Value
-	Clients        map[string]map[string]Client
-	CtyServerMap   map[string]cty.Value
-	Servers        map[string]map[string]Listener
-	CtyVarMap      map[string]cty.Value
+	SigActions       *SignalActionHandler
+	Startables       []Startable
+	Stoppables       []Stoppable
+	BusCapsuleType   cty.Type
+	CtyBusMap        map[string]cty.Value
+	Buses            map[string]bus.EventBus
+	CtyClientMap     map[string]cty.Value
+	Clients          map[string]map[string]Client
+	CtyServerMap     map[string]cty.Value
+	Servers          map[string]map[string]Listener
+	CtyVarMap        map[string]cty.Value
+	CtyTriggerMap    map[string]cty.Value
+	TriggerDefRanges map[string]hcl.Range
 
 	MetricsServers map[string]*MetricsServer
-
-	Crons map[string]*cron.Cron
 }
 
 func NewConfig() *ConfigBuilder {
@@ -89,20 +88,21 @@ func (c *ConfigBuilder) WithWriteDir(writeDir string) *ConfigBuilder {
 
 func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	config := &Config{
-		Logger:         cb.logger,
-		BaseDir:   cb.baseDir,
-		WriteDir:  cb.writeDir,
-		Constants:      make(map[string]cty.Value),
-		SigActions:   NewSignalActionHandler(cb.logger),
-		Buses:        make(map[string]bus.EventBus),
-		CtyBusMap:    make(map[string]cty.Value),
-		Clients:      make(map[string]map[string]Client),
-		CtyClientMap: make(map[string]cty.Value),
-		Servers:      make(map[string]map[string]Listener),
-		CtyServerMap: make(map[string]cty.Value),
-		CtyVarMap:      make(map[string]cty.Value),
-		MetricsServers: make(map[string]*MetricsServer),
-		Crons:          make(map[string]*cron.Cron),
+		Logger:           cb.logger,
+		BaseDir:          cb.baseDir,
+		WriteDir:         cb.writeDir,
+		Constants:        make(map[string]cty.Value),
+		SigActions:       NewSignalActionHandler(cb.logger),
+		Buses:            make(map[string]bus.EventBus),
+		CtyBusMap:        make(map[string]cty.Value),
+		Clients:          make(map[string]map[string]Client),
+		CtyClientMap:     make(map[string]cty.Value),
+		Servers:          make(map[string]map[string]Listener),
+		CtyServerMap:     make(map[string]cty.Value),
+		CtyTriggerMap:    make(map[string]cty.Value),
+		CtyVarMap:        make(map[string]cty.Value),
+		TriggerDefRanges: make(map[string]hcl.Range),
+		MetricsServers:   make(map[string]*MetricsServer),
 	}
 
 	// Validate write-path is under file-path

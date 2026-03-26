@@ -11,7 +11,7 @@ const {
     pi = 3.141529
 }
 
-cron "main" {
+trigger "cron" "main" {
     at "* * * * *" "tick" {
         action = send(ctx, bus.main, "test/tick", "testing 123")
     }

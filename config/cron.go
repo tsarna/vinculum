@@ -6,13 +6,12 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 )
 
 type CronDefinition struct {
-	Name     string             `hcl:",label"`
+	Name     string
 	Timezone string             `hcl:"timezone,optional"`
 	At       []CronAtDefinition `hcl:"at,block"`
 }
@@ -24,39 +23,7 @@ type CronAtDefinition struct {
 	DefRange hcl.Range      `hcl:",def_range"`
 }
 
-type CronBlockHandler struct {
-	BlockHandlerBase
-}
-
-func NewCronBlockHandler() *CronBlockHandler {
-	return &CronBlockHandler{}
-}
-
-func (h *CronBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {
-	cronDef := CronDefinition{}
-	diags := gohcl.DecodeBody(block.Body, config.evalCtx, &cronDef)
-	if diags.HasErrors() {
-		return diags
-	}
-
-	// Manually set the name from the block label since DecodeBody doesn't handle labels
-	if len(block.Labels) > 0 {
-		cronDef.Name = block.Labels[0]
-	}
-
-	cronObj, addDiags := h.BuildCron(config, block, &cronDef)
-	diags = diags.Extend(addDiags)
-	if diags.HasErrors() {
-		return diags
-	}
-
-	config.Crons[cronDef.Name] = cronObj
-	config.Startables = append(config.Startables, NewErrorlessStartable(cronObj))
-
-	return diags
-}
-
-func (h *CronBlockHandler) BuildCron(config *Config, block *hcl.Block, cronDef *CronDefinition) (*cron.Cron, hcl.Diagnostics) {
+func BuildCron(config *Config, block *hcl.Block, cronDef *CronDefinition) (*cron.Cron, hcl.Diagnostics) {
 	cronLogger := NewZapCronLogger(config.Logger)
 
 	cronParser := cron.NewParser(

@@ -48,6 +48,8 @@ for the full expression language reference.
 - `server.<name>`: Each server defined may be referenced by name. All server types
   share a single namespace — you cannot have both an HTTP server and a WebSocket
   server with the same name.
+- `trigger.<name>`: Each `trigger "start"` block that evaluates an action expression
+  creates a value accessible by name. All trigger types share a single name namespace.
 - `sys.*`: Process and host identity facts captured at startup. All values are
   read-only. Available attributes:
   - `sys.pid` (number): Process ID of the running process.
@@ -164,43 +166,26 @@ status codes, and most functions including user-defined and JQ functions.
 
 ---
 
-### `cron`
+### `trigger`
 
 ```hcl
-cron "name" {
-    timezone = "UTC"  # optional, default: local time zone
-
-    at "schedule" "rule_name" {  # one or more
-        action  = expression
-        disable = expression     # optional, default false
-    }
+trigger "type" "name" {
+    disabled = false  # optional
+    ...
 }
 ```
 
-Defines a cron-style scheduler. Multiple `cron` blocks may exist, each with a
-different name. One use for multiple blocks is running schedules in different
-time zones.
+Defines a lifecycle trigger. The `type` label determines when and how the trigger
+fires. All trigger types share a single name namespace — you cannot have two triggers
+with the same name regardless of type. `disabled`, if true, causes the block to be
+skipped entirely.
 
-Each `at` block specifies a schedule in standard cron format (five fields:
-minute, hour, day-of-month, month, day-of-week). A six-field format is also
-supported where the first field represents seconds.
+For details on each trigger type, see [Trigger Reference](trigger.md):
 
-When a rule fires, `ctx` provides:
-
-| Variable | Description |
-|---|---|
-| `ctx.cron_name` | Name of the enclosing `cron` block |
-| `ctx.at_name` | Name of the `at` rule that fired |
-
-Example — send a heartbeat every 30 seconds:
-
-```hcl
-cron "heartbeat" {
-    at "*/30 * * * * *" "ping" {
-        action = send(ctx, bus.main, "system/heartbeat", "ping")
-    }
-}
-```
+- [`trigger "cron"`](trigger.md#trigger-cron) — cron-style scheduled actions
+- [`trigger "shutdown"`](trigger.md#trigger-shutdown) — action evaluated during graceful shutdown
+- [`trigger "signals"`](trigger.md#trigger-signals) — OS signal handlers (SIGHUP, SIGUSR1, etc.)
+- [`trigger "start"`](trigger.md#trigger-start) — action evaluated once at startup
 
 ---
 
@@ -313,40 +298,6 @@ For details on each server type, see the dedicated pages:
 - [`server "websocket"`](server-websocket.md) — Simple WebSocket server (raw frames)
 - [`server "vws"`](server-vws.md) — Vinculum WebSocket Protocol server
 - [`server "mcp"`](server-mcp.md) — Model Context Protocol server
-
----
-
-### `signals`
-
-```hcl
-signals {
-    SIGHUP  = expression
-    SIGINFO = expression
-    SIGUSR1 = expression
-    SIGUSR2 = expression
-
-    disabled = false  # optional
-}
-```
-
-Maps OS signals to action expressions. The available signals are `SIGHUP`,
-`SIGINFO`, `SIGUSR1`, and `SIGUSR2` (availability varies by OS).
-
-When a signal fires, `ctx` provides:
-
-| Variable | Description |
-|---|---|
-| `ctx.signal` | Signal name as a string (e.g. `"SIGHUP"`) |
-| `ctx.signal_num` | OS-level signal number |
-
-Multiple `signals` blocks may exist (each with an optional `disabled` attribute),
-but a given signal may only be defined in one active block.
-
-```hcl
-signals {
-    SIGUSR1 = loginfo("reloading", {signal = ctx.signal})
-}
-```
 
 ---
 

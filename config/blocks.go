@@ -44,11 +44,10 @@ func GetBlockHandlers() map[string]BlockHandler {
 		"bus":          NewBusBlockHandler(),
 		"client":       NewClientBlockHandler(),
 		"const":        NewConstBlockHandler(),
-		"cron":         NewCronBlockHandler(),
 		"metric":       NewMetricBlockHandler(),
 		"server":       NewServerBlockHandler(),
-		"signals":      NewSignalsBlockHandler(),
 		"subscription": NewSubscriptionBlockHandler(),
+		"trigger":      NewTriggerBlockHandler(),
 		"var":          NewVariableBlockHandler(),
 	}
 }
@@ -71,11 +70,11 @@ var blockSchema = []hcl.BlockHeaderSchema{
 		LabelNames: []string{},
 	},
 	{
-		Type:       "cron",
+		Type:       "function",
 		LabelNames: []string{"name"},
 	},
 	{
-		Type:       "function",
+		Type:       "jq",
 		LabelNames: []string{"name"},
 	},
 	{
@@ -83,20 +82,16 @@ var blockSchema = []hcl.BlockHeaderSchema{
 		LabelNames: []string{"type", "name"},
 	},
 	{
-		Type:       "jq",
-		LabelNames: []string{"name"},
-	},
-	{
 		Type:       "server",
 		LabelNames: []string{"type", "name"},
 	},
 	{
-		Type:       "signals",
-		LabelNames: []string{},
-	},
-	{
 		Type:       "subscription",
 		LabelNames: []string{"name"},
+	},
+	{
+		Type:       "trigger",
+		LabelNames: []string{"type", "name"},
 	},
 	{
 		Type:       "var",
