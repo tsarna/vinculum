@@ -30,7 +30,7 @@ func NewTriggerBlockHandler() *TriggerBlockHandler {
 // cty value (like "start"), enabling correct dependency ordering for blocks that
 // reference trigger.<name>. Other trigger types return "" (no ordering needed).
 func (h *TriggerBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {
-	if len(block.Labels) == 2 && (block.Labels[0] == "start" || block.Labels[0] == "once" || block.Labels[0] == "interval") {
+	if len(block.Labels) == 2 && (block.Labels[0] == "after" || block.Labels[0] == "interval" || block.Labels[0] == "once" || block.Labels[0] == "start") {
 		return "trigger." + block.Labels[1], nil
 	}
 	return "", nil
@@ -61,6 +61,8 @@ func (h *TriggerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diag
 	config.TriggerDefRanges[name] = triggerDef.DefRange
 
 	switch block.Labels[0] {
+	case "after":
+		return processAfterTrigger(config, block, &triggerDef)
 	case "cron":
 		return processCronTrigger(config, block, &triggerDef)
 	case "start":
@@ -77,7 +79,7 @@ func (h *TriggerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diag
 		return hcl.Diagnostics{&hcl.Diagnostic{
 			Severity: hcl.DiagError,
 			Summary:  "Invalid trigger type",
-			Detail:   fmt.Sprintf("Invalid trigger type: %q. Valid types are: cron, interval, once, shutdown, signals, start", block.Labels[0]),
+			Detail:   fmt.Sprintf("Invalid trigger type: %q. Valid types are: after, cron, interval, once, shutdown, signals, start", block.Labels[0]),
 			Subject:  &block.DefRange,
 		}}
 	}

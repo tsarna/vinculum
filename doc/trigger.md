@@ -11,9 +11,62 @@ trigger "type" "name" {
 ```
 
 All trigger types share a single name namespace — you cannot have two non-disabled
-triggers with the same name regardless of type. `trigger "interval"`, `trigger "once"`,
-and `trigger "start"` blocks expose their result as `trigger.<name>` in the global
-evaluation context.
+triggers with the same name regardless of type. `trigger "after"`, `trigger "interval"`,
+`trigger "once"`, and `trigger "start"` blocks expose their result as `trigger.<name>`
+in the global evaluation context.
+
+---
+
+## `trigger "after"`
+
+```hcl
+trigger "after" "name" {
+    delay    = expression  # required — how long to wait after startup
+    action   = expression  # required — evaluated once when the delay elapses
+    disabled = false       # optional
+}
+```
+
+Waits a fixed duration after startup, then evaluates `action` exactly once. It
+is the time-deferred analogue of `trigger "once"`: rather than firing on demand,
+it fires automatically after the specified delay.
+
+`get(trigger.<name>)` returns `null` until the action fires, then the cached
+result (or error) on every subsequent call. If shutdown occurs before the delay
+elapses, the action is abandoned and `get(trigger.<name>)` continues to return
+`null`.
+
+The delay is parsed at configuration load time and supports the same formats as
+other duration attributes: numbers (seconds), Go duration strings (`"500ms"`,
+`"2m30s"`), and ISO 8601 strings (`"PT5M"`).
+
+When the action runs, `ctx` provides:
+
+| Variable | Description |
+|---|---|
+| `ctx.trigger` | `"after"` |
+| `ctx.name` | Name of this trigger block |
+
+**Creates** `trigger.<name>` as a capsule; read the result with
+`get(trigger.<name>)`.
+
+Example — allow dependent services 30 seconds to come online before connecting:
+
+```hcl
+trigger "after" "connect" {
+    delay  = "30s"
+    action = connect(ctx, client.upstream)
+}
+```
+
+Example — emit a startup-complete event after a brief grace period:
+
+```hcl
+trigger "after" "announce" {
+    delay  = "5s"
+    action = send(ctx, bus.main, "system/ready", {host = sys.hostname})
+}
+```
 
 ---
 
