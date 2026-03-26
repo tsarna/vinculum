@@ -114,7 +114,7 @@ func (t *WatchdogTrigger) fire() {
 	lastSet := t.lastSet
 	t.mu.Unlock()
 
-	t.config.Logger.Warn("watchdog trigger: window expired",
+	t.config.Logger.Debug("watchdog trigger: window expired",
 		zap.String("name", t.name), zap.Int64("miss_count", missCount))
 
 	evalCtx, diags := t.buildEvalContext(missCount, lastSet)
