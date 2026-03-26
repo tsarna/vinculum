@@ -116,8 +116,12 @@ func ProcessOpenAIClientBlock(config *Config, block *hcl.Block, remainingBody hc
 
 // Call implements Callable. It makes a synchronous chat completion request and
 // always returns an llmResponseType cty.Value — API errors become error responses
-// rather than Go errors.
-func (c *OpenAIClient) Call(ctx context.Context, request cty.Value) (cty.Value, error) {
+// rather than Go errors. args[0] is the request object.
+func (c *OpenAIClient) Call(ctx context.Context, args []cty.Value) (cty.Value, error) {
+	if len(args) == 0 {
+		return cty.NilVal, fmt.Errorf("call: request argument is required")
+	}
+	request := args[0]
 	if request.IsNull() || !request.IsKnown() {
 		return cty.NilVal, fmt.Errorf("call: request must not be null")
 	}

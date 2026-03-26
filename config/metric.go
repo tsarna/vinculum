@@ -93,30 +93,57 @@ func labelsFromCtyObject(val cty.Value, labelNames []string) (prometheus.Labels,
 
 // --- GaugeMetric ---
 
-// GaugeMetric implements Gettable, Settable, Incrementable (no-label),
-// LabeledGettable, LabeledSettable, LabeledIncrementable (with labels).
+// GaugeMetric implements Gettable, Settable, Incrementable.
+// When an optional labels object is passed as an extra arg, it operates on
+// the labeled time series; otherwise it operates on the unlabeled series.
 type GaugeMetric struct {
 	vec        *prometheus.GaugeVec
 	labelNames []string
 	mu         sync.RWMutex
-	noLabelVal float64            // cached value for Get on unlabelled gauge
-	labelVals  map[string]float64 // key = labelSetKey(labels), cached for GetWithLabels
+	noLabelVal float64            // cached value for unlabeled get
+	labelVals  map[string]float64 // key = labelSetKey(labels), cached for labeled get
 }
 
 func (m *GaugeMetric) metricValue() {}
 
 // --- Gettable ---
-func (m *GaugeMetric) Get(_ cty.Value) cty.Value {
+func (m *GaugeMetric) Get(args []cty.Value) (cty.Value, error) {
+	if len(args) > 0 {
+		pl, err := labelsFromCtyObject(args[0], m.labelNames)
+		if err != nil {
+			return cty.NilVal, fmt.Errorf("get: %w", err)
+		}
+		key := labelSetKey(pl, m.labelNames)
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+		return cty.NumberFloatVal(m.labelVals[key]), nil
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return cty.NumberFloatVal(m.noLabelVal)
+	return cty.NumberFloatVal(m.noLabelVal), nil
 }
 
 // --- Settable ---
-func (m *GaugeMetric) Set(value cty.Value) (cty.Value, error) {
+func (m *GaugeMetric) Set(args []cty.Value) (cty.Value, error) {
+	value := args[0]
 	f, err := valueToFloat64(value)
 	if err != nil {
 		return cty.NilVal, fmt.Errorf("set: %w", err)
+	}
+	if len(args) > 1 {
+		pl, err := labelsFromCtyObject(args[1], m.labelNames)
+		if err != nil {
+			return cty.NilVal, fmt.Errorf("set: %w", err)
+		}
+		key := labelSetKey(pl, m.labelNames)
+		m.mu.Lock()
+		if m.labelVals == nil {
+			m.labelVals = make(map[string]float64)
+		}
+		m.labelVals[key] = f
+		m.mu.Unlock()
+		m.vec.With(pl).Set(f)
+		return value, nil
 	}
 	m.mu.Lock()
 	m.noLabelVal = f
@@ -126,103 +153,83 @@ func (m *GaugeMetric) Set(value cty.Value) (cty.Value, error) {
 }
 
 // --- Incrementable ---
-func (m *GaugeMetric) Increment(delta cty.Value) (cty.Value, error) {
+func (m *GaugeMetric) Increment(args []cty.Value) (cty.Value, error) {
+	delta := args[0]
 	f, err := valueToFloat64(delta)
 	if err != nil {
 		return cty.NilVal, fmt.Errorf("increment: %w", err)
+	}
+	if len(args) > 1 {
+		pl, err := labelsFromCtyObject(args[1], m.labelNames)
+		if err != nil {
+			return cty.NilVal, fmt.Errorf("increment: %w", err)
+		}
+		key := labelSetKey(pl, m.labelNames)
+		m.mu.Lock()
+		if m.labelVals == nil {
+			m.labelVals = make(map[string]float64)
+		}
+		m.labelVals[key] += f
+		cur := m.labelVals[key]
+		m.mu.Unlock()
+		m.vec.With(pl).Add(f)
+		return cty.NumberFloatVal(cur), nil
 	}
 	m.mu.Lock()
 	m.noLabelVal += f
 	cur := m.noLabelVal
 	m.mu.Unlock()
 	m.vec.WithLabelValues().Add(f)
-	return cty.NumberFloatVal(cur), nil
-}
-
-// --- LabeledGettable ---
-func (m *GaugeMetric) GetWithLabels(labels cty.Value) cty.Value {
-	pl, err := labelsFromCtyObject(labels, m.labelNames)
-	if err != nil {
-		return cty.NilVal
-	}
-	key := labelSetKey(pl, m.labelNames)
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return cty.NumberFloatVal(m.labelVals[key])
-}
-
-// --- LabeledSettable ---
-func (m *GaugeMetric) SetWithLabels(value cty.Value, labels cty.Value) (cty.Value, error) {
-	f, err := valueToFloat64(value)
-	if err != nil {
-		return cty.NilVal, fmt.Errorf("set: %w", err)
-	}
-	pl, err := labelsFromCtyObject(labels, m.labelNames)
-	if err != nil {
-		return cty.NilVal, fmt.Errorf("set: %w", err)
-	}
-	key := labelSetKey(pl, m.labelNames)
-	m.mu.Lock()
-	if m.labelVals == nil {
-		m.labelVals = make(map[string]float64)
-	}
-	m.labelVals[key] = f
-	m.mu.Unlock()
-	m.vec.With(pl).Set(f)
-	return value, nil
-}
-
-// --- LabeledIncrementable ---
-func (m *GaugeMetric) IncrementWithLabels(delta cty.Value, labels cty.Value) (cty.Value, error) {
-	f, err := valueToFloat64(delta)
-	if err != nil {
-		return cty.NilVal, fmt.Errorf("increment: %w", err)
-	}
-	pl, err := labelsFromCtyObject(labels, m.labelNames)
-	if err != nil {
-		return cty.NilVal, fmt.Errorf("increment: %w", err)
-	}
-	key := labelSetKey(pl, m.labelNames)
-	m.mu.Lock()
-	if m.labelVals == nil {
-		m.labelVals = make(map[string]float64)
-	}
-	m.labelVals[key] += f
-	cur := m.labelVals[key]
-	m.mu.Unlock()
-	m.vec.With(pl).Add(f)
 	return cty.NumberFloatVal(cur), nil
 }
 
 // --- CounterMetric ---
 
-// CounterMetric implements Gettable, Incrementable (no-label),
-// LabeledGettable, LabeledIncrementable (with labels).
+// CounterMetric implements Gettable, Incrementable.
 // set() is not supported on counters.
+// When an optional labels object is passed as an extra arg, it operates on
+// the labeled time series; otherwise it operates on the unlabeled series.
 type CounterMetric struct {
 	vec        *prometheus.CounterVec
 	labelNames []string
 	mu         sync.Mutex
-	noLabelVal float64 // cached for Get
+	noLabelVal float64 // cached for unlabeled get
 }
 
 func (m *CounterMetric) metricValue() {}
 
 // --- Gettable ---
-func (m *CounterMetric) Get(_ cty.Value) cty.Value {
+func (m *CounterMetric) Get(args []cty.Value) (cty.Value, error) {
+	if len(args) > 0 {
+		_, err := labelsFromCtyObject(args[0], m.labelNames)
+		if err != nil {
+			return cty.NilVal, fmt.Errorf("get: %w", err)
+		}
+		// prometheus CounterVec doesn't expose a Get; return 0
+		return cty.NumberIntVal(0), nil
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return cty.NumberFloatVal(m.noLabelVal)
+	return cty.NumberFloatVal(m.noLabelVal), nil
 }
 
 // --- Incrementable ---
-func (m *CounterMetric) Increment(delta cty.Value) (cty.Value, error) {
+func (m *CounterMetric) Increment(args []cty.Value) (cty.Value, error) {
+	delta := args[0]
 	f, err := valueToFloat64(delta)
 	if err != nil {
 		return cty.NilVal, fmt.Errorf("increment: %w", err)
 	}
 	if f < 0 {
 		return cty.NilVal, fmt.Errorf("increment: counter delta must be >= 0, got %v", f)
+	}
+	if len(args) > 1 {
+		pl, err := labelsFromCtyObject(args[1], m.labelNames)
+		if err != nil {
+			return cty.NilVal, fmt.Errorf("increment: %w", err)
+		}
+		m.vec.With(pl).Add(f)
+		return delta, nil
 	}
 	m.mu.Lock()
 	m.noLabelVal += f
@@ -232,36 +239,11 @@ func (m *CounterMetric) Increment(delta cty.Value) (cty.Value, error) {
 	return cty.NumberFloatVal(cur), nil
 }
 
-// --- LabeledGettable ---
-func (m *CounterMetric) GetWithLabels(labels cty.Value) cty.Value {
-	_, err := labelsFromCtyObject(labels, m.labelNames)
-	if err != nil {
-		return cty.NilVal
-	}
-	// prometheus CounterVec doesn't expose a Get; return 0
-	return cty.NumberIntVal(0)
-}
-
-// --- LabeledIncrementable ---
-func (m *CounterMetric) IncrementWithLabels(delta cty.Value, labels cty.Value) (cty.Value, error) {
-	f, err := valueToFloat64(delta)
-	if err != nil {
-		return cty.NilVal, fmt.Errorf("increment: %w", err)
-	}
-	if f < 0 {
-		return cty.NilVal, fmt.Errorf("increment: counter delta must be >= 0, got %v", f)
-	}
-	pl, err := labelsFromCtyObject(labels, m.labelNames)
-	if err != nil {
-		return cty.NilVal, fmt.Errorf("increment: %w", err)
-	}
-	m.vec.With(pl).Add(f)
-	return delta, nil
-}
-
 // --- HistogramMetric ---
 
-// HistogramMetric implements Observable (no-label), LabeledObservable (with labels).
+// HistogramMetric implements Observable.
+// When an optional labels object is passed as an extra arg, it operates on
+// the labeled time series; otherwise it operates on the unlabeled series.
 type HistogramMetric struct {
 	vec        *prometheus.HistogramVec
 	labelNames []string
@@ -270,26 +252,21 @@ type HistogramMetric struct {
 func (m *HistogramMetric) metricValue() {}
 
 // --- Observable ---
-func (m *HistogramMetric) Observe(value cty.Value) (cty.Value, error) {
+func (m *HistogramMetric) Observe(args []cty.Value) (cty.Value, error) {
+	value := args[0]
 	f, err := valueToFloat64(value)
 	if err != nil {
 		return cty.NilVal, fmt.Errorf("observe: %w", err)
+	}
+	if len(args) > 1 {
+		pl, err := labelsFromCtyObject(args[1], m.labelNames)
+		if err != nil {
+			return cty.NilVal, fmt.Errorf("observe: %w", err)
+		}
+		m.vec.With(pl).Observe(f)
+		return value, nil
 	}
 	m.vec.WithLabelValues().Observe(f)
-	return value, nil
-}
-
-// --- LabeledObservable ---
-func (m *HistogramMetric) ObserveWithLabels(value cty.Value, labels cty.Value) (cty.Value, error) {
-	f, err := valueToFloat64(value)
-	if err != nil {
-		return cty.NilVal, fmt.Errorf("observe: %w", err)
-	}
-	pl, err := labelsFromCtyObject(labels, m.labelNames)
-	if err != nil {
-		return cty.NilVal, fmt.Errorf("observe: %w", err)
-	}
-	m.vec.With(pl).Observe(f)
 	return value, nil
 }
 

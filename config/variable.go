@@ -13,44 +13,32 @@ import (
 
 // --- Interfaces for set/get/increment extensibility ---
 
-// Settable is implemented by types whose value can be updated via set().
-type Settable interface {
-	Set(value cty.Value) (cty.Value, error)
+// Gettable is implemented by types whose current value can be read via get().
+// args contains all arguments after the "thing": typically args[0] is the
+// default value, but implementors may interpret additional args freely.
+type Gettable interface {
+	Get(args []cty.Value) (cty.Value, error)
 }
 
-// Gettable is implemented by types whose current value can be read via get().
-type Gettable interface {
-	Get(defaultValue cty.Value) cty.Value
+// Settable is implemented by types whose value can be updated via set().
+// args contains all arguments after the "thing": args[0] is the value to set;
+// implementors may interpret additional args (e.g. labels) freely.
+type Settable interface {
+	Set(args []cty.Value) (cty.Value, error)
 }
 
 // Incrementable is implemented by types that support numeric increment via increment().
+// args contains all arguments after the "thing": args[0] is the delta;
+// implementors may interpret additional args freely.
 type Incrementable interface {
-	Increment(delta cty.Value) (cty.Value, error)
-}
-
-// LabeledGettable is implemented by types that support labeled get().
-type LabeledGettable interface {
-	GetWithLabels(labels cty.Value) cty.Value
-}
-
-// LabeledSettable is implemented by types that support labeled set().
-type LabeledSettable interface {
-	SetWithLabels(value cty.Value, labels cty.Value) (cty.Value, error)
-}
-
-// LabeledIncrementable is implemented by types that support labeled increment().
-type LabeledIncrementable interface {
-	IncrementWithLabels(delta cty.Value, labels cty.Value) (cty.Value, error)
+	Increment(args []cty.Value) (cty.Value, error)
 }
 
 // Observable is implemented by types that support observe() (histograms).
+// args contains all arguments after the "thing": args[0] is the observed value;
+// implementors may interpret additional args (e.g. labels) freely.
 type Observable interface {
-	Observe(value cty.Value) (cty.Value, error)
-}
-
-// LabeledObservable is implemented by types that support labeled observe().
-type LabeledObservable interface {
-	ObserveWithLabels(value cty.Value, labels cty.Value) (cty.Value, error)
+	Observe(args []cty.Value) (cty.Value, error)
 }
 
 // --- Variable ---
@@ -65,27 +53,32 @@ func NewVariable(initial cty.Value) *Variable {
 	return &Variable{value: initial}
 }
 
-// Get returns the current value, or defaultValue if the variable is null.
-func (v *Variable) Get(defaultValue cty.Value) cty.Value {
+// Get returns the current value, or the default (args[0]) if null. Implements Gettable.
+func (v *Variable) Get(args []cty.Value) (cty.Value, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	if v.value.IsNull() {
-		return defaultValue
+		if len(args) > 0 {
+			return args[0], nil
+		}
+		return cty.NullVal(cty.DynamicPseudoType), nil
 	}
-	return v.value
+	return v.value, nil
 }
 
-// Set updates the value and returns it.
-func (v *Variable) Set(value cty.Value) (cty.Value, error) {
+// Set updates the value (args[0]) and returns it. Implements Settable.
+func (v *Variable) Set(args []cty.Value) (cty.Value, error) {
+	value := args[0]
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.value = value
 	return value, nil
 }
 
-// Increment adds delta to the current numeric value and returns the new value.
-// Both the current value and delta must be cty.Number.
-func (v *Variable) Increment(delta cty.Value) (cty.Value, error) {
+// Increment adds args[0] (delta) to the current numeric value and returns the new value.
+// Both the current value and delta must be cty.Number. Implements Incrementable.
+func (v *Variable) Increment(args []cty.Value) (cty.Value, error) {
+	delta := args[0]
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if v.value.IsNull() || v.value.Type() != cty.Number {
@@ -189,7 +182,7 @@ func (h *VariableBlockHandler) Process(config *Config, block *hcl.Block) hcl.Dia
 		return diags
 	}
 
-	_, err := v.Set(val)
+	_, err := v.Set([]cty.Value{val})
 	if err != nil {
 		diags = diags.Append(&hcl.Diagnostic{
 			Severity: hcl.DiagError,
@@ -219,7 +212,7 @@ func makeGetFunction() function.Function {
 			{Name: "thing", Type: cty.DynamicPseudoType},
 		},
 		VarParam: &function.Parameter{
-			Name: "default_value",
+			Name: "args",
 			Type: cty.DynamicPseudoType,
 		},
 		Type: function.StaticReturnType(cty.DynamicPseudoType),
@@ -228,11 +221,7 @@ func makeGetFunction() function.Function {
 			if err != nil {
 				return cty.NilVal, err
 			}
-			defaultVal := cty.NullVal(cty.DynamicPseudoType)
-			if len(args) > 1 {
-				defaultVal = args[1]
-			}
-			return g.Get(defaultVal), nil
+			return g.Get(args[1:])
 		},
 	})
 }
@@ -243,25 +232,14 @@ func makeSetFunction() function.Function {
 			{Name: "thing", Type: cty.DynamicPseudoType},
 			{Name: "value", Type: cty.DynamicPseudoType},
 		},
-		VarParam: &function.Parameter{Name: "labels", Type: cty.DynamicPseudoType},
+		VarParam: &function.Parameter{Name: "args", Type: cty.DynamicPseudoType},
 		Type:     function.StaticReturnType(cty.DynamicPseudoType),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-			if len(args) > 2 {
-				m, err := extractMetric(args[0])
-				if err != nil {
-					return cty.NilVal, err
-				}
-				ls, ok := m.(LabeledSettable)
-				if !ok {
-					return cty.NilVal, fmt.Errorf("set: metric does not support labeled set()")
-				}
-				return ls.SetWithLabels(args[1], args[2])
-			}
 			s, err := extractSettable(args[0])
 			if err != nil {
 				return cty.NilVal, err
 			}
-			return s.Set(args[1])
+			return s.Set(args[1:])
 		},
 	})
 }
@@ -272,25 +250,14 @@ func makeIncrementFunction() function.Function {
 			{Name: "thing", Type: cty.DynamicPseudoType},
 			{Name: "delta", Type: cty.DynamicPseudoType},
 		},
-		VarParam: &function.Parameter{Name: "labels", Type: cty.DynamicPseudoType},
+		VarParam: &function.Parameter{Name: "args", Type: cty.DynamicPseudoType},
 		Type:     function.StaticReturnType(cty.DynamicPseudoType),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-			if len(args) > 2 {
-				m, err := extractMetric(args[0])
-				if err != nil {
-					return cty.NilVal, err
-				}
-				li, ok := m.(LabeledIncrementable)
-				if !ok {
-					return cty.NilVal, fmt.Errorf("increment: metric does not support labeled increment()")
-				}
-				return li.IncrementWithLabels(args[1], args[2])
-			}
 			i, err := extractIncrementable(args[0])
 			if err != nil {
 				return cty.NilVal, err
 			}
-			return i.Increment(args[1])
+			return i.Increment(args[1:])
 		},
 	})
 }
@@ -301,34 +268,16 @@ func makeObserveFunction() function.Function {
 			{Name: "thing", Type: cty.DynamicPseudoType},
 			{Name: "value", Type: cty.DynamicPseudoType},
 		},
-		VarParam: &function.Parameter{Name: "labels", Type: cty.DynamicPseudoType},
+		VarParam: &function.Parameter{Name: "args", Type: cty.DynamicPseudoType},
 		Type:     function.StaticReturnType(cty.DynamicPseudoType),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-			m, err := extractMetric(args[0])
+			o, err := extractObservable(args[0])
 			if err != nil {
 				return cty.NilVal, err
 			}
-			if len(args) > 2 {
-				lo, ok := m.(LabeledObservable)
-				if !ok {
-					return cty.NilVal, fmt.Errorf("observe: metric does not support labeled observe()")
-				}
-				return lo.ObserveWithLabels(args[1], args[2])
-			}
-			o, ok := m.(Observable)
-			if !ok {
-				return cty.NilVal, fmt.Errorf("observe: metric does not support observe()")
-			}
-			return o.Observe(args[1])
+			return o.Observe(args[1:])
 		},
 	})
-}
-
-func extractMetric(val cty.Value) (MetricValue, error) {
-	if val.Type() != MetricCapsuleType {
-		return nil, fmt.Errorf("expected a metric, got %s", val.Type().FriendlyName())
-	}
-	return GetMetricFromCapsule(val)
 }
 
 func extractGettable(val cty.Value) (Gettable, error) {
@@ -380,4 +329,18 @@ func extractIncrementable(val cty.Value) (Incrementable, error) {
 		return nil, fmt.Errorf("increment: metric does not support increment() (histograms are not incrementable)")
 	}
 	return nil, fmt.Errorf("increment: argument does not support increment() (got %s)", val.Type().FriendlyName())
+}
+
+func extractObservable(val cty.Value) (Observable, error) {
+	if val.Type() == MetricCapsuleType {
+		m, err := GetMetricFromCapsule(val)
+		if err != nil {
+			return nil, err
+		}
+		if o, ok := m.(Observable); ok {
+			return o, nil
+		}
+		return nil, fmt.Errorf("observe: metric does not support observe() (only histograms are observable)")
+	}
+	return nil, fmt.Errorf("observe: argument does not support observe() (got %s)", val.Type().FriendlyName())
 }

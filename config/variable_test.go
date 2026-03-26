@@ -26,29 +26,33 @@ func TestVariableGetSetIncrement(t *testing.T) {
 	v := NewVariable(cty.NullVal(cty.DynamicPseudoType))
 
 	// Get on null returns default
-	result := v.Get(cty.NumberIntVal(42))
+	result, err := v.Get([]cty.Value{cty.NumberIntVal(42)})
+	assert.NoError(t, err)
 	assert.True(t, result.RawEquals(cty.NumberIntVal(42)))
 
 	// Get on null without default returns null
-	result = v.Get(cty.NullVal(cty.DynamicPseudoType))
+	result, err = v.Get([]cty.Value{})
+	assert.NoError(t, err)
 	assert.True(t, result.IsNull())
 
 	// Set
-	newVal, err := v.Set(cty.NumberIntVal(10))
+	newVal, err := v.Set([]cty.Value{cty.NumberIntVal(10)})
 	assert.NoError(t, err)
 	assert.True(t, newVal.RawEquals(cty.NumberIntVal(10)))
 
 	// Get after Set
-	result = v.Get(cty.NumberIntVal(99))
+	result, err = v.Get([]cty.Value{cty.NumberIntVal(99)})
+	assert.NoError(t, err)
 	assert.True(t, result.RawEquals(cty.NumberIntVal(10)))
 
 	// Increment
-	newVal, err = v.Increment(cty.NumberIntVal(5))
+	newVal, err = v.Increment([]cty.Value{cty.NumberIntVal(5)})
 	assert.NoError(t, err)
 	assert.True(t, newVal.RawEquals(cty.NumberIntVal(15)))
 
 	// Get after Increment
-	result = v.Get(cty.NullVal(cty.DynamicPseudoType))
+	result, err = v.Get([]cty.Value{})
+	assert.NoError(t, err)
 	assert.True(t, result.RawEquals(cty.NumberIntVal(15)))
 }
 
@@ -56,16 +60,16 @@ func TestVariableIncrementErrors(t *testing.T) {
 	v := NewVariable(cty.NullVal(cty.DynamicPseudoType))
 
 	// Increment on null fails
-	_, err := v.Increment(cty.NumberIntVal(1))
+	_, err := v.Increment([]cty.Value{cty.NumberIntVal(1)})
 	assert.Error(t, err)
 
 	// Increment with non-number delta fails
-	_, _ = v.Set(cty.NumberIntVal(10))
-	_, err = v.Increment(cty.StringVal("bad"))
+	_, _ = v.Set([]cty.Value{cty.NumberIntVal(10)})
+	_, err = v.Increment([]cty.Value{cty.StringVal("bad")})
 	assert.Error(t, err)
 
 	// Set to string then increment fails
-	_, _ = v.Set(cty.StringVal("hello"))
-	_, err = v.Increment(cty.NumberIntVal(1))
+	_, _ = v.Set([]cty.Value{cty.StringVal("hello")})
+	_, err = v.Increment([]cty.Value{cty.NumberIntVal(1)})
 	assert.Error(t, err)
 }

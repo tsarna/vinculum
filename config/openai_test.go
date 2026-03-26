@@ -142,7 +142,7 @@ client "openai" "gpt" {
 	require.False(t, diags.HasErrors(), diags.Error())
 
 	oai := cfg.Clients["openai"]["gpt"].(*OpenAIClient)
-	result, err := oai.Call(context.Background(), buildTestRequest("", "Say hello"))
+	result, err := oai.Call(context.Background(), []cty.Value{buildTestRequest("", "Say hello")})
 	require.NoError(t, err)
 
 	assert.Equal(t, "stop", result.GetAttr("stop_reason").AsString())
@@ -174,7 +174,7 @@ client "openai" "gpt" {
 	require.False(t, diags.HasErrors(), diags.Error())
 
 	oai := cfg.Clients["openai"]["gpt"].(*OpenAIClient)
-	result, err := oai.Call(context.Background(), buildTestRequest("", "Write an essay"))
+	result, err := oai.Call(context.Background(), []cty.Value{buildTestRequest("", "Write an essay")})
 	require.NoError(t, err)
 
 	assert.Equal(t, "max_tokens", result.GetAttr("stop_reason").AsString())
@@ -200,7 +200,7 @@ client "openai" "gpt" {
 	require.False(t, diags.HasErrors(), diags.Error())
 
 	oai := cfg.Clients["openai"]["gpt"].(*OpenAIClient)
-	result, err := oai.Call(context.Background(), buildTestRequest("", "Hello"))
+	result, err := oai.Call(context.Background(), []cty.Value{buildTestRequest("", "Hello")})
 	require.NoError(t, err, "API errors should be returned as error response, not Go error")
 
 	assert.Equal(t, "error", result.GetAttr("stop_reason").AsString())
@@ -226,7 +226,7 @@ client "openai" "gpt" {
 
 	oai := cfg.Clients["openai"]["gpt"].(*OpenAIClient)
 	// 11 chars — should exceed limit without hitting the server
-	result, err := oai.Call(context.Background(), buildTestRequest("", "hello world!"))
+	result, err := oai.Call(context.Background(), []cty.Value{buildTestRequest("", "hello world!")})
 	require.NoError(t, err)
 
 	assert.Equal(t, "error", result.GetAttr("stop_reason").AsString())
@@ -255,7 +255,7 @@ client "openai" "gpt" {
 	require.False(t, diags.HasErrors(), diags.Error())
 
 	oai := cfg.Clients["openai"]["gpt"].(*OpenAIClient)
-	result, err := oai.Call(context.Background(), buildTestRequest("A very long system prompt that exceeds the limit", "hi"))
+	result, err := oai.Call(context.Background(), []cty.Value{buildTestRequest("A very long system prompt that exceeds the limit", "hi")})
 	require.NoError(t, err)
 	assert.Equal(t, "stop", result.GetAttr("stop_reason").AsString())
 }
@@ -282,7 +282,7 @@ client "openai" "gpt" {
 	require.False(t, diags.HasErrors(), diags.Error())
 
 	oai := cfg.Clients["openai"]["gpt"].(*OpenAIClient)
-	_, err := oai.Call(context.Background(), buildTestRequest("You are a helpful assistant.", "Hello"))
+	_, err := oai.Call(context.Background(), []cty.Value{buildTestRequest("You are a helpful assistant.", "Hello")})
 	require.NoError(t, err)
 
 	require.NotNil(t, capturedBody)
