@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-03-26
+
+### Breaking Change!
+
+- `cron` and `signals` blocks replaced by `trigger "cron" ...` and `trigger "signals" ...` blocks.
+
+### Added
+
+- Metrics can now be computed on-demand. Labels are not currently supported for computed metrics.
+- New `trigger` block subsuming the previous `cron` and `signals` blocks, and
+  adding new trigger types `after`, `interval`, `once`, `shutdown`, `start`, and `watchdog`.
+
 ## [0.16.0] - 2026-03-25
 
 ### Added
