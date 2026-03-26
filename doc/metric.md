@@ -11,7 +11,7 @@ registry and are then accessible in VCL expressions as `metric.<name>`.
 | Type | Description | VCL operations |
 |------|-------------|----------------|
 | `gauge` | Freely increasing/decreasing value | `set`, `get`, `increment` |
-| `counter` | Monotonically increasing value | `increment`, `get` |
+| `counter` | Monotonically increasing value | `increment`, `get`, `set` (delta) |
 | `histogram` | Sample observations into configurable buckets | `observe` |
 
 ---
@@ -58,6 +58,7 @@ metric "histogram" "job_duration_seconds" {
 | `namespace` | string | no | Prefix prepended as `<namespace>_<name>` |
 | `buckets` | list(number) | no | Histogram bucket boundaries (histograms only) |
 | `server` | expression | no | Reference to a specific `server "metrics"` block |
+| `value` | expression | no | Expression evaluated at each Prometheus scrape (see [Computed Metrics](#computed-metrics)) |
 
 If `server` is omitted and exactly one `server "metrics"` block is defined, that
 server is used automatically. See [server-metrics.md#default](server-metrics.md#the-default-metrics-server)
@@ -135,8 +136,8 @@ subscription "jobs_completed" {
 
 | Function | Metric types | Labels | Notes |
 |----------|-------------|--------|-------|
-| `set(metric, value)` | gauge | — | Sets gauge to `value` (no-label series) |
-| `set(metric, value, {k=v...})` | gauge | required | Sets labeled gauge series |
+| `set(metric, value)` | gauge, counter | — | Sets gauge to `value`; for counters, only a positive difference is applied (delta semantics) |
+| `set(metric, value, {k=v...})` | gauge, counter | required | Sets labeled series; same delta semantics for counters |
 | `increment(metric, delta)` | gauge, counter | — | Adds `delta` (no-label series) |
 | `increment(metric, delta, {k=v...})` | gauge, counter | required | Adds `delta` to labeled series; counter requires `delta >= 0` |
 | `get(metric)` | gauge, counter | — | Returns current value (no-label series) |
@@ -150,10 +151,61 @@ is metric-only.
 
 #### Type Safety
 
-- Calling `set` on a counter is a runtime error (counters are write-once-upward).
+- Calling `set` on a counter applies delta semantics: only positive differences are forwarded to Prometheus (the counter never decreases). If the supplied value is less than the last set value, the call is a no-op.
 - Calling `observe` on a gauge or counter is a runtime error.
 - Calling `get` on a histogram is a runtime error.
 - Supplying a label object with missing or extra keys is a runtime error.
+- Calling `set` or `increment` on a computed metric (one with `value = expression`) is a runtime error.
+
+---
+
+## Computed Metrics
+
+Adding `value = <expression>` to a metric block makes it **computed**: the expression
+is evaluated automatically each time Prometheus scrapes the `/metrics` endpoint.
+
+```hcl
+metric "gauge" "queue_depth" {
+    help  = "Current depth of the work queue"
+    value = get(var.queue_depth)
+}
+
+metric "counter" "events_total" {
+    help  = "Total events processed (tracked via variable)"
+    value = get(var.events_processed)
+}
+
+metric "histogram" "sampled_latency_seconds" {
+    help  = "Periodically sampled latency"
+    value = get(var.latest_latency_seconds)
+}
+```
+
+### Per-type behaviour
+
+| Type | What the expression computes | Prometheus behaviour |
+|------|------------------------------|---------------------|
+| `gauge` | Current gauge value | Reported as-is at each scrape |
+| `counter` | Current total value | Reported as raw counter value; Prometheus detects resets automatically (e.g. after a reboot) |
+| `histogram` | A single observation value | One observation is recorded per scrape |
+
+### Constraints
+
+- `label_names` and `value` cannot be combined — computed metrics always operate on the no-label series.
+- Calling `set()` or `increment()` on a computed metric is a runtime error.
+- `get()` on a computed gauge or counter returns the value from the most recent scrape (0 before the first scrape).
+- `observe()` on a computed histogram still works — it records an additional manual observation.
+
+### Counter resets
+
+For a computed counter, the expression is expected to return a monotonically increasing total.
+When the source resets (e.g. a process restarts and returns 0), the counter value drops in
+Prometheus, which treats the drop as a counter reset. PromQL functions such as `rate()` and
+`increase()` handle this correctly.
+
+For labeled counters where you need to sync an external total per label, use `set()` on a
+regular (non-computed) counter instead. Note that `set()` on a regular counter uses delta
+semantics and cannot propagate resets.
 
 ---
 

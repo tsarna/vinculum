@@ -327,7 +327,10 @@ func extractSettable(val cty.Value) (Settable, error) {
 		if s, ok := m.(Settable); ok {
 			return s, nil
 		}
-		return nil, fmt.Errorf("set: metric does not support set() (counters and histograms are not settable)")
+		if _, ok := m.(computedMetric); ok {
+			return nil, fmt.Errorf("set: metric is computed (value = expression); its value is set automatically at scrape time")
+		}
+		return nil, fmt.Errorf("set: metric does not support set() (histograms are not settable)")
 	}
 	return nil, fmt.Errorf("set: argument does not support set() (got %s)", val.Type().FriendlyName())
 }
@@ -343,6 +346,9 @@ func extractIncrementable(val cty.Value) (Incrementable, error) {
 		}
 		if i, ok := m.(Incrementable); ok {
 			return i, nil
+		}
+		if _, ok := m.(computedMetric); ok {
+			return nil, fmt.Errorf("increment: metric is computed (value = expression); its value is updated automatically at scrape time")
 		}
 		return nil, fmt.Errorf("increment: metric does not support increment() (histograms are not incrementable)")
 	}

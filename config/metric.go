@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/zclconf/go-cty/cty"
+	"go.uber.org/zap"
 )
 
 // --- MetricValue marker interface ---
@@ -188,15 +189,19 @@ func (m *GaugeMetric) Increment(args []cty.Value) (cty.Value, error) {
 
 // --- CounterMetric ---
 
-// CounterMetric implements Gettable, Incrementable.
-// set() is not supported on counters.
+// CounterMetric implements Gettable, Settable, Incrementable.
+// set() uses delta semantics: only positive differences are applied to the
+// underlying counter, so the Prometheus counter never decreases. If the supplied
+// value is less than the last set value (e.g. an external reset), the call is a
+// no-op and the counter holds its current value.
 // When an optional labels object is passed as an extra arg, it operates on
 // the labeled time series; otherwise it operates on the unlabeled series.
 type CounterMetric struct {
 	vec        *prometheus.CounterVec
 	labelNames []string
 	mu         sync.Mutex
-	noLabelVal float64 // cached for unlabeled get
+	noLabelVal float64            // cached for unlabeled get/set
+	labelVals  map[string]float64 // key = labelSetKey(labels), cached for labeled set
 }
 
 func (m *CounterMetric) metricValue() {}
@@ -214,6 +219,52 @@ func (m *CounterMetric) Get(args []cty.Value) (cty.Value, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return cty.NumberFloatVal(m.noLabelVal), nil
+}
+
+// --- Settable ---
+// Set updates the counter to the supplied value using delta semantics. Only
+// positive differences are forwarded to the Prometheus counter; a value lower
+// than the last seen value is silently ignored (the counter holds its current
+// value). This allows syncing a counter from an external source that may reset.
+func (m *CounterMetric) Set(args []cty.Value) (cty.Value, error) {
+	if len(args) == 0 {
+		return cty.NilVal, fmt.Errorf("set: counter metric requires a numeric value")
+	}
+	value := args[0]
+	f, err := valueToFloat64(value)
+	if err != nil {
+		return cty.NilVal, fmt.Errorf("set: %w", err)
+	}
+	if len(args) > 1 {
+		pl, err := labelsFromCtyObject(args[1], m.labelNames)
+		if err != nil {
+			return cty.NilVal, fmt.Errorf("set: %w", err)
+		}
+		key := labelSetKey(pl, m.labelNames)
+		m.mu.Lock()
+		if m.labelVals == nil {
+			m.labelVals = make(map[string]float64)
+		}
+		delta := f - m.labelVals[key]
+		if delta > 0 {
+			m.labelVals[key] = f
+			m.mu.Unlock()
+			m.vec.With(pl).Add(delta)
+		} else {
+			m.mu.Unlock()
+		}
+		return value, nil
+	}
+	m.mu.Lock()
+	delta := f - m.noLabelVal
+	if delta > 0 {
+		m.noLabelVal = f
+		m.mu.Unlock()
+		m.vec.WithLabelValues().Add(delta)
+	} else {
+		m.mu.Unlock()
+	}
+	return value, nil
 }
 
 // --- Incrementable ---
@@ -268,6 +319,139 @@ func (m *HistogramMetric) Observe(args []cty.Value) (cty.Value, error) {
 		}
 		m.vec.With(pl).Observe(f)
 		return value, nil
+	}
+	m.vec.WithLabelValues().Observe(f)
+	return value, nil
+}
+
+// --- computedMetric marker ---
+
+// computedMetric is implemented by all computed metric types. It is used by
+// the VCL dispatch layer to produce a better error message when set() or
+// increment() is called on a metric whose value is derived from an expression.
+type computedMetric interface {
+	isComputed()
+}
+
+// --- ComputedGaugeMetric ---
+
+// ComputedGaugeMetric implements Gettable and prometheus.Collector.
+// Its value is derived by evaluating a stored hcl.Expression at each Prometheus
+// scrape. set() and increment() are not supported.
+type ComputedGaugeMetric struct {
+	desc    *prometheus.Desc
+	expr    hcl.Expression
+	evalCtx *hcl.EvalContext
+	logger  *zap.Logger
+	mu      sync.Mutex
+	cached  float64
+}
+
+func (m *ComputedGaugeMetric) metricValue() {}
+func (m *ComputedGaugeMetric) isComputed()  {}
+
+func (m *ComputedGaugeMetric) Describe(ch chan<- *prometheus.Desc) { ch <- m.desc }
+func (m *ComputedGaugeMetric) Collect(ch chan<- prometheus.Metric) {
+	val, diags := m.expr.Value(m.evalCtx)
+	m.mu.Lock()
+	if !diags.HasErrors() {
+		if f, err := valueToFloat64(val); err == nil {
+			m.cached = f
+		} else {
+			m.logger.Error("computed gauge: expression did not return a number", zap.Error(err))
+		}
+	} else {
+		m.logger.Error("computed gauge: expression evaluation failed", zap.String("err", diags.Error()))
+	}
+	f := m.cached
+	m.mu.Unlock()
+	ch <- prometheus.MustNewConstMetric(m.desc, prometheus.GaugeValue, f)
+}
+
+func (m *ComputedGaugeMetric) Get(args []cty.Value) (cty.Value, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return cty.NumberFloatVal(m.cached), nil
+}
+
+// --- ComputedCounterMetric ---
+
+// ComputedCounterMetric implements Gettable and prometheus.Collector.
+// Its value is derived by evaluating a stored hcl.Expression at each Prometheus
+// scrape. The raw expression result is reported as a CounterValue; Prometheus
+// detects any resets (value drops) automatically.
+type ComputedCounterMetric struct {
+	desc    *prometheus.Desc
+	expr    hcl.Expression
+	evalCtx *hcl.EvalContext
+	logger  *zap.Logger
+	mu      sync.Mutex
+	cached  float64
+}
+
+func (m *ComputedCounterMetric) metricValue() {}
+func (m *ComputedCounterMetric) isComputed()  {}
+
+func (m *ComputedCounterMetric) Describe(ch chan<- *prometheus.Desc) { ch <- m.desc }
+func (m *ComputedCounterMetric) Collect(ch chan<- prometheus.Metric) {
+	val, diags := m.expr.Value(m.evalCtx)
+	m.mu.Lock()
+	if !diags.HasErrors() {
+		if f, err := valueToFloat64(val); err == nil {
+			m.cached = f
+		} else {
+			m.logger.Error("computed counter: expression did not return a number", zap.Error(err))
+		}
+	} else {
+		m.logger.Error("computed counter: expression evaluation failed", zap.String("err", diags.Error()))
+	}
+	f := m.cached
+	m.mu.Unlock()
+	ch <- prometheus.MustNewConstMetric(m.desc, prometheus.CounterValue, f)
+}
+
+func (m *ComputedCounterMetric) Get(args []cty.Value) (cty.Value, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return cty.NumberFloatVal(m.cached), nil
+}
+
+// --- ComputedHistogramMetric ---
+
+// ComputedHistogramMetric implements Observable and prometheus.Collector.
+// At each Prometheus scrape it evaluates the stored expression and records one
+// observation. Manual observe() calls are also supported.
+type ComputedHistogramMetric struct {
+	vec     *prometheus.HistogramVec // not registered directly; collected by this type
+	expr    hcl.Expression
+	evalCtx *hcl.EvalContext
+	logger  *zap.Logger
+}
+
+func (m *ComputedHistogramMetric) metricValue() {}
+func (m *ComputedHistogramMetric) isComputed()  {}
+
+func (m *ComputedHistogramMetric) Describe(ch chan<- *prometheus.Desc) { m.vec.Describe(ch) }
+func (m *ComputedHistogramMetric) Collect(ch chan<- prometheus.Metric) {
+	val, diags := m.expr.Value(m.evalCtx)
+	if !diags.HasErrors() {
+		if f, err := valueToFloat64(val); err == nil {
+			m.vec.WithLabelValues().Observe(f)
+		} else {
+			m.logger.Error("computed histogram: expression did not return a number", zap.Error(err))
+		}
+	} else {
+		m.logger.Error("computed histogram: expression evaluation failed", zap.String("err", diags.Error()))
+	}
+	m.vec.Collect(ch)
+}
+
+// Observe allows manual observations in addition to the automatic scrape-time one.
+func (m *ComputedHistogramMetric) Observe(args []cty.Value) (cty.Value, error) {
+	value := args[0]
+	f, err := valueToFloat64(value)
+	if err != nil {
+		return cty.NilVal, fmt.Errorf("observe: %w", err)
 	}
 	m.vec.WithLabelValues().Observe(f)
 	return value, nil
@@ -366,6 +550,7 @@ type MetricDefinition struct {
 	Namespace  string         `hcl:"namespace,optional"`
 	Buckets    []float64      `hcl:"buckets,optional"`
 	Server     hcl.Expression `hcl:"server,optional"`
+	Value      hcl.Expression `hcl:"value,optional"`
 	DefRange   hcl.Range      `hcl:",def_range"`
 }
 
@@ -429,48 +614,101 @@ func (h *MetricBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 		labelNames = []string{}
 	}
 
+	isComputed := def.Value != nil && IsExpressionProvided(def.Value)
+
+	if isComputed && len(labelNames) > 0 {
+		return hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "Invalid computed metric",
+			Detail:   "Computed metrics (with value = ...) cannot have label_names. Labeled computed metrics are not yet supported.",
+			Subject:  def.DefRange.Ptr(),
+		}}
+	}
+
 	var capsule cty.Value
 
 	switch kind {
 	case "gauge":
-		vec := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: fullName, Help: def.Help}, labelNames)
-		if err := reg.Register(vec); err != nil {
-			return hcl.Diagnostics{{
-				Severity: hcl.DiagError,
-				Summary:  "Failed to register gauge metric",
-				Detail:   err.Error(),
-				Subject:  def.DefRange.Ptr(),
-			}}
+		if isComputed {
+			desc := prometheus.NewDesc(fullName, def.Help, nil, nil)
+			m := &ComputedGaugeMetric{desc: desc, expr: def.Value, evalCtx: config.evalCtx, logger: config.Logger}
+			if err := reg.Register(m); err != nil {
+				return hcl.Diagnostics{{
+					Severity: hcl.DiagError,
+					Summary:  "Failed to register computed gauge metric",
+					Detail:   err.Error(),
+					Subject:  def.DefRange.Ptr(),
+				}}
+			}
+			capsule = NewMetricCapsule(m)
+		} else {
+			vec := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: fullName, Help: def.Help}, labelNames)
+			if err := reg.Register(vec); err != nil {
+				return hcl.Diagnostics{{
+					Severity: hcl.DiagError,
+					Summary:  "Failed to register gauge metric",
+					Detail:   err.Error(),
+					Subject:  def.DefRange.Ptr(),
+				}}
+			}
+			capsule = NewMetricCapsule(&GaugeMetric{vec: vec, labelNames: labelNames})
 		}
-		capsule = NewMetricCapsule(&GaugeMetric{vec: vec, labelNames: labelNames})
 
 	case "counter":
-		vec := prometheus.NewCounterVec(prometheus.CounterOpts{Name: fullName, Help: def.Help}, labelNames)
-		if err := reg.Register(vec); err != nil {
-			return hcl.Diagnostics{{
-				Severity: hcl.DiagError,
-				Summary:  "Failed to register counter metric",
-				Detail:   err.Error(),
-				Subject:  def.DefRange.Ptr(),
-			}}
+		if isComputed {
+			desc := prometheus.NewDesc(fullName, def.Help, nil, nil)
+			m := &ComputedCounterMetric{desc: desc, expr: def.Value, evalCtx: config.evalCtx, logger: config.Logger}
+			if err := reg.Register(m); err != nil {
+				return hcl.Diagnostics{{
+					Severity: hcl.DiagError,
+					Summary:  "Failed to register computed counter metric",
+					Detail:   err.Error(),
+					Subject:  def.DefRange.Ptr(),
+				}}
+			}
+			capsule = NewMetricCapsule(m)
+		} else {
+			vec := prometheus.NewCounterVec(prometheus.CounterOpts{Name: fullName, Help: def.Help}, labelNames)
+			if err := reg.Register(vec); err != nil {
+				return hcl.Diagnostics{{
+					Severity: hcl.DiagError,
+					Summary:  "Failed to register counter metric",
+					Detail:   err.Error(),
+					Subject:  def.DefRange.Ptr(),
+				}}
+			}
+			capsule = NewMetricCapsule(&CounterMetric{vec: vec, labelNames: labelNames})
 		}
-		capsule = NewMetricCapsule(&CounterMetric{vec: vec, labelNames: labelNames})
 
 	case "histogram":
 		buckets := prometheus.DefBuckets
 		if len(def.Buckets) > 0 {
 			buckets = def.Buckets
 		}
-		vec := prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: fullName, Help: def.Help, Buckets: buckets}, labelNames)
-		if err := reg.Register(vec); err != nil {
-			return hcl.Diagnostics{{
-				Severity: hcl.DiagError,
-				Summary:  "Failed to register histogram metric",
-				Detail:   err.Error(),
-				Subject:  def.DefRange.Ptr(),
-			}}
+		if isComputed {
+			vec := prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: fullName, Help: def.Help, Buckets: buckets}, nil)
+			m := &ComputedHistogramMetric{vec: vec, expr: def.Value, evalCtx: config.evalCtx, logger: config.Logger}
+			if err := reg.Register(m); err != nil {
+				return hcl.Diagnostics{{
+					Severity: hcl.DiagError,
+					Summary:  "Failed to register computed histogram metric",
+					Detail:   err.Error(),
+					Subject:  def.DefRange.Ptr(),
+				}}
+			}
+			capsule = NewMetricCapsule(m)
+		} else {
+			vec := prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: fullName, Help: def.Help, Buckets: buckets}, labelNames)
+			if err := reg.Register(vec); err != nil {
+				return hcl.Diagnostics{{
+					Severity: hcl.DiagError,
+					Summary:  "Failed to register histogram metric",
+					Detail:   err.Error(),
+					Subject:  def.DefRange.Ptr(),
+				}}
+			}
+			capsule = NewMetricCapsule(&HistogramMetric{vec: vec, labelNames: labelNames})
 		}
-		capsule = NewMetricCapsule(&HistogramMetric{vec: vec, labelNames: labelNames})
 	}
 
 	h.metrics[name] = capsule
