@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
@@ -377,7 +378,8 @@ func ProcessMQTTClientBlock(config *Config, block *hcl.Block, remainingBody hcl.
 
 	// ── Client ID ─────────────────────────────────────────────────────────
 
-	clientID := "vinculum-" + clientName
+	hostname, _ := os.Hostname()
+	clientID := "vinculum-" + clientName + "-" + hostname
 	if IsExpressionProvided(def.ClientID) {
 		val, valDiags := def.ClientID.Value(config.evalCtx)
 		if valDiags.HasErrors() {
