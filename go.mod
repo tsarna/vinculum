@@ -23,6 +23,7 @@ require (
 	github.com/tsarna/time-cty-funcs v0.1.0
 	github.com/tsarna/vinculum-bus v0.9.3
 	github.com/tsarna/vinculum-kafka v0.5.1
+	github.com/tsarna/vinculum-mqtt v0.1.0
 	github.com/tsarna/vinculum-vws v0.9.3
 	github.com/twmb/franz-go v1.18.1
 	github.com/yosida95/uritemplate/v3 v3.0.2
@@ -35,9 +36,11 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bmatcuk/doublestar v1.1.5 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/eclipse/paho.golang v0.23.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/uuid v1.3.0 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/itchyny/timefmt-go v0.1.7 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
@@ -53,6 +56,7 @@ require (
 	github.com/twmb/franz-go/pkg/kmsg v1.9.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
+	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
 )

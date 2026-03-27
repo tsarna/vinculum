@@ -73,6 +73,9 @@ func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	case "vws":
 		client, diags = ProcessVinculumWebsocketsClientBlock(config, block, clientDef.RemainingBody)
 
+	case "mqtt":
+		client, diags = ProcessMQTTClientBlock(config, block, clientDef.RemainingBody)
+
 	case "openai":
 		client, diags = ProcessOpenAIClientBlock(config, block, clientDef.RemainingBody)
 
