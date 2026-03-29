@@ -25,7 +25,7 @@ require (
 	github.com/tsarna/vinculum-kafka v0.5.1
 	github.com/tsarna/vinculum-mqtt v0.1.1
 	github.com/tsarna/vinculum-vws v0.9.3
-	github.com/twmb/franz-go v1.18.1
+	github.com/twmb/franz-go v1.20.7
 	github.com/yosida95/uritemplate/v3 v3.0.2
 	golang.org/x/sys v0.40.0
 )
