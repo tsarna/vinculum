@@ -393,7 +393,9 @@ subscription "from_upstream" {
 
 ```hcl
 var "name" {
-    value = expression  # optional; defaults to null
+    type     = "typename"  # optional; if set, enforces value type
+    nullable = bool        # optional; default true; if false, null is rejected
+    value    = expression  # optional; defaults to null
 }
 ```
 
@@ -406,6 +408,16 @@ from concurrent subscription handlers and cron jobs.
 
 The optional `value` attribute sets the initial value at startup. If omitted, the
 variable starts as `null`.
+
+The optional `type` attribute constrains the variable to values of a specific type.
+The value must be a string matching the cty type's friendly name, such as `"number"`,
+`"string"`, or `"bool"`. If set, any attempt to `set()` the variable to an
+incompatible type returns an error.
+
+The optional `nullable` attribute controls whether `null` is a valid value. It
+defaults to `true`. If set to `false`, any attempt to `set()` the variable to `null`
+(including calling `set()` with no value argument) returns an error. `nullable =
+false` may be combined with or used independently of `type`.
 
 Use `get()`, `set()`, and `increment()` to access and modify variables at runtime;
 see [functions.md](functions.md#variables) for details.

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Variables may now optionally have a defined type and nullability.
 - `sys.plugins` lists the names of all plugin components
 
 ### Changed

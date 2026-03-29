@@ -81,12 +81,20 @@ type Observable interface {
 
 // Variable is a mutable, goroutine-safe value container.
 type Variable struct {
-	mu    sync.RWMutex
-	value cty.Value
+	mu       sync.RWMutex
+	value    cty.Value
+	typeName string // empty means untyped; if set, enforced on Set()
+	nullable bool   // if false, null values are rejected by Set()
 }
 
 func NewVariable(initial cty.Value) *Variable {
-	return &Variable{value: initial}
+	return &Variable{value: initial, nullable: true}
+}
+
+// NewTypedVariable creates a Variable that enforces values match the given type
+// friendly name (e.g. "number", "string", "bool"). An empty typeName means untyped.
+func NewTypedVariable(initial cty.Value, typeName string) *Variable {
+	return &Variable{value: initial, typeName: typeName, nullable: true}
 }
 
 // Get returns the current value, or the default (args[0]) if null. Implements Gettable.
@@ -103,11 +111,21 @@ func (v *Variable) Get(args []cty.Value) (cty.Value, error) {
 }
 
 // Set updates the value (args[0]) and returns it. If called with no arguments,
-// sets the value to null. Implements Settable.
+// sets the value to null. Implements Settable. If the variable has a type
+// constraint, non-null values must match it.
 func (v *Variable) Set(args []cty.Value) (cty.Value, error) {
 	value := cty.NullVal(cty.DynamicPseudoType)
 	if len(args) > 0 {
 		value = args[0]
+	}
+	if value.IsNull() {
+		if !v.nullable {
+			return cty.NilVal, fmt.Errorf("variable is not nullable")
+		}
+	} else if v.typeName != "" {
+		if value.Type().FriendlyName() != v.typeName {
+			return cty.NilVal, fmt.Errorf("type mismatch: variable expects %s, got %s", v.typeName, value.Type().FriendlyName())
+		}
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -205,10 +223,47 @@ func (h *VariableBlockHandler) Process(config *Config, block *hcl.Block) hcl.Dia
 	name := block.Labels[0]
 	v := h.variables[name]
 
-	// Parse optional value attribute
+	// Parse optional attributes
 	attrs, diags := block.Body.JustAttributes()
 	if diags.HasErrors() {
 		return diags
+	}
+
+	// Handle optional nullable constraint (default true)
+	v.nullable = true
+	if nullableAttr, hasNullable := attrs["nullable"]; hasNullable {
+		nullableVal, nullableDiags := nullableAttr.Expr.Value(config.evalCtx)
+		diags = diags.Extend(nullableDiags)
+		if diags.HasErrors() {
+			return diags
+		}
+		if nullableVal.Type() != cty.Bool {
+			return diags.Append(&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Invalid nullable value",
+				Detail:   `The "nullable" attribute must be a bool`,
+				Subject:  nullableAttr.Expr.StartRange().Ptr(),
+			})
+		}
+		v.nullable = nullableVal.True()
+	}
+
+	// Handle optional type constraint
+	if typeAttr, hasType := attrs["type"]; hasType {
+		typeVal, typeDiags := typeAttr.Expr.Value(config.evalCtx)
+		diags = diags.Extend(typeDiags)
+		if diags.HasErrors() {
+			return diags
+		}
+		if typeVal.Type() != cty.String {
+			return diags.Append(&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Invalid type constraint",
+				Detail:   `The "type" attribute must be a string`,
+				Subject:  typeAttr.Expr.StartRange().Ptr(),
+			})
+		}
+		v.typeName = typeVal.AsString()
 	}
 
 	valueAttr, hasValue := attrs["value"]
@@ -228,7 +283,7 @@ func (h *VariableBlockHandler) Process(config *Config, block *hcl.Block) hcl.Dia
 			Severity: hcl.DiagError,
 			Summary:  "Failed to set variable initial value",
 			Detail:   err.Error(),
-			Subject:  block.DefRange.Ptr(),
+			Subject:  valueAttr.Expr.StartRange().Ptr(),
 		})
 	}
 
