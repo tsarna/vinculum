@@ -129,7 +129,6 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	for _, e := range ambientProviders {
 		config.Constants[e.name] = e.p(config)
 	}
-	config.Constants["httpstatus"] = getStatusCodeObject()
 
 	// Create evaluation context that will be updated as we process
 	config.evalCtx = &hcl.EvalContext{

@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Reorganize code and move to plugin registries for functions, servers, clients, triggers, and ambient values (env.* and sys.*)
+- Reorganize code and move to plugin registries for functions, servers, clients, triggers, and ambient values (env.*, httpstatus.*, sys.*)
 
 ## [0.18.0] - 2026-03-28
 
