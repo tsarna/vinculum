@@ -37,8 +37,8 @@ type MQTTClientDefinition struct {
 	Will                  *MQTTWillDefinition    `hcl:"will,block"`
 	OnConnect             hcl.Expression         `hcl:"on_connect,optional"`
 	OnDisconnect          hcl.Expression         `hcl:"on_disconnect,optional"`
-	Publishers            []MQTTPublisherDef     `hcl:"publisher,block"`
-	Subscribers           []MQTTSubscriberDef    `hcl:"subscriber,block"`
+	Publishers            []MQTTPublisherDef     `hcl:"sender,block"`
+	Subscribers           []MQTTSubscriberDef    `hcl:"receiver,block"`
 	Metrics               hcl.Expression         `hcl:"metrics,optional"`
 	DefRange              hcl.Range              `hcl:",def_range"`
 }
@@ -64,14 +64,14 @@ type MQTTPublisherDef struct {
 	Name                  string                    `hcl:",label"`
 	QoS                   *int                      `hcl:"qos,optional"`
 	Retain                *bool                     `hcl:"retain,optional"`
-	TopicMappings         []MQTTTopicMappingDef     `hcl:"topic_mapping,block"`
+	TopicMappings         []MQTTTopicMappingDef     `hcl:"topic,block"`
 	DefaultTopicTransform string                    `hcl:"default_topic_transform,optional"`
 	DefRange              hcl.Range                 `hcl:",def_range"`
 }
 
-// MQTTTopicMappingDef is one topic_mapping block inside a publisher block.
+// MQTTTopicMappingDef is one topic block inside a publisher block.
 type MQTTTopicMappingDef struct {
-	Pattern   string         `hcl:"pattern"`
+	Pattern   string         `hcl:",label"`
 	MQTTTopic hcl.Expression `hcl:"mqtt_topic,optional"`
 	QoS       *int           `hcl:"qos,optional"`
 	Retain    *bool          `hcl:"retain,optional"`
@@ -80,19 +80,19 @@ type MQTTTopicMappingDef struct {
 
 // MQTTSubscriberDef is one subscriber block inside a client "mqtt" block.
 type MQTTSubscriberDef struct {
-	Name          string                       `hcl:",label"`
-	Subscriber    hcl.Expression               `hcl:"subscriber,optional"`
-	Action        hcl.Expression               `hcl:"action,optional"`
-	QoS           *int                         `hcl:"qos,optional"`
-	HandleRetained *bool                       `hcl:"handle_retained,optional"`
-	SharedGroup   string                       `hcl:"shared_group,optional"`
-	Subscriptions []MQTTTopicSubscriptionDef   `hcl:"topic_subscription,block"`
-	DefRange      hcl.Range                    `hcl:",def_range"`
+	Name           string                     `hcl:",label"`
+	Subscriber     hcl.Expression             `hcl:"subscriber,optional"`
+	Action         hcl.Expression             `hcl:"action,optional"`
+	QoS            *int                       `hcl:"qos,optional"`
+	HandleRetained *bool                      `hcl:"handle_retained,optional"`
+	SharedGroup    string                     `hcl:"shared_group,optional"`
+	Subscriptions  []MQTTTopicSubscriptionDef `hcl:"subscription,block"`
+	DefRange       hcl.Range                  `hcl:",def_range"`
 }
 
-// MQTTTopicSubscriptionDef is one topic_subscription block inside a subscriber block.
+// MQTTTopicSubscriptionDef is one subscription block inside a subscriber block.
 type MQTTTopicSubscriptionDef struct {
-	MQTTTopic     string         `hcl:"mqtt_topic"`
+	MQTTTopic     string         `hcl:",label"`
 	VinculumTopic hcl.Expression `hcl:"vinculum_topic,optional"`
 	QoS           *int           `hcl:"qos,optional"`
 	DefRange      hcl.Range      `hcl:",def_range"`
@@ -141,7 +141,7 @@ func (p *MQTTPublisherProxy) OnEvent(ctx context.Context, topic string, msg any,
 	pub := p.publisher
 	p.mu.RUnlock()
 	if pub == nil {
-		return fmt.Errorf("mqtt client %q publisher %q: not yet started", p.clientName, p.publisherName)
+		return fmt.Errorf("mqtt client %q sender %q: not yet started", p.clientName, p.publisherName)
 	}
 	return pub.OnEvent(ctx, topic, msg, fields)
 }
@@ -180,8 +180,8 @@ func (c *MQTTClientWrapper) CtyValue() cty.Value {
 		pubMap[name] = NewSubscriberCapsule(proxy)
 	}
 	return cty.ObjectVal(map[string]cty.Value{
-		"publishers": NewSubscriberCapsule(c),
-		"publisher":  cty.ObjectVal(pubMap),
+		"senders": NewSubscriberCapsule(c),
+		"sender":  cty.ObjectVal(pubMap),
 	})
 }
 
@@ -206,7 +206,7 @@ func (c *MQTTClientWrapper) Start() error {
 		}
 		p, buildErr := b.Build()
 		if buildErr != nil {
-			return fmt.Errorf("mqtt client %q publisher %q: %w", c.Name, spec.name, buildErr)
+			return fmt.Errorf("mqtt client %q sender %q: %w", c.Name, spec.name, buildErr)
 		}
 		if proxy, ok := c.publisherProxies[spec.name]; ok {
 			proxy.wirePublisher(p)
@@ -268,7 +268,7 @@ func (c *MQTTClientWrapper) Stop() error {
 // OnEvent implements bus.Subscriber. It dispatches to all publishers.
 func (c *MQTTClientWrapper) OnEvent(ctx context.Context, topic string, msg any, fields map[string]string) error {
 	if len(c.pubSpecs) == 0 {
-		return fmt.Errorf("mqtt client %q: no publishers configured", c.Name)
+		return fmt.Errorf("mqtt client %q: no senders configured", c.Name)
 	}
 
 	c.mu.RLock()
@@ -318,7 +318,7 @@ func ProcessMQTTClientBlock(config *Config, block *hcl.Block, remainingBody hcl.
 	if len(def.Publishers) == 0 && len(def.Subscribers) == 0 {
 		return nil, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  "mqtt: at least one publisher or subscriber block is required",
+			Summary:  "mqtt: at least one sender or receiver block is required",
 			Subject:  &def.DefRange,
 		}}
 	}
@@ -329,7 +329,7 @@ func ProcessMQTTClientBlock(config *Config, block *hcl.Block, remainingBody hcl.
 		if _, dup := seenPubs[p.Name]; dup {
 			return nil, hcl.Diagnostics{{
 				Severity: hcl.DiagError,
-				Summary:  fmt.Sprintf("mqtt: duplicate publisher name %q", p.Name),
+				Summary:  fmt.Sprintf("mqtt: duplicate sender name %q", p.Name),
 				Subject:  &p.DefRange,
 			}}
 		}
@@ -609,7 +609,7 @@ func buildMQTTPublisherSpec(config *Config, def MQTTPublisherDef) (builtMQTTPubl
 	default:
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("mqtt publisher %q: invalid default_topic_transform", def.Name),
+			Summary:  fmt.Sprintf("mqtt sender %q: invalid default_topic_transform", def.Name),
 			Detail:   fmt.Sprintf("%q is not valid; use verbatim, error, or ignore", def.DefaultTopicTransform),
 			Subject:  &def.DefRange,
 		}}
@@ -666,7 +666,7 @@ func buildMQTTSubscriberSpec(config *Config, clientName string, def MQTTSubscrib
 	if hasSubscriber == hasAction {
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("mqtt subscriber %q: exactly one of subscriber or action must be specified", def.Name),
+			Summary:  fmt.Sprintf("mqtt receiver %q: exactly one of subscriber or action must be specified", def.Name),
 			Subject:  &def.DefRange,
 		}}
 	}
@@ -687,7 +687,7 @@ func buildMQTTSubscriberSpec(config *Config, clientName string, def MQTTSubscrib
 	if len(def.Subscriptions) == 0 {
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("mqtt subscriber %q: at least one topic_subscription block is required", def.Name),
+			Summary:  fmt.Sprintf("mqtt receiver %q: at least one subscription block is required", def.Name),
 			Subject:  &def.DefRange,
 		}}
 	}
@@ -727,7 +727,7 @@ func makeMQTTTopicFunc(cfg *Config, expr hcl.Expression) mqttpublisher.MQTTTopic
 		}
 		ctyMsg, err := go2cty2go.AnyToCty(msg)
 		if err != nil {
-			return "", fmt.Errorf("mqtt publisher: convert msg: %w", err)
+			return "", fmt.Errorf("mqtt sender: convert msg: %w", err)
 		}
 
 		ctxBuilder := NewContext(context.Background()).
@@ -753,7 +753,7 @@ func makeMQTTTopicFunc(cfg *Config, expr hcl.Expression) mqttpublisher.MQTTTopic
 		}
 
 		if val.IsNull() || val.Type() != cty.String {
-			return "", fmt.Errorf("mqtt publisher: mqtt_topic must return a string, got %s", val.Type().FriendlyName())
+			return "", fmt.Errorf("mqtt sender: mqtt_topic must return a string, got %s", val.Type().FriendlyName())
 		}
 		return val.AsString(), nil
 	}

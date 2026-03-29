@@ -5,8 +5,8 @@ Vinculum can produce messages to and consume messages from Apache Kafka using
 [franz-go](https://github.com/twmb/franz-go) and supports TLS, SASL
 authentication, consumer groups, and dead-letter queues.
 
-A single `client "kafka"` block may contain any number of named `producer` and
-`consumer` sub-blocks (at least one total). All producers and consumers within
+A single `client "kafka"` block may contain any number of named `sender` and
+`receiver` sub-blocks (at least one total). All senders and receivers within
 a block share the same underlying broker connections, TLS configuration, and
 SASL credentials.
 
@@ -48,11 +48,11 @@ client "kafka" "events" {
   request_timeout  = "30s"   # default: 30s
   metadata_max_age = "300s"  # how often to refresh broker/partition metadata
 
-  # Named producer blocks (zero or more)
-  producer "main" { ... }
+  # Named sender blocks (zero or more)
+  sender "main" { ... }
 
-  # Named consumer blocks (zero or more)
-  consumer "main" { ... }
+  # Named receiver blocks (zero or more)
+  receiver "main" { ... }
 }
 ```
 
@@ -78,9 +78,9 @@ The `sasl` sub-block configures authentication.
 | `username` | string | SASL username. |
 | `password` | string | SASL password. Use `env.VAR_NAME` to avoid hardcoding credentials. |
 
-### Producer delivery settings
+### Sender delivery settings
 
-These attributes are connection-level settings and apply to all producers
+These attributes are connection-level settings and apply to all senders
 within the block. They correspond directly to franz-go client options.
 
 | Attribute | Type | Default | Description |
@@ -93,30 +93,27 @@ within the block. They correspond directly to franz-go client options.
 
 ---
 
-## `producer "<name>"`
+## `sender "<name>"`
 
-Each `producer` sub-block creates a named Kafka producer. Producers are
-addressed in `subscription` blocks via `client.<client-name>.producer.<name>`
-(single producer) or `client.<client-name>.producers` (fan-out to all
-producers).
+Each `sender` sub-block creates a named Kafka sender. Senders are
+addressed in `subscription` blocks via `client.<client-name>.sender.<name>`
+(single sender) or `client.<client-name>.senders` (fan-out to all senders).
 
 ```hcl
-producer "main" {
+sender "main" {
   produce_mode = "sync"  # sync | async — default: sync
 
   # Topic mappings — evaluated in order, first match wins.
-  topic_mapping {
-    pattern     = "sensor/+deviceId/reading"
+  topic "sensor/+deviceId/reading" {
     kafka_topic = "sensor.readings"
     key         = ctx.fields.deviceId   # HCL expression evaluated per message
   }
-  topic_mapping {
-    pattern     = "alerts/#"
+  topic "alerts/#" {
     kafka_topic = "alerts"
     key         = null              # null = no key (Kafka round-robins partitions)
   }
 
-  # What to do when no topic_mapping matches:
+  # What to do when no topic matches:
   #   slash_to_dot — replace "/" with "." in the vinculum topic (e.g. a/b/c → a.b.c)
   #   error        — return an error (default)
   #   ignore       — silently drop the message
@@ -131,14 +128,13 @@ producer "main" {
 | `sync` (default) | Waits for broker acknowledgement before returning. Reliable; provides backpressure. |
 | `async` | Returns immediately after queueing the record internally. Higher throughput; errors are logged rather than returned to the caller. |
 
-### `topic_mapping`
+### `topic "<pattern>"`
 
-Each `topic_mapping` block maps a vinculum topic pattern to a Kafka topic and
-optional record key.
+Each `topic` block maps a vinculum topic pattern to a Kafka topic and optional
+record key. The pattern is the block label.
 
 | Attribute | Type | Description |
 |---|---|---|
-| `pattern` | string | MQTT-style pattern. `+name` captures one segment into `ctx.fields.name`; `#` matches any trailing segments. |
 | `kafka_topic` | string | Destination Kafka topic. |
 | `key` | expression | Record key expression (evaluated per message). `null` means no key. |
 
@@ -154,7 +150,7 @@ Common key expressions: `ctx.fields.deviceId`, `ctx.msg.id`, `ctx.topic`, `null`
 
 ### `default_topic_transform`
 
-Applied when no `topic_mapping` matches.
+Applied when no `topic` block matches.
 
 | Value | Behavior |
 |---|---|
@@ -164,14 +160,14 @@ Applied when no `topic_mapping` matches.
 
 ---
 
-## `consumer "<name>"`
+## `receiver "<name>"`
 
-Each `consumer` sub-block creates a named Kafka consumer that runs an
+Each `receiver` sub-block creates a named Kafka receiver that runs an
 independent poll loop. Received messages are published to the configured
 `subscriber`.
 
 ```hcl
-consumer "main" {
+receiver "main" {
   group_id     = "vinculum-prod"   # required: Kafka consumer group ID
   subscriber   = bus.main          # forward messages to a subscriber
   # OR
@@ -181,12 +177,10 @@ consumer "main" {
   commit_mode  = "after_process"   # after_process | periodic | manual — default: after_process
   dlq_topic    = "vinculum.dlq"    # optional: dead-letter queue topic
 
-  topic_subscription {
-    kafka_topic    = "sensor.readings"
+  subscription "sensor.readings" {
     vinculum_topic = "sensor/${ctx.fields.deviceId}/reading"
   }
-  topic_subscription {
-    kafka_topic    = "alerts"
+  subscription "alerts" {
     vinculum_topic = "alerts/kafka"
   }
 }
@@ -249,14 +243,14 @@ record preserves the original key and value, and adds the following headers:
 The offset is committed only after a successful DLQ send. If the DLQ send
 itself fails, the record is not committed and will be redelivered.
 
-### `topic_subscription`
+### `subscription "<kafka-topic>"`
 
-Each `topic_subscription` block maps one Kafka topic to a vinculum topic.
-Multiple blocks may be declared within a single consumer.
+Each `subscription` block maps one Kafka topic to a vinculum topic. The Kafka
+topic is the block label. Multiple blocks may be declared within a single
+receiver.
 
 | Attribute | Type | Description |
 |---|---|---|
-| `kafka_topic` | string | Exact Kafka topic name to subscribe to. |
 | `vinculum_topic` | expression | Vinculum topic to publish the message under. May be a static string or an HCL string interpolation. |
 
 **`vinculum_topic` expression context** (all accessed via `ctx`):
@@ -275,53 +269,50 @@ the raw `[]byte` is passed through unchanged. Kafka record headers become the
 
 **Static topic:**
 ```hcl
-topic_subscription {
-  kafka_topic    = "alerts"
+subscription "alerts" {
   vinculum_topic = "alerts/kafka"
 }
 ```
 
 **Dynamic topic from a record header:**
 ```hcl
-topic_subscription {
-  kafka_topic    = "sensor.readings"
+subscription "sensor.readings" {
   vinculum_topic = "sensor/${ctx.fields.deviceId}/reading"
 }
 ```
 
 **Dynamic topic from the record key:**
 ```hcl
-topic_subscription {
-  kafka_topic    = "sensor.readings"
+subscription "sensor.readings" {
   vinculum_topic = "sensor/${ctx.key}/reading"
 }
 ```
 
 ---
 
-## Addressing Producers in Subscriptions
+## Addressing Senders in Subscriptions
 
 `client.<name>` resolves to a cty object with two attributes for routing
-messages to Kafka producers:
+messages to Kafka senders:
 
 | Expression | Meaning |
 |---|---|
-| `client.<name>.producers` | Fan-out: dispatch `OnEvent` to **all** named producers. |
-| `client.<name>.producer.<prod-name>` | Route to a single named producer. |
+| `client.<name>.senders` | Fan-out: dispatch `OnEvent` to **all** named senders. |
+| `client.<name>.sender.<name>` | Route to a single named sender. |
 
 ```hcl
-# Fan-out to all producers
+# Fan-out to all senders
 subscription "all_to_kafka" {
   target     = bus.main
   topics     = ["sensor/#", "alerts/#"]
-  subscriber = client.events.producers
+  subscriber = client.events.senders
 }
 
-# Single named producer
+# Single named sender
 subscription "sensors_only" {
   target     = bus.main
   topics     = ["sensor/#"]
-  subscriber = client.events.producer.main
+  subscriber = client.events.sender.main
 }
 ```
 
@@ -330,7 +321,7 @@ subscription "sensors_only" {
 ## Observability
 
 When a [`server "metrics"`](server-metrics.md) block is present, the Kafka
-client automatically exposes producer and consumer metrics. The default metrics
+client automatically exposes sender and receiver metrics. The default metrics
 server is used implicitly, or you can wire a specific one explicitly:
 
 ```hcl
@@ -340,7 +331,7 @@ client "kafka" "events" {
 }
 ```
 
-### Producer metrics
+### Sender metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
@@ -348,7 +339,7 @@ client "kafka" "events" {
 | `kafka_producer_errors_total` | counter | `topic` | Production errors |
 | `kafka_producer_produce_duration_seconds` | histogram | `topic` | Time for `ProduceSync` to return (sync mode only) |
 
-### Consumer metrics
+### Receiver metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
@@ -359,7 +350,7 @@ client "kafka" "events" {
 | `kafka_consumer_commits_total` | counter | — | Successful offset commits |
 
 `kafka_consumer_lag` is updated at the end of every poll cycle. A value of 0
-means the consumer is caught up on that partition.
+means the receiver is caught up on that partition.
 
 ### Example
 
@@ -371,8 +362,8 @@ server "metrics" "metrics" {
 client "kafka" "events" {
   brokers = ["kafka.internal:9093"]
   # ... (metrics provider is wired automatically from server.metrics above)
-  consumer "main" { ... }
-  producer "main" { ... }
+  receiver "main" { ... }
+  sender "main" { ... }
 }
 ```
 
@@ -409,28 +400,25 @@ client "kafka" "events" {
   compression = "snappy"
   linger      = "5ms"
 
-  producer "main" {
+  sender "main" {
     produce_mode            = "sync"
     default_topic_transform = "slash_to_dot"
 
-    topic_mapping {
-      pattern     = "sensor/+deviceId/reading"
+    topic "sensor/+deviceId/reading" {
       kafka_topic = "sensor.readings"
       key         = ctx.fields.deviceId
     }
   }
 
-  consumer "main" {
+  receiver "main" {
     group_id   = "vinculum-prod"
     subscriber = bus.main
-    dlq_topic = "vinculum.dlq"
+    dlq_topic  = "vinculum.dlq"
 
-    topic_subscription {
-      kafka_topic    = "sensor.readings"
+    subscription "sensor.readings" {
       vinculum_topic = "sensor/${ctx.fields.deviceId}/reading"
     }
-    topic_subscription {
-      kafka_topic    = "alerts"
+    subscription "alerts" {
       vinculum_topic = "alerts/kafka"
     }
   }
@@ -440,7 +428,7 @@ client "kafka" "events" {
 subscription "to_kafka" {
   target     = bus.main
   topics     = ["vinculum/#"]
-  subscriber = client.events.producers
+  subscriber = client.events.senders
 }
 
 # Log everything that arrives from Kafka (and anything else on the bus)
@@ -451,18 +439,17 @@ subscription "debug" {
 }
 ```
 
-Consumer with `action` instead of `subscriber` — log each Kafka message directly:
+Receiver with `action` instead of `subscriber` — log each Kafka message directly:
 
 ```hcl
 client "kafka" "events" {
   brokers = ["kafka:9092"]
 
-  consumer "logger" {
+  receiver "logger" {
     group_id = "vinculum-logger"
     action   = loginfo("kafka", {topic = ctx.topic, msg = ctx.msg})
 
-    topic_subscription {
-      kafka_topic    = "sensor.readings"
+    subscription "sensor.readings" {
       vinculum_topic = "sensor/readings"
     }
   }

@@ -21,9 +21,9 @@ import (
 
 // ─── HCL definition structs ──────────────────────────────────────────────────
 
-// TopicMappingDefinition is one topic_mapping block inside a producer block.
+// TopicMappingDefinition is one topic block inside a producer block.
 type TopicMappingDefinition struct {
-	Pattern    string         `hcl:"pattern"`
+	Pattern    string         `hcl:",label"`
 	KafkaTopic string         `hcl:"kafka_topic"`
 	Key        hcl.Expression `hcl:"key,optional"`
 	DefRange   hcl.Range      `hcl:",def_range"`
@@ -33,7 +33,7 @@ type TopicMappingDefinition struct {
 type ProducerDefinition struct {
 	Name                  string                   `hcl:",label"`
 	ProduceMode           string                   `hcl:"produce_mode,optional"`
-	TopicMappings         []TopicMappingDefinition `hcl:"topic_mapping,block"`
+	TopicMappings         []TopicMappingDefinition `hcl:"topic,block"`
 	DefaultTopicTransform string                   `hcl:"default_topic_transform,optional"`
 	DefRange              hcl.Range                `hcl:",def_range"`
 }
@@ -46,9 +46,9 @@ type SASLDefinition struct {
 	DefRange  hcl.Range      `hcl:",def_range"`
 }
 
-// TopicSubscriptionDefinition is one topic_subscription block inside a consumer block.
+// TopicSubscriptionDefinition is one subscription block inside a consumer block.
 type TopicSubscriptionDefinition struct {
-	KafkaTopic    string         `hcl:"kafka_topic"`
+	KafkaTopic    string         `hcl:",label"`
 	VinculumTopic hcl.Expression `hcl:"vinculum_topic"`
 	DefRange      hcl.Range      `hcl:",def_range"`
 }
@@ -62,7 +62,7 @@ type ConsumerDefinition struct {
 	Action        hcl.Expression                `hcl:"action,optional"`
 	CommitMode    string                        `hcl:"commit_mode,optional"`
 	DLQTopic      string                        `hcl:"dlq_topic,optional"`
-	Subscriptions []TopicSubscriptionDefinition `hcl:"topic_subscription,block"`
+	Subscriptions []TopicSubscriptionDefinition `hcl:"subscription,block"`
 	DefRange      hcl.Range                     `hcl:",def_range"`
 }
 
@@ -71,8 +71,8 @@ type KafkaClientDefinition struct {
 	Brokers        []string             `hcl:"brokers"`
 	TLS            *TLSConfig           `hcl:"tls,block"`
 	SASL           *SASLDefinition      `hcl:"sasl,block"`
-	Producers      []ProducerDefinition `hcl:"producer,block"`
-	Consumers      []ConsumerDefinition `hcl:"consumer,block"`
+	Producers      []ProducerDefinition `hcl:"sender,block"`
+	Consumers      []ConsumerDefinition `hcl:"receiver,block"`
 	// Producer client-level settings (apply to the shared kgo.Client)
 	Acks           string         `hcl:"acks,optional"`
 	Compression    string         `hcl:"compression,optional"`
@@ -177,8 +177,8 @@ func (c *KafkaClient) CtyValue() cty.Value {
 		prodMap[name] = NewSubscriberCapsule(proxy)
 	}
 	return cty.ObjectVal(map[string]cty.Value{
-		"producers": NewSubscriberCapsule(c),
-		"producer":  cty.ObjectVal(prodMap),
+		"senders": NewSubscriberCapsule(c),
+		"sender":  cty.ObjectVal(prodMap),
 	})
 }
 
@@ -617,7 +617,7 @@ func buildProducerSpec(config *Config, def ProducerDefinition) (builtProducerSpe
 	default:
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("kafka producer %q: invalid produce_mode", def.Name),
+			Summary:  fmt.Sprintf("kafka sender %q: invalid produce_mode", def.Name),
 			Detail:   fmt.Sprintf("%q is not valid; use sync or async", def.ProduceMode),
 			Subject:  &def.DefRange,
 		}}
@@ -633,7 +633,7 @@ func buildProducerSpec(config *Config, def ProducerDefinition) (builtProducerSpe
 	default:
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("kafka producer %q: invalid default_topic_transform", def.Name),
+			Summary:  fmt.Sprintf("kafka sender %q: invalid default_topic_transform", def.Name),
 			Detail:   fmt.Sprintf("%q is not valid; use error, slash_to_dot, or ignore", def.DefaultTopicTransform),
 			Subject:  &def.DefRange,
 		}}
@@ -681,7 +681,7 @@ func buildConsumerSpec(config *Config, def ConsumerDefinition) (builtConsumerSpe
 	if def.GroupID == "" {
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("kafka consumer %q: group_id is required", def.Name),
+			Summary:  fmt.Sprintf("kafka receiver %q: group_id is required", def.Name),
 			Subject:  &def.DefRange,
 		}}
 	}
@@ -697,7 +697,7 @@ func buildConsumerSpec(config *Config, def ConsumerDefinition) (builtConsumerSpe
 	default:
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("kafka consumer %q: invalid start_offset", def.Name),
+			Summary:  fmt.Sprintf("kafka receiver %q: invalid start_offset", def.Name),
 			Detail:   fmt.Sprintf("%q is not valid; use stored, earliest, or latest", def.StartOffset),
 			Subject:  &def.DefRange,
 		}}
@@ -713,7 +713,7 @@ func buildConsumerSpec(config *Config, def ConsumerDefinition) (builtConsumerSpe
 	default:
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("kafka consumer %q: invalid commit_mode", def.Name),
+			Summary:  fmt.Sprintf("kafka receiver %q: invalid commit_mode", def.Name),
 			Detail:   fmt.Sprintf("%q is not valid; use after_process, periodic, or manual", def.CommitMode),
 			Subject:  &def.DefRange,
 		}}
@@ -726,7 +726,7 @@ func buildConsumerSpec(config *Config, def ConsumerDefinition) (builtConsumerSpe
 	if hasSubscriber == hasAction {
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("kafka consumer %q: exactly one of subscriber or action must be specified", def.Name),
+			Summary:  fmt.Sprintf("kafka receiver %q: exactly one of subscriber or action must be specified", def.Name),
 			Subject:  &def.DefRange,
 		}}
 	}
@@ -749,7 +749,7 @@ func buildConsumerSpec(config *Config, def ConsumerDefinition) (builtConsumerSpe
 	if len(def.Subscriptions) == 0 {
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("kafka consumer %q: at least one topic_subscription block is required", def.Name),
+			Summary:  fmt.Sprintf("kafka receiver %q: at least one subscription block is required", def.Name),
 			Subject:  &def.DefRange,
 		}}
 	}
@@ -776,7 +776,7 @@ func makeVinculumTopicFunc(cfg *Config, expr hcl.Expression) kconsumer.VinculumT
 		}
 		ctyMsg, err := go2cty2go.AnyToCty(msg)
 		if err != nil {
-			return "", fmt.Errorf("kafka consumer: convert msg: %w", err)
+			return "", fmt.Errorf("kafka receiver: convert msg: %w", err)
 		}
 
 		var ctyKey cty.Value
@@ -810,7 +810,7 @@ func makeVinculumTopicFunc(cfg *Config, expr hcl.Expression) kconsumer.VinculumT
 		}
 
 		if val.IsNull() || val.Type() != cty.String {
-			return "", fmt.Errorf("kafka consumer: vinculum_topic must return a string, got %s", val.Type().FriendlyName())
+			return "", fmt.Errorf("kafka receiver: vinculum_topic must return a string, got %s", val.Type().FriendlyName())
 		}
 		return val.AsString(), nil
 	}

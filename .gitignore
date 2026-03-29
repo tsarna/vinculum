@@ -47,3 +47,5 @@ x
 .idea/
 .vscode/
 
+# spec documents
+specs/

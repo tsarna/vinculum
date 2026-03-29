@@ -6,9 +6,9 @@ using `client "mqtt"` blocks. The implementation uses
 sub-package for automatic reconnection, and supports MQTT 5.0 features
 including user properties, shared subscriptions, and Last Will and Testament.
 
-A single `client "mqtt"` block may contain any number of named `publisher` and
-`subscriber` sub-blocks (at least one total). All publishers and subscribers
-within a block share the same MQTT connection.
+A single `client "mqtt"` block may contain any number of named `sender` and
+`receiver` sub-blocks (at least one total). All senders and receivers within
+a block share the same MQTT connection.
 
 ---
 
@@ -63,11 +63,11 @@ client "mqtt" "iot" {
   on_connect    = send(ctx, bus.main, "mqtt/connected",    {client = "iot"})
   on_disconnect = send(ctx, bus.main, "mqtt/disconnected", {client = "iot"})
 
-  # Named publisher blocks (zero or more)
-  publisher "main" { ... }
+  # Named sender blocks (zero or more)
+  sender "main" { ... }
 
-  # Named subscriber blocks (zero or more)
-  subscriber "main" { ... }
+  # Named receiver blocks (zero or more)
+  receiver "main" { ... }
 }
 ```
 
@@ -139,52 +139,49 @@ available — there is no message in flight at lifecycle hook time.
 
 ---
 
-## `publisher "<name>"`
+## `sender "<name>"`
 
-Each `publisher` sub-block creates a named MQTT publisher. Publishers are
-addressed in `subscription` blocks via `client.<name>.publisher.<pub-name>`
-(single publisher) or `client.<name>.publishers` (fan-out to all publishers).
+Each `sender` sub-block creates a named MQTT sender. Senders are addressed
+in `subscription` blocks via `client.<name>.sender.<name>` (single sender)
+or `client.<name>.senders` (fan-out to all senders).
 
 ```hcl
-publisher "main" {
+sender "main" {
   qos    = 1      # default QoS for all publishes (0 or 1; default: 1)
   retain = false  # default retain flag (default: false)
 
   # Topic mappings — evaluated in order, first match wins.
-  topic_mapping {
-    pattern = "alerts/#"
-    qos     = 1
-    retain  = true   # retain the last alert for new subscribers
+  topic "alerts/#" {
+    qos    = 1
+    retain = true   # retain the last alert for new subscribers
     # mqtt_topic omitted: use vinculum topic verbatim
   }
-  topic_mapping {
-    pattern    = "sensor/+deviceId/reading"
+  topic "sensor/+deviceId/reading" {
     mqtt_topic = "sensors/${ctx.fields.deviceId}/data"  # HCL expression
     qos        = 1
     retain     = false
   }
 
-  # What to do when no topic_mapping matches:
-  #   verbatim — publish to vinculum topic verbatim at publisher-level QoS/retain (default)
+  # What to do when no topic matches:
+  #   verbatim — publish to vinculum topic verbatim at sender-level QoS/retain (default)
   #   error    — return an error from OnEvent
   #   ignore   — silently drop the message
   default_topic_transform = "verbatim"
 }
 ```
 
-### `topic_mapping`
+### `topic "<pattern>"`
 
-Each `topic_mapping` block maps a vinculum topic pattern to MQTT delivery
-settings. The primary purpose is to set per-pattern QoS and retain flags;
-`mqtt_topic` is optional for cases where the MQTT topic should differ from the
-vinculum topic.
+Each `topic` block maps a vinculum topic pattern to MQTT delivery settings.
+The pattern is the block label. The primary purpose is to set per-pattern QoS
+and retain flags; `mqtt_topic` is optional for cases where the MQTT topic
+should differ from the vinculum topic.
 
 | Attribute | Type | Description |
 |---|---|---|
-| `pattern` | string | Vinculum topic pattern. `+name` captures one segment into `ctx.fields.name`; `#` matches any trailing segments. |
 | `mqtt_topic` | expression | MQTT topic to publish to. If omitted, the vinculum topic is used verbatim. |
-| `qos` | number | QoS for messages matching this pattern (0 or 1). Overrides the publisher-level default. |
-| `retain` | bool | Retain flag for messages matching this pattern. Overrides the publisher-level default. |
+| `qos` | number | QoS for messages matching this pattern (0 or 1). Overrides the sender-level default. |
+| `retain` | bool | Retain flag for messages matching this pattern. Overrides the sender-level default. |
 
 **`mqtt_topic` expression context:**
 
@@ -196,11 +193,11 @@ vinculum topic.
 
 ### `default_topic_transform`
 
-Applied when no `topic_mapping` matches.
+Applied when no `topic` block matches.
 
 | Value | Behavior |
 |---|---|
-| `verbatim` (default) | Publish to the vinculum topic as-is at publisher-level QoS/retain. |
+| `verbatim` (default) | Publish to the vinculum topic as-is at sender-level QoS/retain. |
 | `error` | Return an error from `OnEvent`. |
 | `ignore` | Silently discard the message. |
 
@@ -216,13 +213,13 @@ vinculum `fields` are encoded as MQTT 5 user properties (one property per key).
 
 ---
 
-## `subscriber "<name>"`
+## `receiver "<name>"`
 
-Each `subscriber` sub-block creates an MQTT subscription that receives messages
+Each `receiver` sub-block creates an MQTT subscription that receives messages
 from the broker and dispatches them to a vinculum bus or subscriber.
 
 ```hcl
-subscriber "main" {
+receiver "main" {
   subscriber = bus.main        # forward to a bus or subscriber
   # OR
   # action = loginfo(ctx, "mqtt", {topic = ctx.topic, msg = ctx.msg})
@@ -231,13 +228,11 @@ subscriber "main" {
   handle_retained  = true      # deliver retained messages (default: true)
   shared_group     = ""        # MQTT 5 shared subscription group name
 
-  topic_subscription {
-    mqtt_topic     = "sensors/+deviceId/data"
+  subscription "sensors/+deviceId/data" {
     vinculum_topic = "sensor/${ctx.fields.deviceId}/reading"  # HCL expression
-    qos            = 1    # overrides subscriber-level qos for this subscription
+    qos            = 1    # overrides receiver-level qos for this subscription
   }
-  topic_subscription {
-    mqtt_topic     = "alerts/#"
+  subscription "alerts/#" {
     vinculum_topic = "alerts/mqtt"
   }
 }
@@ -272,15 +267,15 @@ clients in the group — only one instance receives each message. This is the
 MQTT equivalent of Kafka consumer groups and the correct pattern for
 horizontally scaling vinculum.
 
-### `topic_subscription`
+### `subscription "<mqtt-topic>"`
 
-Each `topic_subscription` block subscribes to one MQTT topic pattern.
+Each `subscription` block subscribes to one MQTT topic pattern. The MQTT
+topic (or pattern) is the block label.
 
 | Attribute | Type | Description |
 |---|---|---|
-| `mqtt_topic` | string | MQTT topic to subscribe to. Supports standard wildcards (`+`, `#`). Use `+name` to extract the segment into `fields["name"]`. |
 | `vinculum_topic` | expression | Vinculum topic for dispatching the message. Default: use the MQTT topic verbatim. |
-| `qos` | number | QoS for this subscription (0 or 1). Overrides the subscriber-level default. |
+| `qos` | number | QoS for this subscription (0 or 1). Overrides the receiver-level default. |
 
 **`vinculum_topic` expression context:**
 
@@ -290,9 +285,9 @@ Each `topic_subscription` block subscribes to one MQTT topic pattern.
 | `ctx.msg` | The deserialized message payload |
 | `ctx.fields` | `map(string)` from MQTT 5 user properties and topic pattern field extraction |
 
-**Named wildcard field extraction:** `+deviceId` in `mqtt_topic` extracts the
-matched segment into `fields["deviceId"]`. The broker subscription uses the
-plain `+` wildcard; extraction happens locally.
+**Named wildcard field extraction:** `+deviceId` in the subscription label
+extracts the matched segment into `fields["deviceId"]`. The broker subscription
+uses the plain `+` wildcard; extraction happens locally.
 
 **Message deserialization:**
 
@@ -306,28 +301,28 @@ duplicate keys).
 
 ---
 
-## Addressing publishers in subscriptions
+## Addressing senders in subscriptions
 
 `client.<name>` resolves to a cty object with two attributes:
 
 | Expression | Meaning |
 |---|---|
-| `client.<name>.publishers` | Fan-out: dispatch `OnEvent` to **all** named publishers. |
-| `client.<name>.publisher.<pub-name>` | Route to a single named publisher. |
+| `client.<name>.senders` | Fan-out: dispatch `OnEvent` to **all** named senders. |
+| `client.<name>.sender.<name>` | Route to a single named sender. |
 
 ```hcl
-# Fan-out to all publishers
+# Fan-out to all senders
 subscription "all_to_mqtt" {
   target     = bus.main
   topics     = ["sensor/#", "alerts/#"]
-  subscriber = client.iot.publishers
+  subscriber = client.iot.senders
 }
 
-# Single named publisher
+# Single named sender
 subscription "alerts_to_mqtt" {
   target     = bus.main
   topics     = ["alerts/#"]
-  subscriber = client.iot.publisher.main
+  subscriber = client.iot.sender.main
 }
 ```
 
@@ -336,7 +331,7 @@ subscription "alerts_to_mqtt" {
 ## Observability
 
 When a [`server "metrics"`](server-metrics.md) block is present, the MQTT
-client exposes connection, publisher, and subscriber metrics.
+client exposes connection, sender, and receiver metrics.
 
 ```hcl
 client "mqtt" "iot" {
@@ -352,7 +347,7 @@ client "mqtt" "iot" {
 | `mqtt_client_connected` | gauge | `1` when connected, `0` when not. |
 | `mqtt_client_reconnects_total` | counter | Total reconnection events since start. |
 
-### Publisher metrics
+### Sender metrics
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
@@ -360,7 +355,7 @@ client "mqtt" "iot" {
 | `mqtt_publisher_errors_total` | counter | `mqtt_topic` | Publish errors. |
 | `mqtt_publisher_publish_duration_seconds` | histogram | `mqtt_topic` | Round-trip time for QoS 1 PUBACK. |
 
-### Subscriber metrics
+### Receiver metrics
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
@@ -431,30 +426,27 @@ client "mqtt" "iot" {
   on_connect    = send(ctx, bus.main, "mqtt/status", {status = "online"})
   on_disconnect = send(ctx, bus.main, "mqtt/status", {status = "offline"})
 
-  publisher "out" {
+  sender "out" {
     qos = 1
     default_topic_transform = "verbatim"
 
-    topic_mapping {
-      pattern = "alerts/#"
-      qos     = 1
-      retain  = true
+    topic "alerts/#" {
+      qos    = 1
+      retain = true
     }
   }
 
-  subscriber "in" {
+  receiver "in" {
     subscriber      = bus.main
     handle_retained = false
     shared_group    = "vinculum-prod"
 
-    topic_subscription {
-      mqtt_topic     = "sensors/+deviceId/data"
+    subscription "sensors/+deviceId/data" {
       vinculum_topic = "sensor/${ctx.fields.deviceId}/reading"
       qos            = 1
     }
-    topic_subscription {
-      mqtt_topic = "alerts/#"
-      qos        = 1
+    subscription "alerts/#" {
+      qos = 1
     }
   }
 }
@@ -463,6 +455,6 @@ client "mqtt" "iot" {
 subscription "to_mqtt" {
   target     = bus.main
   topics     = ["sensor/#", "alerts/#"]
-  subscriber = client.iot.publisher.out
+  subscriber = client.iot.sender.out
 }
 ```
