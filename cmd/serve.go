@@ -14,7 +14,7 @@ import (
 
 // serverCmd represents the server command
 var serverCmd = &cobra.Command{
-	Use:   "server [config-files-or-directories...]",
+	Use:   "serve [config-files-or-directories...]",
 	Short: "Start the vinculum server",
 	Long: `Start the vinculum server with the specified configuration files or directories.
 
