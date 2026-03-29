@@ -10,7 +10,7 @@ import (
 	"github.com/sosodev/duration"
 	bus "github.com/tsarna/vinculum-bus"
 	timecty "github.com/tsarna/time-cty-funcs"
-	"github.com/tsarna/vinculum/internal/hclutil"
+	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -130,10 +130,10 @@ func (c *Config) ParseDuration(expr hcl.Expression) (time.Duration, hcl.Diagnost
 	}
 }
 
-// parseDurationFromValue converts an already-evaluated cty.Value to a time.Duration.
+// ParseDurationFromValue converts an already-evaluated cty.Value to a time.Duration.
 // Supports numbers (seconds), strings (Go or ISO 8601), and duration capsules.
 // Used when the expression must be evaluated against a dynamic context before conversion.
-func parseDurationFromValue(val cty.Value) (time.Duration, error) {
+func ParseDurationFromValue(val cty.Value) (time.Duration, error) {
 	switch val.Type() {
 	case cty.Number:
 		seconds, _ := val.AsBigFloat().Float64()

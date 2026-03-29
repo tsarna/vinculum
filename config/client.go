@@ -66,20 +66,8 @@ func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 
 	var client Client
 
-	switch block.Labels[0] {
-	case "kafka":
-		client, diags = ProcessKafkaClientBlock(config, block, clientDef.RemainingBody)
-
-	case "vws":
-		client, diags = ProcessVinculumWebsocketsClientBlock(config, block, clientDef.RemainingBody)
-
-	case "mqtt":
-		client, diags = ProcessMQTTClientBlock(config, block, clientDef.RemainingBody)
-
-	case "openai":
-		client, diags = ProcessOpenAIClientBlock(config, block, clientDef.RemainingBody)
-
-	default:
+	processor, ok := clientRegistry[block.Labels[0]]
+	if !ok {
 		return hcl.Diagnostics{
 			&hcl.Diagnostic{
 				Severity: hcl.DiagError,
@@ -89,6 +77,7 @@ func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 			},
 		}
 	}
+	client, diags = processor(config, block, clientDef.RemainingBody)
 
 	if diags.HasErrors() {
 		return diags
@@ -109,6 +98,17 @@ func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 type Client interface {
 	GetName() string
 	GetDefRange() hcl.Range
+}
+
+// ClientProcessor is a function that processes a client block and returns a Client.
+type ClientProcessor func(config *Config, block *hcl.Block, body hcl.Body) (Client, hcl.Diagnostics)
+
+var clientRegistry = map[string]ClientProcessor{}
+
+// RegisterClientType registers a processor for a named client type.
+// Sub-packages call this from their init() function.
+func RegisterClientType(typeName string, p ClientProcessor) {
+	clientRegistry[typeName] = p
 }
 
 // BusClient is a client backed by the vinculum-bus pub/sub system (e.g. VWS).

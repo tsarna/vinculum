@@ -215,6 +215,11 @@ type ActionSubscriber struct {
 	ActionExpr hcl.Expression
 }
 
+// NewActionSubscriber creates an ActionSubscriber for use by plugin sub-packages.
+func NewActionSubscriber(config *Config, expr hcl.Expression) bus.Subscriber {
+	return &ActionSubscriber{Config: config, ActionExpr: expr}
+}
+
 func (a *ActionSubscriber) OnEvent(ctx context.Context, topic string, message any, fields map[string]string) error {
 	ctyMessage, err := go2cty2go.AnyToCty(message)
 	if err != nil {

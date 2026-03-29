@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/tsarna/vinculum/internal/hclutil"
+	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
 )
 

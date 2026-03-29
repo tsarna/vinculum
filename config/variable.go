@@ -11,6 +11,42 @@ import (
 	"github.com/zclconf/go-cty/cty/function"
 )
 
+// --- Capsule type registries for external packages ---
+
+// CapsuleGetter extracts a Gettable from a cty.Value of a specific capsule type.
+type CapsuleGetter func(val cty.Value) (Gettable, error)
+
+// CapsuleSetter extracts a Settable from a cty.Value of a specific capsule type.
+type CapsuleSetter func(val cty.Value) (Settable, error)
+
+var capsuleGetters []struct {
+	typ    cty.Type
+	getter CapsuleGetter
+}
+
+var capsuleSetters []struct {
+	typ    cty.Type
+	setter CapsuleSetter
+}
+
+// RegisterCapsuleGetter registers a getter for a capsule type so that get()
+// works on values of that type. Called from init() in sub-packages.
+func RegisterCapsuleGetter(typ cty.Type, getter CapsuleGetter) {
+	capsuleGetters = append(capsuleGetters, struct {
+		typ    cty.Type
+		getter CapsuleGetter
+	}{typ, getter})
+}
+
+// RegisterCapsuleSetter registers a setter for a capsule type so that set()
+// works on values of that type. Called from init() in sub-packages.
+func RegisterCapsuleSetter(typ cty.Type, setter CapsuleSetter) {
+	capsuleSetters = append(capsuleSetters, struct {
+		typ    cty.Type
+		setter CapsuleSetter
+	}{typ, setter})
+}
+
 // --- Interfaces for set/get/increment extensibility ---
 
 // Gettable is implemented by types whose current value can be read via get().
@@ -287,17 +323,10 @@ func extractGettable(val cty.Value) (Gettable, error) {
 	if val.Type() == VariableCapsuleType {
 		return GetVariableFromCapsule(val)
 	}
-	if val.Type() == OnceCapsuleType {
-		return GetOnceTriggerFromCapsule(val)
-	}
-	if val.Type() == AfterCapsuleType {
-		return GetAfterTriggerFromCapsule(val)
-	}
-	if val.Type() == WatchdogCapsuleType {
-		return GetWatchdogTriggerFromCapsule(val)
-	}
-	if val.Type() == IntervalCapsuleType {
-		return GetIntervalTriggerFromCapsule(val)
+	for _, entry := range capsuleGetters {
+		if val.Type() == entry.typ {
+			return entry.getter(val)
+		}
 	}
 	if val.Type() == MetricCapsuleType {
 		m, err := GetMetricFromCapsule(val)
@@ -316,8 +345,10 @@ func extractSettable(val cty.Value) (Settable, error) {
 	if val.Type() == VariableCapsuleType {
 		return GetVariableFromCapsule(val)
 	}
-	if val.Type() == WatchdogCapsuleType {
-		return GetWatchdogTriggerFromCapsule(val)
+	for _, entry := range capsuleSetters {
+		if val.Type() == entry.typ {
+			return entry.setter(val)
+		}
 	}
 	if val.Type() == MetricCapsuleType {
 		m, err := GetMetricFromCapsule(val)

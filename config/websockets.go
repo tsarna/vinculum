@@ -30,6 +30,10 @@ type WebsocketsServerDefinition struct {
 	DefRange             hcl.Range      `hcl:",def_range"`
 }
 
+func init() {
+	RegisterServerType("websocket", ProcessWebsocketsServerBlock)
+}
+
 func ProcessWebsocketsServerBlock(config *Config, block *hcl.Block, remainingBody hcl.Body) (Listener, hcl.Diagnostics) {
 	serverDef := WebsocketsServerDefinition{}
 	diags := gohcl.DecodeBody(remainingBody, config.evalCtx, &serverDef)
@@ -98,7 +102,7 @@ func ProcessWebsocketsServerBlock(config *Config, block *hcl.Block, remainingBod
 		}
 	}
 
-	transforms = append(transforms, cty2goTransform)
+	transforms = append(transforms, Cty2GoTransform)
 	listenerBuilder = listenerBuilder.WithOutboundTransforms(transforms...)
 
 	inboundTransforms := make([]transform.MessageTransformFunc, 0)

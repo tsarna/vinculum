@@ -327,12 +327,13 @@ func cty2goSimpleTransform(ctx context.Context, payload any, fields map[string]s
 	return payload
 }
 
-var cty2goTransform = vbxform.ModifyPayload(cty2goSimpleTransform)
+// Cty2GoTransform converts cty values to native Go types in message payloads.
+var Cty2GoTransform = vbxform.ModifyPayload(cty2goSimpleTransform)
 
 var Cty2GoTransformFunc = function.New(&function.Spec{
 	Params: []function.Parameter{},
 	Type:   function.StaticReturnType(MessageTransformCapsuleType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-		return NewMessageTransformCapsule(cty2goTransform), nil
+		return NewMessageTransformCapsule(Cty2GoTransform), nil
 	},
 })

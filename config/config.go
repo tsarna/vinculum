@@ -129,10 +129,12 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		return nil, diags
 	}
 
-	// Add environment variables to the evaluation context
-	config.Constants["env"] = GetEnvObject()
+	// Populate ambient values (env, sys, etc.) from registered providers
+	for _, p := range ambientProviders {
+		name, val := p(config)
+		config.Constants[name] = val
+	}
 	config.Constants["httpstatus"] = getStatusCodeObject()
-	config.Constants["sys"] = GetSysObject(config.BaseDir, config.WriteDir)
 
 	// Create evaluation context that will be updated as we process
 	config.evalCtx = &hcl.EvalContext{
@@ -198,6 +200,11 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	config.Logger.Info("Config built successfully")
 
 	return config, diags
+}
+
+// EvalCtx returns the HCL evaluation context for use by plugin sub-packages.
+func (c *Config) EvalCtx() *hcl.EvalContext {
+	return c.evalCtx
 }
 
 // ExtractUserFunctions wraps the functions package ExtractUserFunctions

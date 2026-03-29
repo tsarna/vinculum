@@ -61,26 +61,8 @@ func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 
 	var server Listener
 
-	switch block.Labels[0] {
-	case "http":
-		server, diags = ProcessHttpServerBlock(config, block, serverDef.RemainingBody)
-
-	case "vws":
-		server, diags = ProcessVinculumWebsocketsServerBlock(config, block, serverDef.RemainingBody)
-
-	case "websocket":
-		server, diags = ProcessWebsocketsServerBlock(config, block, serverDef.RemainingBody)
-
-	case "mcp":
-		server, diags = ProcessMcpServerBlock(config, block, serverDef.RemainingBody)
-
-	case "metrics":
-		server, diags = ProcessMetricsServerBlock(config, block, serverDef.RemainingBody)
-		if !diags.HasErrors() {
-			config.Startables = append(config.Startables, server.(*MetricsServer))
-		}
-
-	default:
+	processor, ok := serverRegistry[block.Labels[0]]
+	if !ok {
 		return hcl.Diagnostics{
 			&hcl.Diagnostic{
 				Severity: hcl.DiagError,
@@ -90,6 +72,7 @@ func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 			},
 		}
 	}
+	server, diags = processor(config, block, serverDef.RemainingBody)
 
 	if diags.HasErrors() {
 		return diags
@@ -105,6 +88,17 @@ func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 type Listener interface {
 	GetName() string
 	GetDefRange() hcl.Range
+}
+
+// ServerProcessor is a function that processes a server block and returns a Listener.
+type ServerProcessor func(config *Config, block *hcl.Block, body hcl.Body) (Listener, hcl.Diagnostics)
+
+var serverRegistry = map[string]ServerProcessor{}
+
+// RegisterServerType registers a processor for a named server type.
+// Sub-packages call this from their init() function.
+func RegisterServerType(typeName string, p ServerProcessor) {
+	serverRegistry[typeName] = p
 }
 
 type BaseServer struct {

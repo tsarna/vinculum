@@ -1,4 +1,4 @@
-package config
+package config_test
 
 import (
 	_ "embed"
@@ -6,6 +6,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tsarna/vinculum/config"
+	_ "github.com/tsarna/vinculum/triggers/cron"
+	_ "github.com/tsarna/vinculum/triggers/shutdown"
+	_ "github.com/tsarna/vinculum/triggers/signals"
+	_ "github.com/tsarna/vinculum/triggers/start"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -42,7 +47,7 @@ func testLogger(t *testing.T) *zap.Logger {
 }
 
 func TestTriggerCron(t *testing.T) {
-	cfg, diags := NewConfig().WithSources(triggerCronVCL).WithLogger(testLogger(t)).Build()
+	cfg, diags := config.NewConfig().WithSources(triggerCronVCL).WithLogger(testLogger(t)).Build()
 	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
 
 	// Cron trigger adds one Startable (the cron scheduler)
@@ -54,7 +59,7 @@ func TestTriggerCron(t *testing.T) {
 }
 
 func TestTriggerStart(t *testing.T) {
-	cfg, diags := NewConfig().WithSources(triggerStartVCL).WithLogger(testLogger(t)).Build()
+	cfg, diags := config.NewConfig().WithSources(triggerStartVCL).WithLogger(testLogger(t)).Build()
 	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
 
 	// Start trigger produces a cty value
@@ -63,7 +68,7 @@ func TestTriggerStart(t *testing.T) {
 	assert.Equal(t, cty.StringVal("hello from start"), val)
 
 	// trigger.init is available in the eval context
-	triggerVar, ok := cfg.evalCtx.Variables["trigger"]
+	triggerVar, ok := cfg.EvalCtx().Variables["trigger"]
 	require.True(t, ok, "trigger variable should be set in evalCtx")
 	assert.Equal(t, cty.StringVal("hello from start"), triggerVar.GetAttr("init"))
 
@@ -72,7 +77,7 @@ func TestTriggerStart(t *testing.T) {
 }
 
 func TestTriggerShutdown(t *testing.T) {
-	cfg, diags := NewConfig().WithSources(triggerShutdownVCL).WithLogger(testLogger(t)).Build()
+	cfg, diags := config.NewConfig().WithSources(triggerShutdownVCL).WithLogger(testLogger(t)).Build()
 	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
 
 	// Shutdown trigger adds one Stoppable
@@ -84,7 +89,7 @@ func TestTriggerShutdown(t *testing.T) {
 }
 
 func TestTriggerSignals(t *testing.T) {
-	cfg, diags := NewConfig().WithSources(triggerSignalsVCL).WithLogger(testLogger(t)).Build()
+	cfg, diags := config.NewConfig().WithSources(triggerSignalsVCL).WithLogger(testLogger(t)).Build()
 	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
 
 	// Signal action is registered
@@ -96,7 +101,7 @@ func TestTriggerSignals(t *testing.T) {
 }
 
 func TestTriggerDisabled(t *testing.T) {
-	cfg, diags := NewConfig().WithSources(triggerDisabledVCL).WithLogger(testLogger(t)).Build()
+	cfg, diags := config.NewConfig().WithSources(triggerDisabledVCL).WithLogger(testLogger(t)).Build()
 	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
 
 	// Disabled trigger is not tracked
@@ -106,19 +111,39 @@ func TestTriggerDisabled(t *testing.T) {
 }
 
 func TestTriggerDuplicateName(t *testing.T) {
-	_, diags := NewConfig().WithSources(triggerDupNameVCL).WithLogger(testLogger(t)).Build()
+	_, diags := config.NewConfig().WithSources(triggerDupNameVCL).WithLogger(testLogger(t)).Build()
 	assert.True(t, diags.HasErrors(), "expected error for duplicate trigger name")
 	assert.Contains(t, diags.Error(), "Trigger already defined")
 }
 
 func TestTriggerDuplicateSignal(t *testing.T) {
-	_, diags := NewConfig().WithSources(triggerDupSignalVCL).WithLogger(testLogger(t)).Build()
+	_, diags := config.NewConfig().WithSources(triggerDupSignalVCL).WithLogger(testLogger(t)).Build()
 	assert.True(t, diags.HasErrors(), "expected error for duplicate signal")
 	assert.Contains(t, diags.Error(), "Signal already defined")
 }
 
 func TestTriggerInvalidType(t *testing.T) {
-	_, diags := NewConfig().WithSources(triggerInvalidTypeVCL).WithLogger(testLogger(t)).Build()
+	_, diags := config.NewConfig().WithSources(triggerInvalidTypeVCL).WithLogger(testLogger(t)).Build()
 	assert.True(t, diags.HasErrors(), "expected error for invalid trigger type")
 	assert.Contains(t, diags.Error(), "Invalid trigger type")
+}
+
+func TestSetValueOptional(t *testing.T) {
+	src := []byte(`
+var "x" { value = 0 }
+assert "set_with_value" { condition = set(var.x, 5) == 5 }
+assert "get_after_set" { condition = get(var.x) == 5 }
+`)
+	_, diags := config.NewConfig().WithSources(src).WithLogger(testLogger(t)).Build()
+	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
+}
+
+func TestSetNoValueSetsNull(t *testing.T) {
+	src := []byte(`
+var "x" { value = 42 }
+assert "set_no_value" { condition = set(var.x) == null }
+assert "get_after_null_set" { condition = get(var.x) == null }
+`)
+	_, diags := config.NewConfig().WithSources(src).WithLogger(testLogger(t)).Build()
+	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
 }

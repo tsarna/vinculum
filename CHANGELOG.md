@@ -7,14 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Reorganize code and move to plugin registries for servers, clients, triggers, and ambient values (env.* and sys.*)
+
 ## [0.18.0] - 2026-03-28
 
 ### Breaking Change!
 
-   - client "kafka": producer blocks -> sender, consumer blocks -> receiver
-   - topic_mapping { pattern = "..." } -> topic "..." {} (labeled block)
-   - topic_subscription { kafka_topic/mqtt_topic = "..." } -> subscription "... {} (labeled block)
-   - client.* attributes: producers/producer -> senders/sender
+- client "kafka": producer blocks -> sender, consumer blocks -> receiver
+- topic_mapping { pattern = "..." } -> topic "..." {} (labeled block)
+- topic_subscription { kafka_topic/mqtt_topic = "..." } -> subscription "... {} (labeled block)
+- client.* attributes: producers/producer -> senders/sender
 
 ### Added
 

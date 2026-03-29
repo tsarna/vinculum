@@ -100,6 +100,10 @@ type MetricsServerDefinition struct {
 	DefRange         hcl.Range `hcl:",def_range"`
 }
 
+func init() {
+	RegisterServerType("metrics", ProcessMetricsServerBlock)
+}
+
 // ProcessMetricsServerBlock decodes and creates a MetricsServer from a block body.
 func ProcessMetricsServerBlock(config *Config, block *hcl.Block, remainingBody hcl.Body) (Listener, hcl.Diagnostics) {
 	def := MetricsServerDefinition{}
@@ -136,6 +140,10 @@ func ProcessMetricsServerBlock(config *Config, block *hcl.Block, remainingBody h
 		config.MetricsServers = make(map[string]*MetricsServer)
 	}
 	config.MetricsServers[name] = srv
+
+	if listen != "" {
+		config.Startables = append(config.Startables, srv)
+	}
 
 	return srv, nil
 }

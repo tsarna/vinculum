@@ -49,6 +49,10 @@ type HandlerServer interface {
 	GetHandler() http.Handler
 }
 
+func init() {
+	RegisterServerType("http", ProcessHttpServerBlock)
+}
+
 func ProcessHttpServerBlock(config *Config, block *hcl.Block, remainingBody hcl.Body) (Listener, hcl.Diagnostics) {
 	serverDef := HttpServerDefinition{}
 	diags := gohcl.DecodeBody(remainingBody, config.evalCtx, &serverDef)
