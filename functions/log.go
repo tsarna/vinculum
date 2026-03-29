@@ -4,11 +4,18 @@ import (
 	"fmt"
 	"strings"
 
+	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
+
+func init() {
+	cfg.RegisterFunctionPlugin("log", func(c *cfg.Config) map[string]function.Function {
+		return GetLogFunctions(c.Logger)
+	})
+}
 
 // GetLogFunctions returns HCL functions for logging with zap logger
 func GetLogFunctions(logger *zap.Logger) map[string]function.Function {

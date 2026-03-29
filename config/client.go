@@ -108,6 +108,7 @@ var clientRegistry = map[string]ClientProcessor{}
 // RegisterClientType registers a processor for a named client type.
 // Sub-packages call this from their init() function.
 func RegisterClientType(typeName string, p ClientProcessor) {
+	recordPlugin("client." + typeName)
 	clientRegistry[typeName] = p
 }
 

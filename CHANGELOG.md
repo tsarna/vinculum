@@ -11,9 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `vinculum server` command line changed to `vinculum serve` to me more consistent with typical verb-like subcommand naming.
 
+### Added
+
+- `sys.plugins` lists the names of all plugin components
+
 ### Changed
 
-- Reorganize code and move to plugin registries for servers, clients, triggers, and ambient values (env.* and sys.*)
+- Reorganize code and move to plugin registries for functions, servers, clients, triggers, and ambient values (env.* and sys.*)
 
 ## [0.18.0] - 2026-03-28
 

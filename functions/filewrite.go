@@ -6,9 +6,23 @@ import (
 	"path/filepath"
 	"strings"
 
+	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 )
+
+func init() {
+	cfg.RegisterFunctionPlugin("filewrite", func(c *cfg.Config) map[string]function.Function {
+		dir := c.GetFeature("writefiles")
+		if dir == "" {
+			return nil
+		}
+		return map[string]function.Function{
+			"filewrite":  MakeFileWriteFunc(dir),
+			"fileappend": MakeFileAppendFunc(dir),
+		}
+	})
+}
 
 // safeResolvePath resolves path relative to baseDir and verifies the result is
 // contained within baseDir, rejecting directory traversal attempts.

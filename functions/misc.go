@@ -3,9 +3,19 @@ package functions
 import (
 	"errors"
 
+	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 )
+
+func init() {
+	cfg.RegisterFunctionPlugin("misc", func(_ *cfg.Config) map[string]function.Function {
+		return map[string]function.Function{
+			"typeof": TypeOfFunc,
+			"error":  ErrorFunc,
+		}
+	})
+}
 
 // TypeOfFunc returns the friendly name of the type of a given value
 var TypeOfFunc = function.New(&function.Spec{

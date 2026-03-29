@@ -98,6 +98,7 @@ var serverRegistry = map[string]ServerProcessor{}
 // RegisterServerType registers a processor for a named server type.
 // Sub-packages call this from their init() function.
 func RegisterServerType(typeName string, p ServerProcessor) {
+	recordPlugin("server." + typeName)
 	serverRegistry[typeName] = p
 }
 

@@ -9,8 +9,8 @@ import (
 )
 
 func init() {
-	cfg.RegisterAmbientProvider(func(_ *cfg.Config) (string, cty.Value) {
-		return "env", GetEnvObject()
+	cfg.RegisterAmbientProvider("env", func(_ *cfg.Config) cty.Value {
+		return GetEnvObject()
 	})
 }
 

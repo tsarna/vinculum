@@ -10,9 +10,34 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/tsarna/go2cty2go"
+	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 )
+
+func init() {
+	cfg.RegisterFunctionPlugin("template", func(c *cfg.Config) map[string]function.Function {
+		base := c.GetFeature("readfiles")
+		if base == "" {
+			return nil
+		}
+		// funcsGetter is called at template evaluation time (after config.Functions is fully
+		// populated), so c.Functions will contain all registered functions including user-defined ones.
+		funcsGetter := func() map[string]function.Function {
+			result := make(map[string]function.Function, len(c.Functions))
+			for k, v := range c.Functions {
+				if k != "templatefile" {
+					result[k] = v
+				}
+			}
+			return result
+		}
+		return map[string]function.Function{
+			"templatefile":   MakeTemplateFileFunc(base, c.Constants, funcsGetter),
+			"gotemplatefile": MakeGoTemplateFileFunc(base, c.Constants),
+		}
+	})
+}
 
 // MakeTemplateFileFunc constructs a templatefile(path, vars) function.
 // It reads an HCL template file, evaluates it with the given vars merged into

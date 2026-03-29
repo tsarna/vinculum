@@ -485,6 +485,16 @@ func jsonMessageConverter(message cty.Value) (any, error) {
 	return jsonBytes, nil
 }
 
+func init() {
+	RegisterFunctionPlugin("send", func(_ *Config) map[string]function.Function {
+		return map[string]function.Function{
+			"send":     SendFunction(nil),
+			"sendjson": SendJSONFunction(nil),
+			"sendgo":   SendGoFunction(nil),
+		}
+	})
+}
+
 // SendFunction returns a cty function for sending a message to a bus subscriber (original behavior)
 func SendFunction(config *Config) function.Function {
 	return createSendFunction(config, defaultMessageConverter)

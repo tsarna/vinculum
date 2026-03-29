@@ -1,9 +1,18 @@
 package functions
 
 import (
+	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 )
+
+func init() {
+	cfg.RegisterFunctionPlugin("llm", func(_ *cfg.Config) map[string]function.Function {
+		return map[string]function.Function{
+			"llm_wrap": LLMWrapFunc,
+		}
+	})
+}
 
 // LLMWrapFunc wraps user-controlled content in <user_input> XML-like delimiters
 // as a prompt injection mitigation. The system prompt should reference these tags

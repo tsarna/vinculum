@@ -5,9 +5,19 @@ import (
 
 	"github.com/tsarna/go-structdiff"
 	"github.com/tsarna/go2cty2go"
+	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 )
+
+func init() {
+	cfg.RegisterFunctionPlugin("diff", func(_ *cfg.Config) map[string]function.Function {
+		return map[string]function.Function{
+			"diff":  DiffFunc,
+			"patch": PatchFunc,
+		}
+	})
+}
 
 var DiffFunc = function.New(&function.Spec{
 	Params: []function.Parameter{

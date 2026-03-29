@@ -235,6 +235,12 @@ func (h *VariableBlockHandler) Process(config *Config, block *hcl.Block) hcl.Dia
 	return diags
 }
 
+func init() {
+	RegisterFunctionPlugin("variable", func(_ *Config) map[string]function.Function {
+		return GetVariableFunctions()
+	})
+}
+
 // --- Functions ---
 
 func GetVariableFunctions() map[string]function.Function {

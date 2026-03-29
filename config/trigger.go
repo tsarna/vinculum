@@ -38,6 +38,7 @@ var triggerRegistry = map[string]TriggerRegistration{}
 // RegisterTriggerType registers a trigger type by name.
 // Sub-packages call this from their init() function.
 func RegisterTriggerType(typeName string, reg TriggerRegistration) {
+	recordPlugin("trigger." + typeName)
 	triggerRegistry[typeName] = reg
 }
 

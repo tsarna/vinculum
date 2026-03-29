@@ -6,10 +6,17 @@ import (
 	"github.com/hashicorp/go-cty-funcs/encoding"
 	"github.com/hashicorp/go-cty-funcs/filesystem"
 	"github.com/hashicorp/go-cty-funcs/uuid"
+	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	"github.com/zclconf/go-cty/cty/function/stdlib"
 )
+
+func init() {
+	cfg.RegisterFunctionPlugin("stdlib", func(_ *cfg.Config) map[string]function.Function {
+		return GetStandardLibraryFunctions()
+	})
+}
 
 // GetStandardLibraryFunctions returns a map of all cty standard library functions
 // suitable for providing to an HCL evaluation context.

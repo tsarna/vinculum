@@ -18,8 +18,8 @@ import (
 var processStartTime = time.Now()
 
 func init() {
-	cfg.RegisterAmbientProvider(func(c *cfg.Config) (string, cty.Value) {
-		return "sys", GetSysObject(c.BaseDir, c.WriteDir)
+	cfg.RegisterAmbientProvider("sys", func(c *cfg.Config) cty.Value {
+		return GetSysObject(c.BaseDir, c.WriteDir)
 	})
 }
 
@@ -98,6 +98,18 @@ func GetSysObject(baseDir string, writeDir string) cty.Value {
 
 	// System boot time (platform-specific; falls back to processStartTime on unsupported OSes)
 	sysMap["boottime"] = timecty.NewTimeCapsule(getBootTime())
+
+	// Registered plugin names (e.g. "ambient.sys", "client.kafka", "server.mcp")
+	pluginNames := cfg.RegisteredPlugins()
+	if len(pluginNames) == 0 {
+		sysMap["plugins"] = cty.ListValEmpty(cty.String)
+	} else {
+		pluginVals := make([]cty.Value, len(pluginNames))
+		for i, n := range pluginNames {
+			pluginVals[i] = cty.StringVal(n)
+		}
+		sysMap["plugins"] = cty.ListVal(pluginVals)
+	}
 
 	return cty.ObjectVal(sysMap)
 }

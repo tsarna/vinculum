@@ -8,6 +8,14 @@ import (
 	"github.com/zclconf/go-cty/cty/function"
 )
 
+func init() {
+	RegisterFunctionPlugin("call", func(_ *Config) map[string]function.Function {
+		return map[string]function.Function{
+			"call": CallFunction(nil),
+		}
+	})
+}
+
 // Callable is a pure request/response capability. It is not specific to LLM
 // clients and is designed to cover future types (HTTP, JSON-RPC, MCP, etc.).
 // args contains all arguments after the "thing": the implementor fully controls

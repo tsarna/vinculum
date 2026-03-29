@@ -5,12 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hashicorp/go-cty-funcs/filesystem"
 	"github.com/hashicorp/hcl/v2"
-	randcty "github.com/tsarna/rand-cty-funcs"
-	timecty "github.com/tsarna/time-cty-funcs"
 	bus "github.com/tsarna/vinculum-bus"
-	"github.com/tsarna/vinculum/functions"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	"go.uber.org/zap"
@@ -130,9 +126,8 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	}
 
 	// Populate ambient values (env, sys, etc.) from registered providers
-	for _, p := range ambientProviders {
-		name, val := p(config)
-		config.Constants[name] = val
+	for _, e := range ambientProviders {
+		config.Constants[e.name] = e.p(config)
 	}
 	config.Constants["httpstatus"] = getStatusCodeObject()
 
@@ -209,61 +204,22 @@ func (c *Config) EvalCtx() *hcl.EvalContext {
 
 // ExtractUserFunctions wraps the functions package ExtractUserFunctions
 func (c *Config) ExtractUserFunctions(bodies []hcl.Body) (map[string]function.Function, []hcl.Body, hcl.Diagnostics) {
-	return functions.ExtractUserFunctions(bodies, c.evalCtx)
+	return extractUserFunctions(bodies, c.evalCtx)
 }
 
-// GetFunctions wraps the functions package and adds config-specific functions
+// GetFunctions builds the function map from all registered function plugins,
+// then adds user-defined functions with duplicate detection.
 func (c *Config) GetFunctions(userFuncs map[string]function.Function) (map[string]function.Function, hcl.Diagnostics) {
-	funcs := functions.GetStandardLibraryFunctions()
+	funcs := make(map[string]function.Function)
 	diags := hcl.Diagnostics{}
 
-	for name, function := range functions.GetLogFunctions(c.Logger) {
-		funcs[name] = function
+	for _, p := range functionPlugins {
+		for name, fn := range p.getter(c) {
+			funcs[name] = fn
+		}
 	}
 
-	for name, function := range functions.GetMcpFunctions() {
-		funcs[name] = function
-	}
-
-	for name, fn := range randcty.GetRandomFunctions() {
-		funcs[name] = fn
-	}
-
-	funcs["call"] = CallFunction(c)
-	funcs["llm_wrap"] = functions.LLMWrapFunc
-	funcs["diff"] = functions.DiffFunc
-	funcs["error"] = functions.ErrorFunc
-	funcs["patch"] = functions.PatchFunc
-	funcs["send"] = SendFunction(c)
-	funcs["sendjson"] = SendJSONFunction(c)
-	funcs["sendgo"] = SendGoFunction(c)
-	funcs["typeof"] = functions.TypeOfFunc
-
-	for name, fn := range GetVariableFunctions() {
-		funcs[name] = fn
-	}
-
-	for name, fn := range timecty.GetTimeFunctions() {
-		funcs[name] = fn
-	}
-
-	if c.BaseDir != "" {
-		funcs["abspath"] = filesystem.AbsPathFunc
-		funcs["basename"] = filesystem.BasenameFunc
-		funcs["dirname"] = filesystem.DirnameFunc
-		funcs["file"] = filesystem.MakeFileFunc(c.BaseDir, false)
-		funcs["fileexists"] = filesystem.MakeFileExistsFunc(c.BaseDir)
-		funcs["fileset"] = filesystem.MakeFileSetFunc(c.BaseDir)
-		funcs["filebase64"] = filesystem.MakeFileFunc(c.BaseDir, true)
-		funcs["pathexpand"] = filesystem.PathExpandFunc
-	}
-
-	if c.WriteDir != "" {
-		funcs["filewrite"] = functions.MakeFileWriteFunc(c.WriteDir)
-		funcs["fileappend"] = functions.MakeFileAppendFunc(c.WriteDir)
-	}
-
-	for name, function := range userFuncs {
+	for name, fn := range userFuncs {
 		if _, exists := funcs[name]; exists {
 			diags = diags.Append(&hcl.Diagnostic{
 				Severity: hcl.DiagError,
@@ -272,23 +228,7 @@ func (c *Config) GetFunctions(userFuncs map[string]function.Function) (map[strin
 			})
 			continue
 		}
-		funcs[name] = function
-	}
-
-	// templatefile is registered last so its funcsGetter closure sees the fully
-	// populated funcs map (including user-defined functions) at evaluation time.
-	if c.BaseDir != "" {
-		funcsGetter := func() map[string]function.Function {
-			result := make(map[string]function.Function, len(funcs))
-			for k, v := range funcs {
-				if k != "templatefile" {
-					result[k] = v
-				}
-			}
-			return result
-		}
-		funcs["templatefile"] = functions.MakeTemplateFileFunc(c.BaseDir, c.Constants, funcsGetter)
-		funcs["gotemplatefile"] = functions.MakeGoTemplateFileFunc(c.BaseDir, c.Constants)
+		funcs[name] = fn
 	}
 
 	return funcs, diags

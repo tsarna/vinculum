@@ -5,9 +5,16 @@ import (
 	"fmt"
 	"reflect"
 
+	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 )
+
+func init() {
+	cfg.RegisterFunctionPlugin("mcp", func(_ *cfg.Config) map[string]function.Function {
+		return GetMcpFunctions()
+	})
+}
 
 // MCPResult holds typed return values from MCP action expressions.
 // It is wrapped in a cty capsule so it can pass through HCL evaluation.

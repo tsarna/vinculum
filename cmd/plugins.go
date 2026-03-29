@@ -1,7 +1,7 @@
 package cmd
 
 // Blank imports trigger init() registrations for all client, server, trigger,
-// and ambient provider implementations that live outside the config package.
+// ambient provider, and function plugin implementations that live outside the config package.
 import (
 	_ "github.com/tsarna/vinculum/ambient"
 	_ "github.com/tsarna/vinculum/clients/kafka"
@@ -18,4 +18,5 @@ import (
 	_ "github.com/tsarna/vinculum/triggers/signals"
 	_ "github.com/tsarna/vinculum/triggers/start"
 	_ "github.com/tsarna/vinculum/triggers/watchdog"
+	_ "github.com/tsarna/vinculum/functions"
 )

@@ -48,6 +48,7 @@ func TestGetSysObject(t *testing.T) {
 		"writepath":  cty.String,
 		"starttime":  timecty.TimeCapsuleType,
 		"boottime":   timecty.TimeCapsuleType,
+		"plugins":    cty.List(cty.String),
 	}), val.Type())
 
 	attrs := val.AsValueMap()
