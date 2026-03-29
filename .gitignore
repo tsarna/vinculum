@@ -37,7 +37,7 @@ TODO.md
 # Test/scratch files
 test.vcl
 *-smoke-test.vcl
-smoke-test.vcl
+smoke*.vcl
 x
 
 # Local MCP config
