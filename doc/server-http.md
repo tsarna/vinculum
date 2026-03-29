@@ -165,7 +165,7 @@ Set a response header. Must be called before `respond`. Returns `true`.
 
 #### `redirect(code, url)`
 Send an HTTP redirect response. `code` should be a 3xx status (e.g.
-`http_status.Found` for a temporary redirect). Returns `true`.
+`httpstatus.Found` for a temporary redirect). Returns `true`.
 
 ---
 
@@ -180,7 +180,7 @@ server "http" "api" {
     }
 
     handle "GET /health" {
-        action = respond(http_status.OK, {status = "ok"})
+        action = respond(httpstatus.OK, {status = "ok"})
     }
 
     files "/app" {
