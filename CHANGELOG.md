@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-03-28
+
+### Breaking Change!
+
+   - client "kafka": producer blocks -> sender, consumer blocks -> receiver
+   - topic_mapping { pattern = "..." } -> topic "..." {} (labeled block)
+   - topic_subscription { kafka_topic/mqtt_topic = "..." } -> subscription "... {} (labeled block)
+   - client.* attributes: producers/producer -> senders/sender
+
+### Added
+
+- **[`client "mqtt"`](doc/client-mqtt.md)** — MQTT send and receive support.
+
 ## [0.17.0] - 2026-03-26
 
 ### Breaking Change!
