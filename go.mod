@@ -25,18 +25,18 @@ require (
 
 require (
 	github.com/amir-yaghoubi/mqttpattern v0.0.0-20250829083210-f7d8d46a786e // indirect
-	github.com/apparentlymart/go-cidr v1.0.1 // indirect
-	github.com/bmatcuk/doublestar v1.1.5 // indirect
+	github.com/apparentlymart/go-cidr v1.1.0 // indirect
+	github.com/bmatcuk/doublestar v1.3.4 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
-	github.com/google/uuid v1.3.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/itchyny/timefmt-go v0.1.7 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
-	golang.org/x/crypto v0.38.0 // indirect
+	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
 )
 
@@ -52,7 +52,7 @@ require (
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/mod v0.32.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/text v0.28.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 	golang.org/x/tools v0.41.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
