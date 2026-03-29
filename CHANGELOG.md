@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Change!
+
+- `vinculum server` command line changed to `vinculum serve` to me more consistent with typical verb-like subcommand naming.
+
 ### Changed
 
 - Reorganize code and move to plugin registries for servers, clients, triggers, and ambient values (env.* and sys.*)

@@ -42,4 +42,4 @@ COPY --from=builder /out/vinculum /vinculum
 USER nobody
 
 ENTRYPOINT ["/vinculum"]
-CMD ["server", "-f", "/data", "/conf"]
+CMD ["serve", "-f", "/data", "/conf"]

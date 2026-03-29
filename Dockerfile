@@ -23,4 +23,4 @@ RUN apk add --no-cache ca-certificates-bundle tzdata \
 COPY --from=builder /out/vinculum /vinculum
 
 ENTRYPOINT ["/vinculum"]
-CMD ["server", "-f", "/data", "/conf"]
+CMD ["serve", "-f", "/data", "/conf"]
