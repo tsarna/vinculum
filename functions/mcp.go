@@ -75,16 +75,6 @@ var MCPImageFunc = function.New(&function.Spec{
 		var mimeType string
 
 		switch {
-		case args[0].Type() == types.BytesCapsuleType:
-			b, err := types.GetBytesFromCapsule(args[0])
-			if err != nil {
-				return cty.NilVal, fmt.Errorf("mcp_image: %w", err)
-			}
-			imageData = b.Data
-			mimeType = b.ContentType
-			if len(args) > 1 {
-				mimeType = args[1].AsString()
-			}
 		case args[0].Type() == cty.String:
 			var err error
 			imageData, err = base64.StdEncoding.DecodeString(args[0].AsString())
@@ -96,7 +86,15 @@ var MCPImageFunc = function.New(&function.Spec{
 			}
 			mimeType = args[1].AsString()
 		default:
-			return cty.NilVal, fmt.Errorf("mcp_image: data must be a base64 string or bytes capsule, got %s", args[0].Type().FriendlyName())
+			b, err := types.GetBytesFromValue(args[0])
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("mcp_image: data must be a base64 string or bytes value, got %s", args[0].Type().FriendlyName())
+			}
+			imageData = b.Data
+			mimeType = b.ContentType
+			if len(args) > 1 {
+				mimeType = args[1].AsString()
+			}
 		}
 
 		return NewMCPResultCapsule(MCPResult{

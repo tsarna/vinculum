@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/tsarna/vinculum/ctyutil"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -25,9 +26,25 @@ var BytesCapsuleType = cty.CapsuleWithOps("bytes", reflect.TypeOf(Bytes{}), &cty
 	},
 })
 
+// BytesObjectType is the cty object type returned by bytes-producing functions.
+// It exposes content_type as a direct attribute and carries the underlying capsule
+// in the _capsule attribute for interface dispatch (Stringable, Lengthable, etc.).
+var BytesObjectType = cty.Object(map[string]cty.Type{
+	"content_type": cty.String,
+	"_capsule":     BytesCapsuleType,
+})
+
 // NewBytesCapsule wraps a byte slice and optional content type in a cty capsule value.
 func NewBytesCapsule(data []byte, contentType string) cty.Value {
 	return cty.CapsuleVal(BytesCapsuleType, &Bytes{Data: data, ContentType: contentType})
+}
+
+// BuildBytesObject returns a cty object with content_type and _capsule attributes.
+func BuildBytesObject(data []byte, contentType string) cty.Value {
+	return cty.ObjectVal(map[string]cty.Value{
+		"content_type": cty.StringVal(contentType),
+		"_capsule":     NewBytesCapsule(data, contentType),
+	})
 }
 
 // GetBytesFromCapsule extracts a *Bytes from a cty capsule value.
@@ -42,6 +59,20 @@ func GetBytesFromCapsule(val cty.Value) (*Bytes, error) {
 	return b, nil
 }
 
+// GetBytesFromValue extracts a *Bytes from a bytes object, capsule, or anything
+// accepted by GetCapsuleFromValue.
+func GetBytesFromValue(val cty.Value) (*Bytes, error) {
+	enc, err := ctyutil.GetCapsuleFromValue(val)
+	if err != nil {
+		return nil, fmt.Errorf("expected bytes value: %w", err)
+	}
+	b, ok := enc.(*Bytes)
+	if !ok {
+		return nil, fmt.Errorf("expected bytes, got %T", enc)
+	}
+	return b, nil
+}
+
 // ToString implements Stringable, returning the bytes data as a UTF-8 string.
 func (b *Bytes) ToString(_ context.Context) (string, error) {
 	return string(b.Data), nil
@@ -50,22 +81,4 @@ func (b *Bytes) ToString(_ context.Context) (string, error) {
 // Length implements Lengthable, returning the byte length.
 func (b *Bytes) Length(_ context.Context) (int64, error) {
 	return int64(len(b.Data)), nil
-}
-
-// Get implements Gettable, allowing bytes values to be read via get().
-//
-// get(b, "content_type"): returns the content/MIME type string (may be empty).
-func (b *Bytes) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
-	if len(args) == 0 {
-		return cty.NilVal, fmt.Errorf("bytes get: field argument required (use tostring() for UTF-8 string, length() for byte count)")
-	}
-	if args[0].Type() != cty.String {
-		return cty.NilVal, fmt.Errorf("bytes get: field argument must be a string")
-	}
-	switch args[0].AsString() {
-	case "content_type":
-		return cty.StringVal(b.ContentType), nil
-	default:
-		return cty.NilVal, fmt.Errorf("bytes get: unknown field %q (valid: content_type)", args[0].AsString())
-	}
 }

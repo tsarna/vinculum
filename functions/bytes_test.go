@@ -18,7 +18,8 @@ func TestBytesFunc_FromString(t *testing.T) {
 
 	result, err := fn.Call([]cty.Value{cty.StringVal("hello")})
 	require.NoError(t, err)
-	b, err := types.GetBytesFromCapsule(result)
+	assert.Equal(t, types.BytesObjectType, result.Type())
+	b, err := types.GetBytesFromValue(result)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("hello"), b.Data)
 	assert.Equal(t, "", b.ContentType)
@@ -29,31 +30,32 @@ func TestBytesFunc_FromStringWithContentType(t *testing.T) {
 
 	result, err := fn.Call([]cty.Value{cty.StringVal("hello"), cty.StringVal("text/plain")})
 	require.NoError(t, err)
-	b, err := types.GetBytesFromCapsule(result)
+	assert.Equal(t, types.BytesObjectType, result.Type())
+	b, err := types.GetBytesFromValue(result)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("hello"), b.Data)
 	assert.Equal(t, "text/plain", b.ContentType)
 }
 
-func TestBytesFunc_FromBytes_PreservesContentType(t *testing.T) {
+func TestBytesFunc_FromBytesObject_PreservesContentType(t *testing.T) {
 	fn := makeBytesFunc()
-	src := types.NewBytesCapsule([]byte{1, 2, 3}, "image/png")
+	src := types.BuildBytesObject([]byte{1, 2, 3}, "image/png")
 
 	result, err := fn.Call([]cty.Value{src})
 	require.NoError(t, err)
-	b, err := types.GetBytesFromCapsule(result)
+	b, err := types.GetBytesFromValue(result)
 	require.NoError(t, err)
 	assert.Equal(t, []byte{1, 2, 3}, b.Data)
 	assert.Equal(t, "image/png", b.ContentType)
 }
 
-func TestBytesFunc_FromBytes_OverridesContentType(t *testing.T) {
+func TestBytesFunc_FromBytesObject_OverridesContentType(t *testing.T) {
 	fn := makeBytesFunc()
-	src := types.NewBytesCapsule([]byte{1, 2, 3}, "image/png")
+	src := types.BuildBytesObject([]byte{1, 2, 3}, "image/png")
 
 	result, err := fn.Call([]cty.Value{src, cty.StringVal("image/jpeg")})
 	require.NoError(t, err)
-	b, err := types.GetBytesFromCapsule(result)
+	b, err := types.GetBytesFromValue(result)
 	require.NoError(t, err)
 	assert.Equal(t, []byte{1, 2, 3}, b.Data)
 	assert.Equal(t, "image/jpeg", b.ContentType)
@@ -74,9 +76,9 @@ func TestBase64EncodeFunc_FromString(t *testing.T) {
 	assert.True(t, result.RawEquals(cty.StringVal("aGVsbG8=")))
 }
 
-func TestBase64EncodeFunc_FromBytes(t *testing.T) {
+func TestBase64EncodeFunc_FromBytesObject(t *testing.T) {
 	fn := makeBase64EncodeFunc()
-	b := types.NewBytesCapsule([]byte("hello"), "")
+	b := types.BuildBytesObject([]byte("hello"), "")
 	result, err := fn.Call([]cty.Value{b})
 	require.NoError(t, err)
 	assert.True(t, result.RawEquals(cty.StringVal("aGVsbG8=")))
@@ -102,8 +104,8 @@ func TestBase64DecodeFunc_TwoArgs_ReturnsBytesWithContentType(t *testing.T) {
 	fn := makeBase64DecodeFunc()
 	result, err := fn.Call([]cty.Value{cty.StringVal("aGVsbG8="), cty.StringVal("text/plain")})
 	require.NoError(t, err)
-	assert.Equal(t, types.BytesCapsuleType, result.Type())
-	b, err := types.GetBytesFromCapsule(result)
+	assert.Equal(t, types.BytesObjectType, result.Type())
+	b, err := types.GetBytesFromValue(result)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("hello"), b.Data)
 	assert.Equal(t, "text/plain", b.ContentType)
@@ -113,8 +115,8 @@ func TestBase64DecodeFunc_TwoArgs_EmptyContentType(t *testing.T) {
 	fn := makeBase64DecodeFunc()
 	result, err := fn.Call([]cty.Value{cty.StringVal("aGVsbG8="), cty.StringVal("")})
 	require.NoError(t, err)
-	assert.Equal(t, types.BytesCapsuleType, result.Type())
-	b, err := types.GetBytesFromCapsule(result)
+	assert.Equal(t, types.BytesObjectType, result.Type())
+	b, err := types.GetBytesFromValue(result)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("hello"), b.Data)
 	assert.Equal(t, "", b.ContentType)
@@ -136,7 +138,8 @@ func TestMakeFileBytesFunc_ReadFile(t *testing.T) {
 
 	result, err := fn.Call([]cty.Value{cty.StringVal("data.bin")})
 	require.NoError(t, err)
-	b, err := types.GetBytesFromCapsule(result)
+	assert.Equal(t, types.BytesObjectType, result.Type())
+	b, err := types.GetBytesFromValue(result)
 	require.NoError(t, err)
 	assert.Equal(t, []byte{1, 2, 3, 4}, b.Data)
 	assert.Equal(t, "", b.ContentType)
@@ -149,7 +152,8 @@ func TestMakeFileBytesFunc_ReadFileWithContentType(t *testing.T) {
 
 	result, err := fn.Call([]cty.Value{cty.StringVal("img.png"), cty.StringVal("image/png")})
 	require.NoError(t, err)
-	b, err := types.GetBytesFromCapsule(result)
+	assert.Equal(t, types.BytesObjectType, result.Type())
+	b, err := types.GetBytesFromValue(result)
 	require.NoError(t, err)
 	assert.Equal(t, []byte{0x89, 0x50}, b.Data)
 	assert.Equal(t, "image/png", b.ContentType)

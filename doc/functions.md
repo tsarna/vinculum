@@ -36,45 +36,48 @@ All logging functions return `true`.
 
 ### Binary Data (`bytes`)
 
-VCL has a first-class `bytes` capsule type for holding raw binary data with an optional
+VCL has a first-class `bytes` object type for holding raw binary data with an optional
 MIME/content type. `bytes` values are immutable. They are produced by `bytes()`,
-`base64decode(..., content_type)`, and `filebytes()`, and are read back via `get()`.
+`base64decode(..., content_type)`, and `filebytes()`.
+
+A `bytes` object exposes `content_type` as a direct attribute, so you can write
+`b.content_type` without any function call:
+
+```hcl
+b = bytes("hello", "text/plain")
+b.content_type    # → "text/plain"
+tostring(b)       # → "hello"
+length(b)         # → 5
+base64encode(b)   # → "aGVsbG8="
+```
 
 #### Creating bytes
 
 - `bytes(str)`: Convert a UTF-8 string to a `bytes` value with no content type.
 - `bytes(str, content_type)`: Same, with a MIME/content type (e.g. `"text/plain"`).
-- `bytes(b)`: Re-wrap an existing `bytes` capsule, preserving its content type.
-- `bytes(b, content_type)`: Re-wrap an existing `bytes` capsule with an overridden content type.
+- `bytes(b)`: Re-wrap an existing `bytes` value, preserving its content type.
+- `bytes(b, content_type)`: Re-wrap an existing `bytes` value with an overridden content type.
 
 #### Reading bytes
 
+- `b.content_type`: The MIME/content type string (may be empty string if not set).
 - `tostring(b)`: Return the data as a UTF-8 string.
 - `length(b)`: Return the byte count as a number.
 - `base64encode(b)`: Encode the data as a base64 string (see below).
-- `get(b, "content_type")`: Return the MIME/content type string (may be empty).
-
-```hcl
-b = bytes("hello", "text/plain")
-tostring(b)               # → "hello"
-length(b)                 # → 5
-base64encode(b)           # → "aGVsbG8="
-get(b, "content_type")    # → "text/plain"
-```
 
 #### Base64 encoding / decoding
 
 - `base64encode(value)`: Encode a string **or** `bytes` value to a base64 string.
 - `base64decode(str)`: Decode a base64 string and return a **string** (backward-compatible form).
-- `base64decode(str, content_type)`: Decode a base64 string and return a **`bytes` capsule** with
+- `base64decode(str, content_type)`: Decode a base64 string and return a **`bytes` object** with
   the given content type. Pass `""` for an untyped bytes value.
 
 ```hcl
 base64encode("hello")                          # → "aGVsbG8="
 base64encode(filebytes("image.png"))           # → base64 string of file contents
 base64decode("aGVsbG8=")                       # → "hello"  (string)
-base64decode("aGVsbG8=", "text/plain")         # → bytes capsule
-base64decode("aGVsbG8=", "")                   # → bytes capsule, no content type
+base64decode("aGVsbG8=", "text/plain")         # → bytes object
+base64decode("aGVsbG8=", "")                   # → bytes object, no content type
 ```
 
 ### URL Parsing and Manipulation

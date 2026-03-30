@@ -9,11 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
-- **`bytes` `get()` modes simplified** — the following `get()` modes are removed:
+- **`bytes` is now a rich object type** — `bytes()`, `base64decode(..., ct)`, and `filebytes()` now return an object with a `content_type` attribute and a `_capsule` for interface dispatch, rather than a raw capsule. Callers should use `b.content_type` instead of `get(b, "content_type")`. The `get()` function is no longer supported on `bytes` values.
+- **`bytes` `get()` modes removed** — all `get()` modes on bytes values are gone:
   - `get(b)` / `get(b, "utf8")` / `get(b, "string")` / `get(b, "text")` → use `tostring(b)` instead
   - `get(b, "base64")` → use `base64encode(b)` instead
   - `get(b, "len")` / `get(b, "length")` / `get(b, "size")` → use `length(b)` instead
-  - `get(b, "content-type")` / `get(b, "mime")` / `get(b, "mime_type")` aliases → use `get(b, "content_type")` (the only remaining mode)
+  - `get(b, "content_type")` → use `b.content_type` instead
 
 ### Added
 

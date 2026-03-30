@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -21,40 +22,6 @@ func TestBytesLength(t *testing.T) {
 	assert.Equal(t, int64(5), n)
 }
 
-func TestBytesGet_ContentType(t *testing.T) {
-	b := &Bytes{Data: []byte("data"), ContentType: "image/png"}
-	result, err := b.Get(bg, []cty.Value{cty.StringVal("content_type")})
-	assert.NoError(t, err)
-	assert.True(t, result.RawEquals(cty.StringVal("image/png")))
-}
-
-func TestBytesGet_ContentType_Empty(t *testing.T) {
-	b := &Bytes{Data: []byte("data")}
-	result, err := b.Get(bg, []cty.Value{cty.StringVal("content_type")})
-	assert.NoError(t, err)
-	assert.True(t, result.RawEquals(cty.StringVal("")))
-}
-
-func TestBytesGet_NoArgs_Error(t *testing.T) {
-	b := &Bytes{Data: []byte("data")}
-	_, err := b.Get(bg, nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "field argument required")
-}
-
-func TestBytesGet_UnknownField(t *testing.T) {
-	b := &Bytes{Data: []byte("data")}
-	_, err := b.Get(bg, []cty.Value{cty.StringVal("invalid")})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid")
-}
-
-func TestBytesGet_NonStringField(t *testing.T) {
-	b := &Bytes{Data: []byte("data")}
-	_, err := b.Get(bg, []cty.Value{cty.NumberIntVal(1)})
-	assert.Error(t, err)
-}
-
 func TestNewBytesCapsule_RoundTrip(t *testing.T) {
 	val := NewBytesCapsule([]byte("test"), "text/plain")
 	assert.Equal(t, BytesCapsuleType, val.Type())
@@ -67,5 +34,38 @@ func TestNewBytesCapsule_RoundTrip(t *testing.T) {
 
 func TestGetBytesFromCapsule_WrongType(t *testing.T) {
 	_, err := GetBytesFromCapsule(cty.StringVal("not a capsule"))
+	assert.Error(t, err)
+}
+
+func TestBuildBytesObject_Fields(t *testing.T) {
+	obj := BuildBytesObject([]byte("hello"), "text/plain")
+	assert.Equal(t, BytesObjectType, obj.Type())
+	assert.Equal(t, cty.StringVal("text/plain"), obj.GetAttr("content_type"))
+	assert.Equal(t, BytesCapsuleType, obj.GetAttr("_capsule").Type())
+}
+
+func TestBuildBytesObject_EmptyContentType(t *testing.T) {
+	obj := BuildBytesObject([]byte("data"), "")
+	assert.Equal(t, cty.StringVal(""), obj.GetAttr("content_type"))
+}
+
+func TestGetBytesFromValue_Capsule(t *testing.T) {
+	cap := NewBytesCapsule([]byte("hello"), "text/plain")
+	b, err := GetBytesFromValue(cap)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("hello"), b.Data)
+	assert.Equal(t, "text/plain", b.ContentType)
+}
+
+func TestGetBytesFromValue_Object(t *testing.T) {
+	obj := BuildBytesObject([]byte("world"), "image/png")
+	b, err := GetBytesFromValue(obj)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("world"), b.Data)
+	assert.Equal(t, "image/png", b.ContentType)
+}
+
+func TestGetBytesFromValue_InvalidType_Error(t *testing.T) {
+	_, err := GetBytesFromValue(cty.StringVal("not bytes"))
 	assert.Error(t, err)
 }
