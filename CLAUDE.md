@@ -267,6 +267,47 @@ transforms = [
 
 ## Conventions
 
+### Rich Object Types (`_capsule` convention)
+
+Some VCL types are "rich objects" — `cty.Object` values that expose named attributes
+directly (e.g. `u.scheme`, `b.content_type`) **and** carry an underlying Go capsule
+in a `_capsule` attribute for interface dispatch. This mirrors the `_ctx` convention
+for contexts.
+
+**Existing rich object types:**
+
+| VCL Type | Object type var | Capsule type var | Source |
+|---|---|---|---|
+| `bytes` | `types.BytesObjectType` | `types.BytesCapsuleType` | `types/bytes.go` |
+| URL object | `types.URLObjectType` | `types.URLCapsuleType` | `types/url.go` |
+
+**How to implement a new rich object type:**
+
+1. Define the Go struct (e.g. `type Foo struct { ... }`).
+2. Define `FooCapsuleType` via `cty.CapsuleWithOps(...)`.
+3. Define `FooObjectType = cty.Object(map[string]cty.Type{ ..., "_capsule": FooCapsuleType })`.
+4. Write `BuildFooObject(...)` returning the object with all fields populated.
+5. Write `GetFooFromValue(val cty.Value) (*Foo, error)` — delegates to
+   `ctyutil.GetCapsuleFromValue(val)` then type-asserts.
+6. Implement `types.Stringable` (`ToString`) and/or `types.Lengthable` (`Length`) on
+   the Go struct pointer if you want `tostring()` / `length()` to dispatch on it.
+7. Functions that **produce** the type return `FooObjectType`; functions that **consume**
+   it call `GetFooFromValue`, which accepts a raw capsule, an object, or a string where
+   applicable.
+
+**`ctyutil.GetCapsuleFromValue`** is the shared extractor: it accepts a capsule
+directly or an object with a `_capsule` attribute, and returns the raw `interface{}`
+for type-asserting to an interface. All `extract*` helpers in `functions/generic.go`
+use it, enabling `get()`, `set()`, `tostring()`, `length()`, etc. to work on both
+raw capsules and rich objects transparently.
+
+**`tostring()` and `length()` dispatch** (`functions/generic.go`): these enhanced
+versions call `GetCapsuleFromValue` first; if the result implements `Stringable` /
+`Lengthable`, that method is called. Otherwise they fall back to the stdlib
+implementation. They are registered in the `generic` plugin, **not** `stdlib`
+(stdlib's versions were removed to avoid override conflicts — alphabetical `init()`
+order would make stdlib win).
+
 ### System bus topics
 
 System-generated/internal topics are prefixed with `$`. Do not use `$`-prefixed
