@@ -107,9 +107,9 @@ func GetStandardLibraryFunctions() map[string]function.Function {
 		"sha512":     crypto.Sha512Func,
 
 		// Encoding functions (additional - these override stdlib versions if any exist)
-		"base64decode": encoding.Base64DecodeFunc,
-		"base64encode": encoding.Base64EncodeFunc,
-		"urlencode":    encoding.URLEncodeFunc,
+		// Note: base64encode and base64decode are provided by the bytes plugin with
+		// enhanced implementations that support the bytes capsule type.
+		"urlencode": encoding.URLEncodeFunc,
 
 		// Filesystem functions
 		"abspath":    filesystem.AbsPathFunc,

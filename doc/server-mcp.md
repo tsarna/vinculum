@@ -102,7 +102,7 @@ tool "name" {
 The `action` expression is evaluated when a client calls the tool. Return values:
 
 - A string is returned as text content.
-- `mcp_image(data, mime_type)` returns image content.
+- `mcp_image(data [, mime_type])` returns image content — `data` may be a base64 string or a `bytes` capsule.
 - `mcp_error(message)` signals a tool error to the client.
 
 ### Tool Context Variables
@@ -196,10 +196,14 @@ See [functions.md](functions.md#mcp-functions) for full details.
 | Function | Returns | Valid in |
 |---|---|---|
 | plain string | Text content | resources, tools, prompts |
-| `mcp_image(data, mime_type)` | Image content | resources, tools |
+| `mcp_image(data [, mime_type])` | Image content | resources, tools |
 | `mcp_error(message)` | Tool error | tools only |
 | `mcp_user_message(content)` | User-role prompt message | prompts |
 | `mcp_assistant_message(content)` | Assistant-role prompt message | prompts |
+
+`data` in `mcp_image` may be a base64-encoded string (requires `mime_type`) or a `bytes` capsule
+(MIME type taken from the capsule's content type, optionally overridden by a second argument).
+See [functions.md](functions.md#mcp_image-data--mime_type) for full details.
 
 ---
 

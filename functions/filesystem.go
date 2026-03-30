@@ -20,6 +20,7 @@ func init() {
 			"fileexists": filesystem.MakeFileExistsFunc(base),
 			"fileset":    filesystem.MakeFileSetFunc(base),
 			"filebase64": filesystem.MakeFileFunc(base, true),
+			"filebytes":  MakeFileBytesFunc(base),
 			"pathexpand": filesystem.PathExpandFunc,
 		}
 	})

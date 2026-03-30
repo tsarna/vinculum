@@ -32,6 +32,53 @@ All logging functions return `true`.
 - `jsondecode(json_string)`: Parse a JSON string and return the decoded value.
 - `typeof(value)`: Return a string describing the type of `value` (e.g. `"string"`, `"number"`, `"bool"`, `"object"`).
 
+### Binary Data (`bytes`)
+
+VCL has a first-class `bytes` capsule type for holding raw binary data with an optional
+MIME/content type. `bytes` values are immutable. They are produced by `bytes()`,
+`base64decode(..., content_type)`, and `filebytes()`, and are read back via `get()`.
+
+#### Creating bytes
+
+- `bytes(str)`: Convert a UTF-8 string to a `bytes` value with no content type.
+- `bytes(str, content_type)`: Same, with a MIME/content type (e.g. `"text/plain"`).
+- `bytes(b)`: Re-wrap an existing `bytes` capsule, preserving its content type.
+- `bytes(b, content_type)`: Re-wrap an existing `bytes` capsule with an overridden content type.
+
+#### Reading bytes via `get()`
+
+Use the generic `get()` function with a mode string:
+
+| Mode string(s) | Returns |
+|---|---|
+| *(no arg)*, `"utf8"`, `"string"`, `"text"` | Data interpreted as a UTF-8 string |
+| `"base64"` | Data as a standard base64-encoded string |
+| `"len"`, `"length"`, `"size"` | Byte count (number) |
+| `"content_type"`, `"content-type"`, `"mime"`, `"mime_type"` | Content/MIME type string (may be empty) |
+
+```hcl
+b = bytes("hello", "text/plain")
+get(b)                    # → "hello"
+get(b, "base64")          # → "aGVsbG8="
+get(b, "len")             # → 5
+get(b, "content_type")    # → "text/plain"
+```
+
+#### Base64 encoding / decoding
+
+- `base64encode(value)`: Encode a string **or** `bytes` value to a base64 string.
+- `base64decode(str)`: Decode a base64 string and return a **string** (backward-compatible form).
+- `base64decode(str, content_type)`: Decode a base64 string and return a **`bytes` capsule** with
+  the given content type. Pass `""` for an untyped bytes value.
+
+```hcl
+base64encode("hello")                          # → "aGVsbG8="
+base64encode(filebytes("image.png"))           # → base64 string of file contents
+base64decode("aGVsbG8=")                       # → "hello"  (string)
+base64decode("aGVsbG8=", "text/plain")         # → bytes capsule
+base64decode("aGVsbG8=", "")                   # → bytes capsule, no content type
+```
+
 ### Sqids
 
 [Sqids](https://sqids.org) are short, URL-safe IDs generated from numbers. They are reversible: a sqid encodes one or more non-negative integers and can be decoded back to the original numbers.
@@ -485,6 +532,8 @@ The base directory is also accessible as `sys.filepath`.
 
 - `file(path)`: Read a file and return its contents as a string.
 - `filebase64(path)`: Read a file and return its contents as a base64-encoded string.
+- `filebytes(path)`: Read a file and return its contents as a `bytes` capsule with no content type.
+- `filebytes(path, content_type)`: Same, with a MIME/content type attached (e.g. `"image/png"`).
 - `fileexists(path)`: Return `true` if the file exists, `false` otherwise.
 - `fileset(dir, pattern)`: Return a set of file paths within `dir` that match `pattern` (glob syntax).
 - `templatefile(path, vars)`: Read `path` as an HCL template, evaluate it with the
@@ -551,14 +600,34 @@ construct MCP values for async handlers (future feature).
 A plain string return from an action is also valid and is treated as text content —
 the functions below are only needed for non-text result types.
 
-### `mcp_image(data, mime_type)`
+### `mcp_image(data [, mime_type])`
 
 Returns image content for an MCP resource or tool result.
 
-- `data` — base64-encoded image data (string)
-- `mime_type` — MIME type of the image, e.g. `"image/png"` (string)
+Three call forms are accepted:
+
+| Form | Description |
+|---|---|
+| `mcp_image(base64_string, mime_type)` | Original form — base64 string + explicit MIME type |
+| `mcp_image(bytes_capsule)` | `bytes` capsule — MIME type taken from the capsule's content type |
+| `mcp_image(bytes_capsule, mime_type)` | `bytes` capsule — MIME type overrides the capsule's content type |
+
+When a `bytes` capsule is supplied without a `mime_type` and its content type is empty,
+the MIME type sent to the client will also be empty; set a content type on the capsule
+(e.g. via `bytes(b, "image/png")` or `filebytes(path, "image/png")`) to avoid this.
 
 Valid in: resource and tool action expressions.
+
+```hcl
+# Classic form
+mcp_image(filebase64("logo.png"), "image/png")
+
+# Using filebytes — no separate mime_type needed
+mcp_image(filebytes("logo.png", "image/png"))
+
+# Override content type from a bytes value
+mcp_image(bytes(raw_data, "image/jpeg"))
+```
 
 ### `mcp_error(message)`
 

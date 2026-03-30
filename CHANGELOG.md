@@ -13,6 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`bytes` capsule type** — first-class binary data type with an optional MIME/content type:
+  - `bytes(str [, content_type])` — create a `bytes` value from a UTF-8 string
+  - `bytes(b [, content_type])` — re-wrap an existing `bytes` value, optionally overriding its content type
+  - `get(b)` / `get(b, "utf8")` — read as UTF-8 string; `get(b, "base64")` — base64 string;
+    `get(b, "len")` — byte count; `get(b, "content_type")` — MIME type
+  - `base64decode(str, content_type)` — decodes to a **`bytes` capsule** (new two-arg form);
+    `base64decode(str)` continues to return a string (backward compatible)
+  - `base64encode(value)` — now also accepts a `bytes` capsule in addition to strings
+  - `filebytes(path [, content_type])` — read a file into a `bytes` capsule (gated by `--file-path`)
+  - `mcp_image()` — now accepts a `bytes` capsule as its first argument; MIME type is taken from the
+    capsule's content type and may be overridden by an explicit second argument
+
 - Variables may now optionally have a defined type and nullability.
 - `sys.plugins` lists the names of all plugin components
 - `sys.features` lists the names of all enabled feature flags (e.g. `"readfiles"`, `"writefiles"`, `"allowkill"`)

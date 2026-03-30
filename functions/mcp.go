@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	cfg "github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 )
@@ -52,23 +53,56 @@ func GetMCPResult(val cty.Value) *MCPResult {
 }
 
 // MCPImageFunc returns an mcp_image function that produces image content.
+//
+// Accepted call forms:
+//
+//	mcp_image(base64_string, mime_type)  - original form, both args required
+//	mcp_image(bytes_capsule)             - mime_type taken from bytes content type
+//	mcp_image(bytes_capsule, mime_type)  - mime_type overrides bytes content type
 var MCPImageFunc = function.New(&function.Spec{
 	Description: "Returns image content for an MCP resource or tool result",
 	Params: []function.Parameter{
-		{Name: "data", Type: cty.String, Description: "Base64-encoded image data"},
-		{Name: "mime_type", Type: cty.String, Description: "MIME type of the image"},
+		{Name: "data", Type: cty.DynamicPseudoType, Description: "Base64-encoded image string or bytes capsule"},
+	},
+	VarParam: &function.Parameter{
+		Name:        "mime_type",
+		Type:        cty.String,
+		Description: "MIME type of the image (required when data is a base64 string; optional when data is a bytes capsule)",
 	},
 	Type: function.StaticReturnType(MCPResultCapsuleType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-		b64 := args[0].AsString()
-		decoded, err := base64.StdEncoding.DecodeString(b64)
-		if err != nil {
-			return cty.NilVal, fmt.Errorf("mcp_image: invalid base64 data: %w", err)
+		var imageData []byte
+		var mimeType string
+
+		switch {
+		case args[0].Type() == types.BytesCapsuleType:
+			b, err := types.GetBytesFromCapsule(args[0])
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("mcp_image: %w", err)
+			}
+			imageData = b.Data
+			mimeType = b.ContentType
+			if len(args) > 1 {
+				mimeType = args[1].AsString()
+			}
+		case args[0].Type() == cty.String:
+			var err error
+			imageData, err = base64.StdEncoding.DecodeString(args[0].AsString())
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("mcp_image: invalid base64 data: %w", err)
+			}
+			if len(args) < 2 {
+				return cty.NilVal, fmt.Errorf("mcp_image: mime_type is required when data is a base64 string")
+			}
+			mimeType = args[1].AsString()
+		default:
+			return cty.NilVal, fmt.Errorf("mcp_image: data must be a base64 string or bytes capsule, got %s", args[0].Type().FriendlyName())
 		}
+
 		return NewMCPResultCapsule(MCPResult{
 			Kind:     "image",
-			Data:     decoded,
-			MIMEType: args[1].AsString(),
+			Data:     imageData,
+			MIMEType: mimeType,
 		}), nil
 	},
 })
