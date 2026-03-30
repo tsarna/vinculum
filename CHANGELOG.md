@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `sys.signals.bynumber["N"]` → the signal name for number `N`
 - **`kill(pid, signal)` VCL function** — sends a signal to a process; both arguments are integers
   (see `sys.signals` for portable signal numbers); gated by the `--allow-kill` flag
+- **`sqid(id[, options])` and `unsqid(s[, options])` VCL functions** — encode/decode [sqids](https://sqids.org): short, URL-safe IDs generated from one or more non-negative integers; `id` may be a single number or a list; optional `options` object supports `alphabet`, `min_length`, and `blocklist`
 
 ### Changed
 

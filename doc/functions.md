@@ -32,6 +32,36 @@ All logging functions return `true`.
 - `jsondecode(json_string)`: Parse a JSON string and return the decoded value.
 - `typeof(value)`: Return a string describing the type of `value` (e.g. `"string"`, `"number"`, `"bool"`, `"object"`).
 
+### Sqids
+
+[Sqids](https://sqids.org) are short, URL-safe IDs generated from numbers. They are reversible: a sqid encodes one or more non-negative integers and can be decoded back to the original numbers.
+
+- `sqid(id)`: Encode `id` into a sqid string. `id` may be a single non-negative integer or a list of non-negative integers. An empty list encodes to `""`.
+- `sqid(id, options)`: Same, with encoding options (see below).
+- `unsqid(s)`: Decode the sqid string `s` back to a list of non-negative integers. Returns an empty list for an empty string or any input that cannot be decoded — this function never errors.
+- `unsqid(s, options)`: Same, with the same options used during encoding.
+
+Both functions accept an optional `options` object with any of the following attributes:
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `alphabet` | string | 62-char alphanumeric | Custom character set for encoding. Must have at least 3 unique ASCII characters. |
+| `min_length` | number | `0` | Minimum length of the generated ID. IDs shorter than this are padded. Range: 0–255. |
+| `blocklist` | list(string) | built-in blocklist | Words to exclude from generated IDs. Pass `[]` to disable the default blocklist entirely. Omitting `blocklist` (or setting it to `null`) keeps the default blocklist active. |
+
+```hcl
+sqid(42)                                    # → e.g. "MhPE"
+sqid([1, 2, 3])                             # → e.g. "86Rf07"
+unsqid("86Rf07")                            # → [1, 2, 3]
+unsqid("???")                               # → []  (invalid, no error)
+
+sqid(1, { min_length = 10 })                # → padded to ≥10 chars
+sqid(1, { alphabet = "abcdefghij0123456789" })
+sqid(1, { blocklist = [] })                 # disable profanity filtering
+```
+
+The same `options` object must be used for both `sqid` and `unsqid` when using a custom alphabet or blocklist, since the encoding depends on those settings.
+
 ### Random
 
 - `random()`: Return a random float in `[0.0, 1.0)`.
