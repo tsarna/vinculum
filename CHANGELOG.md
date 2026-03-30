@@ -7,12 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-03-30
+
 ### Breaking Change!
 
 - `vinculum server` command line changed to `vinculum serve` to me more consistent with typical verb-like subcommand naming.
 
 ### Added
 
+- **`vinculum check` command** — validates configuration files without starting any services;
+  exits non-zero with diagnostics on error, exits zero with a confirmation message on success;
+  accepts the same `--file-path` and `--write-path` flags as `serve`
 - **`bytes` capsule type** — first-class binary data type with an optional MIME/content type:
   - `bytes(str [, content_type])` — create a `bytes` value from a UTF-8 string
   - `bytes(b [, content_type])` — re-wrap an existing `bytes` value, optionally overriding its content type
@@ -24,7 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `filebytes(path [, content_type])` — read a file into a `bytes` capsule (gated by `--file-path`)
   - `mcp_image()` — now accepts a `bytes` capsule as its first argument; MIME type is taken from the
     capsule's content type and may be overridden by an explicit second argument
-
 - Variables may now optionally have a defined type and nullability.
 - `sys.plugins` lists the names of all plugin components
 - `sys.features` lists the names of all enabled feature flags (e.g. `"readfiles"`, `"writefiles"`, `"allowkill"`)
