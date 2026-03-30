@@ -91,6 +91,8 @@ github.com/spf13/cobra v1.10.2/go.mod h1:7C1pvHqHw5A4vrJfjNwvOdzYu0Gml16OCs2GRiT
 github.com/spf13/pflag v1.0.9/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=
 github.com/spf13/pflag v1.0.10 h1:4EBh2KAYBwaONj6b2Ye1GiHfwjqyROoF4RwYO+vPwFk=
 github.com/spf13/pflag v1.0.10/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=
+github.com/sqids/sqids-go v0.4.1 h1:eQKYzmAZbLlRwHeHYPF35QhgxwZHLnlmVj9AkIj/rrw=
+github.com/sqids/sqids-go v0.4.1/go.mod h1:EMwHuPQgSNFS0A49jESTfIQS+066XQTVhukrzEPScl8=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/tsarna/go-structdiff v0.2.1 h1:SD30U/azJB85tH9dgNu4qVOA2bPie9e1l5EvJodMaD8=
@@ -101,6 +103,8 @@ github.com/tsarna/hcl-jqfunc v0.1.1 h1:WhlZ2STzPKJw1XoZy1lG/T7m0Tq6Vb1bEea2Cp+2a
 github.com/tsarna/hcl-jqfunc v0.1.1/go.mod h1:DoYToInVWbY45eenJ+VFdVbf9PZPz2OPu6kelnTymY8=
 github.com/tsarna/rand-cty-funcs v0.1.0 h1:yM0iQpXTkpvwAvVwah/ED+VM3lZ9vUybyGGlFoj+utU=
 github.com/tsarna/rand-cty-funcs v0.1.0/go.mod h1:Xsw9Z69Xsowq/HWqE319t/7FvyjSJnFKnDOCPNDMjV8=
+github.com/tsarna/sqid-cty-funcs v0.1.0 h1:q8Dt1l8u8t1hVIs40Iz7sgeaTPrxwX07q9IaEYjaBhs=
+github.com/tsarna/sqid-cty-funcs v0.1.0/go.mod h1:QDOjQrrV85hpg2dMVZk7VYw1YL0RZ+26uurRCZAtqWc=
 github.com/tsarna/time-cty-funcs v0.1.0 h1:PbY1KYMwrhLBatE35rnFi7AvMWSvR8M0oRqkmUP83cw=
 github.com/tsarna/time-cty-funcs v0.1.0/go.mod h1:ajKYbRPnFkMmpnZYfuEYcB1K7CjXo6ZaYQbOEqyGAuE=
 github.com/tsarna/vinculum-bus v0.9.3 h1:bHS30SwR1qB1kP9lTOVyO0/d5GaIo7gggebmZoD0Wy8=
