@@ -7,45 +7,25 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-func TestBytesGet_DefaultIsUTF8(t *testing.T) {
+func TestBytesToString(t *testing.T) {
 	b := &Bytes{Data: []byte("hello"), ContentType: "text/plain"}
-	result, err := b.Get(bg, nil)
+	s, err := b.ToString(bg)
 	assert.NoError(t, err)
-	assert.True(t, result.RawEquals(cty.StringVal("hello")))
+	assert.Equal(t, "hello", s)
 }
 
-func TestBytesGet_UTF8Modes(t *testing.T) {
+func TestBytesLength(t *testing.T) {
 	b := &Bytes{Data: []byte("hello")}
-	for _, mode := range []string{"utf8", "string", "text"} {
-		result, err := b.Get(bg, []cty.Value{cty.StringVal(mode)})
-		assert.NoError(t, err, "mode=%s", mode)
-		assert.True(t, result.RawEquals(cty.StringVal("hello")), "mode=%s", mode)
-	}
-}
-
-func TestBytesGet_Base64(t *testing.T) {
-	b := &Bytes{Data: []byte("hello")}
-	result, err := b.Get(bg, []cty.Value{cty.StringVal("base64")})
+	n, err := b.Length(bg)
 	assert.NoError(t, err)
-	assert.True(t, result.RawEquals(cty.StringVal("aGVsbG8=")))
-}
-
-func TestBytesGet_Len(t *testing.T) {
-	b := &Bytes{Data: []byte("hello")}
-	for _, mode := range []string{"len", "length", "size"} {
-		result, err := b.Get(bg, []cty.Value{cty.StringVal(mode)})
-		assert.NoError(t, err, "mode=%s", mode)
-		assert.True(t, result.RawEquals(cty.NumberIntVal(5)), "mode=%s", mode)
-	}
+	assert.Equal(t, int64(5), n)
 }
 
 func TestBytesGet_ContentType(t *testing.T) {
 	b := &Bytes{Data: []byte("data"), ContentType: "image/png"}
-	for _, mode := range []string{"content_type", "content-type", "mime", "mime_type"} {
-		result, err := b.Get(bg, []cty.Value{cty.StringVal(mode)})
-		assert.NoError(t, err, "mode=%s", mode)
-		assert.True(t, result.RawEquals(cty.StringVal("image/png")), "mode=%s", mode)
-	}
+	result, err := b.Get(bg, []cty.Value{cty.StringVal("content_type")})
+	assert.NoError(t, err)
+	assert.True(t, result.RawEquals(cty.StringVal("image/png")))
 }
 
 func TestBytesGet_ContentType_Empty(t *testing.T) {
@@ -55,14 +35,21 @@ func TestBytesGet_ContentType_Empty(t *testing.T) {
 	assert.True(t, result.RawEquals(cty.StringVal("")))
 }
 
-func TestBytesGet_UnknownMode(t *testing.T) {
+func TestBytesGet_NoArgs_Error(t *testing.T) {
+	b := &Bytes{Data: []byte("data")}
+	_, err := b.Get(bg, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "field argument required")
+}
+
+func TestBytesGet_UnknownField(t *testing.T) {
 	b := &Bytes{Data: []byte("data")}
 	_, err := b.Get(bg, []cty.Value{cty.StringVal("invalid")})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid")
 }
 
-func TestBytesGet_NonStringMode(t *testing.T) {
+func TestBytesGet_NonStringField(t *testing.T) {
 	b := &Bytes{Data: []byte("data")}
 	_, err := b.Get(bg, []cty.Value{cty.NumberIntVal(1)})
 	assert.Error(t, err)

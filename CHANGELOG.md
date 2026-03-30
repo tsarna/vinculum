@@ -7,9 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- **`bytes` `get()` modes simplified** — the following `get()` modes are removed:
+  - `get(b)` / `get(b, "utf8")` / `get(b, "string")` / `get(b, "text")` → use `tostring(b)` instead
+  - `get(b, "base64")` → use `base64encode(b)` instead
+  - `get(b, "len")` / `get(b, "length")` / `get(b, "size")` → use `length(b)` instead
+  - `get(b, "content-type")` / `get(b, "mime")` / `get(b, "mime_type")` aliases → use `get(b, "content_type")` (the only remaining mode)
+
 ### Added
 
 - **`basicauth(user, password)` function** — returns the `Authorization` header value for HTTP Basic authentication (`"Basic <base64(user:password)>"`); available in the new `httputil` function plugin
+- **URL parsing and manipulation functions** — new `url` function plugin:
+  - `urlparse(rawURL)` — parse a URL string into a URL object with named attributes (`scheme`, `host`, `hostname`, `port`, `path`, `query`, `fragment`, etc.) accessible directly (e.g. `u.scheme`, `u.path`)
+  - `urljoin(base, ref)` — resolve `ref` against `base` following RFC 3986; accepts strings, URL objects, or URL capsules
+  - `urljoinpath(base, elem...)` — append percent-escaped path elements to `base`
+  - `urlqueryencode(params)` — encode a `map(string)` or `map(list(string))` into a query string
+  - `urlquerydecode(query)` — decode a query string into `map(list(string))`
+  - `urldecode(str)` — percent-decode a string (inverse of `urlencode`; `+` decoded as space)
+  - `get(u, "query_param", key)` — return `list(string)` of all values for a named query parameter
+  - `tostring(u)` — return the canonical URL string from a URL object
+- **Enhanced `tostring()` and `length()`** — the built-in `tostring()` and `length()` functions now dispatch on rich VCL types: `tostring(b)` returns the UTF-8 content of a `bytes` value; `length(b)` returns its byte count; `tostring(u)` returns the canonical string of a URL object. Falls back to standard behavior for all other types.
+- **`Stringable` and `Lengthable` interfaces** — capsule types may now implement `ToString(ctx) (string, error)` and `Length(ctx) (int64, error)` to integrate with `tostring()` and `length()` respectively. Objects carrying a `_capsule` attribute are also supported (following the same convention as `_ctx` for context propagation).
 
 ## [0.19.0] - 2026-03-30
 

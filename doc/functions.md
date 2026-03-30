@@ -31,6 +31,8 @@ All logging functions return `true`.
 - `jsonencode(value)`: Encode a value as a JSON string.
 - `jsondecode(json_string)`: Parse a JSON string and return the decoded value.
 - `typeof(value)`: Return a string describing the type of `value` (e.g. `"string"`, `"number"`, `"bool"`, `"object"`).
+- `tostring(value)`: Convert a value to a string. For plain scalars this behaves as the standard type conversion. For rich VCL types (`bytes`, URL objects, and future capsule types) it returns the natural string representation — e.g. `tostring(b)` gives the UTF-8 content of a `bytes` value, and `tostring(u)` gives the canonical URL string of a URL object.
+- `length(value)`: Return the length of a value. For strings, lists, maps, and sets this behaves as the standard function. For `bytes` values it returns the byte count.
 
 ### Binary Data (`bytes`)
 
@@ -45,22 +47,18 @@ MIME/content type. `bytes` values are immutable. They are produced by `bytes()`,
 - `bytes(b)`: Re-wrap an existing `bytes` capsule, preserving its content type.
 - `bytes(b, content_type)`: Re-wrap an existing `bytes` capsule with an overridden content type.
 
-#### Reading bytes via `get()`
+#### Reading bytes
 
-Use the generic `get()` function with a mode string:
-
-| Mode string(s) | Returns |
-|---|---|
-| *(no arg)*, `"utf8"`, `"string"`, `"text"` | Data interpreted as a UTF-8 string |
-| `"base64"` | Data as a standard base64-encoded string |
-| `"len"`, `"length"`, `"size"` | Byte count (number) |
-| `"content_type"`, `"content-type"`, `"mime"`, `"mime_type"` | Content/MIME type string (may be empty) |
+- `tostring(b)`: Return the data as a UTF-8 string.
+- `length(b)`: Return the byte count as a number.
+- `base64encode(b)`: Encode the data as a base64 string (see below).
+- `get(b, "content_type")`: Return the MIME/content type string (may be empty).
 
 ```hcl
 b = bytes("hello", "text/plain")
-get(b)                    # → "hello"
-get(b, "base64")          # → "aGVsbG8="
-get(b, "len")             # → 5
+tostring(b)               # → "hello"
+length(b)                 # → 5
+base64encode(b)           # → "aGVsbG8="
 get(b, "content_type")    # → "text/plain"
 ```
 
@@ -77,6 +75,113 @@ base64encode(filebytes("image.png"))           # → base64 string of file conte
 base64decode("aGVsbG8=")                       # → "hello"  (string)
 base64decode("aGVsbG8=", "text/plain")         # → bytes capsule
 base64decode("aGVsbG8=", "")                   # → bytes capsule, no content type
+```
+
+### URL Parsing and Manipulation
+
+VCL has a URL object type produced by `urlparse()`. A URL object has all standard
+URL components as direct attributes, so you can write `u.scheme`, `u.host`, `u.path`,
+etc. without any function call. It also carries a hidden `_capsule` attribute used
+internally by `get()`, `tostring()`, and the manipulation functions.
+
+#### Parsing
+
+- `urlparse(rawURL)`: Parse a URL string and return a URL object. `rawURL` may be a
+  relative URL, an absolute URL, or an opaque URI. Returns an error on invalid input.
+
+The returned object has the following attributes:
+
+| Attribute | Type | Description |
+|---|---|---|
+| `scheme` | string | Lowercased scheme (e.g. `"https"`) |
+| `opaque` | string | Non-empty for opaque URIs (e.g. `"mailto:"`) |
+| `username` | string | Username from userinfo, or `""` |
+| `password` | string | Password from userinfo, or `""` |
+| `password_set` | bool | `true` if a password was explicitly provided |
+| `host` | string | Host, including `:port` if present |
+| `hostname` | string | Host without port |
+| `port` | string | Port string, or `""` if not present |
+| `path` | string | Decoded path |
+| `raw_path` | string | Percent-encoded path (empty if same as `path`) |
+| `raw_query` | string | Query string without the leading `?` |
+| `query` | map(list(string)) | All query params; multi-value keys are preserved |
+| `fragment` | string | Fragment without the leading `#` |
+| `raw_fragment` | string | Encoded fragment (empty if same as `fragment`) |
+| `force_query` | bool | `true` if the URL ends with `?` but has no query |
+| `omit_host` | bool | `true` for `//path` form (authority present but empty) |
+
+- `tostring(u)`: Return the canonical URL string. Works on URL objects and on the
+  result of manipulation functions.
+
+#### Dynamic Field Access
+
+- `get(u, "query_param", key)`: Return a `list(string)` of all values for the named
+  query parameter. Returns an empty list if the key is absent. Use this for multi-value
+  parameters; single-value parameters can also be read as `u.query[key][0]`.
+
+```hcl
+u = urlparse("https://example.com/search?tag=go&tag=cty&page=1")
+u.query["tag"]                            # → ["go", "cty"]
+get(u, "query_param", "tag")              # → ["go", "cty"]
+get(u, "query_param", "missing")          # → []
+```
+
+#### Manipulation
+
+These functions accept a base URL as a string, URL object, or URL capsule.
+They return a URL object, so attributes are directly accessible on the result.
+
+- `urljoin(base, ref)`: Resolve `ref` against `base` following RFC 3986. `ref` may be
+  a relative or absolute URL string, object, or capsule.
+- `urljoinpath(base, elem...)`: Append path elements to `base`. Each element is
+  automatically percent-encoded. Elements are joined with `/`.
+
+```hcl
+# RFC 3986 reference resolution
+tostring(urljoin("https://example.com/base/", "../other"))
+# → "https://example.com/other"
+
+# Building API paths safely
+u = urlparse("https://api.example.com/v1")
+tostring(urljoinpath(u, "users", user_id, "profile"))
+# → "https://api.example.com/v1/users/42/profile"
+
+# Accessing fields on a manipulation result
+result = urljoin(ctx.base_url, ctx.relative_ref)
+result.scheme    # direct attribute access on result
+tostring(result) # full URL string
+```
+
+#### Query String Helpers
+
+- `urlqueryencode(params)`: Encode a map of query parameters into a URL query string
+  (without the leading `?`). Values may be strings or lists of strings for multi-value
+  parameters. Keys are sorted alphabetically.
+- `urlquerydecode(query)`: Decode a URL query string into a `map(list(string))`. The
+  leading `?` is optional.
+
+```hcl
+urlqueryencode({ "q" = "hello world", "page" = "2" })
+# → "page=2&q=hello+world"
+
+urlqueryencode({ "tag" = ["go", "cty"] })
+# → "tag=go&tag=cty"
+
+urlquerydecode("a=1&b=2&b=3")
+# → { "a" = ["1"], "b" = ["2", "3"] }
+```
+
+#### Percent Encoding
+
+- `urlencode(str)`: Percent-encode a string for use in a URL query value. Spaces are
+  encoded as `+`.
+- `urldecode(str)`: Decode a percent-encoded string. Decodes `+` as a space. Returns
+  an error on invalid sequences.
+
+```hcl
+urlencode("hello world")    # → "hello+world"
+urldecode("hello+world")    # → "hello world"
+urldecode("caf%C3%A9")      # → "café"
 ```
 
 ### Sqids

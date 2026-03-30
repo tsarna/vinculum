@@ -9,6 +9,7 @@ import (
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
+	"github.com/zclconf/go-cty/cty/function/stdlib"
 )
 
 func init() {
@@ -65,10 +66,11 @@ func makeCallFunction() function.Function {
 }
 
 func extractCallable(val cty.Value) (types.Callable, error) {
-	if !val.Type().IsCapsuleType() {
-		return nil, fmt.Errorf("argument is not callable (got %s)", val.Type().FriendlyName())
+	enc, err := ctyutil.GetCapsuleFromValue(val)
+	if err != nil {
+		return nil, fmt.Errorf("argument is not callable: %w", err)
 	}
-	c, ok := val.EncapsulatedValue().(types.Callable)
+	c, ok := enc.(types.Callable)
 	if !ok {
 		return nil, fmt.Errorf("%s does not support call()", val.Type().FriendlyName())
 	}
@@ -82,6 +84,8 @@ func GetGenericFunctions() map[string]function.Function {
 		"set":       makeSetFunction(),
 		"increment": makeIncrementFunction(),
 		"observe":   makeObserveFunction(),
+		"tostring":  makeToStringFunction(),
+		"length":    makeLengthFunction(),
 	}
 }
 
@@ -170,11 +174,60 @@ func makeObserveFunction() function.Function {
 	})
 }
 
+// makeToStringFunction returns an enhanced tostring() that supports Stringable
+// capsules (and objects with _capsule), falling back to stdlib conversion.
+func makeToStringFunction() function.Function {
+	fallback := stdlib.MakeToFunc(cty.String)
+	return function.New(&function.Spec{
+		Description: "Converts a value to string; supports Stringable capsules and objects with _capsule",
+		Params:      []function.Parameter{{Name: "v", Type: cty.DynamicPseudoType}},
+		Type:        function.StaticReturnType(cty.String),
+		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+			enc, err := ctyutil.GetCapsuleFromValue(args[0])
+			if err == nil {
+				if s, ok := enc.(types.Stringable); ok {
+					str, err := s.ToString(context.Background())
+					if err != nil {
+						return cty.NilVal, fmt.Errorf("tostring: %w", err)
+					}
+					return cty.StringVal(str), nil
+				}
+			}
+			return fallback.Call(args)
+		},
+	})
+}
+
+// makeLengthFunction returns an enhanced length() that supports Lengthable
+// capsules (and objects with _capsule), falling back to stdlib length.
+func makeLengthFunction() function.Function {
+	fallback := stdlib.LengthFunc
+	return function.New(&function.Spec{
+		Description: "Returns the length of a value; supports Lengthable capsules and objects with _capsule",
+		Params:      []function.Parameter{{Name: "v", Type: cty.DynamicPseudoType}},
+		Type:        function.StaticReturnType(cty.Number),
+		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+			enc, err := ctyutil.GetCapsuleFromValue(args[0])
+			if err == nil {
+				if l, ok := enc.(types.Lengthable); ok {
+					n, err := l.Length(context.Background())
+					if err != nil {
+						return cty.NilVal, fmt.Errorf("length: %w", err)
+					}
+					return cty.NumberIntVal(n), nil
+				}
+			}
+			return fallback.Call(args)
+		},
+	})
+}
+
 func extractGettable(val cty.Value) (types.Gettable, error) {
-	if !val.Type().IsCapsuleType() {
-		return nil, fmt.Errorf("get: argument is not gettable (got %s)", val.Type().FriendlyName())
+	enc, err := ctyutil.GetCapsuleFromValue(val)
+	if err != nil {
+		return nil, fmt.Errorf("get: %w", err)
 	}
-	g, ok := val.EncapsulatedValue().(types.Gettable)
+	g, ok := enc.(types.Gettable)
 	if !ok {
 		return nil, fmt.Errorf("get: %s does not support get()", val.Type().FriendlyName())
 	}
@@ -182,10 +235,11 @@ func extractGettable(val cty.Value) (types.Gettable, error) {
 }
 
 func extractSettable(val cty.Value) (types.Settable, error) {
-	if !val.Type().IsCapsuleType() {
-		return nil, fmt.Errorf("set: argument is not settable (got %s)", val.Type().FriendlyName())
+	enc, err := ctyutil.GetCapsuleFromValue(val)
+	if err != nil {
+		return nil, fmt.Errorf("set: %w", err)
 	}
-	s, ok := val.EncapsulatedValue().(types.Settable)
+	s, ok := enc.(types.Settable)
 	if !ok {
 		return nil, fmt.Errorf("set: %s does not support set()", val.Type().FriendlyName())
 	}
@@ -193,10 +247,11 @@ func extractSettable(val cty.Value) (types.Settable, error) {
 }
 
 func extractIncrementable(val cty.Value) (types.Incrementable, error) {
-	if !val.Type().IsCapsuleType() {
-		return nil, fmt.Errorf("increment: argument is not incrementable (got %s)", val.Type().FriendlyName())
+	enc, err := ctyutil.GetCapsuleFromValue(val)
+	if err != nil {
+		return nil, fmt.Errorf("increment: %w", err)
 	}
-	i, ok := val.EncapsulatedValue().(types.Incrementable)
+	i, ok := enc.(types.Incrementable)
 	if !ok {
 		return nil, fmt.Errorf("increment: %s does not support increment()", val.Type().FriendlyName())
 	}
@@ -204,10 +259,11 @@ func extractIncrementable(val cty.Value) (types.Incrementable, error) {
 }
 
 func extractObservable(val cty.Value) (types.Observable, error) {
-	if !val.Type().IsCapsuleType() {
-		return nil, fmt.Errorf("observe: argument is not observable (got %s)", val.Type().FriendlyName())
+	enc, err := ctyutil.GetCapsuleFromValue(val)
+	if err != nil {
+		return nil, fmt.Errorf("observe: %w", err)
 	}
-	o, ok := val.EncapsulatedValue().(types.Observable)
+	o, ok := enc.(types.Observable)
 	if !ok {
 		return nil, fmt.Errorf("observe: %s does not support observe()", val.Type().FriendlyName())
 	}

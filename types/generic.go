@@ -6,6 +6,18 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
+// Stringable is implemented by types that have a natural string representation,
+// allowing them to be used with tostring().
+type Stringable interface {
+	ToString(ctx context.Context) (string, error)
+}
+
+// Lengthable is implemented by types that have a meaningful length,
+// allowing them to be used with length().
+type Lengthable interface {
+	Length(ctx context.Context) (int64, error)
+}
+
 // Callable is a pure request/response capability. It is not specific to LLM
 // clients and is designed to cover future types (HTTP, JSON-RPC, MCP, etc.).
 // args contains all arguments after the "thing": the implementor fully controls

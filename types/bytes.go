@@ -2,7 +2,6 @@ package types
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"reflect"
 
@@ -43,30 +42,30 @@ func GetBytesFromCapsule(val cty.Value) (*Bytes, error) {
 	return b, nil
 }
 
+// ToString implements Stringable, returning the bytes data as a UTF-8 string.
+func (b *Bytes) ToString(_ context.Context) (string, error) {
+	return string(b.Data), nil
+}
+
+// Length implements Lengthable, returning the byte length.
+func (b *Bytes) Length(_ context.Context) (int64, error) {
+	return int64(len(b.Data)), nil
+}
+
 // Get implements Gettable, allowing bytes values to be read via get().
 //
-// With no args or get(b, "utf8"): returns the data as a UTF-8 string.
-// get(b, "base64"): returns the data as a standard base64-encoded string.
-// get(b, "len"): returns the byte length as a cty.Number.
 // get(b, "content_type"): returns the content/MIME type string (may be empty).
 func (b *Bytes) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
-	mode := "utf8"
-	if len(args) > 0 {
-		if args[0].Type() != cty.String {
-			return cty.NilVal, fmt.Errorf("bytes get: mode argument must be a string")
-		}
-		mode = args[0].AsString()
+	if len(args) == 0 {
+		return cty.NilVal, fmt.Errorf("bytes get: field argument required (use tostring() for UTF-8 string, length() for byte count)")
 	}
-	switch mode {
-	case "utf8", "string", "text":
-		return cty.StringVal(string(b.Data)), nil
-	case "base64":
-		return cty.StringVal(base64.StdEncoding.EncodeToString(b.Data)), nil
-	case "len", "length", "size":
-		return cty.NumberIntVal(int64(len(b.Data))), nil
-	case "content_type", "content-type", "mime", "mime_type":
+	if args[0].Type() != cty.String {
+		return cty.NilVal, fmt.Errorf("bytes get: field argument must be a string")
+	}
+	switch args[0].AsString() {
+	case "content_type":
 		return cty.StringVal(b.ContentType), nil
 	default:
-		return cty.NilVal, fmt.Errorf("bytes get: unknown mode %q (valid: utf8, base64, len, content_type)", mode)
+		return cty.NilVal, fmt.Errorf("bytes get: unknown field %q (valid: content_type)", args[0].AsString())
 	}
 }

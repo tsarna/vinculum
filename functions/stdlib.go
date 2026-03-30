@@ -51,8 +51,9 @@ func GetStandardLibraryFunctions() map[string]function.Function {
 		"signum": stdlib.SignumFunc,
 
 		// Collection functions
-		"element":      stdlib.ElementFunc,
-		"length":       stdlib.LengthFunc,
+		// Note: "length" is registered via the generic plugin with an enhanced
+		// implementation that supports Lengthable capsule types.
+		"element": stdlib.ElementFunc,
 		"coalesce":     stdlib.CoalesceFunc,
 		"coalescelist": stdlib.CoalesceListFunc,
 		"compact":      stdlib.CompactFunc,
@@ -78,7 +79,8 @@ func GetStandardLibraryFunctions() map[string]function.Function {
 		// implementation that also accepts capsule types while remaining backward-compatible.
 
 		// Type conversion functions (using MakeToFunc)
-		"tostring": stdlib.MakeToFunc(cty.String),
+		// Note: "tostring" is registered via the generic plugin with an enhanced
+		// implementation that supports Stringable capsule types.
 		"tonumber": stdlib.MakeToFunc(cty.Number),
 		"tobool":   stdlib.MakeToFunc(cty.Bool),
 		"tolist":   stdlib.MakeToFunc(cty.List(cty.DynamicPseudoType)),
