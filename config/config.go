@@ -15,8 +15,7 @@ import (
 type ConfigBuilder struct {
 	logger        *zap.Logger
 	sources       []any
-	baseDir       string
-	writeDir      string
+	features      map[string]string
 	blockHandlers map[string]BlockHandler
 }
 
@@ -35,6 +34,7 @@ type Config struct {
 	Functions map[string]function.Function
 	Constants map[string]cty.Value
 	evalCtx   *hcl.EvalContext
+	Features  map[string]string
 	BaseDir   string
 	WriteDir  string
 
@@ -58,6 +58,7 @@ type Config struct {
 func NewConfig() *ConfigBuilder {
 	return &ConfigBuilder{
 		sources:       make([]any, 0),
+		features:      make(map[string]string),
 		blockHandlers: GetBlockHandlers(),
 	}
 }
@@ -72,21 +73,27 @@ func (c *ConfigBuilder) WithSources(sources ...any) *ConfigBuilder {
 	return c
 }
 
-func (c *ConfigBuilder) WithBaseDir(baseDir string) *ConfigBuilder {
-	c.baseDir = baseDir
-	return c
-}
-
-func (c *ConfigBuilder) WithWriteDir(writeDir string) *ConfigBuilder {
-	c.writeDir = writeDir
+// WithFeature enables a named feature flag with the given value.
+// Use an empty value to disable a previously set feature.
+// Known features: "readfiles" (value = --file-path dir),
+//
+//	"writefiles" (value = --write-path dir),
+//	"allowkill"  (value = "true").
+func (c *ConfigBuilder) WithFeature(name, value string) *ConfigBuilder {
+	if value == "" {
+		delete(c.features, name)
+	} else {
+		c.features[name] = value
+	}
 	return c
 }
 
 func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	config := &Config{
 		Logger:           cb.logger,
-		BaseDir:          cb.baseDir,
-		WriteDir:         cb.writeDir,
+		Features:         cb.features,
+		BaseDir:          cb.features["readfiles"],
+		WriteDir:         cb.features["writefiles"],
 		Constants:        make(map[string]cty.Value),
 		SigActions:       NewSignalActionHandler(cb.logger),
 		Buses:            make(map[string]bus.EventBus),

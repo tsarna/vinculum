@@ -15,11 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Variables may now optionally have a defined type and nullability.
 - `sys.plugins` lists the names of all plugin components
+- `sys.features` lists the names of all enabled feature flags (e.g. `"readfiles"`, `"writefiles"`, `"allowkill"`)
+- `sys.signals` — platform signal table available in VCL:
+  - `sys.signals.SIGXXX` → the signal number for `SIGXXX` (all signals known on the current OS)
+  - `sys.signals.bynumber["N"]` → the signal name for number `N`
+- **`kill(pid, signal)` VCL function** — sends a signal to a process; both arguments are integers
+  (see `sys.signals` for portable signal numbers); gated by the `--allow-kill` flag
 
 ### Changed
 
 - Refactor context-building utilities into ctyutil (for possible later moving to an external repo) and hclutil
 - Reorganize code and move to plugin registries for functions, servers, clients, triggers, and ambient values (env.*, httpstatus.*, sys.*)
+- Feature flags are now a proper registry: `ConfigBuilder.WithFeature(name, value)` replaces the former `WithBaseDir`/`WithWriteDir` methods; `--file-path` and `--write-path` are now registered as the `"readfiles"` and `"writefiles"` features internally
 - `get`, `set`, `increment`, and `observe` now accept an optional leading context argument —
   `get([ctx,] thing [, ...])` — allowing callers to propagate context into implementations;
   when omitted, `context.Background()` is used. Internal refactor: `Gettable`, `Settable`,

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	cfg "github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/platform"
 	timecty "github.com/tsarna/time-cty-funcs"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -19,7 +20,7 @@ var processStartTime = time.Now()
 
 func init() {
 	cfg.RegisterAmbientProvider("sys", func(c *cfg.Config) cty.Value {
-		return GetSysObject(c.BaseDir, c.WriteDir)
+		return GetSysObject(c.BaseDir, c.WriteDir, c.EnabledFeatureNames())
 	})
 }
 
@@ -28,7 +29,8 @@ func init() {
 // All values are captured once at config-build time. baseDir is the value of
 // the --file-path flag, or empty string if it was not specified.
 // writeDir is the value of the --write-path flag, or empty string if not set.
-func GetSysObject(baseDir string, writeDir string) cty.Value {
+// features is the sorted list of enabled feature flag names.
+func GetSysObject(baseDir string, writeDir string, features []string) cty.Value {
 	sysMap := make(map[string]cty.Value)
 
 	// Process ID
@@ -99,6 +101,17 @@ func GetSysObject(baseDir string, writeDir string) cty.Value {
 	// System boot time (platform-specific; falls back to processStartTime on unsupported OSes)
 	sysMap["boottime"] = timecty.NewTimeCapsule(getBootTime())
 
+	// Enabled feature flags by name (e.g. "readfiles", "writefiles", "allowkill")
+	if len(features) == 0 {
+		sysMap["features"] = cty.ListValEmpty(cty.String)
+	} else {
+		featureVals := make([]cty.Value, len(features))
+		for i, f := range features {
+			featureVals[i] = cty.StringVal(f)
+		}
+		sysMap["features"] = cty.ListVal(featureVals)
+	}
+
 	// Registered plugin names (e.g. "ambient.sys", "client.kafka", "server.mcp")
 	pluginNames := cfg.RegisteredPlugins()
 	if len(pluginNames) == 0 {
@@ -110,6 +123,17 @@ func GetSysObject(baseDir string, writeDir string) cty.Value {
 		}
 		sysMap["plugins"] = cty.ListVal(pluginVals)
 	}
+
+	// Signals: one Number attribute per signal name + "bynumber" reverse map.
+	allSigs := platform.AllSignals()
+	sigObjMap := make(map[string]cty.Value, len(allSigs)+1)
+	byNumber := make(map[string]cty.Value, len(allSigs))
+	for name, num := range allSigs {
+		sigObjMap[name] = cty.NumberIntVal(int64(num))
+		byNumber[strconv.Itoa(int(num))] = cty.StringVal(name)
+	}
+	sigObjMap["bynumber"] = cty.MapVal(byNumber)
+	sysMap["signals"] = cty.ObjectVal(sigObjMap)
 
 	return cty.ObjectVal(sysMap)
 }

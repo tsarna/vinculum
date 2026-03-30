@@ -345,19 +345,23 @@ These functions read and write mutable variables (`var` blocks) and Prometheus
 metrics (`metric` blocks). The first argument is a `var.<name>` or `metric.<name>`
 reference. Dispatch is based on the type of the first argument at runtime.
 
-#### `get(thing, default_or_labels?)`
+All four functions accept an optional leading `ctx` argument. When provided,
+the context is propagated into the underlying implementation (useful for tracing
+and observability). When omitted, `context.Background()` is used.
+
+#### `get([ctx,] thing, default_or_labels?)`
 
 Returns the current value of `thing`.
 
-- **Variable**: if the value is `null` and a second argument is provided, returns
-  the second argument as the default.
+- **Variable**: if the value is `null` and a default argument is provided, returns
+  the default.
 - **Metric (no-label series)**: returns the current in-process accumulated value.
-- **Metric (labeled series)**: pass a label object as the second argument:
+- **Metric (labeled series)**: pass a label object as the last argument:
   `get(metric.m, {queue = "fast"})`.
 
 Histograms are not gettable — calling `get` on a histogram is a runtime error.
 
-#### `set(thing, value, labels?)`
+#### `set([ctx,] thing, value, labels?)`
 
 Sets the value of `thing` to `value`. Returns the new value.
 
@@ -367,7 +371,7 @@ Sets the value of `thing` to `value`. Returns the new value.
 
 Calling `set` on a counter or histogram is a runtime error.
 
-#### `increment(thing, delta, labels?)`
+#### `increment([ctx,] thing, delta, labels?)`
 
 Adds `delta` to the current numeric value of `thing` and returns the new value.
 Delta must be a number; for counters it must be ≥ 0.
@@ -376,7 +380,7 @@ Delta must be a number; for counters it must be ≥ 0.
 - **Metric (no-label)**: `increment(metric.errors_total, 1)`.
 - **Metric (labeled)**: `increment(metric.requests_total, 1, {method = "POST"})`.
 
-#### `observe(metric, value, labels?)`
+#### `observe([ctx,] metric, value, labels?)`
 
 Records a single observation on a histogram metric. Only valid on `metric` values
 of type `histogram`.
@@ -402,11 +406,11 @@ metric "histogram" "request_duration_seconds" {
     buckets     = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
 }
 
-# In an HTTP server handle action:
+# In an HTTP server handle action, propagating ctx:
 action = [
-    increment(var.hits, 1),
-    increment(metric.requests_total, 1, {method = ctx.method}),
-    observe(metric.request_duration_seconds, ctx.elapsed, {method = ctx.method}),
+    increment(ctx, var.hits, 1),
+    increment(ctx, metric.requests_total, 1, {method = ctx.method}),
+    observe(ctx, metric.request_duration_seconds, ctx.elapsed, {method = ctx.method}),
     respond(httpstatus.OK, {hits = get(var.hits)}),
 ]
 ```
@@ -481,6 +485,30 @@ readable as `sys.filepath` and `sys.writepath`.
 
 - `filewrite(path, content)`: Write `content` to `path`, creating or overwriting the file. Returns `true`.
 - `fileappend(path, content)`: Append `content` to `path` (creates the file if absent). Returns `true`.
+
+### Process Control Functions
+
+These functions are only available when Vinculum is started with `--allow-kill`,
+which enables the `"allowkill"` feature (visible as `contains(sys.features, "allowkill")`).
+
+#### `kill(pid, signal)`
+
+Send a signal to a process.
+
+- `pid` (number): Target process ID.
+- `signal` (number): Signal number to send. Use `sys.signals.SIGXXX` for portable,
+  readable references rather than raw integers.
+
+Returns `true` on success. Returns an error if the syscall fails (e.g. the process
+does not exist or the caller lacks permission).
+
+```hcl
+# Gracefully stop a known process
+kill(sys.pid, sys.signals.SIGTERM)
+
+# Reload config in the current process on SIGUSR1
+kill(sys.pid, sys.signals.SIGUSR1)
+```
 
 ---
 

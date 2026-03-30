@@ -1,6 +1,10 @@
 package config
 
-import "github.com/zclconf/go-cty/cty/function"
+import (
+	"sort"
+
+	"github.com/zclconf/go-cty/cty/function"
+)
 
 // FunctionPlugin returns a map of functions for the given config.
 // Plugins that don't need config can ignore the cfg parameter.
@@ -24,15 +28,16 @@ func RegisterFunctionPlugin(name string, getter FunctionPlugin) {
 
 // GetFeature returns the value associated with a named feature flag,
 // or empty string if the feature is not enabled.
-// Known features: "readfiles" (value = --file-path dir),
-//                 "writefiles" (value = --write-path dir).
 func (c *Config) GetFeature(name string) string {
-	switch name {
-	case "readfiles":
-		return c.BaseDir
-	case "writefiles":
-		return c.WriteDir
-	default:
-		return ""
+	return c.Features[name]
+}
+
+// EnabledFeatureNames returns the names of all enabled features, sorted.
+func (c *Config) EnabledFeatureNames() []string {
+	names := make([]string, 0, len(c.Features))
+	for k := range c.Features {
+		names = append(names, k)
 	}
+	sort.Strings(names)
+	return names
 }

@@ -83,6 +83,27 @@ for the full expression language reference.
     (via `kern.boottime` sysctl); on Linux it is accurate to ±1 second (via
     `sysinfo(2)`). On other platforms it falls back to `sys.starttime`. Use with
     `since(sys.boottime)` to compute host uptime.
+  - `sys.plugins` (list of string): Names of all registered plugin components,
+    e.g. `["ambient.sys", "client.kafka", "functions.kill", "server.mcp"]`.
+    Useful for introspection and conditional logic.
+  - `sys.features` (list of string): Names of all enabled feature flags. Each
+    CLI flag that gates optional capabilities registers a feature name:
+    `"readfiles"` (`--file-path`), `"writefiles"` (`--write-path`),
+    `"allowkill"` (`--allow-kill`). Use `contains(sys.features, "allowkill")` to
+    branch on feature availability.
+  - `sys.signals`: Platform signal table. Each attribute `sys.signals.SIGXXX` is
+    the integer number for signal `SIGXXX` on the current OS. The set of available
+    signals is OS-dependent (all signals enumerated by the OS for numbers 1–64 are
+    included). Use this instead of hardcoding platform-specific numbers:
+
+    ```hcl
+    kill(sys.pid, sys.signals.SIGUSR1)   # portable signal reference
+    ```
+
+    - `sys.signals.bynumber`: A `map(string)` keyed by signal number (as a string)
+      mapping back to the signal name. E.g. `sys.signals.bynumber["9"]` → `"SIGKILL"`.
+      HCL coerces integer literals to string keys, so `sys.signals.bynumber[9]` also
+      works.
 - `var.<name>`: Each variable defined via a `var` block may be referenced by name.
   Variables are mutable and goroutine-safe; use `get()`, `set()`, and `increment()`
   to read and write their values.

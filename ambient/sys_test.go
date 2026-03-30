@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/tsarna/vinculum/ambient"
 	"github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/platform"
 	timecty "github.com/tsarna/time-cty-funcs"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
@@ -29,7 +30,15 @@ func TestSys(t *testing.T) {
 }
 
 func TestGetSysObject(t *testing.T) {
-	val := ambient.GetSysObject("", "")
+	val := ambient.GetSysObject("", "", nil)
+
+	allSigs := platform.AllSignals()
+	sigAttrTypes := make(map[string]cty.Type, len(allSigs)+1)
+	for name := range allSigs {
+		sigAttrTypes[name] = cty.Number
+	}
+	sigAttrTypes["bynumber"] = cty.Map(cty.String)
+
 	assert.Equal(t, cty.Object(map[string]cty.Type{
 		"pid":        cty.Number,
 		"hostname":   cty.String,
@@ -49,6 +58,8 @@ func TestGetSysObject(t *testing.T) {
 		"starttime":  timecty.TimeCapsuleType,
 		"boottime":   timecty.TimeCapsuleType,
 		"plugins":    cty.List(cty.String),
+		"features":   cty.List(cty.String),
+		"signals":    cty.Object(sigAttrTypes),
 	}), val.Type())
 
 	attrs := val.AsValueMap()
@@ -77,7 +88,7 @@ func TestGetSysObject(t *testing.T) {
 	assert.Equal(t, "", attrs["writepath"].AsString())
 
 	// filepath and writepath reflect values when set
-	val2 := ambient.GetSysObject("/tmp/myfiles", "/tmp/myfiles/out")
+	val2 := ambient.GetSysObject("/tmp/myfiles", "/tmp/myfiles/out", []string{"readfiles", "writefiles"})
 	attrs2 := val2.AsValueMap()
 	assert.Equal(t, "/tmp/myfiles", attrs2["filepath"].AsString())
 	assert.Equal(t, "/tmp/myfiles/out", attrs2["writepath"].AsString())
@@ -87,11 +98,22 @@ func TestGetSysObject(t *testing.T) {
 	st, err := timecty.GetTime(attrs["starttime"])
 	assert.NoError(t, err)
 	assert.True(t, !st.After(before), "starttime should not be in the future")
-	st2, _ := timecty.GetTime(ambient.GetSysObject("", "").AsValueMap()["starttime"])
+	st2, _ := timecty.GetTime(ambient.GetSysObject("", "", nil).AsValueMap()["starttime"])
 	assert.True(t, st.Equal(st2), "starttime should be stable across GetSysObject calls")
 
 	// boottime should be at or before starttime
 	bt, err := timecty.GetTime(attrs["boottime"])
 	assert.NoError(t, err)
 	assert.True(t, !bt.After(st), "boottime should not be after starttime")
+
+	// signals: spot-check POSIX-mandated signal numbers
+	sigAttrs := attrs["signals"].AsValueMap()
+	for wantName, wantNum := range map[string]int64{"SIGHUP": 1, "SIGKILL": 9, "SIGSEGV": 11} {
+		got, _ := sigAttrs[wantName].AsBigFloat().Int64()
+		assert.Equal(t, wantNum, got, wantName)
+	}
+	bynum := sigAttrs["bynumber"].AsValueMap()
+	assert.Equal(t, "SIGHUP", bynum["1"].AsString())
+	assert.Equal(t, "SIGKILL", bynum["9"].AsString())
+	assert.Equal(t, "SIGSEGV", bynum["11"].AsString())
 }

@@ -65,3 +65,31 @@ assert "sys.starttime is a time value" {
 assert "sys.boottime is a time value" {
     condition = sys.boottime != parsetime("2000-01-01T00:00:00Z")
 }
+
+assert "sys.features is a list" {
+    condition = length(sys.features) >= 0
+}
+
+assert "sys.signals.SIGHUP is 1" {
+    condition = sys.signals.SIGHUP == 1
+}
+
+assert "sys.signals.SIGKILL is 9" {
+    condition = sys.signals.SIGKILL == 9
+}
+
+assert "sys.signals.SIGSEGV is 11" {
+    condition = sys.signals.SIGSEGV == 11
+}
+
+assert "sys.signals.bynumber maps 1 to SIGHUP" {
+    condition = sys.signals.bynumber["1"] == "SIGHUP"
+}
+
+assert "sys.signals.bynumber maps 9 to SIGKILL" {
+    condition = sys.signals.bynumber["9"] == "SIGKILL"
+}
+
+assert "sys.signals.bynumber maps 11 to SIGSEGV" {
+    condition = sys.signals.bynumber["11"] == "SIGSEGV"
+}
