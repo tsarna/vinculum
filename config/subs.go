@@ -10,6 +10,8 @@ import (
 	"github.com/tsarna/go2cty2go"
 	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum-bus/subutils"
+	"github.com/tsarna/vinculum/ctyutil"
+	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
@@ -226,7 +228,7 @@ func (a *ActionSubscriber) OnEvent(ctx context.Context, topic string, message an
 		return err
 	}
 
-	evalCtxBuilder := NewContext(ctx).
+	evalCtxBuilder := hclutil.NewEvalContext(ctx).
 		WithStringAttribute("topic", topic).
 		WithAttribute("msg", ctyMessage)
 
@@ -238,12 +240,12 @@ func (a *ActionSubscriber) OnEvent(ctx context.Context, topic string, message an
 		evalCtxBuilder = evalCtxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
 	}
 
-	evalCtx, diags := evalCtxBuilder.BuildEvalContext(a.Config.evalCtx)
-	if diags.HasErrors() {
-		return diags
+	evalCtx, err := evalCtxBuilder.BuildEvalContext(a.Config.evalCtx)
+	if err != nil {
+		return err
 	}
 
-	_, diags = a.ActionExpr.Value(evalCtx)
+	_, diags := a.ActionExpr.Value(evalCtx)
 	if diags.HasErrors() {
 		return diags
 	}
@@ -357,9 +359,9 @@ func createSendFunction(config *Config, converter MessageConverter) function.Fun
 		},
 		Type: function.StaticReturnType(cty.Bool),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-			ctx, diags := GetContextFromObject(args[0])
-			if diags.HasErrors() {
-				return cty.False, fmt.Errorf("context error: %s", diags.Error())
+			ctx, err := ctyutil.GetContextFromValue(args[0])
+			if err != nil {
+				return cty.False, fmt.Errorf("context error: %w", err)
 			}
 			subscriber, err := GetSubscriberFromCapsule(args[1])
 			if err != nil {

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	bus "github.com/tsarna/vinculum-bus"
+	"github.com/tsarna/vinculum/ctyutil"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -82,8 +83,8 @@ func TestSendFunctions(t *testing.T) {
 
 	// Create context object
 	ctx := context.Background()
-	ctxValue, diags := NewContext(ctx).Build()
-	require.False(t, diags.HasErrors(), "Context build should not have errors")
+	ctxValue, err := ctyutil.NewContextObject(ctx).Build()
+	require.NoError(t, err, "Context build should not have errors")
 	busValue := config.CtyBusMap["test"]
 	topicValue := cty.StringVal("test/topic")
 
@@ -235,7 +236,7 @@ func TestSendFunctions(t *testing.T) {
 
 		// Create a structure containing a capsule (context)
 		capsuleValue := cty.ObjectVal(map[string]cty.Value{
-			"context": NewContextCapsule(context.Background()),
+			"context": ctyutil.NewContextCapsule(context.Background()),
 			"message": cty.StringVal("test with capsule"),
 		})
 

@@ -6,6 +6,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/hclutil"
 )
 
 func init() {
@@ -25,13 +26,12 @@ func processStartTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.T
 
 	name := block.Labels[1]
 
-	evalCtx, addDiags := cfg.NewContext(context.Background()).
+	evalCtx, err := hclutil.NewEvalContext(context.Background()).
 		WithStringAttribute("trigger", "start").
 		WithStringAttribute("name", name).
 		BuildEvalContext(config.EvalCtx())
-	diags = diags.Extend(addDiags)
-	if diags.HasErrors() {
-		return diags
+	if err != nil {
+		return diags.Append(&hcl.Diagnostic{Severity: hcl.DiagError, Summary: "Error building eval context", Detail: err.Error()})
 	}
 
 	value, addDiags := body.Action.Value(evalCtx)

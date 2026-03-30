@@ -11,42 +11,6 @@ import (
 	"github.com/zclconf/go-cty/cty/function"
 )
 
-// --- Capsule type registries for external packages ---
-
-// CapsuleGetter extracts a Gettable from a cty.Value of a specific capsule type.
-type CapsuleGetter func(val cty.Value) (Gettable, error)
-
-// CapsuleSetter extracts a Settable from a cty.Value of a specific capsule type.
-type CapsuleSetter func(val cty.Value) (Settable, error)
-
-var capsuleGetters []struct {
-	typ    cty.Type
-	getter CapsuleGetter
-}
-
-var capsuleSetters []struct {
-	typ    cty.Type
-	setter CapsuleSetter
-}
-
-// RegisterCapsuleGetter registers a getter for a capsule type so that get()
-// works on values of that type. Called from init() in sub-packages.
-func RegisterCapsuleGetter(typ cty.Type, getter CapsuleGetter) {
-	capsuleGetters = append(capsuleGetters, struct {
-		typ    cty.Type
-		getter CapsuleGetter
-	}{typ, getter})
-}
-
-// RegisterCapsuleSetter registers a setter for a capsule type so that set()
-// works on values of that type. Called from init() in sub-packages.
-func RegisterCapsuleSetter(typ cty.Type, setter CapsuleSetter) {
-	capsuleSetters = append(capsuleSetters, struct {
-		typ    cty.Type
-		setter CapsuleSetter
-	}{typ, setter})
-}
-
 // --- Interfaces for set/get/increment extensibility ---
 
 // Gettable is implemented by types whose current value can be read via get().
@@ -381,82 +345,45 @@ func makeObserveFunction() function.Function {
 }
 
 func extractGettable(val cty.Value) (Gettable, error) {
-	if val.Type() == VariableCapsuleType {
-		return GetVariableFromCapsule(val)
+	if !val.Type().IsCapsuleType() {
+		return nil, fmt.Errorf("get: argument is not gettable (got %s)", val.Type().FriendlyName())
 	}
-	for _, entry := range capsuleGetters {
-		if val.Type() == entry.typ {
-			return entry.getter(val)
-		}
+	g, ok := val.EncapsulatedValue().(Gettable)
+	if !ok {
+		return nil, fmt.Errorf("get: %s does not support get()", val.Type().FriendlyName())
 	}
-	if val.Type() == MetricCapsuleType {
-		m, err := GetMetricFromCapsule(val)
-		if err != nil {
-			return nil, err
-		}
-		if g, ok := m.(Gettable); ok {
-			return g, nil
-		}
-		return nil, fmt.Errorf("get: metric does not support get() (histograms are not gettable)")
-	}
-	return nil, fmt.Errorf("get: argument does not support get() (got %s)", val.Type().FriendlyName())
+	return g, nil
 }
 
 func extractSettable(val cty.Value) (Settable, error) {
-	if val.Type() == VariableCapsuleType {
-		return GetVariableFromCapsule(val)
+	if !val.Type().IsCapsuleType() {
+		return nil, fmt.Errorf("set: argument is not settable (got %s)", val.Type().FriendlyName())
 	}
-	for _, entry := range capsuleSetters {
-		if val.Type() == entry.typ {
-			return entry.setter(val)
-		}
+	s, ok := val.EncapsulatedValue().(Settable)
+	if !ok {
+		return nil, fmt.Errorf("set: %s does not support set()", val.Type().FriendlyName())
 	}
-	if val.Type() == MetricCapsuleType {
-		m, err := GetMetricFromCapsule(val)
-		if err != nil {
-			return nil, err
-		}
-		if s, ok := m.(Settable); ok {
-			return s, nil
-		}
-		if _, ok := m.(computedMetric); ok {
-			return nil, fmt.Errorf("set: metric is computed (value = expression); its value is set automatically at scrape time")
-		}
-		return nil, fmt.Errorf("set: metric does not support set() (histograms are not settable)")
-	}
-	return nil, fmt.Errorf("set: argument does not support set() (got %s)", val.Type().FriendlyName())
+	return s, nil
 }
 
 func extractIncrementable(val cty.Value) (Incrementable, error) {
-	if val.Type() == VariableCapsuleType {
-		return GetVariableFromCapsule(val)
+	if !val.Type().IsCapsuleType() {
+		return nil, fmt.Errorf("increment: argument is not incrementable (got %s)", val.Type().FriendlyName())
 	}
-	if val.Type() == MetricCapsuleType {
-		m, err := GetMetricFromCapsule(val)
-		if err != nil {
-			return nil, err
-		}
-		if i, ok := m.(Incrementable); ok {
-			return i, nil
-		}
-		if _, ok := m.(computedMetric); ok {
-			return nil, fmt.Errorf("increment: metric is computed (value = expression); its value is updated automatically at scrape time")
-		}
-		return nil, fmt.Errorf("increment: metric does not support increment() (histograms are not incrementable)")
+	i, ok := val.EncapsulatedValue().(Incrementable)
+	if !ok {
+		return nil, fmt.Errorf("increment: %s does not support increment()", val.Type().FriendlyName())
 	}
-	return nil, fmt.Errorf("increment: argument does not support increment() (got %s)", val.Type().FriendlyName())
+	return i, nil
 }
 
 func extractObservable(val cty.Value) (Observable, error) {
-	if val.Type() == MetricCapsuleType {
-		m, err := GetMetricFromCapsule(val)
-		if err != nil {
-			return nil, err
-		}
-		if o, ok := m.(Observable); ok {
-			return o, nil
-		}
-		return nil, fmt.Errorf("observe: metric does not support observe() (only histograms are observable)")
+	if !val.Type().IsCapsuleType() {
+		return nil, fmt.Errorf("observe: argument is not observable (got %s)", val.Type().FriendlyName())
 	}
-	return nil, fmt.Errorf("observe: argument does not support observe() (got %s)", val.Type().FriendlyName())
+	o, ok := val.EncapsulatedValue().(Observable)
+	if !ok {
+		return nil, fmt.Errorf("observe: %s does not support observe()", val.Type().FriendlyName())
+	}
+	return o, nil
 }

@@ -10,9 +10,10 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
 	"github.com/tsarna/vinculum-bus/transform"
-	cfg "github.com/tsarna/vinculum/config"
 	vwspkg "github.com/tsarna/vinculum-vws"
 	"github.com/tsarna/vinculum-vws/server"
+	cfg "github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -175,12 +176,12 @@ func MakeAllowSend(config *cfg.Config, expr hcl.Expression) server.EventAuthFunc
 			return nil, err
 		}
 
-		evalCtxBuilder := cfg.NewContext(ctx).
+		evalCtx, err := hclutil.NewEvalContext(ctx).
 			WithStringAttribute("topic", msg.Topic).
-			WithAttribute("msg", ctyMessage)
-		evalCtx, diags := evalCtxBuilder.BuildEvalContext(config.EvalCtx())
-		if diags.HasErrors() {
-			return nil, diags
+			WithAttribute("msg", ctyMessage).
+			BuildEvalContext(config.EvalCtx())
+		if err != nil {
+			return nil, err
 		}
 
 		result, diags := expr.Value(evalCtx)

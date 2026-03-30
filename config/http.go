@@ -9,6 +9,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
@@ -192,14 +193,14 @@ type httpAction struct {
 }
 
 func (h *httpAction) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	evalCtx, diags := getHttpActionEvalContext(h.config, w, r)
-	if diags.HasErrors() {
-		h.config.Logger.Error("Error building evaluation context", zap.Error(diags))
+	evalCtx, err := getHttpActionEvalContext(h.config, w, r)
+	if err != nil {
+		h.config.Logger.Error("Error building evaluation context", zap.Error(err))
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	_, diags = h.actionExpr.Value(evalCtx)
+	_, diags := h.actionExpr.Value(evalCtx)
 	if diags.HasErrors() {
 		h.config.Logger.Error("Error executing action", zap.Error(diags))
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -207,8 +208,8 @@ func (h *httpAction) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func getHttpActionEvalContext(config *Config, w http.ResponseWriter, r *http.Request) (*hcl.EvalContext, hcl.Diagnostics) {
-	builder := NewContext(r.Context()).
+func getHttpActionEvalContext(config *Config, w http.ResponseWriter, r *http.Request) (*hcl.EvalContext, error) {
+	builder := hclutil.NewEvalContext(r.Context()).
 		WithStringAttribute("method", r.Method).
 		WithStringAttribute("url", r.URL.String()).
 		WithStringAttribute("proto", r.Proto).

@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/robfig/cron/v3"
 	cfg "github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/hclutil"
 	"go.uber.org/zap"
 )
 
@@ -111,18 +112,16 @@ type AtAction struct {
 func (a *AtAction) Run() {
 	a.config.Logger.Debug("Executing action", zap.String("cron", a.cronName), zap.String("at", a.atName))
 
-	evalCtx, diags := cfg.NewContext(context.Background()).
+	evalCtx, err := hclutil.NewEvalContext(context.Background()).
 		WithStringAttribute("cron_name", a.cronName).
 		WithStringAttribute("at_name", a.atName).
 		BuildEvalContext(a.config.EvalCtx())
-
-	if diags.HasErrors() {
-		a.config.Logger.Error("Error building evaluation context", zap.Error(diags))
+	if err != nil {
+		a.config.Logger.Error("Error building evaluation context", zap.Error(err))
 		return
 	}
 
-	value, addDiags := a.action.Value(evalCtx)
-	diags = diags.Extend(addDiags)
+	value, diags := a.action.Value(evalCtx)
 	if diags.HasErrors() {
 		a.config.Logger.Error("Error executing action", zap.Error(diags))
 		return

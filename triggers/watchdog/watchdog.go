@@ -9,8 +9,9 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
-	cfg "github.com/tsarna/vinculum/config"
 	timecty "github.com/tsarna/time-cty-funcs"
+	cfg "github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -95,12 +96,12 @@ func (t *WatchdogTrigger) Stop() error {
 	return nil
 }
 
-func (t *WatchdogTrigger) buildEvalContext(missCount int64, lastSet time.Time) (*hcl.EvalContext, hcl.Diagnostics) {
+func (t *WatchdogTrigger) buildEvalContext(missCount int64, lastSet time.Time) (*hcl.EvalContext, error) {
 	lastSetVal := cty.NullVal(cty.DynamicPseudoType)
 	if !lastSet.IsZero() {
 		lastSetVal = timecty.NewTimeCapsule(lastSet)
 	}
-	return cfg.NewContext(context.Background()).
+	return hclutil.NewEvalContext(context.Background()).
 		WithStringAttribute("trigger", "watchdog").
 		WithStringAttribute("name", t.name).
 		WithInt64Attribute("miss_count", missCount).
@@ -118,10 +119,10 @@ func (t *WatchdogTrigger) fire() {
 	t.config.Logger.Debug("watchdog trigger: window expired",
 		zap.String("name", t.name), zap.Int64("miss_count", missCount))
 
-	evalCtx, diags := t.buildEvalContext(missCount, lastSet)
-	if diags.HasErrors() {
+	evalCtx, err := t.buildEvalContext(missCount, lastSet)
+	if err != nil {
 		t.config.Logger.Error("watchdog trigger: error building eval context",
-			zap.String("name", t.name), zap.Error(diags))
+			zap.String("name", t.name), zap.Error(err))
 		return
 	}
 	val, diags := t.actionExpr.Value(evalCtx)
@@ -219,12 +220,6 @@ type triggerWatchdogBody struct {
 
 func init() {
 	cfg.RegisterTriggerType("watchdog", cfg.TriggerRegistration{Process: processWatchdogTrigger, HasDependencyId: true})
-	cfg.RegisterCapsuleGetter(WatchdogCapsuleType, func(val cty.Value) (cfg.Gettable, error) {
-		return GetWatchdogTriggerFromCapsule(val)
-	})
-	cfg.RegisterCapsuleSetter(WatchdogCapsuleType, func(val cty.Value) (cfg.Settable, error) {
-		return GetWatchdogTriggerFromCapsule(val)
-	})
 }
 
 func processWatchdogTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {

@@ -47,9 +47,9 @@ func makePromptHandler(s *Server, def PromptDef) sdkmcp.PromptHandler {
 			args[k] = cty.StringVal(v)
 		}
 
-		evalCtx, diags := buildPromptEvalContext(goCtx, s.parentEvalCtx, s.name, def.Name, args)
-		if diags.HasErrors() {
-			return nil, fmt.Errorf("building eval context: %s", diags.Error())
+		evalCtx, err := buildPromptEvalContext(goCtx, s.parentEvalCtx, s.name, def.Name, args)
+		if err != nil {
+			return nil, fmt.Errorf("building eval context: %w", err)
 		}
 
 		result, diags := def.Action.Value(evalCtx)

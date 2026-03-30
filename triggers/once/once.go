@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -27,12 +28,12 @@ type OnceTrigger struct {
 // result on all subsequent calls. Implements Gettable.
 func (o *OnceTrigger) Get(_ []cty.Value) (cty.Value, error) {
 	o.once.Do(func() {
-		evalCtx, diags := cfg.NewContext(context.Background()).
+		evalCtx, err := hclutil.NewEvalContext(context.Background()).
 			WithStringAttribute("trigger", "once").
 			WithStringAttribute("name", o.name).
 			BuildEvalContext(o.config.EvalCtx())
-		if diags.HasErrors() {
-			o.err = diags
+		if err != nil {
+			o.err = err
 			return
 		}
 
@@ -83,9 +84,6 @@ type triggerOnceBody struct {
 
 func init() {
 	cfg.RegisterTriggerType("once", cfg.TriggerRegistration{Process: processOnceTrigger, HasDependencyId: true})
-	cfg.RegisterCapsuleGetter(OnceCapsuleType, func(val cty.Value) (cfg.Gettable, error) {
-		return GetOnceTriggerFromCapsule(val)
-	})
 }
 
 func processOnceTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {

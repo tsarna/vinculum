@@ -6,6 +6,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/hclutil"
 	"go.uber.org/zap"
 )
 
@@ -43,12 +44,12 @@ type ShutdownTriggerAction struct {
 func (a *ShutdownTriggerAction) Stop() error {
 	a.config.Logger.Debug("Executing shutdown trigger", zap.String("name", a.name))
 
-	evalCtx, diags := cfg.NewContext(context.Background()).
+	evalCtx, err := hclutil.NewEvalContext(context.Background()).
 		WithStringAttribute("trigger", "shutdown").
 		WithStringAttribute("name", a.name).
 		BuildEvalContext(a.config.EvalCtx())
-	if diags.HasErrors() {
-		a.config.Logger.Error("Error building shutdown trigger context", zap.String("name", a.name), zap.Error(diags))
+	if err != nil {
+		a.config.Logger.Error("Error building shutdown trigger context", zap.String("name", a.name), zap.Error(err))
 		return nil
 	}
 

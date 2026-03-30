@@ -47,9 +47,9 @@ func makeToolHandler(s *Server, def ToolDef) sdkmcp.ToolHandler {
 
 		args := jsonArgsToCty(rawArgs, def.Params)
 
-		evalCtx, diags := buildToolEvalContext(goCtx, s.parentEvalCtx, s.name, def.Name, args)
-		if diags.HasErrors() {
-			return nil, fmt.Errorf("building eval context: %s", diags.Error())
+		evalCtx, err := buildToolEvalContext(goCtx, s.parentEvalCtx, s.name, def.Name, args)
+		if err != nil {
+			return nil, fmt.Errorf("building eval context: %w", err)
 		}
 
 		result, diags := def.Action.Value(evalCtx)

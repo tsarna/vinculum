@@ -7,6 +7,7 @@ import (
 	"os/signal"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/tsarna/vinculum/hclutil"
 	"github.com/tsarna/vinculum/platform"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
@@ -66,13 +67,12 @@ func (config *Config) SetSignalAction(sigName string, action hcl.Expression) hcl
 
 	config.SigActions.SignalActions[signalNum] = action
 
-	ctx, diags := NewContext(config.SigActions.Ctx).
+	ctx, err := hclutil.NewEvalContext(config.SigActions.Ctx).
 		WithStringAttribute("signal", sigName).
 		WithAttribute("signal_num", cty.NumberIntVal(int64(signalNum))).
 		BuildEvalContext(config.evalCtx)
-
-	if diags.HasErrors() {
-		return diags
+	if err != nil {
+		return hcl.Diagnostics{{Severity: hcl.DiagError, Summary: "Error building signal context", Detail: err.Error()}}
 	}
 
 	config.SigActions.SignalCtx[signalNum] = ctx

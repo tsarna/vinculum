@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/tsarna/vinculum/ctyutil"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 )
@@ -41,9 +42,9 @@ func CallFunction(config *Config) function.Function {
 		VarParam: &function.Parameter{Name: "args", Type: cty.DynamicPseudoType},
 		Type:     function.StaticReturnType(cty.DynamicPseudoType),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-			ctx, diags := GetContextFromObject(args[0])
-			if diags.HasErrors() {
-				return cty.NilVal, fmt.Errorf("call: context error: %s", diags.Error())
+			ctx, err := ctyutil.GetContextFromValue(args[0])
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("call: context error: %w", err)
 			}
 
 			callable, err := extractCallable(args[1])

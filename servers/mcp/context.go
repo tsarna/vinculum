@@ -14,8 +14,8 @@ func buildResourceEvalContext(
 	parent *hcl.EvalContext,
 	serverName, uri string,
 	templateVars map[string]string,
-) (*hcl.EvalContext, hcl.Diagnostics) {
-	b := hclutil.NewContext(goCtx).
+) (*hcl.EvalContext, error) {
+	b := hclutil.NewEvalContext(goCtx).
 		WithStringAttribute("server_name", serverName).
 		WithStringAttribute("uri", uri)
 	for k, v := range templateVars {
@@ -30,14 +30,14 @@ func buildToolEvalContext(
 	parent *hcl.EvalContext,
 	serverName, toolName string,
 	args map[string]cty.Value,
-) (*hcl.EvalContext, hcl.Diagnostics) {
+) (*hcl.EvalContext, error) {
 	var argsVal cty.Value
 	if len(args) == 0 {
 		argsVal = cty.EmptyObjectVal
 	} else {
 		argsVal = cty.ObjectVal(args)
 	}
-	return hclutil.NewContext(goCtx).
+	return hclutil.NewEvalContext(goCtx).
 		WithStringAttribute("server_name", serverName).
 		WithStringAttribute("tool_name", toolName).
 		WithAttribute("args", argsVal).
@@ -50,14 +50,14 @@ func buildPromptEvalContext(
 	parent *hcl.EvalContext,
 	serverName, promptName string,
 	args map[string]cty.Value,
-) (*hcl.EvalContext, hcl.Diagnostics) {
+) (*hcl.EvalContext, error) {
 	var argsVal cty.Value
 	if len(args) == 0 {
 		argsVal = cty.EmptyObjectVal
 	} else {
 		argsVal = cty.ObjectVal(args)
 	}
-	return hclutil.NewContext(goCtx).
+	return hclutil.NewEvalContext(goCtx).
 		WithStringAttribute("server_name", serverName).
 		WithStringAttribute("prompt_name", promptName).
 		WithAttribute("args", argsVal).

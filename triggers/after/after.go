@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -80,15 +81,15 @@ func (t *AfterTrigger) run() {
 
 	t.config.Logger.Debug("after trigger: firing", zap.String("name", t.name))
 
-	evalCtx, diags := cfg.NewContext(context.Background()).
+	evalCtx, err := hclutil.NewEvalContext(context.Background()).
 		WithStringAttribute("trigger", "after").
 		WithStringAttribute("name", t.name).
 		BuildEvalContext(t.config.EvalCtx())
-	if diags.HasErrors() {
+	if err != nil {
 		t.config.Logger.Error("after trigger: error building eval context",
-			zap.String("name", t.name), zap.Error(diags))
+			zap.String("name", t.name), zap.Error(err))
 		t.mu.Lock()
-		t.err = diags
+		t.err = err
 		t.mu.Unlock()
 		return
 	}
@@ -142,9 +143,6 @@ type triggerAfterBody struct {
 
 func init() {
 	cfg.RegisterTriggerType("after", cfg.TriggerRegistration{Process: processAfterTrigger, HasDependencyId: true})
-	cfg.RegisterCapsuleGetter(AfterCapsuleType, func(val cty.Value) (cfg.Gettable, error) {
-		return GetAfterTriggerFromCapsule(val)
-	})
 }
 
 func processAfterTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {

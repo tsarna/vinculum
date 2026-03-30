@@ -19,6 +19,7 @@ import (
 	mqttpublisher "github.com/tsarna/vinculum-mqtt/publisher"
 	mqttsubscriber "github.com/tsarna/vinculum-mqtt/subscriber"
 	cfg "github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -672,7 +673,7 @@ func makeMQTTTopicFunc(config *cfg.Config, expr hcl.Expression) mqttpublisher.MQ
 			return "", fmt.Errorf("mqtt sender: convert msg: %w", err)
 		}
 
-		ctxBuilder := cfg.NewContext(context.Background()).
+		ctxBuilder := hclutil.NewEvalContext(context.Background()).
 			WithStringAttribute("topic", topic).
 			WithAttribute("msg", ctyMsg)
 
@@ -684,9 +685,9 @@ func makeMQTTTopicFunc(config *cfg.Config, expr hcl.Expression) mqttpublisher.MQ
 			ctxBuilder = ctxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
 		}
 
-		evalCtx, diags := ctxBuilder.BuildEvalContext(config.EvalCtx())
-		if diags.HasErrors() {
-			return "", diags
+		evalCtx, err := ctxBuilder.BuildEvalContext(config.EvalCtx())
+		if err != nil {
+			return "", err
 		}
 
 		val, diags := expr.Value(evalCtx)
@@ -711,7 +712,7 @@ func makeMQTTVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) mqttsubs
 			return "", fmt.Errorf("mqtt subscriber: convert msg: %w", err)
 		}
 
-		ctxBuilder := cfg.NewContext(context.Background()).
+		ctxBuilder := hclutil.NewEvalContext(context.Background()).
 			WithStringAttribute("topic", mqttTopic).
 			WithAttribute("msg", ctyMsg)
 
@@ -723,9 +724,9 @@ func makeMQTTVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) mqttsubs
 			ctxBuilder = ctxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
 		}
 
-		evalCtx, diags := ctxBuilder.BuildEvalContext(config.EvalCtx())
-		if diags.HasErrors() {
-			return "", diags
+		evalCtx, err := ctxBuilder.BuildEvalContext(config.EvalCtx())
+		if err != nil {
+			return "", err
 		}
 
 		val, diags := expr.Value(evalCtx)
@@ -748,12 +749,12 @@ func makeLifecycleHook(config *cfg.Config, expr hcl.Expression) func(ctx context
 		return nil
 	}
 	return func(ctx context.Context) {
-		evalCtx, diags := cfg.NewContext(ctx).BuildEvalContext(config.EvalCtx())
-		if diags.HasErrors() {
-			config.Logger.Error("mqtt lifecycle hook: build eval context", zap.Error(diags))
+		evalCtx, err := hclutil.NewEvalContext(ctx).BuildEvalContext(config.EvalCtx())
+		if err != nil {
+			config.Logger.Error("mqtt lifecycle hook: build eval context", zap.Error(err))
 			return
 		}
-		_, diags = expr.Value(evalCtx)
+		_, diags := expr.Value(evalCtx)
 		if diags.HasErrors() {
 			config.Logger.Error("mqtt lifecycle hook: eval failed", zap.Error(diags))
 		}

@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -77,7 +78,7 @@ func (t *IntervalTrigger) Stop() error {
 
 // buildEvalContext constructs the per-iteration HCL eval context, exposing
 // ctx.trigger, ctx.name, ctx.run_count, ctx.last_result, and ctx.last_error.
-func (t *IntervalTrigger) buildEvalContext(runCount int64, lastResult cty.Value, lastErr error) (*hcl.EvalContext, hcl.Diagnostics) {
+func (t *IntervalTrigger) buildEvalContext(runCount int64, lastResult cty.Value, lastErr error) (*hcl.EvalContext, error) {
 	lastResultVal := lastResult
 	if lastResultVal == cty.NilVal {
 		lastResultVal = cty.NullVal(cty.DynamicPseudoType)
@@ -86,7 +87,7 @@ func (t *IntervalTrigger) buildEvalContext(runCount int64, lastResult cty.Value,
 	if lastErr != nil {
 		lastErrStr = cty.StringVal(lastErr.Error())
 	}
-	return cfg.NewContext(context.Background()).
+	return hclutil.NewEvalContext(context.Background()).
 		WithStringAttribute("trigger", "interval").
 		WithStringAttribute("name", t.name).
 		WithInt64Attribute("run_count", runCount).
@@ -120,10 +121,10 @@ func (t *IntervalTrigger) run() {
 		lastErr := t.lastError
 		t.mu.RUnlock()
 
-		evalCtx, diags := t.buildEvalContext(runCount, lastResult, lastErr)
-		if diags.HasErrors() {
+		evalCtx, err := t.buildEvalContext(runCount, lastResult, lastErr)
+		if err != nil {
 			t.config.Logger.Error("interval trigger: error building eval context",
-				zap.String("name", t.name), zap.Error(diags))
+				zap.String("name", t.name), zap.Error(err))
 			return
 		}
 
@@ -182,10 +183,10 @@ func (t *IntervalTrigger) run() {
 
 		// Evaluate stop_when (if provided) against the post-action state.
 		if cfg.IsExpressionProvided(t.stopWhenExpr) {
-			stopCtx, stopDiags := t.buildEvalContext(newRunCount, actionVal, actionErr)
-			if stopDiags.HasErrors() {
+			stopCtx, stopErr := t.buildEvalContext(newRunCount, actionVal, actionErr)
+			if stopErr != nil {
 				t.config.Logger.Error("interval trigger: error building stop_when context",
-					zap.String("name", t.name), zap.Error(stopDiags))
+					zap.String("name", t.name), zap.Error(stopErr))
 				continue
 			}
 			stopVal, stopDiags := t.stopWhenExpr.Value(stopCtx)
@@ -242,9 +243,6 @@ type triggerIntervalBody struct {
 
 func init() {
 	cfg.RegisterTriggerType("interval", cfg.TriggerRegistration{Process: processIntervalTrigger, HasDependencyId: true})
-	cfg.RegisterCapsuleGetter(IntervalCapsuleType, func(val cty.Value) (cfg.Gettable, error) {
-		return GetIntervalTriggerFromCapsule(val)
-	})
 }
 
 func processIntervalTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {

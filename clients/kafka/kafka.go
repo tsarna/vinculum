@@ -13,6 +13,7 @@ import (
 	kconsumer "github.com/tsarna/vinculum-kafka/consumer"
 	kproducer "github.com/tsarna/vinculum-kafka/producer"
 	cfg "github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/hclutil"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
@@ -730,7 +731,7 @@ func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) kconsumer.Vi
 			ctyKey = cty.StringVal(*key)
 		}
 
-		ctxBuilder := cfg.NewContext(context.Background()).
+		ctxBuilder := hclutil.NewEvalContext(context.Background()).
 			WithStringAttribute("kafka_topic", kafkaTopic).
 			WithAttribute("key", ctyKey).
 			WithAttribute("msg", ctyMsg)
@@ -743,9 +744,9 @@ func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) kconsumer.Vi
 			ctxBuilder = ctxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
 		}
 
-		evalCtx, diags := ctxBuilder.BuildEvalContext(config.EvalCtx())
-		if diags.HasErrors() {
-			return "", diags
+		evalCtx, err := ctxBuilder.BuildEvalContext(config.EvalCtx())
+		if err != nil {
+			return "", err
 		}
 
 		val, diags := expr.Value(evalCtx)
@@ -767,7 +768,7 @@ func makeKafkaKeyFunc(config *cfg.Config, expr hcl.Expression) kproducer.KeyFunc
 			return nil, fmt.Errorf("kafka key: convert msg: %w", err)
 		}
 
-		ctxBuilder := cfg.NewContext(context.Background()).
+		ctxBuilder := hclutil.NewEvalContext(context.Background()).
 			WithStringAttribute("topic", topic).
 			WithAttribute("msg", ctyMsg)
 
@@ -779,9 +780,9 @@ func makeKafkaKeyFunc(config *cfg.Config, expr hcl.Expression) kproducer.KeyFunc
 			ctxBuilder = ctxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
 		}
 
-		evalCtx, diags := ctxBuilder.BuildEvalContext(config.EvalCtx())
-		if diags.HasErrors() {
-			return nil, diags
+		evalCtx, err := ctxBuilder.BuildEvalContext(config.EvalCtx())
+		if err != nil {
+			return nil, err
 		}
 
 		val, diags := expr.Value(evalCtx)
