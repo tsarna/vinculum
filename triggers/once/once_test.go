@@ -1,6 +1,7 @@
 package once
 
 import (
+	"context"
 	_ "embed"
 	"testing"
 
@@ -55,12 +56,12 @@ func TestTriggerOnceGet(t *testing.T) {
 		o.value = cty.StringVal("cached")
 	})
 
-	result, err := o.Get(nil)
+	result, err := o.Get(context.Background(), nil)
 	require.NoError(t, err)
 	assert.True(t, result.RawEquals(cty.StringVal("cached")))
 
 	// Second call still returns cached value
-	result, err = o.Get(nil)
+	result, err = o.Get(context.Background(), nil)
 	require.NoError(t, err)
 	assert.True(t, result.RawEquals(cty.StringVal("cached")))
 }

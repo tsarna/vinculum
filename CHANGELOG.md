@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Refactor context-building utilities into ctyutil (for possible later moving to an external repo) and hclutil
 - Reorganize code and move to plugin registries for functions, servers, clients, triggers, and ambient values (env.*, httpstatus.*, sys.*)
+- `get`, `set`, `increment`, and `observe` now accept an optional leading context argument —
+  `get([ctx,] thing [, ...])` — allowing callers to propagate context into implementations;
+  when omitted, `context.Background()` is used. Internal refactor: `Gettable`, `Settable`,
+  `Incrementable`, and `Observable` interfaces now take a `context.Context` as their first
+  parameter, consistent with `Callable`.
 
 ## [0.18.0] - 2026-03-28
 

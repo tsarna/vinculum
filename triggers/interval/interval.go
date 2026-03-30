@@ -45,7 +45,7 @@ type IntervalTrigger struct {
 
 // Get returns the most recent action result, null if the action has not yet
 // run, or an error if the most recent evaluation failed. Implements Gettable.
-func (t *IntervalTrigger) Get(_ []cty.Value) (cty.Value, error) {
+func (t *IntervalTrigger) Get(_ context.Context, _ []cty.Value) (cty.Value, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	if t.lastError != nil {

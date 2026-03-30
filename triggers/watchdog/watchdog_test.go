@@ -1,6 +1,7 @@
 package watchdog
 
 import (
+	"context"
 	_ "embed"
 	"testing"
 	"time"
@@ -76,29 +77,29 @@ func TestTriggerWatchdogDependencyId(t *testing.T) {
 
 func TestTriggerWatchdogGetBeforeSet(t *testing.T) {
 	wdog := &WatchdogTrigger{}
-	result, err := wdog.Get(nil)
+	result, err := wdog.Get(context.Background(), nil)
 	require.NoError(t, err)
 	assert.True(t, result.IsNull(), "expected null before first set()")
 }
 
 func TestTriggerWatchdogSetAndGet(t *testing.T) {
 	wdog := &WatchdogTrigger{}
-	result, err := wdog.Set([]cty.Value{cty.StringVal("alive")})
+	result, err := wdog.Set(context.Background(), []cty.Value{cty.StringVal("alive")})
 	require.NoError(t, err)
 	assert.True(t, result.RawEquals(cty.StringVal("alive")))
 
-	got, err := wdog.Get(nil)
+	got, err := wdog.Get(context.Background(), nil)
 	require.NoError(t, err)
 	assert.True(t, got.RawEquals(cty.StringVal("alive")))
 }
 
 func TestTriggerWatchdogSetNoValue(t *testing.T) {
 	wdog := &WatchdogTrigger{}
-	result, err := wdog.Set(nil)
+	result, err := wdog.Set(context.Background(), nil)
 	require.NoError(t, err)
 	assert.True(t, result.IsNull())
 
-	got, err := wdog.Get(nil)
+	got, err := wdog.Get(context.Background(), nil)
 	require.NoError(t, err)
 	assert.True(t, got.IsNull())
 }
@@ -109,7 +110,7 @@ func TestTriggerWatchdogSetResetsMissCount(t *testing.T) {
 	wdog.missCount = 5
 	wdog.mu.Unlock()
 
-	_, err := wdog.Set([]cty.Value{cty.True})
+	_, err := wdog.Set(context.Background(), []cty.Value{cty.True})
 	require.NoError(t, err)
 
 	wdog.mu.RLock()

@@ -1,6 +1,7 @@
 package after
 
 import (
+	"context"
 	_ "embed"
 	"testing"
 	"time"
@@ -61,7 +62,7 @@ func TestTriggerAfterDependencyId(t *testing.T) {
 
 func TestTriggerAfterGetBeforeFire(t *testing.T) {
 	trig := &AfterTrigger{}
-	result, err := trig.Get(nil)
+	result, err := trig.Get(context.Background(), nil)
 	require.NoError(t, err)
 	assert.True(t, result.IsNull(), "expected null before trigger fires")
 }
@@ -72,7 +73,7 @@ func TestTriggerAfterGetAfterFire(t *testing.T) {
 	trig.result = cty.StringVal("warmed up")
 	trig.mu.Unlock()
 
-	result, err := trig.Get(nil)
+	result, err := trig.Get(context.Background(), nil)
 	require.NoError(t, err)
 	assert.True(t, result.RawEquals(cty.StringVal("warmed up")))
 }
@@ -83,7 +84,7 @@ func TestTriggerAfterGetError(t *testing.T) {
 	trig.err = assert.AnError
 	trig.mu.Unlock()
 
-	_, err := trig.Get(nil)
+	_, err := trig.Get(context.Background(), nil)
 	assert.ErrorIs(t, err, assert.AnError)
 }
 
@@ -109,7 +110,7 @@ func TestTriggerAfterStopBeforeFire(t *testing.T) {
 	}
 
 	// Action was skipped — result remains null.
-	result, err := trig.Get(nil)
+	result, err := trig.Get(context.Background(), nil)
 	require.NoError(t, err)
 	assert.True(t, result.IsNull(), "action should not have fired after Stop()")
 }

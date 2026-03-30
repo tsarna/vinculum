@@ -38,7 +38,7 @@ type AfterTrigger struct {
 
 // Get returns null until the action has fired, then the cached result or error.
 // Implements Gettable.
-func (t *AfterTrigger) Get(_ []cty.Value) (cty.Value, error) {
+func (t *AfterTrigger) Get(_ context.Context, _ []cty.Value) (cty.Value, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	if t.err != nil {

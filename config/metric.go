@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 	"reflect"
@@ -108,7 +109,7 @@ type GaugeMetric struct {
 func (m *GaugeMetric) metricValue() {}
 
 // --- Gettable ---
-func (m *GaugeMetric) Get(args []cty.Value) (cty.Value, error) {
+func (m *GaugeMetric) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
 	if len(args) > 0 {
 		pl, err := labelsFromCtyObject(args[0], m.labelNames)
 		if err != nil {
@@ -125,7 +126,7 @@ func (m *GaugeMetric) Get(args []cty.Value) (cty.Value, error) {
 }
 
 // --- Settable ---
-func (m *GaugeMetric) Set(args []cty.Value) (cty.Value, error) {
+func (m *GaugeMetric) Set(_ context.Context, args []cty.Value) (cty.Value, error) {
 	if len(args) == 0 {
 		return cty.NilVal, fmt.Errorf("set: gauge metric requires a numeric value")
 	}
@@ -157,7 +158,7 @@ func (m *GaugeMetric) Set(args []cty.Value) (cty.Value, error) {
 }
 
 // --- Incrementable ---
-func (m *GaugeMetric) Increment(args []cty.Value) (cty.Value, error) {
+func (m *GaugeMetric) Increment(_ context.Context, args []cty.Value) (cty.Value, error) {
 	delta := args[0]
 	f, err := valueToFloat64(delta)
 	if err != nil {
@@ -207,7 +208,7 @@ type CounterMetric struct {
 func (m *CounterMetric) metricValue() {}
 
 // --- Gettable ---
-func (m *CounterMetric) Get(args []cty.Value) (cty.Value, error) {
+func (m *CounterMetric) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
 	if len(args) > 0 {
 		_, err := labelsFromCtyObject(args[0], m.labelNames)
 		if err != nil {
@@ -226,7 +227,7 @@ func (m *CounterMetric) Get(args []cty.Value) (cty.Value, error) {
 // positive differences are forwarded to the Prometheus counter; a value lower
 // than the last seen value is silently ignored (the counter holds its current
 // value). This allows syncing a counter from an external source that may reset.
-func (m *CounterMetric) Set(args []cty.Value) (cty.Value, error) {
+func (m *CounterMetric) Set(_ context.Context, args []cty.Value) (cty.Value, error) {
 	if len(args) == 0 {
 		return cty.NilVal, fmt.Errorf("set: counter metric requires a numeric value")
 	}
@@ -268,7 +269,7 @@ func (m *CounterMetric) Set(args []cty.Value) (cty.Value, error) {
 }
 
 // --- Incrementable ---
-func (m *CounterMetric) Increment(args []cty.Value) (cty.Value, error) {
+func (m *CounterMetric) Increment(_ context.Context, args []cty.Value) (cty.Value, error) {
 	delta := args[0]
 	f, err := valueToFloat64(delta)
 	if err != nil {
@@ -306,7 +307,7 @@ type HistogramMetric struct {
 func (m *HistogramMetric) metricValue() {}
 
 // --- Observable ---
-func (m *HistogramMetric) Observe(args []cty.Value) (cty.Value, error) {
+func (m *HistogramMetric) Observe(_ context.Context, args []cty.Value) (cty.Value, error) {
 	value := args[0]
 	f, err := valueToFloat64(value)
 	if err != nil {
@@ -368,7 +369,7 @@ func (m *ComputedGaugeMetric) Collect(ch chan<- prometheus.Metric) {
 	ch <- prometheus.MustNewConstMetric(m.desc, prometheus.GaugeValue, f)
 }
 
-func (m *ComputedGaugeMetric) Get(args []cty.Value) (cty.Value, error) {
+func (m *ComputedGaugeMetric) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return cty.NumberFloatVal(m.cached), nil
@@ -410,7 +411,7 @@ func (m *ComputedCounterMetric) Collect(ch chan<- prometheus.Metric) {
 	ch <- prometheus.MustNewConstMetric(m.desc, prometheus.CounterValue, f)
 }
 
-func (m *ComputedCounterMetric) Get(args []cty.Value) (cty.Value, error) {
+func (m *ComputedCounterMetric) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return cty.NumberFloatVal(m.cached), nil
@@ -447,7 +448,7 @@ func (m *ComputedHistogramMetric) Collect(ch chan<- prometheus.Metric) {
 }
 
 // Observe allows manual observations in addition to the automatic scrape-time one.
-func (m *ComputedHistogramMetric) Observe(args []cty.Value) (cty.Value, error) {
+func (m *ComputedHistogramMetric) Observe(_ context.Context, args []cty.Value) (cty.Value, error) {
 	value := args[0]
 	f, err := valueToFloat64(value)
 	if err != nil {

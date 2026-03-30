@@ -45,7 +45,7 @@ type WatchdogTrigger struct {
 
 // Set resets the watchdog countdown and stores the value. If called with no
 // arguments, stores null. Returns the stored value. Implements Settable.
-func (t *WatchdogTrigger) Set(args []cty.Value) (cty.Value, error) {
+func (t *WatchdogTrigger) Set(_ context.Context, args []cty.Value) (cty.Value, error) {
 	val := cty.NullVal(cty.DynamicPseudoType)
 	if len(args) > 0 {
 		val = args[0]
@@ -67,7 +67,7 @@ func (t *WatchdogTrigger) Set(args []cty.Value) (cty.Value, error) {
 
 // Get returns the last value passed to set(), or null if set() has never been
 // called. Implements Gettable.
-func (t *WatchdogTrigger) Get(_ []cty.Value) (cty.Value, error) {
+func (t *WatchdogTrigger) Get(_ context.Context, _ []cty.Value) (cty.Value, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	if t.lastValue == cty.NilVal {

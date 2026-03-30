@@ -1,6 +1,7 @@
 package interval
 
 import (
+	"context"
 	_ "embed"
 	"testing"
 	"time"
@@ -75,7 +76,7 @@ func TestTriggerIntervalDependencyId(t *testing.T) {
 
 func TestTriggerIntervalGetBeforeRun(t *testing.T) {
 	trig := &IntervalTrigger{}
-	result, err := trig.Get(nil)
+	result, err := trig.Get(context.Background(), nil)
 	require.NoError(t, err)
 	assert.True(t, result.IsNull(), "expected null before first run")
 }
@@ -87,7 +88,7 @@ func TestTriggerIntervalGetAfterRun(t *testing.T) {
 	trig.lastResult = cty.StringVal("hello")
 	trig.mu.Unlock()
 
-	result, err := trig.Get(nil)
+	result, err := trig.Get(context.Background(), nil)
 	require.NoError(t, err)
 	assert.True(t, result.RawEquals(cty.StringVal("hello")))
 }
@@ -99,7 +100,7 @@ func TestTriggerIntervalGetError(t *testing.T) {
 	trig.lastError = assert.AnError
 	trig.mu.Unlock()
 
-	_, err := trig.Get(nil)
+	_, err := trig.Get(context.Background(), nil)
 	assert.ErrorIs(t, err, assert.AnError)
 }
 

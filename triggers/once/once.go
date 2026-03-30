@@ -26,9 +26,9 @@ type OnceTrigger struct {
 
 // Get evaluates the action expression on the first call and returns the cached
 // result on all subsequent calls. Implements Gettable.
-func (o *OnceTrigger) Get(_ []cty.Value) (cty.Value, error) {
+func (o *OnceTrigger) Get(ctx context.Context, _ []cty.Value) (cty.Value, error) {
 	o.once.Do(func() {
-		evalCtx, err := hclutil.NewEvalContext(context.Background()).
+		evalCtx, err := hclutil.NewEvalContext(ctx).
 			WithStringAttribute("trigger", "once").
 			WithStringAttribute("name", o.name).
 			BuildEvalContext(o.config.EvalCtx())
