@@ -513,6 +513,16 @@ These functions are only available inside `handle` block action expressions in [
 - `respond(code, body)`: Write an HTTP response. `code` is the integer status code. If `body` is a string it is written as-is; otherwise it is JSON-encoded and `Content-Type: application/json` is set. Returns `true`.
 - `set_header(key, value)`: Set a response header. Must be called before `respond`. Returns `true`.
 
+### HTTP Utilities
+
+These functions are always available and help construct HTTP request values.
+
+- `basicauth(user, password)`: Returns the value for an HTTP `Authorization` header using Basic authentication — `"Basic <base64(user:password)>"`.
+
+```hcl
+set_header("Authorization", basicauth("alice", "s3cr3t"))
+```
+
 ### Path Functions
 
 These functions manipulate file path strings and are always available regardless
