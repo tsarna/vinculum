@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -98,10 +99,26 @@ func ProcessHttpServerBlock(config *Config, block *hcl.Block, remainingBody hcl.
 			}
 		}
 
+		if config.BaseDir == "" {
+			return nil, hcl.Diagnostics{
+				&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "files block requires --file-path",
+					Detail:   "A files block requires vinculum serve to be started with --file-path",
+					Subject:  &file.DefRange,
+				},
+			}
+		}
+
+		dir := file.Directory
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(config.BaseDir, dir)
+		}
+
 		path := strings.TrimSuffix(file.UrlPath, "/") + "/"
 
 		mux.Handle(path, NewLoggingMiddleware(config.Logger,
-			http.StripPrefix(path, http.FileServer(http.Dir(file.Directory)))))
+			http.StripPrefix(path, http.FileServer(http.Dir(dir)))))
 	}
 
 	for _, handlerDef := range serverDef.Handlers {

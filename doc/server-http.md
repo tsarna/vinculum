@@ -62,7 +62,7 @@ and [Request Functions](#request-functions) below.
 
 ### `handler` Attribute
 
-Delegates handling to another server's HTTP handler. Use this to mount a `server "mcp"`
+Delegates handling to another server's HTTP handler. Use this to mount a `server "mcp"`, `server "metrics"`, 
 or `server "vws"` under a path on an existing HTTP server:
 
 ```hcl
@@ -95,8 +95,12 @@ files "/static" {
 
 - `urlpath` (label) — URL path prefix. A trailing slash is added automatically.
   Requests under this prefix are served from `directory`.
-- `directory` — filesystem path to the directory to serve
+- `directory` — filesystem path to the directory to serve. Relative paths are
+  resolved against the `--file-path` base directory.
 - `disabled` — if true, this block is skipped
+
+`vinculum serve` must be started with `--file-path` whenever any non-disabled
+`files` block is present.
 
 ---
 

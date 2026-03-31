@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `get(b, "len")` / `get(b, "length")` / `get(b, "size")` → use `length(b)` instead
   - `get(b, "content_type")` → use `b.content_type` instead
 
+### Changed
+
+- **`server "http"` `files` block now requires `--file-path`** — any non-disabled `files` block
+  requires `vinculum serve` to be started with `--file-path`. Relative `directory` values are
+  resolved against that base directory (previously they resolved against the process working
+  directory and `--file-path` was not involved).
+
 ### Added
 
 - **`basicauth(user, password)` function** — returns the `Authorization` header value for HTTP Basic authentication (`"Basic <base64(user:password)>"`); available in the new `httputil` function plugin
