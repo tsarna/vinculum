@@ -35,6 +35,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Authentication (`auth` block)** — optional authentication for `server "http"`, `server "mcp"`, and `server "metrics"` blocks. Five modes are supported:
+  - `auth "basic"` — HTTP Basic authentication against a static credentials map or a custom per-request expression
+  - `auth "oidc"` — OpenID Connect bearer token validation via local JWKS (with automatic OIDC discovery and background key refresh) or RFC 7662 token introspection
+  - `auth "oauth2"` — RFC 7662 token introspection with optional result caching (`cache_ttl`)
+  - `auth "custom"` — arbitrary per-request expression; return an object (success), null (401), or an `http_response`/`http_redirect` value (e.g. for login redirects)
+  - `auth "none"` — explicitly opt out of inherited server-level auth on a specific `handle` or `files` block
+  - On `server "http"`, auth may be set at server level (applies to all routes) and overridden per `handle`/`files` block; `auth "none"` disables inherited auth for a route
+  - On success, `ctx.auth` is available in all action expressions: `ctx.auth.username`, `ctx.auth.subject`, `ctx.auth.claims`
+  - `username` is populated from Basic auth credentials, the introspection `username` field, or the JWT `preferred_username` claim
+  - `clock_skew` (OIDC) and `cache_ttl` (OAuth2) accept a string (Go duration syntax), a plain number (seconds), or a `duration` capsule
+  - On standalone `server "mcp"` with `auth "oidc"`, vinculum automatically serves `GET /.well-known/oauth-authorization-server` for MCP client OAuth2 discovery
+  - New dependency: `github.com/lestrrat-go/jwx/v2` for JWKS caching and JWT validation
+  - See [doc/server-auth.md](doc/server-auth.md) for the full reference
+
 - **HTTP response functions** — new globally-available functions for building HTTP responses
   (not scoped to `handle` actions; usable from any action expression):
   - `http_response(status[, body[, headers]])` — build a response with explicit status,

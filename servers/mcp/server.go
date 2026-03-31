@@ -7,6 +7,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	cfg "github.com/tsarna/vinculum/config"
 	"go.uber.org/zap"
 )
 
@@ -19,6 +20,7 @@ type ServerConfig struct {
 	ServerName    string
 	ServerVersion string
 	TLSConfig     *tls.Config
+	Auth          *cfg.AuthConfig
 	ParentEvalCtx *hcl.EvalContext
 	Logger        *zap.Logger
 	Resources     []ResourceDef
@@ -41,17 +43,17 @@ type Server struct {
 }
 
 // New creates a new MCP server from the given configuration.
-func New(cfg ServerConfig) (*Server, error) {
-	serverName := cfg.ServerName
+func New(scfg ServerConfig) (*Server, error) {
+	serverName := scfg.ServerName
 	if serverName == "" {
-		serverName = cfg.Name
+		serverName = scfg.Name
 	}
-	serverVersion := cfg.ServerVersion
+	serverVersion := scfg.ServerVersion
 	if serverVersion == "" {
 		serverVersion = "0.0.0"
 	}
 
-	path := cfg.Path
+	path := scfg.Path
 	if path == "" {
 		path = "/"
 	}
@@ -62,37 +64,70 @@ func New(cfg ServerConfig) (*Server, error) {
 	}, nil)
 
 	s := &Server{
-		name:          cfg.Name,
-		listen:        cfg.Listen,
+		name:          scfg.Name,
+		listen:        scfg.Listen,
 		path:          path,
-		tlsConfig:     cfg.TLSConfig,
+		tlsConfig:     scfg.TLSConfig,
 		sdkServer:     sdkSrv,
-		logger:        cfg.Logger,
-		parentEvalCtx: cfg.ParentEvalCtx,
+		logger:        scfg.Logger,
+		parentEvalCtx: scfg.ParentEvalCtx,
 	}
 
-	registerResources(s, cfg.Resources)
+	registerResources(s, scfg.Resources)
 
-	if err := registerTools(s, cfg.Tools); err != nil {
+	if err := registerTools(s, scfg.Tools); err != nil {
 		return nil, fmt.Errorf("registering tools: %w", err)
 	}
 
-	registerPrompts(s, cfg.Prompts)
+	registerPrompts(s, scfg.Prompts)
 
-	// Build the HTTP handler: StreamableHTTPHandler wrapped at the configured path
+	// Build the HTTP handler: StreamableHTTPHandler wrapped at the configured path.
+	// For standalone servers with auth configured, wrap with auth middleware and
+	// (for OIDC) serve the OAuth2 discovery document.
 	streamHandler := sdkmcp.NewStreamableHTTPHandler(func(r *http.Request) *sdkmcp.Server {
 		return s.sdkServer
 	}, nil)
 
-	if path == "/" {
-		s.httpHandler = streamHandler
-	} else {
-		mux := http.NewServeMux()
-		mux.Handle(path, streamHandler)
-		s.httpHandler = mux
+	if err := s.buildHTTPHandler(path, streamHandler, scfg.Auth, scfg.ParentEvalCtx); err != nil {
+		return nil, err
 	}
 
 	return s, nil
+}
+
+// buildHTTPHandler assembles s.httpHandler from the stream handler, optional auth
+// middleware, and (for standalone OIDC servers) the OAuth2 discovery endpoint.
+func (s *Server) buildHTTPHandler(path string, streamHandler http.Handler, authCfg *cfg.AuthConfig, evalCtx *hcl.EvalContext) error {
+	// If auth is configured, build an authenticator and wrap the stream handler.
+	var protected http.Handler = streamHandler
+	var oidcMeta *oidcMetadataHandler
+
+	if authCfg != nil && authCfg.Mode != "none" {
+		authenticator, meta, err := buildMCPAuthenticator(authCfg, s.name, evalCtx)
+		if err != nil {
+			return err
+		}
+		if authenticator != nil {
+			protected = newMCPAuthMiddleware(authenticator, evalCtx, s.logger, streamHandler)
+		}
+		// For standalone OIDC servers that used discovery, expose the metadata document.
+		if meta != nil && s.listen != "" {
+			oidcMeta = &oidcMetadataHandler{meta: meta}
+		}
+	}
+
+	if oidcMeta == nil && path == "/" {
+		s.httpHandler = protected
+		return nil
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle(path, protected)
+	if oidcMeta != nil {
+		mux.Handle("GET /.well-known/oauth-authorization-server", oidcMeta)
+	}
+	s.httpHandler = mux
+	return nil
 }
 
 // Start begins listening for connections on the configured address.

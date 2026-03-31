@@ -13,6 +13,7 @@ import (
 	"github.com/tsarna/vinculum-bus/o11y"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/internal/promadapter"
+	metricsauth "github.com/tsarna/vinculum/servers/auth"
 )
 
 // MetricsServer implements a Prometheus/OpenMetrics exposition server.
@@ -108,12 +109,13 @@ func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDe
 
 // MetricsServerDefinition holds the decoded HCL attributes for a server "metrics" block.
 type MetricsServerDefinition struct {
-	Listen           *string        `hcl:"listen,optional"`
-	Path             *string        `hcl:"path,optional"`
-	Default          *bool          `hcl:"default,optional"`
-	IncludeGoMetrics *bool          `hcl:"include_go_metrics,optional"`
-	TLS              *cfg.TLSConfig `hcl:"tls,block"`
-	DefRange         hcl.Range      `hcl:",def_range"`
+	Listen           *string         `hcl:"listen,optional"`
+	Path             *string         `hcl:"path,optional"`
+	Default          *bool           `hcl:"default,optional"`
+	IncludeGoMetrics *bool           `hcl:"include_go_metrics,optional"`
+	TLS              *cfg.TLSConfig  `hcl:"tls,block"`
+	Auth             *cfg.AuthConfig `hcl:"auth,block"`
+	DefRange         hcl.Range       `hcl:",def_range"`
 }
 
 func init() {
@@ -176,7 +178,32 @@ func ProcessMetricsServerBlock(config *cfg.Config, block *hcl.Block, remainingBo
 		}
 	}
 
+	// Validate auth block if present.
+	if def.Auth != nil {
+		if authDiags := cfg.ValidateAuthConfig(def.Auth); authDiags.HasErrors() {
+			return nil, authDiags
+		}
+	}
+
 	srv := newMetricsServer(name, def.DefRange, listen, path, isDefault, includeGoMetrics, tlsCfg)
+
+	// Wrap the metrics handler with auth middleware if configured.
+	if def.Auth != nil && def.Auth.Mode != "none" {
+		authenticator, err := metricsauth.BuildAuthenticator(def.Auth, name, config.EvalCtx())
+		if err != nil {
+			return nil, hcl.Diagnostics{
+				&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "Failed to build auth",
+					Detail:   err.Error(),
+					Subject:  &def.Auth.DefRange,
+				},
+			}
+		}
+		if authenticator != nil {
+			srv.handler = metricsauth.NewAuthMiddleware(authenticator, config.EvalCtx(), config.Logger, srv.handler)
+		}
+	}
 
 	if config.MetricsServers == nil {
 		config.MetricsServers = make(map[string]cfg.MetricsRegistrar)

@@ -261,6 +261,20 @@ unless `include_go_metrics = false` is set.
 
 ---
 
-## Future Attributes (not yet implemented)
+## Authentication
 
-- `basic_auth {}` sub-block for scrape authentication.
+Add an `auth` sub-block to require authentication before serving the metrics endpoint.
+This is useful when the metrics server is exposed externally (e.g. to a Prometheus scraper
+over the internet) and should not be publicly accessible.
+
+```hcl
+server "metrics" "metrics" {
+    listen = ":9090"
+
+    auth "basic" {
+        credentials = { prometheus = env.SCRAPE_PASSWORD }
+    }
+}
+```
+
+Any auth mode is supported. See [Authentication](server-auth.md) for the full reference.

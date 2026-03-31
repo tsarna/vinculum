@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
+	serverauth "github.com/tsarna/vinculum/servers/auth"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
@@ -26,24 +27,27 @@ type HttpServer struct {
 type HttpServerDefinition struct {
 	Listen      string                  `hcl:"listen"`
 	TLS         *cfg.TLSConfig          `hcl:"tls,block"`
+	Auth        *cfg.AuthConfig         `hcl:"auth,block"`
 	DefRange    hcl.Range               `hcl:",def_range"`
 	StaticFiles []staticFilesDefinition `hcl:"files,block"`
 	Handlers    []handlerDefinition     `hcl:"handle,block"`
 }
 
 type staticFilesDefinition struct {
-	UrlPath   string    `hcl:"urlpath,label"`
-	Directory string    `hcl:"directory"`
-	Disabled  bool      `hcl:"disabled,optional"`
-	DefRange  hcl.Range `hcl:",def_range"`
+	UrlPath   string          `hcl:"urlpath,label"`
+	Directory string          `hcl:"directory"`
+	Auth      *cfg.AuthConfig `hcl:"auth,block"`
+	Disabled  bool            `hcl:"disabled,optional"`
+	DefRange  hcl.Range       `hcl:",def_range"`
 }
 
 type handlerDefinition struct {
-	Route    string         `hcl:"route,label"`
-	Action   hcl.Expression `hcl:"action"`
-	Handler  hcl.Expression `hcl:"handler"`
-	Disabled bool           `hcl:"disabled,optional"`
-	DefRange hcl.Range      `hcl:",def_range"`
+	Route    string          `hcl:"route,label"`
+	Auth     *cfg.AuthConfig `hcl:"auth,block"`
+	Action   hcl.Expression  `hcl:"action,optional"`
+	Handler  hcl.Expression  `hcl:"handler,optional"`
+	Disabled bool            `hcl:"disabled,optional"`
+	DefRange hcl.Range       `hcl:",def_range"`
 }
 
 func init() {
@@ -55,6 +59,13 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &serverDef)
 	if diags.HasErrors() {
 		return nil, diags
+	}
+
+	// Validate server-level auth if present.
+	if serverDef.Auth != nil {
+		if authDiags := cfg.ValidateAuthConfig(serverDef.Auth); authDiags.HasErrors() {
+			return nil, authDiags
+		}
 	}
 
 	httpServers, ok := config.Servers["http"]
@@ -75,6 +86,7 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 		}
 	}
 
+	serverName := block.Labels[1]
 	mux := http.NewServeMux()
 
 	for _, file := range serverDef.StaticFiles {
@@ -111,8 +123,20 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 
 		path := strings.TrimSuffix(file.UrlPath, "/") + "/"
 
-		mux.Handle(path, NewLoggingMiddleware(config.Logger,
+		if file.Auth != nil {
+			if authDiags := cfg.ValidateAuthConfig(file.Auth); authDiags.HasErrors() {
+				return nil, authDiags
+			}
+		}
+
+		effectiveAuth := resolveAuth(serverDef.Auth, file.Auth)
+		handler := http.Handler(NewLoggingMiddleware(config.Logger,
 			http.StripPrefix(path, http.FileServer(http.Dir(dir)))))
+		handler, diags = wrapWithAuth(handler, effectiveAuth, serverName, config, &file.DefRange)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		mux.Handle(path, handler)
 	}
 
 	for _, handlerDef := range serverDef.Handlers {
@@ -130,12 +154,19 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 			}
 		}
 
+		if handlerDef.Auth != nil {
+			if authDiags := cfg.ValidateAuthConfig(handlerDef.Auth); authDiags.HasErrors() {
+				return nil, authDiags
+			}
+		}
+
+		var inner http.Handler
 		if cfg.IsExpressionProvided(handlerDef.Action) {
-			mux.Handle(handlerDef.Route, NewLoggingMiddleware(config.Logger, &httpAction{config: config, actionExpr: handlerDef.Action}))
+			inner = NewLoggingMiddleware(config.Logger, &httpAction{config: config, actionExpr: handlerDef.Action})
 		} else {
-			handler, diags := cfg.GetServerFromExpression(config, handlerDef.Handler)
-			if diags.HasErrors() {
-				return nil, diags
+			handler, handlerDiags := cfg.GetServerFromExpression(config, handlerDef.Handler)
+			if handlerDiags.HasErrors() {
+				return nil, handlerDiags
 			}
 
 			handlerServer, ok := handler.(cfg.HandlerServer)
@@ -148,15 +179,21 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 					},
 				}
 			}
-
-			mux.Handle(handlerDef.Route, NewLoggingMiddleware(config.Logger, handlerServer.GetHandler()))
+			inner = NewLoggingMiddleware(config.Logger, handlerServer.GetHandler())
 		}
+
+		effectiveAuth := resolveAuth(serverDef.Auth, handlerDef.Auth)
+		wrapped, authDiags := wrapWithAuth(inner, effectiveAuth, serverName, config, &handlerDef.DefRange)
+		if authDiags.HasErrors() {
+			return nil, authDiags
+		}
+		mux.Handle(handlerDef.Route, wrapped)
 	}
 
 	server := &HttpServer{
 		Logger: config.Logger,
 		BaseServer: cfg.BaseServer{
-			Name:     block.Labels[1],
+			Name:     serverName,
 			DefRange: serverDef.DefRange,
 		},
 		Server: &http.Server{
@@ -183,6 +220,42 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 	config.Startables = append(config.Startables, server)
 
 	return server, nil
+}
+
+// resolveAuth determines the effective auth config for a route, implementing
+// the scoping rules from the spec:
+//   - block-level auth (any mode, including "none") takes precedence over server auth
+//   - if no block-level auth, use server-level auth (may be nil = unauthenticated)
+func resolveAuth(serverAuth, blockAuth *cfg.AuthConfig) *cfg.AuthConfig {
+	if blockAuth != nil {
+		return blockAuth
+	}
+	return serverAuth
+}
+
+// wrapWithAuth wraps handler with auth middleware if effectiveAuth is non-nil
+// and not "none". Returns the original handler unchanged otherwise.
+func wrapWithAuth(handler http.Handler, effectiveAuth *cfg.AuthConfig, serverName string, config *cfg.Config, defRange *hcl.Range) (http.Handler, hcl.Diagnostics) {
+	if effectiveAuth == nil || effectiveAuth.Mode == "none" {
+		return handler, nil
+	}
+
+	authenticator, err := serverauth.BuildAuthenticator(effectiveAuth, serverName, config.EvalCtx())
+	if err != nil {
+		return nil, hcl.Diagnostics{
+			&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Failed to build auth",
+				Detail:   err.Error(),
+				Subject:  defRange,
+			},
+		}
+	}
+	if authenticator == nil {
+		return handler, nil
+	}
+
+	return serverauth.NewAuthMiddleware(authenticator, config.EvalCtx(), config.Logger, handler), nil
 }
 
 func (h *HttpServer) Start() error {

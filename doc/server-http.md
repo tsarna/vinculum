@@ -220,6 +220,38 @@ reverse lookup. See [config.md](config.md#ambient-variables) for the full list.
 
 ---
 
+## Authentication
+
+Add an `auth` sub-block to require authentication on the server or on individual routes.
+
+```hcl
+server "http" "api" {
+    listen = ":8080"
+
+    auth "oidc" {                    # server-level default
+        issuer = "https://auth.example.com"
+    }
+
+    handle "GET /public" {
+        auth "none" {}               # opt out of server-level auth
+        action = "public"
+    }
+
+    handle "GET /me" {
+        action = jsonencode(ctx.auth) # ctx.auth populated on success
+    }
+}
+```
+
+Block-level `auth` (on `handle` or `files`) overrides the server-level `auth`.
+`auth "none" {}` explicitly disables inherited auth for a route.
+
+On success, the authenticated identity is available as `ctx.auth` in the `action` expression.
+See [Authentication](server-auth.md) for the full reference including all modes
+(`basic`, `oidc`, `oauth2`, `custom`, `none`) and the `ctx.auth` object shape.
+
+---
+
 ## TLS
 
 Add a `tls {}` sub-block to serve HTTPS instead of plain HTTP. See [TLS configuration](config.md#tls) for the full attribute reference.

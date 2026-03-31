@@ -62,7 +62,11 @@ func (e *EvalContextBuilder) WithFunctions(functions map[string]function.Functio
 }
 
 // BuildEvalContext creates a child HCL eval context with the "ctx" variable set.
+// It automatically includes ctx.auth from the Go context (set by auth middleware).
 func (e *EvalContextBuilder) BuildEvalContext(parent *hcl.EvalContext) (*hcl.EvalContext, error) {
+	// Auto-include ctx.auth from Go context (populated by auth middleware, or null).
+	e.b.WithAttribute("auth", AuthValueFromContext(e.b.Ctx))
+
 	ctxObj, err := e.b.Build()
 	if err != nil {
 		return nil, err

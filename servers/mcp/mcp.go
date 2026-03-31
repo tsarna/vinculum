@@ -34,6 +34,7 @@ type McpServerDefinition struct {
 	ServerVersion string                  `hcl:"server_version,optional"`
 	Disabled      bool                    `hcl:"disabled,optional"`
 	TLS           *cfg.TLSConfig          `hcl:"tls,block"`
+	Auth          *cfg.AuthConfig         `hcl:"auth,block"`
 	DefRange      hcl.Range               `hcl:",def_range"`
 	Resources     []mcpResourceDefinition `hcl:"resource,block"`
 	Tools         []mcpToolDefinition     `hcl:"tool,block"`
@@ -117,6 +118,13 @@ func ProcessMcpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody h
 		return nil, diags
 	}
 
+	// Validate auth block if present.
+	if def.Auth != nil {
+		if authDiags := cfg.ValidateAuthConfig(def.Auth); authDiags.HasErrors() {
+			return nil, authDiags
+		}
+	}
+
 	var tlsCfg *tls.Config
 	if def.TLS != nil {
 		if def.Listen == "" {
@@ -148,6 +156,7 @@ func ProcessMcpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody h
 		ServerName:    def.ServerName,
 		ServerVersion: def.ServerVersion,
 		TLSConfig:     tlsCfg,
+		Auth:          def.Auth,
 		ParentEvalCtx: config.EvalCtx(),
 		Logger:        config.Logger,
 		Resources:     resources,

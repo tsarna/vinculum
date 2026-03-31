@@ -212,6 +212,38 @@ See [functions.md](functions.md#mcp_image-data--mime_type) for full details.
 
 ---
 
+## Authentication
+
+Add an `auth` sub-block to require authentication on the MCP server. All tools,
+resources, and prompts are protected; `ctx.auth` is available in their action expressions.
+
+```hcl
+server "mcp" "tools" {
+    listen = ":9000"
+
+    auth "oidc" {
+        issuer   = "https://auth.example.com"
+        audience = ["my-api-client-id"]
+    }
+
+    tool "whoami" {
+        description = "Return the caller's identity"
+        action      = jsonencode(ctx.auth)
+    }
+}
+```
+
+When `auth "oidc"` is configured on a standalone MCP server (one with `listen` set),
+vinculum automatically serves the OIDC discovery document at
+`GET /.well-known/oauth-authorization-server`. This allows MCP clients such as
+Claude Desktop to discover the authorization server and complete the OAuth2 login
+flow on behalf of the user.
+
+See [Authentication](server-auth.md) for the full reference including all modes
+(`basic`, `oidc`, `oauth2`, `custom`, `none`) and the `ctx.auth` object shape.
+
+---
+
 ## TLS
 
 Add a `tls {}` sub-block to serve the MCP endpoint over HTTPS. TLS is only available
