@@ -2,14 +2,13 @@ package config
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/vinculum/hclutil"
+	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
@@ -210,159 +209,18 @@ func (h *httpAction) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func getHttpActionEvalContext(config *Config, w http.ResponseWriter, r *http.Request) (*hcl.EvalContext, error) {
 	builder := hclutil.NewEvalContext(r.Context()).
-		WithStringAttribute("method", r.Method).
-		WithStringAttribute("url", r.URL.String()).
-		WithStringAttribute("proto", r.Proto).
-		WithUInt64Attribute("proto_major", uint64(r.ProtoMajor)).
-		WithUInt64Attribute("proto_minor", uint64(r.ProtoMinor)).
-		WithStringAttribute("host", r.Host).
-		WithStringAttribute("remote_addr", r.RemoteAddr).
+		WithAttribute("request", types.BuildHTTPRequestObject(r)).
 		WithFunctions(getHttpContextFunctions(w, r))
-
-	if user, password, ok := r.BasicAuth(); ok {
-		builder = builder.WithStringAttribute("user", user).WithStringAttribute("password", password)
-	}
 
 	return builder.BuildEvalContext(config.evalCtx)
 }
 
 func getHttpContextFunctions(w http.ResponseWriter, r *http.Request) map[string]function.Function {
 	return map[string]function.Function{
-		"getbody":          getBodyFunc(w, r),
-		"getformvalue":     makeGetFormValueFunc(w, r),
-		"getcookie":        makeGetCookieFunc(w, r),
-		"getheader":        makeGetHeaderFunc(w, r),
-		"getpathvalue":     makeGetPathValueFunc(w, r),
-		"getpostformvalue": makeGetPostFormValueFunc(w, r),
-		"redirect":         makeRedirectFunc(w, r),
-		"respond":          makeRespondFunc(w, r),
-		"setheader":        makeSetHeaderFunc(w, r),
+		"redirect": makeRedirectFunc(w, r),
+		"respond":  makeRespondFunc(w, r),
+		"setheader": makeSetHeaderFunc(w, r),
 	}
-}
-
-func getBodyFunc(_ http.ResponseWriter, r *http.Request) function.Function {
-	return function.New(&function.Spec{
-		Params: []function.Parameter{},
-		Type:   function.StaticReturnType(cty.String),
-		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				return cty.StringVal(""), err
-			}
-			return cty.StringVal(string(body)), nil
-		},
-	})
-}
-
-func makeGetCookieFunc(_ http.ResponseWriter, r *http.Request) function.Function {
-	return function.New(&function.Spec{
-		Params: []function.Parameter{
-			{Name: "key", Type: cty.String},
-		},
-		Type: function.StaticReturnType(cty.DynamicPseudoType),
-		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-			cookie, err := r.Cookie(args[0].AsString())
-			if err != nil {
-				return cty.NullVal(retType), err
-			}
-			return convertCookie(cookie), nil
-		},
-	})
-}
-
-func convertCookie(cookie *http.Cookie) cty.Value {
-	if cookie == nil {
-		return cty.NullVal(cty.Object(map[string]cty.Type{}))
-	}
-
-	// Convert SameSite enum to string
-	var sameSiteStr string
-	switch cookie.SameSite {
-	case http.SameSiteDefaultMode:
-		sameSiteStr = "Default"
-	case http.SameSiteLaxMode:
-		sameSiteStr = "Lax"
-	case http.SameSiteStrictMode:
-		sameSiteStr = "Strict"
-	case http.SameSiteNoneMode:
-		sameSiteStr = "None"
-	default:
-		sameSiteStr = "Default"
-	}
-
-	// Convert Expires time to string (RFC3339 format if not zero, empty if zero)
-	var expiresStr string
-	if !cookie.Expires.IsZero() {
-		expiresStr = cookie.Expires.Format(time.RFC3339)
-	}
-
-	return cty.ObjectVal(map[string]cty.Value{
-		"name":        cty.StringVal(cookie.Name),
-		"value":       cty.StringVal(cookie.Value),
-		"quoted":      cty.BoolVal(cookie.Quoted),
-		"path":        cty.StringVal(cookie.Path),
-		"domain":      cty.StringVal(cookie.Domain),
-		"expires":     cty.StringVal(expiresStr),
-		"rawExpires":  cty.StringVal(cookie.RawExpires),
-		"maxAge":      cty.NumberIntVal(int64(cookie.MaxAge)),
-		"secure":      cty.BoolVal(cookie.Secure),
-		"httpOnly":    cty.BoolVal(cookie.HttpOnly),
-		"sameSite":    cty.StringVal(sameSiteStr),
-		"partitioned": cty.BoolVal(cookie.Partitioned),
-		"raw":         cty.StringVal(cookie.Raw),
-	})
-}
-
-func makeGetFormValueFunc(_ http.ResponseWriter, r *http.Request) function.Function {
-	return function.New(&function.Spec{
-		Params: []function.Parameter{
-			{Name: "key", Type: cty.String},
-		},
-		Type: function.StaticReturnType(cty.String),
-		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-			value := r.FormValue(args[0].AsString())
-			return cty.StringVal(value), nil
-		},
-	})
-}
-
-func makeGetPostFormValueFunc(_ http.ResponseWriter, r *http.Request) function.Function {
-	return function.New(&function.Spec{
-		Params: []function.Parameter{
-			{Name: "key", Type: cty.String},
-		},
-		Type: function.StaticReturnType(cty.String),
-		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-			value := r.PostFormValue(args[0].AsString())
-			return cty.StringVal(value), nil
-		},
-	})
-}
-
-func makeGetHeaderFunc(w http.ResponseWriter, r *http.Request) function.Function {
-	return function.New(&function.Spec{
-		Params: []function.Parameter{
-			{Name: "key", Type: cty.String},
-		},
-		Type: function.StaticReturnType(cty.String),
-		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-			value := r.Header.Get(args[0].AsString())
-			return cty.StringVal(value), nil
-		},
-	})
-}
-
-func makeGetPathValueFunc(_ http.ResponseWriter, r *http.Request) function.Function {
-	return function.New(&function.Spec{
-		Params: []function.Parameter{
-			{Name: "key", Type: cty.String},
-		},
-		Type: function.StaticReturnType(cty.String),
-		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-			value := r.PathValue(args[0].AsString())
-			return cty.StringVal(value), nil
-		},
-	})
 }
 
 func makeRedirectFunc(w http.ResponseWriter, r *http.Request) function.Function {
