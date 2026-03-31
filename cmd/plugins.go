@@ -8,6 +8,7 @@ import (
 	_ "github.com/tsarna/vinculum/clients/mqtt"
 	_ "github.com/tsarna/vinculum/clients/openai"
 	_ "github.com/tsarna/vinculum/clients/vws"
+	_ "github.com/tsarna/vinculum/servers/http"
 	_ "github.com/tsarna/vinculum/servers/mcp"
 	_ "github.com/tsarna/vinculum/servers/vws"
 	_ "github.com/tsarna/vinculum/triggers/after"

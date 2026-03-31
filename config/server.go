@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/http"
 	"reflect"
 
 	"github.com/hashicorp/hcl/v2"
@@ -88,6 +89,13 @@ func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 type Listener interface {
 	GetName() string
 	GetDefRange() hcl.Range
+}
+
+// HandlerServer is a Listener that can serve HTTP requests when mounted
+// into an HTTP server block via a handle block.
+type HandlerServer interface {
+	Listener
+	GetHandler() http.Handler
 }
 
 // ServerProcessor is a function that processes a server block and returns a Listener.

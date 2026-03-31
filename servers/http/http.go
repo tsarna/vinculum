@@ -1,4 +1,4 @@
-package config
+package httpserver
 
 import (
 	"crypto/tls"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
+	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
@@ -18,7 +19,7 @@ import (
 )
 
 type HttpServer struct {
-	BaseServer
+	cfg.BaseServer
 	Logger    *zap.Logger
 	Server    *http.Server
 	TLSConfig *tls.Config
@@ -26,7 +27,7 @@ type HttpServer struct {
 
 type HttpServerDefinition struct {
 	Listen      string                  `hcl:"listen"`
-	TLS         *TLSConfig              `hcl:"tls,block"`
+	TLS         *cfg.TLSConfig          `hcl:"tls,block"`
 	DefRange    hcl.Range               `hcl:",def_range"`
 	StaticFiles []staticFilesDefinition `hcl:"files,block"`
 	Handlers    []handlerDefinition     `hcl:"handle,block"`
@@ -47,25 +48,20 @@ type handlerDefinition struct {
 	DefRange hcl.Range      `hcl:",def_range"`
 }
 
-type HandlerServer interface {
-	Listener
-	GetHandler() http.Handler
-}
-
 func init() {
-	RegisterServerType("http", ProcessHttpServerBlock)
+	cfg.RegisterServerType("http", ProcessHttpServerBlock)
 }
 
-func ProcessHttpServerBlock(config *Config, block *hcl.Block, remainingBody hcl.Body) (Listener, hcl.Diagnostics) {
+func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Listener, hcl.Diagnostics) {
 	serverDef := HttpServerDefinition{}
-	diags := gohcl.DecodeBody(remainingBody, config.evalCtx, &serverDef)
+	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &serverDef)
 	if diags.HasErrors() {
 		return nil, diags
 	}
 
 	httpServers, ok := config.Servers["http"]
 	if !ok {
-		httpServers = make(map[string]Listener)
+		httpServers = make(map[string]cfg.Listener)
 		config.Servers["http"] = httpServers
 	}
 
@@ -126,7 +122,7 @@ func ProcessHttpServerBlock(config *Config, block *hcl.Block, remainingBody hcl.
 			continue
 		}
 
-		if IsExpressionProvided(handlerDef.Handler) && IsExpressionProvided(handlerDef.Action) || !IsExpressionProvided(handlerDef.Handler) && !IsExpressionProvided(handlerDef.Action) {
+		if cfg.IsExpressionProvided(handlerDef.Handler) && cfg.IsExpressionProvided(handlerDef.Action) || !cfg.IsExpressionProvided(handlerDef.Handler) && !cfg.IsExpressionProvided(handlerDef.Action) {
 			return nil, hcl.Diagnostics{
 				&hcl.Diagnostic{
 					Severity: hcl.DiagError,
@@ -136,15 +132,15 @@ func ProcessHttpServerBlock(config *Config, block *hcl.Block, remainingBody hcl.
 			}
 		}
 
-		if IsExpressionProvided(handlerDef.Action) {
+		if cfg.IsExpressionProvided(handlerDef.Action) {
 			mux.Handle(handlerDef.Route, NewLoggingMiddleware(config.Logger, &httpAction{config: config, actionExpr: handlerDef.Action}))
 		} else {
-			handler, diags := GetServerFromExpression(config, handlerDef.Handler)
+			handler, diags := cfg.GetServerFromExpression(config, handlerDef.Handler)
 			if diags.HasErrors() {
 				return nil, diags
 			}
 
-			handlerServer, ok := handler.(HandlerServer)
+			handlerServer, ok := handler.(cfg.HandlerServer)
 			if !ok {
 				return nil, hcl.Diagnostics{
 					&hcl.Diagnostic{
@@ -161,7 +157,7 @@ func ProcessHttpServerBlock(config *Config, block *hcl.Block, remainingBody hcl.
 
 	server := &HttpServer{
 		Logger: config.Logger,
-		BaseServer: BaseServer{
+		BaseServer: cfg.BaseServer{
 			Name:     block.Labels[1],
 			DefRange: serverDef.DefRange,
 		},
@@ -228,7 +224,7 @@ func (l *loggingMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type httpAction struct {
-	config     *Config
+	config     *cfg.Config
 	actionExpr hcl.Expression
 }
 
@@ -248,18 +244,18 @@ func (h *httpAction) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func getHttpActionEvalContext(config *Config, w http.ResponseWriter, r *http.Request) (*hcl.EvalContext, error) {
+func getHttpActionEvalContext(config *cfg.Config, w http.ResponseWriter, r *http.Request) (*hcl.EvalContext, error) {
 	builder := hclutil.NewEvalContext(r.Context()).
 		WithAttribute("request", types.BuildHTTPRequestObject(r)).
 		WithFunctions(getHttpContextFunctions(w, r))
 
-	return builder.BuildEvalContext(config.evalCtx)
+	return builder.BuildEvalContext(config.EvalCtx())
 }
 
 func getHttpContextFunctions(w http.ResponseWriter, r *http.Request) map[string]function.Function {
 	return map[string]function.Function{
-		"redirect": makeRedirectFunc(w, r),
-		"respond":  makeRespondFunc(w, r),
+		"redirect":  makeRedirectFunc(w, r),
+		"respond":   makeRespondFunc(w, r),
 		"setheader": makeSetHeaderFunc(w, r),
 	}
 }
@@ -273,7 +269,6 @@ func makeRedirectFunc(w http.ResponseWriter, r *http.Request) function.Function 
 		Type: function.StaticReturnType(cty.Bool),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 			code, _ := args[0].AsBigFloat().Int64()
-			// No-op: just return true without logging
 			http.Redirect(w, r, args[1].AsString(), int(code))
 			return cty.True, nil
 		},
@@ -289,7 +284,6 @@ func makeRespondFunc(w http.ResponseWriter, _ *http.Request) function.Function {
 		Type: function.StaticReturnType(cty.Bool),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 			code, _ := args[0].AsBigFloat().Int64()
-			// No-op: just return true without logging
 			w.WriteHeader(int(code))
 			if args[1].Type() == cty.String {
 				w.Write([]byte(args[1].AsString()))
@@ -314,9 +308,7 @@ func makeSetHeaderFunc(w http.ResponseWriter, _ *http.Request) function.Function
 		},
 		Type: function.StaticReturnType(cty.Bool),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-			// No-op: just return true without logging
 			w.Header().Set(args[0].AsString(), args[1].AsString())
-
 			return cty.True, nil
 		},
 	})

@@ -1,9 +1,11 @@
-package config
+package httpserver_test
 
 import (
 	_ "embed"
 	"strings"
 	"testing"
+
+	cfg "github.com/tsarna/vinculum/config"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,14 +23,14 @@ var httpFilesRelWithBasedir []byte
 
 func TestHttpFilesAbsoluteDirectoryNoFilePath(t *testing.T) {
 	logger := zap.NewNop()
-	_, diags := NewConfig().WithSources(httpFilesAbs).WithLogger(logger).Build()
+	_, diags := cfg.NewConfig().WithSources(httpFilesAbs).WithLogger(logger).Build()
 	require.True(t, diags.HasErrors(), "files block without --file-path should fail")
 	assert.True(t, strings.Contains(diags.Error(), "--file-path"), "error should mention --file-path")
 }
 
 func TestHttpFilesAbsoluteDirectoryWithFilePath(t *testing.T) {
 	logger := zap.NewNop()
-	_, diags := NewConfig().
+	_, diags := cfg.NewConfig().
 		WithSources(httpFilesAbs).
 		WithLogger(logger).
 		WithFeature("readfiles", "/tmp").
@@ -38,14 +40,14 @@ func TestHttpFilesAbsoluteDirectoryWithFilePath(t *testing.T) {
 
 func TestHttpFilesRelativeDirectoryNoFilePath(t *testing.T) {
 	logger := zap.NewNop()
-	_, diags := NewConfig().WithSources(httpFilesRelNoBasedir).WithLogger(logger).Build()
+	_, diags := cfg.NewConfig().WithSources(httpFilesRelNoBasedir).WithLogger(logger).Build()
 	require.True(t, diags.HasErrors(), "relative directory without --file-path should fail")
 	assert.True(t, strings.Contains(diags.Error(), "--file-path"), "error should mention --file-path")
 }
 
 func TestHttpFilesRelativeDirectoryWithFilePath(t *testing.T) {
 	logger := zap.NewNop()
-	_, diags := NewConfig().
+	_, diags := cfg.NewConfig().
 		WithSources(httpFilesRelWithBasedir).
 		WithLogger(logger).
 		WithFeature("readfiles", "/tmp").
