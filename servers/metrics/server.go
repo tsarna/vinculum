@@ -1,4 +1,4 @@
-package config
+package metricsserver
 
 import (
 	"crypto/tls"
@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/tsarna/vinculum-bus/o11y"
+	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/internal/promadapter"
 )
 
@@ -18,25 +19,38 @@ import (
 // It can operate in standalone mode (owns its own HTTP listener) or mounted
 // mode (implements HandlerServer so it can be attached to a server "http" block).
 type MetricsServer struct {
-	BaseServer
+	cfg.BaseServer
 	registry  *prometheus.Registry
 	provider  *promadapter.Provider
 	handler   http.Handler
 	listen    string      // empty = mounted mode only
 	path      string      // default "/metrics"
 	tlsConfig *tls.Config // nil = plain HTTP
-	IsDefault bool
+	isDefault bool
 }
 
 // GetHandler returns the HTTP handler for the metrics endpoint.
-// Implements HandlerServer.
+// Implements cfg.HandlerServer.
 func (s *MetricsServer) GetHandler() http.Handler {
 	return s.handler
 }
 
 // GetMetricsProvider returns the o11y.MetricsProvider backed by this server's registry.
+// Implements cfg.MetricsRegistrar.
 func (s *MetricsServer) GetMetricsProvider() o11y.MetricsProvider {
 	return s.provider
+}
+
+// GetRegistry returns the underlying prometheus registry.
+// Implements cfg.MetricsRegistrar.
+func (s *MetricsServer) GetRegistry() *prometheus.Registry {
+	return s.registry
+}
+
+// IsDefaultServer reports whether this server is the default metrics server.
+// Implements cfg.MetricsRegistrar.
+func (s *MetricsServer) IsDefaultServer() bool {
+	return s.isDefault
 }
 
 // Start starts a standalone HTTP listener if listen is set; otherwise a no-op.
@@ -68,15 +82,7 @@ func (s *MetricsServer) Start() error {
 	return nil
 }
 
-// GetRegistry returns the underlying prometheus registry, used by metric blocks
-// to register their collectors.
-func (s *MetricsServer) GetRegistry() *prometheus.Registry {
-	return s.registry
-}
-
 // newMetricsServer constructs a MetricsServer with a private registry.
-// When includeGoMetrics is true (the default), the Go runtime and process
-// collectors are registered automatically.
 func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDefault, includeGoMetrics bool, tlsCfg *tls.Config) *MetricsServer {
 	reg := prometheus.NewRegistry()
 	if includeGoMetrics {
@@ -89,35 +95,35 @@ func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDe
 	handler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
 
 	return &MetricsServer{
-		BaseServer: BaseServer{Name: name, DefRange: defRange},
+		BaseServer: cfg.BaseServer{Name: name, DefRange: defRange},
 		registry:   reg,
 		provider:   provider,
 		handler:    handler,
 		listen:     listen,
 		path:       path,
 		tlsConfig:  tlsCfg,
-		IsDefault:  isDefault,
+		isDefault:  isDefault,
 	}
 }
 
 // MetricsServerDefinition holds the decoded HCL attributes for a server "metrics" block.
 type MetricsServerDefinition struct {
-	Listen           *string    `hcl:"listen,optional"`
-	Path             *string    `hcl:"path,optional"`
-	Default          *bool      `hcl:"default,optional"`
-	IncludeGoMetrics *bool      `hcl:"include_go_metrics,optional"`
-	TLS              *TLSConfig `hcl:"tls,block"`
-	DefRange         hcl.Range  `hcl:",def_range"`
+	Listen           *string        `hcl:"listen,optional"`
+	Path             *string        `hcl:"path,optional"`
+	Default          *bool          `hcl:"default,optional"`
+	IncludeGoMetrics *bool          `hcl:"include_go_metrics,optional"`
+	TLS              *cfg.TLSConfig `hcl:"tls,block"`
+	DefRange         hcl.Range      `hcl:",def_range"`
 }
 
 func init() {
-	RegisterServerType("metrics", ProcessMetricsServerBlock)
+	cfg.RegisterServerType("metrics", ProcessMetricsServerBlock)
 }
 
 // ProcessMetricsServerBlock decodes and creates a MetricsServer from a block body.
-func ProcessMetricsServerBlock(config *Config, block *hcl.Block, remainingBody hcl.Body) (Listener, hcl.Diagnostics) {
+func ProcessMetricsServerBlock(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Listener, hcl.Diagnostics) {
 	def := MetricsServerDefinition{}
-	diags := gohcl.DecodeBody(remainingBody, config.evalCtx, &def)
+	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &def)
 	if diags.HasErrors() {
 		return nil, diags
 	}
@@ -173,7 +179,7 @@ func ProcessMetricsServerBlock(config *Config, block *hcl.Block, remainingBody h
 	srv := newMetricsServer(name, def.DefRange, listen, path, isDefault, includeGoMetrics, tlsCfg)
 
 	if config.MetricsServers == nil {
-		config.MetricsServers = make(map[string]*MetricsServer)
+		config.MetricsServers = make(map[string]cfg.MetricsRegistrar)
 	}
 	config.MetricsServers[name] = srv
 
@@ -187,20 +193,20 @@ func ProcessMetricsServerBlock(config *Config, block *hcl.Block, remainingBody h
 // GetMetricsServerFromExpression evaluates an HCL expression expecting a server capsule
 // and returns the underlying *MetricsServer. Returns an error if the server is not a
 // metrics server.
-func GetMetricsServerFromExpression(config *Config, expr hcl.Expression) (*MetricsServer, hcl.Diagnostics) {
-	server, diags := GetServerFromExpression(config, expr)
+func GetMetricsServerFromExpression(config *cfg.Config, expr hcl.Expression) (*MetricsServer, hcl.Diagnostics) {
+	registrar, diags := cfg.GetMetricsRegistrarFromExpression(config, expr)
 	if diags.HasErrors() {
 		return nil, diags
 	}
 
-	ms, ok := server.(*MetricsServer)
+	ms, ok := registrar.(*MetricsServer)
 	if !ok {
 		exprRange := expr.Range()
 		return nil, hcl.Diagnostics{
 			&hcl.Diagnostic{
 				Severity: hcl.DiagError,
 				Summary:  "Server is not a metrics server",
-				Detail:   fmt.Sprintf("Expected a server \"metrics\" block, got server %q of a different type", server.GetName()),
+				Detail:   fmt.Sprintf("Expected a server \"metrics\" block, got server %q of a different type", registrar.GetName()),
 				Subject:  &exprRange,
 			},
 		}
@@ -208,62 +214,3 @@ func GetMetricsServerFromExpression(config *Config, expr hcl.Expression) (*Metri
 
 	return ms, nil
 }
-
-// ResolveMetricsProvider resolves an o11y.MetricsProvider from an optional HCL
-// expression. If the expression is provided it must reference a server "metrics"
-// block. If omitted, the default metrics provider is used. Returns nil, nil when
-// no metrics server is configured at all (metrics are simply disabled).
-func ResolveMetricsProvider(config *Config, expr hcl.Expression) (o11y.MetricsProvider, hcl.Diagnostics) {
-	if IsExpressionProvided(expr) {
-		ms, diags := GetMetricsServerFromExpression(config, expr)
-		if diags.HasErrors() {
-			return nil, diags
-		}
-		return ms.GetMetricsProvider(), nil
-	}
-	return config.GetDefaultMetricsProvider()
-}
-
-// GetDefaultMetricsProvider resolves the default metrics provider per these rules:
-//  1. Exactly one metrics server → use it
-//  2. Multiple, exactly one with IsDefault=true → use it
-//  3. Multiple with IsDefault=true → config error
-//  4. Multiple, none default → return nil (explicit wiring required)
-//  5. Zero → return nil
-func (c *Config) GetDefaultMetricsProvider() (o11y.MetricsProvider, hcl.Diagnostics) {
-	if len(c.MetricsServers) == 0 {
-		return nil, nil
-	}
-
-	if len(c.MetricsServers) == 1 {
-		for _, ms := range c.MetricsServers {
-			return ms.GetMetricsProvider(), nil
-		}
-	}
-
-	// Multiple servers: find the one(s) marked default
-	var defaults []*MetricsServer
-	for _, ms := range c.MetricsServers {
-		if ms.IsDefault {
-			defaults = append(defaults, ms)
-		}
-	}
-
-	if len(defaults) == 1 {
-		return defaults[0].GetMetricsProvider(), nil
-	}
-
-	if len(defaults) > 1 {
-		return nil, hcl.Diagnostics{
-			&hcl.Diagnostic{
-				Severity: hcl.DiagError,
-				Summary:  "Multiple default metrics servers",
-				Detail:   "More than one server \"metrics\" block has default = true. At most one can be the default.",
-			},
-		}
-	}
-
-	// Multiple servers, none marked default
-	return nil, nil
-}
-

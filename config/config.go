@@ -52,7 +52,7 @@ type Config struct {
 	CtyTriggerMap    map[string]cty.Value
 	TriggerDefRanges map[string]hcl.Range
 
-	MetricsServers map[string]*MetricsServer
+	MetricsServers map[string]MetricsRegistrar
 }
 
 func NewConfig() *ConfigBuilder {
@@ -105,7 +105,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		CtyTriggerMap:    make(map[string]cty.Value),
 		CtyVarMap:        make(map[string]cty.Value),
 		TriggerDefRanges: make(map[string]hcl.Range),
-		MetricsServers:   make(map[string]*MetricsServer),
+		MetricsServers:   make(map[string]MetricsRegistrar),
 	}
 
 	// Validate write-path is under file-path

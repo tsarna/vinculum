@@ -6,11 +6,115 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/tsarna/vinculum-bus/o11y"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 )
 
-// MetricBlockHandler ---
+// --- MetricsRegistrar interface ---
+
+// MetricsRegistrar is implemented by server types that provide a Prometheus
+// registry for metric blocks to register against.
+type MetricsRegistrar interface {
+	Listener
+	GetRegistry() *prometheus.Registry
+	GetMetricsProvider() o11y.MetricsProvider
+	IsDefaultServer() bool
+}
+
+// GetMetricsRegistrarFromExpression evaluates an HCL expression expecting a
+// server capsule and returns it as a MetricsRegistrar. Returns an error if the
+// server does not implement MetricsRegistrar.
+func GetMetricsRegistrarFromExpression(config *Config, expr hcl.Expression) (MetricsRegistrar, hcl.Diagnostics) {
+	server, diags := GetServerFromExpression(config, expr)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	ms, ok := server.(MetricsRegistrar)
+	if !ok {
+		exprRange := expr.Range()
+		return nil, hcl.Diagnostics{
+			&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Server is not a metrics server",
+				Detail:   fmt.Sprintf("Expected a server \"metrics\" block, got server %q of a different type", server.GetName()),
+				Subject:  &exprRange,
+			},
+		}
+	}
+
+	return ms, nil
+}
+
+// GetDefaultMetricsRegistrar returns the default MetricsRegistrar per these rules:
+//  1. Exactly one metrics server → use it
+//  2. Multiple, exactly one with IsDefaultServer()=true → use it
+//  3. Multiple with IsDefaultServer()=true → config error
+//  4. Multiple, none default → return nil (explicit wiring required)
+//  5. Zero → return nil
+func (c *Config) GetDefaultMetricsRegistrar() (MetricsRegistrar, hcl.Diagnostics) {
+	if len(c.MetricsServers) == 0 {
+		return nil, nil
+	}
+
+	if len(c.MetricsServers) == 1 {
+		for _, ms := range c.MetricsServers {
+			return ms, nil
+		}
+	}
+
+	var defaults []MetricsRegistrar
+	for _, ms := range c.MetricsServers {
+		if ms.IsDefaultServer() {
+			defaults = append(defaults, ms)
+		}
+	}
+
+	if len(defaults) == 1 {
+		return defaults[0], nil
+	}
+
+	if len(defaults) > 1 {
+		return nil, hcl.Diagnostics{
+			&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Multiple default metrics servers",
+				Detail:   "More than one server \"metrics\" block has default = true. At most one can be the default.",
+			},
+		}
+	}
+
+	// Multiple servers, none marked default
+	return nil, nil
+}
+
+// GetDefaultMetricsProvider returns the o11y.MetricsProvider from the default
+// MetricsRegistrar. See GetDefaultMetricsRegistrar for selection rules.
+func (c *Config) GetDefaultMetricsProvider() (o11y.MetricsProvider, hcl.Diagnostics) {
+	ms, diags := c.GetDefaultMetricsRegistrar()
+	if diags.HasErrors() || ms == nil {
+		return nil, diags
+	}
+	return ms.GetMetricsProvider(), nil
+}
+
+// ResolveMetricsProvider resolves an o11y.MetricsProvider from an optional HCL
+// expression. If the expression is provided it must reference a server "metrics"
+// block. If omitted, the default metrics provider is used. Returns nil, nil when
+// no metrics server is configured at all (metrics are simply disabled).
+func ResolveMetricsProvider(config *Config, expr hcl.Expression) (o11y.MetricsProvider, hcl.Diagnostics) {
+	if IsExpressionProvided(expr) {
+		ms, diags := GetMetricsRegistrarFromExpression(config, expr)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		return ms.GetMetricsProvider(), nil
+	}
+	return config.GetDefaultMetricsProvider()
+}
+
+// --- MetricBlockHandler ---
 
 type MetricBlockHandler struct {
 	BlockHandlerBase
@@ -98,38 +202,24 @@ func (h *MetricBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	}
 
 	// Resolve the registry
-	var ms *MetricsServer
+	var ms MetricsRegistrar
 	if def.Server != nil && IsExpressionProvided(def.Server) {
 		var msDiags hcl.Diagnostics
-		ms, msDiags = GetMetricsServerFromExpression(config, def.Server)
+		ms, msDiags = GetMetricsRegistrarFromExpression(config, def.Server)
 		if msDiags.HasErrors() {
 			return msDiags
 		}
 	} else {
-		provider, defDiags := config.GetDefaultMetricsProvider()
+		var defDiags hcl.Diagnostics
+		ms, defDiags = config.GetDefaultMetricsRegistrar()
 		if defDiags.HasErrors() {
 			return defDiags
-		}
-		if provider == nil {
-			return hcl.Diagnostics{{
-				Severity: hcl.DiagError,
-				Summary:  "No metrics server",
-				Detail:   "No metrics server is available. Either declare a server \"metrics\" block or set server = server.<name> on the metric block.",
-				Subject:  def.DefRange.Ptr(),
-			}}
-		}
-		// Find the MetricsServer that owns this provider
-		for _, candidate := range config.MetricsServers {
-			if candidate.GetMetricsProvider() == provider {
-				ms = candidate
-				break
-			}
 		}
 		if ms == nil {
 			return hcl.Diagnostics{{
 				Severity: hcl.DiagError,
-				Summary:  "Internal error",
-				Detail:   "Could not locate MetricsServer for the default metrics provider",
+				Summary:  "No metrics server",
+				Detail:   "No metrics server is available. Either declare a server \"metrics\" block or set server = server.<name> on the metric block.",
 				Subject:  def.DefRange.Ptr(),
 			}}
 		}
