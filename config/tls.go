@@ -1,11 +1,19 @@
 package config
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
+	"math/big"
+	"net"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/hashicorp/hcl/v2"
 )
@@ -39,6 +47,7 @@ type TLSConfig struct {
 	Key                string    `hcl:"key,optional"`
 	InsecureSkipVerify bool      `hcl:"insecure_skip_verify,optional"`
 	RequireClientCert  bool      `hcl:"require_client_cert,optional"`
+	SelfSigned         bool      `hcl:"self_signed,optional"`
 	DefRange           hcl.Range `hcl:",def_range"`
 }
 
@@ -83,14 +92,24 @@ func (t *TLSConfig) BuildTLSServerConfig(baseDir string) (*tls.Config, error) {
 		return nil, nil
 	}
 
-	if t.Cert == "" || t.Key == "" {
-		return nil, fmt.Errorf("tls: cert and key are required for server TLS")
-	}
-
 	cfg := &tls.Config{}
 
-	if err := loadCertKeyPair(baseDir, t.Cert, t.Key, cfg); err != nil {
-		return nil, err
+	if t.SelfSigned {
+		if t.Cert != "" || t.Key != "" {
+			return nil, fmt.Errorf("tls: self_signed is mutually exclusive with cert and key")
+		}
+		cert, err := generateSelfSignedCert()
+		if err != nil {
+			return nil, fmt.Errorf("tls: generate self-signed cert: %w", err)
+		}
+		cfg.Certificates = []tls.Certificate{cert}
+	} else {
+		if t.Cert == "" || t.Key == "" {
+			return nil, fmt.Errorf("tls: cert and key are required for server TLS (or use self_signed = true)")
+		}
+		if err := loadCertKeyPair(baseDir, t.Cert, t.Key, cfg); err != nil {
+			return nil, err
+		}
 	}
 
 	if t.CACert != "" {
@@ -106,6 +125,46 @@ func (t *TLSConfig) BuildTLSServerConfig(baseDir string) (*tls.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// generateSelfSignedCert creates an ephemeral ECDSA P-256 certificate valid for
+// localhost. It is intended for development and testing only.
+func generateSelfSignedCert() (tls.Certificate, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	now := time.Now()
+	template := x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: "localhost"},
+		DNSNames:     []string{"localhost"},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1"), net.IPv6loopback},
+		NotBefore:    now,
+		NotAfter:     now.Add(365 * 24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+
+	return tls.X509KeyPair(certPEM, keyPEM)
 }
 
 // loadCertPool reads a PEM file and returns a certificate pool.

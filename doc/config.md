@@ -462,3 +462,64 @@ subscription "counter" {
     ]
 }
 ```
+
+---
+
+## TLS
+
+The `tls {}` sub-block is supported on several server and client blocks to configure
+transport security. The same block type is used in both directions; the set of
+relevant attributes differs slightly between clients and servers.
+
+```hcl
+tls {
+    enabled     = true
+
+    # --- server-side ---
+    cert        = "/etc/certs/server.crt"   # server certificate (PEM)
+    key         = "/etc/certs/server.key"   # server private key (PEM)
+    # OR generate an ephemeral self-signed cert (testing/development only):
+    self_signed = true
+
+    # optional — require clients to present a certificate (mTLS)
+    ca_cert             = "/etc/certs/ca.crt"
+    require_client_cert = true
+
+    # --- client-side ---
+    ca_cert              = "/etc/certs/ca.crt"   # verify the server's certificate
+    cert                 = "/etc/certs/client.crt"  # present a client cert (mTLS)
+    key                  = "/etc/certs/client.key"
+    insecure_skip_verify = false                    # skip server cert verification
+}
+```
+
+### TLS Attributes
+
+| Attribute | Type | Side | Description |
+|---|---|---|---|
+| `enabled` | bool | both | Must be `true` for TLS to take effect. Default: `false`. |
+| `cert` | string | both | Path to a PEM-encoded certificate file. Required on servers (unless `self_signed = true`); optional on clients (mTLS). |
+| `key` | string | both | Path to the private key corresponding to `cert`. Required whenever `cert` is set. |
+| `self_signed` | bool | server | Generate an ephemeral self-signed ECDSA certificate at startup. Mutually exclusive with `cert`/`key`. For development and testing only. |
+| `ca_cert` | string | both | Path to a PEM-encoded CA certificate. On servers, used to verify client certificates. On clients, used to verify the server certificate. |
+| `require_client_cert` | bool | server | Require and verify a client certificate (mTLS). Default: `false`. |
+| `insecure_skip_verify` | bool | client | Skip server certificate verification. Not recommended outside of testing. Default: `false`. |
+
+Relative paths for `cert`, `key`, and `ca_cert` are resolved against the
+`--file-path` base directory.
+
+### `self_signed`
+
+When `self_signed = true`, vinculum generates an ephemeral ECDSA P-256 certificate
+at process startup. The certificate is valid for `localhost` and `127.0.0.1` and
+expires after one year. A new certificate is generated on every restart.
+
+This is intended for local development and integration testing where a real
+certificate is not available. Do not use in production.
+
+```hcl
+tls {
+    enabled     = true
+    self_signed = true
+}
+```

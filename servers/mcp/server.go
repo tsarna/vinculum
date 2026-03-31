@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/http"
 
@@ -17,6 +18,7 @@ type ServerConfig struct {
 	Path          string
 	ServerName    string
 	ServerVersion string
+	TLSConfig     *tls.Config
 	ParentEvalCtx *hcl.EvalContext
 	Logger        *zap.Logger
 	Resources     []ResourceDef
@@ -31,6 +33,7 @@ type Server struct {
 	name          string
 	listen        string
 	path          string
+	tlsConfig     *tls.Config
 	sdkServer     *sdkmcp.Server
 	httpHandler   http.Handler
 	logger        *zap.Logger
@@ -62,6 +65,7 @@ func New(cfg ServerConfig) (*Server, error) {
 		name:          cfg.Name,
 		listen:        cfg.Listen,
 		path:          path,
+		tlsConfig:     cfg.TLSConfig,
 		sdkServer:     sdkSrv,
 		logger:        cfg.Logger,
 		parentEvalCtx: cfg.ParentEvalCtx,
@@ -107,7 +111,14 @@ func (s *Server) Start() error {
 			zap.String("addr", s.listen),
 			zap.String("path", s.path),
 		)
-		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		var err error
+		if s.tlsConfig != nil {
+			httpSrv.TLSConfig = s.tlsConfig
+			err = httpSrv.ListenAndServeTLS("", "")
+		} else {
+			err = httpSrv.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
 			s.logger.Error("MCP server stopped", zap.String("name", s.name), zap.Error(err))
 		}
 	}()

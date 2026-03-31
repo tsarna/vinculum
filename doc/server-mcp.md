@@ -13,6 +13,10 @@ server "mcp" "name" {
     server_version = "1.0.0"       # optional
     disabled       = false         # optional
 
+    tls {                          # optional; standalone mode only
+        ...
+    }
+
     resource ...
     tool ...
     prompt ...
@@ -23,6 +27,7 @@ server "mcp" "name" {
 - `path` — URL path to mount the MCP endpoint on
 - `server_name` / `server_version` — reported to clients during capability negotiation
 - `disabled` — if true, the server block is skipped entirely
+- `tls` — optional sub-block to enable HTTPS; standalone mode only. See [TLS](#tls) below.
 
 The server uses the [Streamable HTTP transport](https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/transports/#streamable-http)
 (MCP spec 2025-03-26).
@@ -204,6 +209,42 @@ See [functions.md](functions.md#mcp-functions) for full details.
 `data` in `mcp_image` may be a base64-encoded string (requires `mime_type`) or a `bytes` capsule
 (MIME type taken from the capsule's content type, optionally overridden by a second argument).
 See [functions.md](functions.md#mcp_image-data--mime_type) for full details.
+
+---
+
+## TLS
+
+Add a `tls {}` sub-block to serve the MCP endpoint over HTTPS. TLS is only available
+in standalone mode (when `listen` is set); mounted servers inherit TLS from the parent
+HTTP server. See [TLS configuration](config.md#tls) for the full attribute reference.
+
+```hcl
+server "mcp" "tools" {
+    listen      = ":9000"
+    server_name = "My Tools"
+
+    tls {
+        enabled = true
+        cert    = "/etc/certs/server.crt"
+        key     = "/etc/certs/server.key"
+    }
+
+    tool "echo" {
+        description = "Echo the input"
+        param "text" { type = "string"; required = true }
+        action = ctx.args.text
+    }
+}
+```
+
+For local development, use `self_signed = true`:
+
+```hcl
+tls {
+    enabled     = true
+    self_signed = true
+}
+```
 
 ---
 

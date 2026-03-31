@@ -7,6 +7,10 @@ server "http" "name" {
     listen   = ":8080"
     disabled = false     # optional
 
+    tls {                # optional
+        ...
+    }
+
     handle "route" {
         ...
     }
@@ -19,6 +23,7 @@ server "http" "name" {
 
 - `listen` — address and port to listen on (e.g. `":8080"`, `"127.0.0.1:9090"`)
 - `disabled` — if true, the server block is skipped entirely
+- `tls` — optional sub-block to enable HTTPS; see [TLS](#tls) below
 
 The server is available in expressions as `server.<name>`.
 
@@ -175,6 +180,41 @@ Set a response header. Must be called before `respond`. Returns `true`.
 #### `redirect(code, url)`
 Send an HTTP redirect response. `code` should be a 3xx status (e.g.
 `httpstatus.Found` for a temporary redirect). Returns `true`.
+
+---
+
+## TLS
+
+Add a `tls {}` sub-block to serve HTTPS instead of plain HTTP. See [TLS configuration](config.md#tls) for the full attribute reference.
+
+```hcl
+server "http" "secure" {
+    listen = ":8443"
+
+    tls {
+        enabled = true
+        cert    = "/etc/certs/server.crt"
+        key     = "/etc/certs/server.key"
+    }
+
+    handle "/hello" {
+        action = respond(200, "Hello, TLS!")
+    }
+}
+```
+
+For local development, use `self_signed = true` to generate an ephemeral certificate automatically:
+
+```hcl
+server "http" "dev" {
+    listen = ":8443"
+
+    tls {
+        enabled     = true
+        self_signed = true
+    }
+}
+```
 
 ---
 

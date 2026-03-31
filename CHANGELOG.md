@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `tostring(u)` — return the canonical URL string from a URL object
 - **Enhanced `tostring()` and `length()`** — the built-in `tostring()` and `length()` functions now dispatch on rich VCL types: `tostring(b)` returns the UTF-8 content of a `bytes` value; `length(b)` returns its byte count; `tostring(u)` returns the canonical string of a URL object. Falls back to standard behavior for all other types.
 - **`Stringable` and `Lengthable` interfaces** — capsule types may now implement `ToString(ctx) (string, error)` and `Length(ctx) (int64, error)` to integrate with `tostring()` and `length()` respectively. Objects carrying a `_capsule` attribute are also supported (following the same convention as `_ctx` for context propagation).
+- **TLS support for `server "http"`** — add a `tls {}` sub-block to serve HTTPS. Supports file-based certificates (`cert`/`key`) and the new `self_signed = true` option for development.
+- **TLS support for `server "metrics"`** (standalone mode) — add a `tls {}` sub-block to a metrics server with a `listen` address to serve the scrape endpoint over HTTPS.
+- **TLS support for `server "mcp"`** (standalone mode) — add a `tls {}` sub-block to a standalone MCP server to serve the MCP Streamable HTTP endpoint over HTTPS.
+- **`self_signed` TLS option** — setting `self_signed = true` in any server `tls {}` block generates an ephemeral ECDSA P-256 certificate at startup (valid for `localhost`/`127.0.0.1`). Useful for local development and integration testing; mutually exclusive with `cert`/`key`.
 
 ## [0.19.0] - 2026-03-30
 

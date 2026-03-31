@@ -19,6 +19,12 @@ The server starts its own HTTP listener and serves the metrics endpoint directly
 server "metrics" "name" {
     listen = ":9090"      # required in standalone mode
     path   = "/metrics"   # optional, default "/metrics"
+
+    tls {                 # optional; standalone mode only
+        enabled = true
+        cert    = "/etc/certs/server.crt"
+        key     = "/etc/certs/server.key"
+    }
 }
 ```
 
@@ -61,6 +67,7 @@ but the metrics will not be scraped. This may be useful during development.
 | `path`               | string | no       | `"/metrics"` | Metrics endpoint path; only used in standalone mode |
 | `default`            | bool   | no       | see below    | Whether this is the default metrics server |
 | `include_go_metrics` | bool   | no       | `true`       | When `false`, the Go runtime (`go_*`) and process (`process_*`) collectors are not registered |
+| `tls {}`             | block  | no       | —            | Enable HTTPS; standalone mode only. See [TLS configuration](config.md#tls). |
 
 ---
 
@@ -161,6 +168,22 @@ server "metrics" "metrics" {
 bus "main" {}
 ```
 
+### Standalone metrics server with TLS
+
+```hcl
+server "metrics" "metrics" {
+    listen = ":9090"
+
+    tls {
+        enabled = true
+        cert    = "/etc/certs/server.crt"
+        key     = "/etc/certs/server.key"
+    }
+}
+```
+
+For development, `self_signed = true` generates an ephemeral certificate automatically — see [TLS configuration](config.md#tls).
+
 ### Metrics mounted under an existing HTTP server
 
 ```hcl
@@ -240,5 +263,4 @@ unless `include_go_metrics = false` is set.
 
 ## Future Attributes (not yet implemented)
 
-- `tls {}` sub-block for TLS (standalone mode only).
 - `basic_auth {}` sub-block for scrape authentication.

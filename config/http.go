@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"strings"
@@ -17,12 +18,14 @@ import (
 
 type HttpServer struct {
 	BaseServer
-	Logger *zap.Logger
-	Server *http.Server
+	Logger    *zap.Logger
+	Server    *http.Server
+	TLSConfig *tls.Config
 }
 
 type HttpServerDefinition struct {
 	Listen      string                  `hcl:"listen"`
+	TLS         *TLSConfig              `hcl:"tls,block"`
 	DefRange    hcl.Range               `hcl:",def_range"`
 	StaticFiles []staticFilesDefinition `hcl:"files,block"`
 	Handlers    []handlerDefinition     `hcl:"handle,block"`
@@ -151,6 +154,21 @@ func ProcessHttpServerBlock(config *Config, block *hcl.Block, remainingBody hcl.
 		},
 	}
 
+	if serverDef.TLS != nil {
+		tlsCfg, err := serverDef.TLS.BuildTLSServerConfig(config.BaseDir)
+		if err != nil {
+			return nil, hcl.Diagnostics{
+				&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "Invalid TLS configuration",
+					Detail:   err.Error(),
+					Subject:  &serverDef.TLS.DefRange,
+				},
+			}
+		}
+		server.TLSConfig = tlsCfg
+	}
+
 	config.Startables = append(config.Startables, server)
 
 	return server, nil
@@ -159,8 +177,14 @@ func ProcessHttpServerBlock(config *Config, block *hcl.Block, remainingBody hcl.
 func (h *HttpServer) Start() error {
 	go func() {
 		h.Logger.Info("Starting HTTP server", zap.String("name", h.Name), zap.String("addr", h.Server.Addr))
-		err := h.Server.ListenAndServe()
-		if err != nil {
+		var err error
+		if h.TLSConfig != nil {
+			h.Server.TLSConfig = h.TLSConfig
+			err = h.Server.ListenAndServeTLS("", "")
+		} else {
+			err = h.Server.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
 			h.Logger.Error("Failed to start HTTP server", zap.Error(err))
 		}
 	}()

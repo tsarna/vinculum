@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/http"
 
@@ -32,6 +33,7 @@ type McpServerDefinition struct {
 	ServerName    string                  `hcl:"server_name,optional"`
 	ServerVersion string                  `hcl:"server_version,optional"`
 	Disabled      bool                    `hcl:"disabled,optional"`
+	TLS           *cfg.TLSConfig          `hcl:"tls,block"`
 	DefRange      hcl.Range               `hcl:",def_range"`
 	Resources     []mcpResourceDefinition `hcl:"resource,block"`
 	Tools         []mcpToolDefinition     `hcl:"tool,block"`
@@ -115,12 +117,37 @@ func ProcessMcpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody h
 		return nil, diags
 	}
 
+	var tlsCfg *tls.Config
+	if def.TLS != nil {
+		if def.Listen == "" {
+			defRange := def.TLS.DefRange
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "TLS requires standalone mode",
+				Detail:   "A tls block can only be used on a server \"mcp\" block that also has a listen address.",
+				Subject:  &defRange,
+			}}
+		}
+		var err error
+		tlsCfg, err = def.TLS.BuildTLSServerConfig(config.BaseDir)
+		if err != nil {
+			defRange := def.TLS.DefRange
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "Invalid TLS configuration",
+				Detail:   err.Error(),
+				Subject:  &defRange,
+			}}
+		}
+	}
+
 	srv, err := New(ServerConfig{
 		Name:          name,
 		Listen:        def.Listen,
 		Path:          def.Path,
 		ServerName:    def.ServerName,
 		ServerVersion: def.ServerVersion,
+		TLSConfig:     tlsCfg,
 		ParentEvalCtx: config.EvalCtx(),
 		Logger:        config.Logger,
 		Resources:     resources,

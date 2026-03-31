@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/http"
 
@@ -21,8 +22,9 @@ type MetricsServer struct {
 	registry  *prometheus.Registry
 	provider  *promadapter.Provider
 	handler   http.Handler
-	listen    string // empty = mounted mode only
-	path      string // default "/metrics"
+	listen    string      // empty = mounted mode only
+	path      string      // default "/metrics"
+	tlsConfig *tls.Config // nil = plain HTTP
 	IsDefault bool
 }
 
@@ -51,8 +53,14 @@ func (s *MetricsServer) Start() error {
 	}
 
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			// Log but don't crash — server lifecycle is managed externally
+		var err error
+		if s.tlsConfig != nil {
+			srv.TLSConfig = s.tlsConfig
+			err = srv.ListenAndServeTLS("", "")
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
 			_ = err
 		}
 	}()
@@ -69,7 +77,7 @@ func (s *MetricsServer) GetRegistry() *prometheus.Registry {
 // newMetricsServer constructs a MetricsServer with a private registry.
 // When includeGoMetrics is true (the default), the Go runtime and process
 // collectors are registered automatically.
-func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDefault, includeGoMetrics bool) *MetricsServer {
+func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDefault, includeGoMetrics bool, tlsCfg *tls.Config) *MetricsServer {
 	reg := prometheus.NewRegistry()
 	if includeGoMetrics {
 		reg.MustRegister(
@@ -87,17 +95,19 @@ func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDe
 		handler:    handler,
 		listen:     listen,
 		path:       path,
+		tlsConfig:  tlsCfg,
 		IsDefault:  isDefault,
 	}
 }
 
 // MetricsServerDefinition holds the decoded HCL attributes for a server "metrics" block.
 type MetricsServerDefinition struct {
-	Listen           *string   `hcl:"listen,optional"`
-	Path             *string   `hcl:"path,optional"`
-	Default          *bool     `hcl:"default,optional"`
-	IncludeGoMetrics *bool     `hcl:"include_go_metrics,optional"`
-	DefRange         hcl.Range `hcl:",def_range"`
+	Listen           *string    `hcl:"listen,optional"`
+	Path             *string    `hcl:"path,optional"`
+	Default          *bool      `hcl:"default,optional"`
+	IncludeGoMetrics *bool      `hcl:"include_go_metrics,optional"`
+	TLS              *TLSConfig `hcl:"tls,block"`
+	DefRange         hcl.Range  `hcl:",def_range"`
 }
 
 func init() {
@@ -134,7 +144,33 @@ func ProcessMetricsServerBlock(config *Config, block *hcl.Block, remainingBody h
 		includeGoMetrics = *def.IncludeGoMetrics
 	}
 
-	srv := newMetricsServer(name, def.DefRange, listen, path, isDefault, includeGoMetrics)
+	var tlsCfg *tls.Config
+	if def.TLS != nil {
+		if listen == "" {
+			return nil, hcl.Diagnostics{
+				&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "TLS requires standalone mode",
+					Detail:   "A tls block can only be used on a server \"metrics\" block that also has a listen address.",
+					Subject:  &def.TLS.DefRange,
+				},
+			}
+		}
+		var err error
+		tlsCfg, err = def.TLS.BuildTLSServerConfig(config.BaseDir)
+		if err != nil {
+			return nil, hcl.Diagnostics{
+				&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "Invalid TLS configuration",
+					Detail:   err.Error(),
+					Subject:  &def.TLS.DefRange,
+				},
+			}
+		}
+	}
+
+	srv := newMetricsServer(name, def.DefRange, listen, path, isDefault, includeGoMetrics, tlsCfg)
 
 	if config.MetricsServers == nil {
 		config.MetricsServers = make(map[string]*MetricsServer)
