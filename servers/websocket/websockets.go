@@ -1,4 +1,4 @@
-package config
+package websocketserver
 
 import (
 	"fmt"
@@ -7,12 +7,12 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/vinculum-bus/transform"
-	"github.com/tsarna/vinculum/websockets/server"
+	cfg "github.com/tsarna/vinculum/config"
 )
 
 type WebsocketServer struct {
-	BaseServer
-	Listener *server.Listener
+	cfg.BaseServer
+	Listener *Listener
 }
 
 func (s *WebsocketServer) GetHandler() http.Handler {
@@ -31,19 +31,19 @@ type WebsocketsServerDefinition struct {
 }
 
 func init() {
-	RegisterServerType("websocket", ProcessWebsocketsServerBlock)
+	cfg.RegisterServerType("websocket", ProcessWebsocketsServerBlock)
 }
 
-func ProcessWebsocketsServerBlock(config *Config, block *hcl.Block, remainingBody hcl.Body) (Listener, hcl.Diagnostics) {
+func ProcessWebsocketsServerBlock(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Listener, hcl.Diagnostics) {
 	serverDef := WebsocketsServerDefinition{}
-	diags := gohcl.DecodeBody(remainingBody, config.evalCtx, &serverDef)
+	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &serverDef)
 	if diags.HasErrors() {
 		return nil, diags
 	}
 
 	websocketsServers, ok := config.Servers["websocket"]
 	if !ok {
-		websocketsServers = make(map[string]Listener)
+		websocketsServers = make(map[string]cfg.Listener)
 		config.Servers["websocket"] = websocketsServers
 	}
 
@@ -59,15 +59,15 @@ func ProcessWebsocketsServerBlock(config *Config, block *hcl.Block, remainingBod
 		}
 	}
 
-	bus, diags := GetEventBusFromExpression(config, serverDef.Bus)
+	bus, diags := cfg.GetEventBusFromExpression(config, serverDef.Bus)
 	if diags.HasErrors() {
 		return nil, diags
 	}
 
-	listenerBuilder := server.NewServer().WithEventBus(bus).WithLogger(config.Logger)
+	listenerBuilder := NewServer().WithEventBus(bus).WithLogger(config.Logger)
 
 	/*TODO
-	if IsExpressionProvided(serverDef.PingInterval) {
+	if cfg.IsExpressionProvided(serverDef.PingInterval) {
 		pingInterval, diags := config.ParseDuration(serverDef.PingInterval)
 		if diags.HasErrors() {
 			return nil, diags
@@ -77,7 +77,7 @@ func ProcessWebsocketsServerBlock(config *Config, block *hcl.Block, remainingBod
 	*/
 
 	/*TODO
-	if IsExpressionProvided(serverDef.WriteTimeout) {
+	if cfg.IsExpressionProvided(serverDef.WriteTimeout) {
 		writeTimeout, diags := config.ParseDuration(serverDef.WriteTimeout)
 		if diags.HasErrors() {
 			return nil, diags
@@ -95,18 +95,18 @@ func ProcessWebsocketsServerBlock(config *Config, block *hcl.Block, remainingBod
 	}
 
 	transforms := make([]transform.MessageTransformFunc, 0)
-	if IsExpressionProvided(serverDef.OutboundTransforms) {
+	if cfg.IsExpressionProvided(serverDef.OutboundTransforms) {
 		transforms, diags = config.GetMessageTransforms(serverDef.OutboundTransforms)
 		if diags.HasErrors() {
 			return nil, diags
 		}
 	}
 
-	transforms = append(transforms, Cty2GoTransform)
+	transforms = append(transforms, cfg.Cty2GoTransform)
 	listenerBuilder = listenerBuilder.WithOutboundTransforms(transforms...)
 
 	inboundTransforms := make([]transform.MessageTransformFunc, 0)
-	if IsExpressionProvided(serverDef.InboundTransforms) {
+	if cfg.IsExpressionProvided(serverDef.InboundTransforms) {
 		inboundTransforms, diags = config.GetMessageTransforms(serverDef.InboundTransforms)
 		if diags.HasErrors() {
 			return nil, diags
@@ -129,13 +129,13 @@ func ProcessWebsocketsServerBlock(config *Config, block *hcl.Block, remainingBod
 		}
 	}
 
-	server := &WebsocketServer{
-		BaseServer: BaseServer{
+	srv := &WebsocketServer{
+		BaseServer: cfg.BaseServer{
 			Name:     block.Labels[1],
 			DefRange: serverDef.DefRange,
 		},
 		Listener: listener,
 	}
 
-	return server, nil
+	return srv, nil
 }

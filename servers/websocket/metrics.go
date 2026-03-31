@@ -1,4 +1,4 @@
-package server
+package websocketserver
 
 import (
 	"context"

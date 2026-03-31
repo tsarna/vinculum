@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tsarna/vinculum/config"
 	mcpsrv "github.com/tsarna/vinculum/servers/mcp"
+	httpserver "github.com/tsarna/vinculum/servers/http"
 	"go.uber.org/zap"
 )
 
@@ -95,7 +96,7 @@ func TestMcpMountedUnderHttp(t *testing.T) {
 	// HTTP server IS in Startables
 	httpFound := false
 	for _, s := range cfg.Startables {
-		if _, ok := s.(*config.HttpServer); ok {
+		if _, ok := s.(*httpserver.HttpServer); ok {
 			httpFound = true
 			break
 		}
@@ -104,7 +105,7 @@ func TestMcpMountedUnderHttp(t *testing.T) {
 
 	// The HTTP server's mux routes /mcp/ to the MCP handler.
 	// A POST with a JSON-RPC body should reach the MCP handler (not 404).
-	httpSrv := cfg.Servers["http"]["main"].(*config.HttpServer)
+	httpSrv := cfg.Servers["http"]["main"].(*httpserver.HttpServer)
 	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.0.1"}}}`
 	req := httptest.NewRequest(http.MethodPost, "/mcp/", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

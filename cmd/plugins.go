@@ -11,6 +11,7 @@ import (
 	_ "github.com/tsarna/vinculum/servers/http"
 	_ "github.com/tsarna/vinculum/servers/mcp"
 	_ "github.com/tsarna/vinculum/servers/vws"
+	_ "github.com/tsarna/vinculum/servers/websocket"
 	_ "github.com/tsarna/vinculum/triggers/after"
 	_ "github.com/tsarna/vinculum/triggers/cron"
 	_ "github.com/tsarna/vinculum/triggers/interval"
