@@ -17,7 +17,7 @@ func TestPromptUserMessage(t *testing.T) {
 			Params: []ParamDef{
 				{Name: "name", Type: "string", Required: true},
 			},
-			Action: parseExpr(t, `mcp_user_message("Hello, ${ctx.args.name}!")`),
+			Action: parseExpr(t, `mcp_usermessage("Hello, ${ctx.args.name}!")`),
 		},
 	})
 
@@ -39,7 +39,7 @@ func TestPromptAssistantMessage(t *testing.T) {
 	srv := newTestServer(t, nil, nil, []PromptDef{
 		{
 			Name:   "assistant_example",
-			Action: parseExpr(t, `mcp_assistant_message("I can help with that.")`),
+			Action: parseExpr(t, `mcp_assistantmessage("I can help with that.")`),
 		},
 	})
 
@@ -53,8 +53,8 @@ func TestPromptAssistantMessage(t *testing.T) {
 
 func TestPromptListsPrompts(t *testing.T) {
 	srv := newTestServer(t, nil, nil, []PromptDef{
-		{Name: "p1", Action: parseExpr(t, `mcp_user_message("one")`)},
-		{Name: "p2", Action: parseExpr(t, `mcp_user_message("two")`)},
+		{Name: "p1", Action: parseExpr(t, `mcp_usermessage("one")`)},
+		{Name: "p2", Action: parseExpr(t, `mcp_usermessage("two")`)},
 	})
 
 	cs := connectInMemory(t, srv)
@@ -68,7 +68,7 @@ func TestPromptContextAttributes(t *testing.T) {
 	srv := newTestServer(t, nil, nil, []PromptDef{
 		{
 			Name:   "meta",
-			Action: parseExpr(t, `mcp_user_message("server=${ctx.server_name} prompt=${ctx.prompt_name}")`),
+			Action: parseExpr(t, `mcp_usermessage("server=${ctx.server_name} prompt=${ctx.prompt_name}")`),
 		},
 	})
 
@@ -87,7 +87,7 @@ func TestPromptDescriptionPropagated(t *testing.T) {
 		{
 			Name:        "described",
 			Description: "A well-described prompt",
-			Action:      parseExpr(t, `mcp_user_message("hi")`),
+			Action:      parseExpr(t, `mcp_usermessage("hi")`),
 		},
 	})
 

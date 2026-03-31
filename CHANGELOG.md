@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **HTTP action return value is now the response** — the return value of a `handle` action
+  expression determines the HTTP response sent to the client. Previously it was ignored.
+  Automatic coercion applies: `string` → 200 text/plain, `null` → 204, objects/maps/lists →
+  200 application/json, `bytes` → 200 with its content type.
+- **`respond()`, `setheader()`, `redirect()` removed** — these HTTP-action-context-only
+  side-effect functions have been removed. Use the return value and the new response
+  functions instead (see Added below).
+- **`httpstatus` renamed to `http_status`** — the ambient HTTP status code constant object
+  is now `http_status.NotFound`, `http_status.OK`, etc. Update all references.
+
 - **`bytes` is now a rich object type** — `bytes()`, `base64decode(..., ct)`, and `filebytes()` now return an object with a `content_type` attribute and a `_capsule` for interface dispatch, rather than a raw capsule. Callers should use `b.content_type` instead of `get(b, "content_type")`. The `get()` function is no longer supported on `bytes` values.
 - **`bytes` `get()` modes removed** — all `get()` modes on bytes values are gone:
   - `get(b)` / `get(b, "utf8")` / `get(b, "string")` / `get(b, "text")` → use `tostring(b)` instead
@@ -24,6 +34,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   directory and `--file-path` was not involved).
 
 ### Added
+
+- **HTTP response functions** — new globally-available functions for building HTTP responses
+  (not scoped to `handle` actions; usable from any action expression):
+  - `http_response(status[, body[, headers]])` — build a response with explicit status,
+    optional body (auto-coerced by type), and optional headers (`map(string)` or
+    `map(list(string))`)
+  - `http_redirect(url)` / `http_redirect(status, url)` — redirect response; defaults to
+    302 Found
+  - `http_error(status, message)` — error response with plain-text body; integrates
+    naturally with `try()` for mapping errors to specific HTTP status codes
+  - `addheader(response, name, value)` — return new response with header value appended
+  - `removeheader(response, name)` — return new response with header removed
+  - `setcookie(cookieObj)` — format a `Set-Cookie` header value from a cookie definition
+    object; use with `addheader()` to attach cookies to any response
+- **`mcp_usermessage()` and `mcp_assistantmessage()`** — renamed from
+  `mcp_user_message()` and `mcp_assistant_message()` for naming consistency (underscore
+  as namespace separator only, not word separator).
 
 - **`basicauth(user, password)` function** — returns the `Authorization` header value for HTTP Basic authentication (`"Basic <base64(user:password)>"`); available in the new `httputil` function plugin
 - **URL parsing and manipulation functions** — new `url` function plugin:

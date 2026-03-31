@@ -120,7 +120,7 @@ var MCPErrorFunc = function.New(&function.Spec{
 	},
 })
 
-// MCPUserMessageFunc returns an mcp_user_message function for prompt results.
+// MCPUserMessageFunc returns an mcp_usermessage function for prompt results.
 var MCPUserMessageFunc = function.New(&function.Spec{
 	Description: "Returns a user-role message for an MCP prompt result",
 	Params: []function.Parameter{
@@ -135,7 +135,7 @@ var MCPUserMessageFunc = function.New(&function.Spec{
 	},
 })
 
-// MCPAssistantMessageFunc returns an mcp_assistant_message function for prompt results.
+// MCPAssistantMessageFunc returns an mcp_assistantmessage function for prompt results.
 var MCPAssistantMessageFunc = function.New(&function.Spec{
 	Description: "Returns an assistant-role message for an MCP prompt result (few-shot example)",
 	Params: []function.Parameter{
@@ -158,7 +158,7 @@ func GetMcpFunctions() map[string]function.Function {
 	return map[string]function.Function{
 		"mcp_image":             MCPImageFunc,
 		"mcp_error":             MCPErrorFunc,
-		"mcp_user_message":      MCPUserMessageFunc,
-		"mcp_assistant_message": MCPAssistantMessageFunc,
+		"mcp_usermessage":      MCPUserMessageFunc,
+		"mcp_assistantmessage": MCPAssistantMessageFunc,
 	}
 }

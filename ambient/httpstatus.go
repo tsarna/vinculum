@@ -9,7 +9,7 @@ import (
 )
 
 func init() {
-	cfg.RegisterAmbientProvider("httpstatus", func(_ *cfg.Config) cty.Value {
+	cfg.RegisterAmbientProvider("http_status", func(_ *cfg.Config) cty.Value {
 		return getStatusCodeObject()
 	})
 }

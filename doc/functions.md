@@ -596,7 +596,7 @@ action = [
     increment(ctx, var.hits, 1),
     increment(ctx, metric.requests_total, 1, {method = ctx.method}),
     observe(ctx, metric.request_duration_seconds, ctx.elapsed, {method = ctx.method}),
-    respond(httpstatus.OK, {hits = get(var.hits)}),
+    http_response(http_status.OK, {hits = get(var.hits)}),
 ]
 ```
 
@@ -614,12 +614,18 @@ See [metric.md](metric.md) for the full reference on declaring and using metrics
 - `call(ctx, client, request)`: Make a synchronous request to a client and return the response. Currently supported for LLM clients (`client "openai"`). Always returns a response object — API errors are represented as `stop_reason = "error"` in the response rather than Go-level errors. See [client-llm.md](client-llm.md) for the full request/response schema.
 - `llm_wrap(content)`: Wrap a string in `<user_input>` XML-like delimiters as a prompt injection mitigation. Use in the `content` of user messages when the content comes from an untrusted source. The system prompt should reference the tags (e.g. `"Summarize the text in the <user_input> tags."`). Returns `"<user_input>\n{content}\n</user_input>"`.
 
-### HTTP Action Functions
+### HTTP Response Functions
 
-These functions are only available inside `handle` block action expressions in [`server "http"`](server-http.md) blocks.
+These functions are globally available and build `httpresponse` values. The return value
+of a `handle` action expression is used as the HTTP response — no separate "write" call
+is needed. See [`server "http"`](server-http.md#response) for full details.
 
-- `respond(code, body)`: Write an HTTP response. `code` is the integer status code. If `body` is a string it is written as-is; otherwise it is JSON-encoded and `Content-Type: application/json` is set. Returns `true`.
-- `set_header(key, value)`: Set a response header. Must be called before `respond`. Returns `true`.
+- `http_response(status[, body[, headers]])`: Build a response with the given status code, optional body, and optional headers. Body is auto-coerced: string → text/plain, bytes → its content type, anything else → JSON. Headers may be `map(string)` or `map(list(string))`.
+- `http_redirect(url)` / `http_redirect(status, url)`: Build a redirect response. Single-arg form defaults to 302 Found.
+- `http_error(status, message)`: Build an error response with plain-text body. Works naturally with `try()`.
+- `addheader(response, name, value)`: Return a new response with the given header appended.
+- `removeheader(response, name)`: Return a new response with the given header removed.
+- `setcookie(cookieObj)`: Format a `Set-Cookie` header value from a cookie definition object (fields: `name`, `value`, `path`, `domain`, `expires`, `max_age`, `secure`, `http_only`, `same_site`, `partitioned`). Use with `addheader()`.
 
 ### HTTP Utilities
 
@@ -755,7 +761,7 @@ Returns an error result for an MCP tool call.
 
 Valid in: tool action expressions only.
 
-### `mcp_user_message(content)`
+### `mcp_usermessage(content)`
 
 Returns a user-role message for an MCP prompt result.
 
@@ -763,10 +769,10 @@ Returns a user-role message for an MCP prompt result.
 
 Valid in: prompt action expressions.
 
-### `mcp_assistant_message(content)`
+### `mcp_assistantmessage(content)`
 
 Returns an assistant-role message for an MCP prompt result. Used to provide
-few-shot examples alongside a `mcp_user_message()`.
+few-shot examples alongside a `mcp_usermessage()`.
 
 - `content` — message text (string)
 

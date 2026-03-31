@@ -10,7 +10,7 @@ server "mcp" "prompts_test" {
             required = true
         }
 
-        action = mcp_user_message("Please summarize: ${ctx.args.topic}")
+        action = mcp_usermessage("Please summarize: ${ctx.args.topic}")
     }
 
     prompt "translate" {
@@ -26,6 +26,6 @@ server "mcp" "prompts_test" {
             required = true
         }
 
-        action = mcp_user_message("Translate to ${ctx.args.language}: ${ctx.args.text}")
+        action = mcp_usermessage("Translate to ${ctx.args.language}: ${ctx.args.text}")
     }
 }

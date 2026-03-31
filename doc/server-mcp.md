@@ -184,7 +184,7 @@ prompt "code_review" {
         required = true
     }
 
-    action = mcp_user_message(
+    action = mcp_usermessage(
         "Please review this ${ctx.args.language} code:\n\n```${ctx.args.language}\n${ctx.args.code}\n```"
     )
 }
@@ -203,8 +203,8 @@ See [functions.md](functions.md#mcp-functions) for full details.
 | plain string | Text content | resources, tools, prompts |
 | `mcp_image(data [, mime_type])` | Image content | resources, tools |
 | `mcp_error(message)` | Tool error | tools only |
-| `mcp_user_message(content)` | User-role prompt message | prompts |
-| `mcp_assistant_message(content)` | Assistant-role prompt message | prompts |
+| `mcp_usermessage(content)` | User-role prompt message | prompts |
+| `mcp_assistantmessage(content)` | Assistant-role prompt message | prompts |
 
 `data` in `mcp_image` may be a base64-encoded string (requires `mime_type`) or a `bytes` capsule
 (MIME type taken from the capsule's content type, optionally overridden by a second argument).
@@ -342,7 +342,7 @@ server "mcp" "assistant_tools" {
             required    = true
         }
 
-        action = mcp_user_message(
+        action = mcp_usermessage(
             "Please review this ${ctx.args.language} code:\n\n```${ctx.args.language}\n${ctx.args.code}\n```"
         )
     }

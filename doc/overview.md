@@ -276,7 +276,7 @@ server "http" "api" {
     handle "POST /events" {
         action = [
             send(ctx, bus.main, "api/event", ctx.body),
-            respond(httpstatus.Accepted, {status: "received"})
+            http_response(http_status.Accepted, {status = "received"})
         ]
     }
     

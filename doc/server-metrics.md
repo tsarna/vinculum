@@ -195,7 +195,7 @@ server "http" "api" {
     handle "/webhook" {
         action = [
             send(ctx, bus.main, "webhooks/${ctx.method}", ctx.body),
-            respond(httpstatus.OK, {status = "ok"}),
+            http_response(http_status.OK, {status = "ok"}),
         ]
     }
 

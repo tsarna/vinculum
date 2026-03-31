@@ -226,7 +226,7 @@ subscription "name" { target = bus.x; topics = [...]; action = expr }
 | `server.<name>` | Server (capsule) |
 | `client.<name>` | Client (capsule) |
 | `env.<NAME>` | Environment variable |
-| `httpstatus.OK` etc. | HTTP status code constants |
+| `http_status.OK` etc. | HTTP status code constants |
 | `ctx` | Handler-specific context (varies) |
 
 ### action = expressions
@@ -381,7 +381,7 @@ See `MCP-SPEC.md` (full spec) and `MCP-MVP.md` (MVP scope) for details.
 - Static and URI-template resources with action-based handlers
 - Tools with typed params and action-based handlers
 - Prompts with params and action-based handlers
-- `mcp_image()`, `mcp_error()`, `mcp_user_message()`, `mcp_assistant_message()` — available globally in all action expressions (not just MCP handlers)
+- `mcp_image()`, `mcp_error()`, `mcp_usermessage()`, `mcp_assistantmessage()` — available globally in all action expressions (not just MCP handlers)
 - Unit tests for all three handler types using in-process SDK client
 
 **Key design decisions:**

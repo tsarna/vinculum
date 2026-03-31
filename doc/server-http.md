@@ -56,9 +56,9 @@ Routes use [Go 1.22 `http.ServeMux` pattern syntax](https://pkg.go.dev/net/http#
 
 ### `action` Expression
 
-The action expression is evaluated for each matching request. The result value is
-discarded; use `respond()` to write a response. See [Context Variables](#context-variables)
-and [Request Functions](#request-functions) below.
+The action expression is evaluated for each matching request. The **return value**
+determines the HTTP response sent to the client — see [Response](#response) below.
+See [Context Variables](#context-variables) and [Request Functions](#request-functions).
 
 ### `handler` Attribute
 
@@ -157,7 +157,7 @@ Returned by `get(ctx.request, "cookie", name)`.
 | `value` | string | Cookie value |
 | `path` | string | Cookie path |
 | `domain` | string | Cookie domain |
-| `expires` | string | Expiry time in RFC 3339 format, or `""` if not set |
+| `expires` | time | Expiry time as a `time` capsule, or `null` if not set |
 | `raw_expires` | string | Raw `Expires` header value |
 | `max_age` | number | Max-Age in seconds (`0` = not set, negative = delete) |
 | `secure` | bool | Secure flag |
@@ -169,21 +169,54 @@ Returned by `get(ctx.request, "cookie", name)`.
 
 ---
 
-## Response Functions
+## Response
 
-These functions are only available inside `handle` action expressions.
+The return value of the `action` expression determines the HTTP response. Automatic
+type coercion handles the common cases; use the constructor functions for full control.
 
-#### `respond(code, body)`
-Write an HTTP response. `code` is the integer status code. If `body` is a string it
-is written as-is; otherwise it is JSON-encoded and `Content-Type: application/json`
-is set automatically. Returns `true`.
+### Automatic Coercion
 
-#### `setheader(key, value)`
-Set a response header. Must be called before `respond`. Returns `true`.
+| Return type | Status | Content-Type | Body |
+|---|---|---|---|
+| `null` | 204 | — | none |
+| `string` | 200 | `text/plain; charset=utf-8` | string bytes |
+| `bytes` object | 200 | from `bytes.content_type` | raw bytes |
+| `bool`, `number`, `object`, `map`, `list`, `tuple` | 200 | `application/json` | JSON-encoded |
+| `http_error(...)` result | from call | `text/plain; charset=utf-8` | message |
+| `http_response(...)` result | from call | from call | from call |
 
-#### `redirect(code, url)`
-Send an HTTP redirect response. `code` should be a 3xx status (e.g.
-`httpstatus.Found` for a temporary redirect). Returns `true`.
+### Response Functions
+
+#### `http_response(status[, body[, headers]])`
+Build a response with the given status code, optional body, and optional headers.
+`body` is coerced using the same rules as automatic coercion. `headers` may be
+`map(string)` or `map(list(string))`.
+
+#### `http_redirect(url)` / `http_redirect(status, url)`
+Build a redirect response. The single-argument form uses `302 Found`. Valid status
+codes: 301, 302, 303, 307, 308.
+
+#### `http_error(status, message)`
+Build an error response with the given status code and plain-text body.
+Useful with `try()` to map errors to specific HTTP status codes.
+
+#### `addheader(response, name, value)`
+Return a new response with the given header value appended (multi-value safe).
+
+#### `removeheader(response, name)`
+Return a new response with all values for the given header removed.
+
+#### `setcookie(cookieObj)`
+Format a `Set-Cookie` header value from a cookie definition object.
+Use with `addheader()` to set cookies on a response. Required fields: `name`, `value`.
+Optional: `path`, `domain`, `expires` (`time` capsule, `duration` capsule, or RFC 3339 string), `max_age`, `secure`, `http_only`,
+`same_site` (`"Lax"`, `"Strict"`, `"None"`, or `"Default"`), `partitioned`.
+
+### `http_status` Object
+
+HTTP status code constants are available as `http_status.<Name>` (PascalCase, matching
+Go's `net/http` constants). Also provides `http_status.bycode["404"]` → `"NotFound"` for
+reverse lookup. See [config.md](config.md#ambient-variables) for the full list.
 
 ---
 
@@ -202,7 +235,7 @@ server "http" "secure" {
     }
 
     handle "/hello" {
-        action = respond(200, "Hello, TLS!")
+        action = "Hello, TLS!"
     }
 }
 ```
@@ -222,18 +255,86 @@ server "http" "dev" {
 
 ---
 
-## Example
+## Examples
+
+### Simple responses via auto-coercion
+
+```hcl
+# string → 200 text/plain
+handle "GET /hello" {
+    action = "Hello, World!"
+}
+
+# object → 200 application/json
+handle "GET /health" {
+    action = {status = "ok"}
+}
+
+# null → 204 No Content
+handle "DELETE /item/{id}" {
+    action = null
+}
+```
+
+### Explicit responses
+
+```hcl
+handle "POST /items" {
+    action = http_response(http_status.Created, created_item, {
+        "Location" = "/items/${created_item.id}"
+    })
+}
+
+handle "/old-path" {
+    action = http_redirect(http_status.MovedPermanently, "/new-path")
+}
+```
+
+### Error handling with `try()`
+
+```hcl
+handle "GET /items/{id}" {
+    action = try(
+        lookup_item(get(ctx.request, "path_value", "id")),
+        http_error(http_status.NotFound, "item not found"),
+    )
+}
+```
+
+### Setting cookies
+
+```hcl
+handle "POST /login" {
+    action = addheader(
+        http_response(http_status.OK, {ok = true}),
+        "Set-Cookie",
+        setcookie({
+            name      = "session"
+            value     = create_session(get(ctx.request, "body_json"))
+            path      = "/"
+            http_only = true
+            secure    = true
+            same_site = "Lax"
+            max_age   = 86400
+        })
+    )
+}
+```
+
+### Full example
 
 ```hcl
 server "http" "api" {
     listen = ":8080"
 
     handle "POST /events/{kind}" {
-        action = send(ctx, bus.main, "http/" + get(ctx.request, "path_value", "kind"), get(ctx.request, "body_json"))
+        action = send(ctx, bus.main,
+            "http/" + get(ctx.request, "path_value", "kind"),
+            get(ctx.request, "body_json"))
     }
 
     handle "GET /health" {
-        action = respond(httpstatus.OK, {status = "ok"})
+        action = {status = "ok"}
     }
 
     files "/app" {

@@ -41,13 +41,13 @@ for the full expression language reference.
 - `client.<name>`: Each client defined via a `client` block may be referenced by name.
 - `env.<name>`: Environment variables are exposed through the `env` object. For
   example, `env.HOME` is the value of the `HOME` environment variable.
-- `httpstatus.<Name>`: Constants for each HTTP status code, using PascalCase names
+- `http_status.<Name>`: Constants for each HTTP status code, using PascalCase names
   matching Go's `net/http` package. All standard 1xx–5xx codes are included. For
-  example: `httpstatus.OK` → `200`, `httpstatus.NotFound` → `404`,
-  `httpstatus.BadRequest` → `400`.
-- `httpstatus.bycode`: A map from status code number (as a string key) to its name.
+  example: `http_status.OK` → `200`, `http_status.NotFound` → `404`,
+  `http_status.BadRequest` → `400`.
+- `http_status.bycode`: A map from status code number (as a string key) to its name.
   Useful when you have a raw integer and need the canonical name. For example,
-  `httpstatus.bycode["200"]` → `"OK"`, `httpstatus.bycode["404"]` → `"NotFound"`.
+  `http_status.bycode["200"]` → `"OK"`, `http_status.bycode["404"]` → `"NotFound"`.
 - `server.<name>`: Each server defined may be referenced by name. All server types
   share a single namespace — you cannot have both an HTTP server and a WebSocket
   server with the same name.

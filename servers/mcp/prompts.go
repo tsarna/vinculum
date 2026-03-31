@@ -88,7 +88,7 @@ func ctyToPromptMessages(val cty.Value) ([]*sdkmcp.PromptMessage, error) {
 			_, elem := it.Element()
 			r := functions.GetMCPResult(elem)
 			if r == nil {
-				return nil, fmt.Errorf("prompt action list element %d is not an mcp_user_message() or mcp_assistant_message()", i)
+				return nil, fmt.Errorf("prompt action list element %d is not an mcp_usermessage() or mcp_assistantmessage()", i)
 			}
 			msg, err := mcpResultToPromptMessage(r)
 			if err != nil {
@@ -99,7 +99,7 @@ func ctyToPromptMessages(val cty.Value) ([]*sdkmcp.PromptMessage, error) {
 		return messages, nil
 	}
 
-	return nil, fmt.Errorf("prompt action returned unsupported type %s; expected mcp_user_message() or mcp_assistant_message()", val.Type().FriendlyName())
+	return nil, fmt.Errorf("prompt action returned unsupported type %s; expected mcp_usermessage() or mcp_assistantmessage()", val.Type().FriendlyName())
 }
 
 func mcpResultToPromptMessage(r *functions.MCPResult) (*sdkmcp.PromptMessage, error) {
@@ -115,6 +115,6 @@ func mcpResultToPromptMessage(r *functions.MCPResult) (*sdkmcp.PromptMessage, er
 			Content: &sdkmcp.TextContent{Text: r.Text},
 		}, nil
 	default:
-		return nil, fmt.Errorf("mcp_result kind %q is not valid for prompt message; use mcp_user_message() or mcp_assistant_message()", r.Kind)
+		return nil, fmt.Errorf("mcp_result kind %q is not valid for prompt message; use mcp_usermessage() or mcp_assistantmessage()", r.Kind)
 	}
 }

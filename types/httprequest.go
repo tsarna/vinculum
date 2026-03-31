@@ -7,9 +7,9 @@ import (
 	"mime"
 	"net/http"
 	"reflect"
-	"time"
 
 	"github.com/tsarna/vinculum/ctyutil"
+	timecty "github.com/tsarna/time-cty-funcs"
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
 )
@@ -37,7 +37,7 @@ var CookieObjectType = cty.Object(map[string]cty.Type{
 	"quoted":      cty.Bool,
 	"path":        cty.String,
 	"domain":      cty.String,
-	"expires":     cty.String,
+	"expires":     timecty.TimeCapsuleType,
 	"raw_expires": cty.String,
 	"max_age":     cty.Number,
 	"secure":      cty.Bool,
@@ -139,9 +139,11 @@ func convertCookieObject(cookie *http.Cookie) cty.Value {
 		sameSiteStr = "Default"
 	}
 
-	var expiresStr string
-	if !cookie.Expires.IsZero() {
-		expiresStr = cookie.Expires.Format(time.RFC3339)
+	var expiresVal cty.Value
+	if cookie.Expires.IsZero() {
+		expiresVal = cty.NullVal(timecty.TimeCapsuleType)
+	} else {
+		expiresVal = timecty.NewTimeCapsule(cookie.Expires)
 	}
 
 	return cty.ObjectVal(map[string]cty.Value{
@@ -150,7 +152,7 @@ func convertCookieObject(cookie *http.Cookie) cty.Value {
 		"quoted":      cty.BoolVal(cookie.Quoted),
 		"path":        cty.StringVal(cookie.Path),
 		"domain":      cty.StringVal(cookie.Domain),
-		"expires":     cty.StringVal(expiresStr),
+		"expires":     expiresVal,
 		"raw_expires": cty.StringVal(cookie.RawExpires),
 		"max_age":     cty.NumberIntVal(int64(cookie.MaxAge)),
 		"secure":      cty.BoolVal(cookie.Secure),

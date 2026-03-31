@@ -13,8 +13,6 @@ import (
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
-	"github.com/zclconf/go-cty/cty/function"
-	ctyjson "github.com/zclconf/go-cty/cty/json"
 	"go.uber.org/zap"
 )
 
@@ -229,87 +227,76 @@ type httpAction struct {
 }
 
 func (h *httpAction) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	evalCtx, err := getHttpActionEvalContext(h.config, w, r)
+	evalCtx, err := getHttpActionEvalContext(h.config, r)
 	if err != nil {
 		h.config.Logger.Error("Error building evaluation context", zap.Error(err))
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	_, diags := h.actionExpr.Value(evalCtx)
+	val, diags := h.actionExpr.Value(evalCtx)
 	if diags.HasErrors() {
 		h.config.Logger.Error("Error executing action", zap.Error(diags))
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Error(w, diags.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	writeHTTPResponse(h.config.Logger, w, val)
 }
 
-func getHttpActionEvalContext(config *cfg.Config, w http.ResponseWriter, r *http.Request) (*hcl.EvalContext, error) {
+func getHttpActionEvalContext(config *cfg.Config, r *http.Request) (*hcl.EvalContext, error) {
 	builder := hclutil.NewEvalContext(r.Context()).
-		WithAttribute("request", types.BuildHTTPRequestObject(r)).
-		WithFunctions(getHttpContextFunctions(w, r))
+		WithAttribute("request", types.BuildHTTPRequestObject(r))
 
 	return builder.BuildEvalContext(config.EvalCtx())
 }
 
-func getHttpContextFunctions(w http.ResponseWriter, r *http.Request) map[string]function.Function {
-	return map[string]function.Function{
-		"redirect":  makeRedirectFunc(w, r),
-		"respond":   makeRespondFunc(w, r),
-		"setheader": makeSetHeaderFunc(w, r),
+func writeHTTPResponse(logger *zap.Logger, w http.ResponseWriter, val cty.Value) {
+	// Explicit httpresponse value (from http_response, http_redirect, http_error, etc.)
+	if resp, ok := types.GetHTTPResponseFromValue(val); ok {
+		if resp.IsError {
+			logger.Warn("HTTP action returned http_error",
+				zap.Int("status", resp.Status),
+				zap.String("body", string(resp.Body)))
+		}
+		writeResponseFromWrapper(w, resp)
+		return
+	}
+
+	// null → 204 No Content
+	if val.IsNull() {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// All other types: coerce to body bytes
+	body, contentType, err := types.CoerceBodyToBytes(val)
+	if err != nil {
+		logger.Error("Failed to coerce action return value to HTTP response", zap.Error(err))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	if contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	w.WriteHeader(http.StatusOK)
+	if len(body) > 0 {
+		w.Write(body)
 	}
 }
 
-func makeRedirectFunc(w http.ResponseWriter, r *http.Request) function.Function {
-	return function.New(&function.Spec{
-		Params: []function.Parameter{
-			{Name: "code", Type: cty.Number},
-			{Name: "url", Type: cty.String},
-		},
-		Type: function.StaticReturnType(cty.Bool),
-		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-			code, _ := args[0].AsBigFloat().Int64()
-			http.Redirect(w, r, args[1].AsString(), int(code))
-			return cty.True, nil
-		},
-	})
-}
-
-func makeRespondFunc(w http.ResponseWriter, _ *http.Request) function.Function {
-	return function.New(&function.Spec{
-		Params: []function.Parameter{
-			{Name: "code", Type: cty.Number},
-			{Name: "body", Type: cty.DynamicPseudoType},
-		},
-		Type: function.StaticReturnType(cty.Bool),
-		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-			code, _ := args[0].AsBigFloat().Int64()
-			w.WriteHeader(int(code))
-			if args[1].Type() == cty.String {
-				w.Write([]byte(args[1].AsString()))
-			} else {
-				w.Header().Set("Content-Type", "application/json")
-				body, err := ctyjson.Marshal(args[1], args[1].Type())
-				if err != nil {
-					return cty.False, fmt.Errorf("failed to marshal body: %w", err)
-				}
-				w.Write(body)
-			}
-			return cty.True, nil
-		},
-	})
-}
-
-func makeSetHeaderFunc(w http.ResponseWriter, _ *http.Request) function.Function {
-	return function.New(&function.Spec{
-		Params: []function.Parameter{
-			{Name: "key", Type: cty.String},
-			{Name: "value", Type: cty.String},
-		},
-		Type: function.StaticReturnType(cty.Bool),
-		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-			w.Header().Set(args[0].AsString(), args[1].AsString())
-			return cty.True, nil
-		},
-	})
+func writeResponseFromWrapper(w http.ResponseWriter, resp *types.HTTPResponseWrapper) {
+	for name, vals := range resp.Headers {
+		for _, v := range vals {
+			w.Header().Add(name, v)
+		}
+	}
+	if resp.ContentType != "" {
+		w.Header().Set("Content-Type", resp.ContentType)
+	}
+	w.WriteHeader(resp.Status)
+	if len(resp.Body) > 0 {
+		w.Write(resp.Body)
+	}
 }

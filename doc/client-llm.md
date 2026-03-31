@@ -241,10 +241,10 @@ server "http" "api" {
     listen = ":8080"
 
     handle "POST /ask" {
-        action = respond(200, call(ctx, client.gpt, {
+        action = call(ctx, client.gpt, {
             system   = "Answer the question in the <user_input> tags concisely."
-            messages = [{ role = "user", content = llm_wrap(getbody()) }]
-        }).content)
+            messages = [{ role = "user", content = llm_wrap(get(ctx.request, "body")) }]
+        }).content
     }
 }
 ```
@@ -311,7 +311,7 @@ server "http" "chat" {
 
     handle "POST /chat" {
         action = {
-            user_msg = { role = "user", content = llm_wrap(jsondecode(getbody()).message) }
+            user_msg = { role = "user", content = llm_wrap(get(ctx.request, "body_json").message) }
             result   = call(ctx, client.assistant, {
                 system   = "You are a helpful assistant. The user's messages are wrapped in <user_input> tags."
                 messages = concat(get(var.history), [user_msg])
@@ -320,8 +320,8 @@ server "http" "chat" {
                 get(var.history),
                 [user_msg, { role = "assistant", content = result.content }]
             ))
-            _        = respond(200, jsonencode({ reply = result.content }))
-        }
+            response = http_response(http_status.OK, { reply = result.content })
+        }.response
     }
 }
 ```

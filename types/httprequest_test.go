@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	timecty "github.com/tsarna/time-cty-funcs"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -320,7 +321,7 @@ func TestConvertCookieObject_Fields(t *testing.T) {
 	assert.Equal(t, cty.BoolVal(true), obj.GetAttr("quoted"))
 	assert.Equal(t, cty.StringVal("/app"), obj.GetAttr("path"))
 	assert.Equal(t, cty.StringVal("example.com"), obj.GetAttr("domain"))
-	assert.Equal(t, cty.StringVal("2030-01-15T12:00:00Z"), obj.GetAttr("expires"))
+	assert.Equal(t, timecty.NewTimeCapsule(expires), obj.GetAttr("expires"))
 	assert.Equal(t, cty.StringVal("Wed, 15 Jan 2030 12:00:00 GMT"), obj.GetAttr("raw_expires"))
 	assert.Equal(t, cty.NumberIntVal(3600), obj.GetAttr("max_age"))
 	assert.Equal(t, cty.BoolVal(true), obj.GetAttr("secure"))
@@ -332,7 +333,7 @@ func TestConvertCookieObject_Fields(t *testing.T) {
 
 func TestConvertCookieObject_ZeroExpires(t *testing.T) {
 	obj := convertCookieObject(&http.Cookie{Name: "x", Value: "y"})
-	assert.Equal(t, cty.StringVal(""), obj.GetAttr("expires"))
+	assert.Equal(t, cty.NullVal(timecty.TimeCapsuleType), obj.GetAttr("expires"))
 }
 
 func TestConvertCookieObject_SameSiteVariants(t *testing.T) {
