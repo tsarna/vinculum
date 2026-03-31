@@ -43,7 +43,7 @@ func init() {
 	serverCmd.Flags().StringVarP(&logLevel, "log-level", "l", "info", "log level (debug, info, warn, error)")
 	serverCmd.Flags().StringVarP(&filePath, "file-path", "f", "", "base directory for file functions (enables file, fileexists, fileset functions)")
 	serverCmd.Flags().StringVarP(&writePath, "write-path", "w", "", "base directory for file write functions; must be under --file-path")
-	serverCmd.Flags().BoolVar(&allowKill, "allow-kill", false, "enable the kill endpoint (allowkill feature)")
+	serverCmd.Flags().BoolVar(&allowKill, "allow-kill", false, "enable the kill function (feature \"allowkill\")")
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
