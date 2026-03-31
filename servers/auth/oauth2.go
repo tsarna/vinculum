@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -76,9 +77,31 @@ func newOAuth2Authenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext) (Authe
 
 	if a.cacheTTL > 0 {
 		a.cache = make(map[string]oauth2CacheEntry)
+		go a.sweepLoop(context.Background())
 	}
 
 	return a, nil
+}
+
+// sweepLoop periodically removes expired cache entries to bound memory growth.
+func (a *oauth2Authenticator) sweepLoop(ctx context.Context) {
+	ticker := time.NewTicker(a.cacheTTL / 2)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			now := time.Now()
+			a.mu.Lock()
+			for token, entry := range a.cache {
+				if now.After(entry.expiresAt) {
+					delete(a.cache, token)
+				}
+			}
+			a.mu.Unlock()
+		}
+	}
 }
 
 func (a *oauth2Authenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalContext) (cty.Value, *AuthFailure, error) {

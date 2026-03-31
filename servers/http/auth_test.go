@@ -24,6 +24,9 @@ var authNoneOverrideVCL []byte
 //go:embed testdata/auth_custom.vcl
 var authCustomVCL []byte
 
+//go:embed testdata/auth_none_files.vcl
+var authNoneFilesVCL []byte
+
 func basicAuthHeader(username, password string) string {
 	creds := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
 	return "Basic " + creds
@@ -99,6 +102,22 @@ func TestAuthNoneOverride_PrivateRouteNoCredentials(t *testing.T) {
 	resp := w.Result()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	assert.Equal(t, `Basic realm="main"`, resp.Header.Get("WWW-Authenticate"))
+}
+
+// --- auth "none" on files block ---
+
+func TestAuthNoneFiles_NoCredentials(t *testing.T) {
+	c, diags := cfg.NewConfig().WithSources(authNoneFilesVCL).WithLogger(zap.NewNop()).
+		WithFeature("readfiles", "/tmp").Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	srv := c.Servers["http"]["main"].(*httpserver.HttpServer)
+	req := httptest.NewRequest(http.MethodGet, "/public/", nil)
+	w := httptest.NewRecorder()
+	srv.Server.Handler.ServeHTTP(w, req)
+
+	// auth "none" on the files block disables server-level basic auth
+	// File server returns 200 or 301 (directory listing/redirect), not 401
+	assert.NotEqual(t, http.StatusUnauthorized, w.Result().StatusCode)
 }
 
 // --- Custom auth ---
