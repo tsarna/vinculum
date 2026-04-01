@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`trigger "at"`** — new trigger type that fires an action at a dynamically computed
+  absolute time, then repeats by re-evaluating the `time` expression each cycle:
+  - `time = expression` — required; must evaluate to a time capsule (e.g. from `now()`,
+    `timeadd()`, or future `sunrise()`/`sunset()` functions)
+  - `action = expression` — evaluated each time the trigger fires
+  - Always repeats: after each firing the `time` expression is re-evaluated to schedule
+    the next occurrence; this is the natural fit for non-uniform recurring schedules
+    where the interval between firings varies (contrast with `trigger "cron"` for fixed
+    schedules and `trigger "interval"` for delays)
+  - `get(trigger.<name>)` returns the currently scheduled fire time as a time capsule,
+    or `null` before the first evaluation; use with `until()` to compute time remaining
+  - `set(trigger.<name>)` wakes the goroutine to re-evaluate `time` immediately without
+    firing the action — use from a `trigger "interval"` to recompute the schedule
+    dynamically as conditions change (e.g. a vehicle's position shifting)
+  - If `time` evaluates to a past time, the action fires immediately with a warning
+  - If the `time` expression errors, the trigger logs the error and retries after one minute
+  - `ctx.trigger`, `ctx.name`, `ctx.run_count`, and `ctx.last_result` are available in
+    both `time` and `action` expressions
+  - See [doc/trigger.md](doc/trigger.md) for full reference and examples
+
 - **Watchables** — `var`, gauge `metric`, and counter `metric` values now implement the
   `Watchable` interface, enabling reactive, event-driven patterns without polling:
   - Every `set()` and `increment()` call on a watchable notifies all registered watchers

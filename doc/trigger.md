@@ -11,9 +11,10 @@ trigger "type" "name" {
 ```
 
 All trigger types share a single name namespace — you cannot have two non-disabled
-triggers with the same name regardless of type. `trigger "after"`, `trigger "interval"`,
-`trigger "once"`, `trigger "start"`, `trigger "watch"`, and `trigger "watchdog"` blocks
-expose their result as `trigger.<name>` in the global evaluation context.
+triggers with the same name regardless of type. `trigger "after"`, `trigger "at"`,
+`trigger "interval"`, `trigger "once"`, `trigger "start"`, `trigger "watch"`, and
+`trigger "watchdog"` blocks expose their result as `trigger.<name>` in the global
+evaluation context.
 
 ---
 
@@ -65,6 +66,85 @@ Example — emit a startup-complete event after a brief grace period:
 trigger "after" "announce" {
     delay  = "5s"
     action = send(ctx, bus.main, "system/ready", {host = sys.hostname})
+}
+```
+
+---
+
+## `trigger "at"`
+
+```hcl
+trigger "at" "name" {
+    time     = expression  # required — must evaluate to a time capsule
+    action   = expression  # required — evaluated each time the trigger fires
+    disabled = false       # optional
+}
+```
+
+Fires its `action` at a dynamically computed absolute time, then immediately
+re-evaluates `time` to schedule the next firing. This is the natural fit for
+non-uniform recurring schedules — such as sunrise or sunset — where the
+interval between firings varies and depends on runtime state.
+
+Unlike `trigger "cron"` (which uses fixed schedule strings) and
+`trigger "interval"` (which uses a computed delay relative to the previous
+firing), `trigger "at"` works with absolute wall-clock times. The `time`
+expression is re-evaluated after each firing, so it can return a different
+time on every cycle.
+
+`get(trigger.<name>)` returns `null` until the first evaluation of `time`,
+then the currently scheduled fire time as a time capsule. This lets other
+expressions compute how far away the next firing is, e.g.
+`until(get(trigger.<name>))`.
+
+`set(trigger.<name>)` wakes the goroutine immediately and causes it to
+re-evaluate `time` without firing the action. Use this to force rescheduling
+when conditions change — for example, when a vehicle's position shifts and the
+computed target time needs to be updated. Pair with `trigger "interval"` to
+re-evaluate on a dynamic schedule.
+
+If `time` evaluates to a time in the past, the action fires immediately and a
+warning is logged. If `time` evaluation fails (wrong type, expression error),
+the trigger logs the error and retries after one minute.
+
+When the action runs, `ctx` provides:
+
+| Variable | Type | Description |
+|---|---|---|
+| `ctx.trigger` | string | `"at"` |
+| `ctx.name` | string | Name of this trigger block |
+| `ctx.run_count` | number | How many times the action has fired |
+| `ctx.last_result` | dynamic | Result of the previous action, or `null` on first fire |
+
+The same context is available when evaluating the `time` expression, so the
+schedule can adapt based on how many times the trigger has already fired.
+
+**Creates** `trigger.<name>` as a capsule; read the next scheduled time with
+`get(trigger.<name>)`, or poke for rescheduling with `set(trigger.<name>)`.
+
+Example — fire at a dynamically computed time each day (e.g. sunrise once
+`sunrise()` is available):
+
+```hcl
+trigger "at" "sunrise" {
+    time   = sunrise(var.latitude, var.longitude)
+    action = set(lights.scene, "morning")
+}
+```
+
+Example — pair with `trigger "interval"` to recompute the fire time more
+frequently as a moving vehicle approaches its destination, or
+recompute sunrise/sunset as its position changes:
+
+```hcl
+trigger "at" "arrival_alert" {
+    time   = eta(var.lat, var.lon, var.destination)
+    action = send(ctx, bus.main, "nav/arrived", null)
+}
+
+trigger "interval" "recompute_eta" {
+    delay  = recheck_interval(var.speed, until(get(trigger.arrival_alert)))
+    action = set(trigger.arrival_alert)
 }
 ```
 
