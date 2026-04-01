@@ -94,13 +94,14 @@ func labelsFromCtyObject(val cty.Value, labelNames []string) (prometheus.Labels,
 
 // --- GaugeMetric ---
 
-// GaugeMetric implements Gettable, Settable, Incrementable.
+// GaugeMetric implements Gettable, Settable, Incrementable, Watchable.
 // When an optional labels object is passed as an extra arg, it operates on
 // the labeled time series; otherwise it operates on the unlabeled series.
 type GaugeMetric struct {
 	vec        *prometheus.GaugeVec
 	labelNames []string
 	mu         sync.RWMutex
+	watchableMixin
 	noLabelVal float64            // cached value for unlabeled get
 	labelVals  map[string]float64 // key = labelSetKey(labels), cached for labeled get
 }
@@ -129,7 +130,7 @@ func (m *GaugeMetric) Get(_ context.Context, args []cty.Value) (cty.Value, error
 }
 
 // --- Settable ---
-func (m *GaugeMetric) Set(_ context.Context, args []cty.Value) (cty.Value, error) {
+func (m *GaugeMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, error) {
 	if len(args) == 0 {
 		return cty.NilVal, fmt.Errorf("set: gauge metric requires a numeric value")
 	}
@@ -148,20 +149,24 @@ func (m *GaugeMetric) Set(_ context.Context, args []cty.Value) (cty.Value, error
 		if m.labelVals == nil {
 			m.labelVals = make(map[string]float64)
 		}
+		old := m.labelVals[key]
 		m.labelVals[key] = f
 		m.mu.Unlock()
 		m.vec.With(pl).Set(f)
+		m.notifyAll(ctx, cty.NumberFloatVal(old), value)
 		return value, nil
 	}
 	m.mu.Lock()
+	old := m.noLabelVal
 	m.noLabelVal = f
 	m.mu.Unlock()
 	m.vec.WithLabelValues().Set(f)
+	m.notifyAll(ctx, cty.NumberFloatVal(old), value)
 	return value, nil
 }
 
 // --- Incrementable ---
-func (m *GaugeMetric) Increment(_ context.Context, args []cty.Value) (cty.Value, error) {
+func (m *GaugeMetric) Increment(ctx context.Context, args []cty.Value) (cty.Value, error) {
 	delta := args[0]
 	f, err := valueToFloat64(delta)
 	if err != nil {
@@ -177,23 +182,27 @@ func (m *GaugeMetric) Increment(_ context.Context, args []cty.Value) (cty.Value,
 		if m.labelVals == nil {
 			m.labelVals = make(map[string]float64)
 		}
+		old := m.labelVals[key]
 		m.labelVals[key] += f
 		cur := m.labelVals[key]
 		m.mu.Unlock()
 		m.vec.With(pl).Add(f)
+		m.notifyAll(ctx, cty.NumberFloatVal(old), cty.NumberFloatVal(cur))
 		return cty.NumberFloatVal(cur), nil
 	}
 	m.mu.Lock()
+	old := m.noLabelVal
 	m.noLabelVal += f
 	cur := m.noLabelVal
 	m.mu.Unlock()
 	m.vec.WithLabelValues().Add(f)
+	m.notifyAll(ctx, cty.NumberFloatVal(old), cty.NumberFloatVal(cur))
 	return cty.NumberFloatVal(cur), nil
 }
 
 // --- CounterMetric ---
 
-// CounterMetric implements Gettable, Settable, Incrementable.
+// CounterMetric implements Gettable, Settable, Incrementable, Watchable.
 // set() uses delta semantics: only positive differences are applied to the
 // underlying counter, so the Prometheus counter never decreases. If the supplied
 // value is less than the last set value (e.g. an external reset), the call is a
@@ -204,6 +213,7 @@ type CounterMetric struct {
 	vec        *prometheus.CounterVec
 	labelNames []string
 	mu         sync.Mutex
+	watchableMixin
 	noLabelVal float64            // cached for unlabeled get/set
 	labelVals  map[string]float64 // key = labelSetKey(labels), cached for labeled set
 }
@@ -234,7 +244,7 @@ func (m *CounterMetric) Get(_ context.Context, args []cty.Value) (cty.Value, err
 // positive differences are forwarded to the Prometheus counter; a value lower
 // than the last seen value is silently ignored (the counter holds its current
 // value). This allows syncing a counter from an external source that may reset.
-func (m *CounterMetric) Set(_ context.Context, args []cty.Value) (cty.Value, error) {
+func (m *CounterMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, error) {
 	if len(args) == 0 {
 		return cty.NilVal, fmt.Errorf("set: counter metric requires a numeric value")
 	}
@@ -253,30 +263,38 @@ func (m *CounterMetric) Set(_ context.Context, args []cty.Value) (cty.Value, err
 		if m.labelVals == nil {
 			m.labelVals = make(map[string]float64)
 		}
-		delta := f - m.labelVals[key]
+		old := m.labelVals[key]
+		delta := f - old
+		newVal := old
 		if delta > 0 {
 			m.labelVals[key] = f
-			m.mu.Unlock()
-			m.vec.With(pl).Add(delta)
-		} else {
-			m.mu.Unlock()
+			newVal = f
 		}
+		m.mu.Unlock()
+		if delta > 0 {
+			m.vec.With(pl).Add(delta)
+		}
+		m.notifyAll(ctx, cty.NumberFloatVal(old), cty.NumberFloatVal(newVal))
 		return value, nil
 	}
 	m.mu.Lock()
-	delta := f - m.noLabelVal
+	old := m.noLabelVal
+	delta := f - old
+	newVal := old
 	if delta > 0 {
 		m.noLabelVal = f
-		m.mu.Unlock()
-		m.vec.WithLabelValues().Add(delta)
-	} else {
-		m.mu.Unlock()
+		newVal = f
 	}
+	m.mu.Unlock()
+	if delta > 0 {
+		m.vec.WithLabelValues().Add(delta)
+	}
+	m.notifyAll(ctx, cty.NumberFloatVal(old), cty.NumberFloatVal(newVal))
 	return value, nil
 }
 
 // --- Incrementable ---
-func (m *CounterMetric) Increment(_ context.Context, args []cty.Value) (cty.Value, error) {
+func (m *CounterMetric) Increment(ctx context.Context, args []cty.Value) (cty.Value, error) {
 	delta := args[0]
 	f, err := valueToFloat64(delta)
 	if err != nil {
@@ -290,14 +308,26 @@ func (m *CounterMetric) Increment(_ context.Context, args []cty.Value) (cty.Valu
 		if err != nil {
 			return cty.NilVal, fmt.Errorf("increment: %w", err)
 		}
+		key := labelSetKey(pl, m.labelNames)
+		m.mu.Lock()
+		if m.labelVals == nil {
+			m.labelVals = make(map[string]float64)
+		}
+		old := m.labelVals[key]
+		m.labelVals[key] += f
+		cur := m.labelVals[key]
+		m.mu.Unlock()
 		m.vec.With(pl).Add(f)
-		return delta, nil
+		m.notifyAll(ctx, cty.NumberFloatVal(old), cty.NumberFloatVal(cur))
+		return cty.NumberFloatVal(cur), nil
 	}
 	m.mu.Lock()
+	old := m.noLabelVal
 	m.noLabelVal += f
 	cur := m.noLabelVal
 	m.mu.Unlock()
 	m.vec.WithLabelValues().Add(f)
+	m.notifyAll(ctx, cty.NumberFloatVal(old), cty.NumberFloatVal(cur))
 	return cty.NumberFloatVal(cur), nil
 }
 

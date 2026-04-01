@@ -556,10 +556,17 @@ Sets the value of `thing` to `value`. Returns the new value.
 
 Calling `set` on a counter or histogram is a runtime error.
 
+`set()` fires `OnChange` notifications on any registered [Watchable](trigger.md#watchables)
+watchers (e.g. `trigger "watch"`, `trigger "watchdog"` with `watch =`) after the value is
+committed. The `ctx` argument is forwarded to all `OnChange` callbacks.
+
 #### `increment([ctx,] thing, delta, labels?)`
 
 Adds `delta` to the current numeric value of `thing` and returns the new value.
 Delta must be a number; for counters it must be ≥ 0.
+
+`increment()` also fires `OnChange` notifications on any registered Watchable watchers,
+with the same context-forwarding semantics as `set()`.
 
 - **Variable**: `increment(var.hits, 1)`.
 - **Metric (no-label)**: `increment(metric.errors_total, 1)`.

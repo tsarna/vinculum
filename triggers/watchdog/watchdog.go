@@ -12,6 +12,7 @@ import (
 	timecty "github.com/tsarna/time-cty-funcs"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
+	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -37,6 +38,8 @@ type WatchdogTrigger struct {
 	lastValue cty.Value // cty.NilVal until first set()
 	lastSet   time.Time // zero until first set()
 	missCount int64     // consecutive fires since last set(); resets to 0 on set()
+
+	watchable types.Watchable // nil if watch attribute not configured
 
 	setCh  chan struct{} // signals the goroutine to reset the timer (buffered 1)
 	stopCh chan struct{}
@@ -76,11 +79,21 @@ func (t *WatchdogTrigger) Get(_ context.Context, _ []cty.Value) (cty.Value, erro
 	return t.lastValue, nil
 }
 
-// Start launches the background watchdog goroutine. Implements Startable.
+// OnChange implements Watcher. It auto-feeds the watchdog whenever the watched
+// Watchable's value changes, equivalent to calling set(trigger.<name>, newValue).
+func (t *WatchdogTrigger) OnChange(ctx context.Context, _, newValue cty.Value) {
+	t.Set(ctx, []cty.Value{newValue}) //nolint:errcheck
+}
+
+// Start launches the background watchdog goroutine and registers as a Watcher
+// if a watch target was configured. Implements Startable.
 func (t *WatchdogTrigger) Start() error {
 	t.setCh = make(chan struct{}, 1)
 	t.stopCh = make(chan struct{})
 	t.doneCh = make(chan struct{})
+	if t.watchable != nil {
+		t.watchable.Watch(t)
+	}
 	go t.run()
 	return nil
 }
@@ -90,6 +103,9 @@ func (t *WatchdogTrigger) Start() error {
 func (t *WatchdogTrigger) Stop() error {
 	if t.stopCh == nil {
 		return nil
+	}
+	if t.watchable != nil {
+		t.watchable.Unwatch(t)
 	}
 	close(t.stopCh)
 	<-t.doneCh
@@ -214,6 +230,7 @@ func GetWatchdogTriggerFromCapsule(val cty.Value) (*WatchdogTrigger, error) {
 type triggerWatchdogBody struct {
 	Window       hcl.Expression `hcl:"window"`
 	Action       hcl.Expression `hcl:"action"`
+	Watch        hcl.Expression `hcl:"watch,optional"`
 	InitialGrace hcl.Expression `hcl:"initial_grace,optional"`
 	Repeat       *bool          `hcl:"repeat,optional"`
 }
@@ -257,6 +274,24 @@ func processWatchdogTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cf
 		initialGrace: initialGrace,
 		actionExpr:   body.Action,
 		repeat:       repeat,
+	}
+
+	if cfg.IsExpressionProvided(body.Watch) {
+		watchVal, watchDiags := body.Watch.Value(config.EvalCtx())
+		diags = diags.Extend(watchDiags)
+		if diags.HasErrors() {
+			return diags
+		}
+		watchable, err := types.WatchableFromCtyValue(watchVal)
+		if err != nil {
+			return append(diags, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Invalid watch target",
+				Detail:   err.Error(),
+				Subject:  body.Watch.StartRange().Ptr(),
+			})
+		}
+		t.watchable = watchable
 	}
 
 	config.CtyTriggerMap[name] = NewWatchdogTriggerCapsule(t)

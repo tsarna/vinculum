@@ -35,7 +35,7 @@ TODO.md
 *-MVP.md
 
 # Test/scratch files
-test.vcl
+test*.vcl
 *-smoke-test.vcl
 smoke*.vcl
 x

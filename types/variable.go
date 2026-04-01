@@ -12,7 +12,8 @@ import (
 
 // Variable is a mutable, goroutine-safe value container.
 type Variable struct {
-	mu       sync.RWMutex
+	mu             sync.RWMutex
+	watchableMixin
 	value    cty.Value
 	typeName string // empty means untyped; if set, enforced on Set()
 	nullable bool   // if false, null values are rejected by Set()
@@ -47,7 +48,7 @@ func (v *Variable) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
 // Set updates the value (args[0]) and returns it. If called with no arguments,
 // sets the value to null. Implements Settable. If the variable has a type
 // constraint, non-null values must match it.
-func (v *Variable) Set(_ context.Context, args []cty.Value) (cty.Value, error) {
+func (v *Variable) Set(ctx context.Context, args []cty.Value) (cty.Value, error) {
 	value := cty.NullVal(cty.DynamicPseudoType)
 	if len(args) > 0 {
 		value = args[0]
@@ -62,26 +63,32 @@ func (v *Variable) Set(_ context.Context, args []cty.Value) (cty.Value, error) {
 		}
 	}
 	v.mu.Lock()
-	defer v.mu.Unlock()
+	old := v.value
 	v.value = value
+	v.mu.Unlock()
+	v.notifyAll(ctx, old, value)
 	return value, nil
 }
 
 // Increment adds args[0] (delta) to the current numeric value and returns the new value.
 // Both the current value and delta must be cty.Number. Implements Incrementable.
-func (v *Variable) Increment(_ context.Context, args []cty.Value) (cty.Value, error) {
+func (v *Variable) Increment(ctx context.Context, args []cty.Value) (cty.Value, error) {
 	delta := args[0]
 	v.mu.Lock()
-	defer v.mu.Unlock()
 	if v.value.IsNull() || v.value.Type() != cty.Number {
+		v.mu.Unlock()
 		return cty.NilVal, fmt.Errorf("increment: current value is not a number, got %s", v.value.Type().FriendlyName())
 	}
 	if delta.Type() != cty.Number {
+		v.mu.Unlock()
 		return cty.NilVal, fmt.Errorf("increment: delta is not a number, got %s", delta.Type().FriendlyName())
 	}
 	sum := new(big.Float).Add(v.value.AsBigFloat(), delta.AsBigFloat())
 	newVal := cty.NumberVal(sum)
+	old := v.value
 	v.value = newVal
+	v.mu.Unlock()
+	v.notifyAll(ctx, old, newVal)
 	return newVal, nil
 }
 

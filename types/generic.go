@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/zclconf/go-cty/cty"
 )
@@ -52,4 +53,41 @@ type Incrementable interface {
 // implementors may interpret additional args (e.g. labels) freely.
 type Observable interface {
 	Observe(ctx context.Context, args []cty.Value) (cty.Value, error)
+}
+
+// Watchable is implemented by types whose value can be observed for changes.
+// Implementations must be safe to call from multiple goroutines concurrently.
+type Watchable interface {
+	// Watch registers w to receive OnChange notifications when the value changes.
+	// Registering the same Watcher twice is a no-op.
+	Watch(w Watcher)
+
+	// Unwatch removes a previously registered Watcher.
+	// Removing a Watcher that is not registered is a no-op.
+	Unwatch(w Watcher)
+}
+
+// Watcher receives notifications from a Watchable when its value changes.
+// OnChange is called synchronously, outside the Watchable's internal mutex.
+type Watcher interface {
+	// OnChange is called after the Watchable's value has been updated.
+	// oldValue is the value immediately before the change.
+	// newValue is the value immediately after the change.
+	// ctx is the context.Context that was passed to the Set (or Increment) call
+	// that triggered the change.
+	OnChange(ctx context.Context, oldValue, newValue cty.Value)
+}
+
+// WatchableFromCtyValue extracts a Watchable from a cty capsule value,
+// returning an error if the value is not a capsule or its encapsulated type
+// does not implement Watchable.
+func WatchableFromCtyValue(val cty.Value) (Watchable, error) {
+	if !val.Type().IsCapsuleType() {
+		return nil, fmt.Errorf("expected a watchable capsule (var, metric), got %s", val.Type().FriendlyName())
+	}
+	w, ok := val.EncapsulatedValue().(Watchable)
+	if !ok {
+		return nil, fmt.Errorf("value of type %s is not watchable", val.Type().FriendlyName())
+	}
+	return w, nil
 }

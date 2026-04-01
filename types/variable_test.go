@@ -123,3 +123,89 @@ func TestVariableIncrementErrors(t *testing.T) {
 	_, err = v.Increment(bg, []cty.Value{cty.NumberIntVal(1)})
 	assert.Error(t, err)
 }
+
+// --- Watchable tests ---
+
+func TestVariableWatch_SetNotifiesOldAndNew(t *testing.T) {
+	v := NewVariable(cty.NumberIntVal(1))
+	w := &testWatcher{}
+	v.Watch(w)
+
+	_, err := v.Set(bg, []cty.Value{cty.NumberIntVal(2)})
+	assert.NoError(t, err)
+
+	assert.Equal(t, 1, w.count())
+	c := w.get(0)
+	assert.True(t, c.old.RawEquals(cty.NumberIntVal(1)))
+	assert.True(t, c.new.RawEquals(cty.NumberIntVal(2)))
+}
+
+func TestVariableWatch_SetEqualValueStillNotifies(t *testing.T) {
+	// Equal-value sets must still fire (watchdog heartbeat semantics).
+	v := NewVariable(cty.NumberIntVal(42))
+	w := &testWatcher{}
+	v.Watch(w)
+
+	_, _ = v.Set(bg, []cty.Value{cty.NumberIntVal(42)})
+	_, _ = v.Set(bg, []cty.Value{cty.NumberIntVal(42)})
+	assert.Equal(t, 2, w.count())
+}
+
+func TestVariableWatch_SetErrorNoNotify(t *testing.T) {
+	v := NewTypedVariable(cty.NullVal(cty.DynamicPseudoType), "number")
+	w := &testWatcher{}
+	v.Watch(w)
+
+	_, err := v.Set(bg, []cty.Value{cty.StringVal("bad")})
+	assert.Error(t, err)
+	assert.Equal(t, 0, w.count(), "failed Set must not notify watchers")
+}
+
+func TestVariableWatch_IncrementNotifiesOldAndNew(t *testing.T) {
+	v := NewVariable(cty.NumberIntVal(10))
+	w := &testWatcher{}
+	v.Watch(w)
+
+	_, err := v.Increment(bg, []cty.Value{cty.NumberIntVal(5)})
+	assert.NoError(t, err)
+
+	assert.Equal(t, 1, w.count())
+	c := w.get(0)
+	assert.True(t, c.old.RawEquals(cty.NumberIntVal(10)))
+	assert.True(t, c.new.RawEquals(cty.NumberIntVal(15)))
+}
+
+func TestVariableWatch_IncrementErrorNoNotify(t *testing.T) {
+	v := NewVariable(cty.NullVal(cty.DynamicPseudoType)) // null, not a number
+	w := &testWatcher{}
+	v.Watch(w)
+
+	_, err := v.Increment(bg, []cty.Value{cty.NumberIntVal(1)})
+	assert.Error(t, err)
+	assert.Equal(t, 0, w.count(), "failed Increment must not notify watchers")
+}
+
+func TestVariableWatch_UnwatchStopsNotifications(t *testing.T) {
+	v := NewVariable(cty.NumberIntVal(0))
+	w := &testWatcher{}
+	v.Watch(w)
+
+	_, _ = v.Set(bg, []cty.Value{cty.NumberIntVal(1)})
+	assert.Equal(t, 1, w.count())
+
+	v.Unwatch(w)
+	_, _ = v.Set(bg, []cty.Value{cty.NumberIntVal(2)})
+	assert.Equal(t, 1, w.count(), "no notification after Unwatch")
+}
+
+func TestVariableWatch_ContextPropagated(t *testing.T) {
+	v := NewVariable(cty.NullVal(cty.DynamicPseudoType))
+	w := &testWatcher{}
+	v.Watch(w)
+
+	type ctxKey struct{}
+	ctx := context.WithValue(bg, ctxKey{}, "sentinel")
+	_, _ = v.Set(ctx, []cty.Value{cty.True})
+
+	assert.Equal(t, "sentinel", w.get(0).ctx.Value(ctxKey{}))
+}

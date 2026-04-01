@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Watchables** — `var`, gauge `metric`, and counter `metric` values now implement the
+  `Watchable` interface, enabling reactive, event-driven patterns without polling:
+  - Every `set()` and `increment()` call on a watchable notifies all registered watchers
+    synchronously after the value mutex is released; the calling goroutine blocks until all
+    `OnChange` callbacks return
+  - Notifications fire on **every** `set()`/`increment()` call, even when the value is
+    unchanged — this is intentional so watchdog heartbeat patterns work correctly; consumers
+    that want changes-only behavior use `skip_when = ctx.old_value == ctx.new_value`
+  - The `context.Context` passed to `set()`/`increment()` is forwarded verbatim to all
+    `OnChange` callbacks, preserving request-scoped metadata (trace IDs, auth tokens, etc.)
+  - `HistogramMetric` and computed metric variants are **not** Watchable in this release
+  - See [doc/trigger.md](doc/trigger.md) for `trigger "watch"` and the watchdog `watch` attribute
+
+- **`trigger "watch"`** — new reactive trigger type that fires an action expression each time
+  a Watchable value changes:
+  - `watch = expression` — required; must evaluate to a watchable `var` or `metric` capsule
+  - `action = expression` — evaluated on each change in a new goroutine (non-blocking)
+  - `skip_when = expression` — optional; skip this firing if the expression returns `true`
+  - `ctx.old_value` / `ctx.new_value` provide the before/after values in the action and skip_when contexts
+  - `get(trigger.<name>)` returns the most recently observed value, or `null` before any change
+  - `Stop()` unregisters the watcher and waits for all in-flight action goroutines to finish
+
+- **`trigger "watchdog"` `watch` attribute** — optional `watch = expression` attribute on
+  watchdog triggers to auto-feed the watchdog whenever a Watchable's value changes, eliminating
+  the need for explicit `set(trigger.<name>, ...)` calls in every producer path; manual `set()`
+  calls remain valid and are unaffected
+
+## [0.20.0] - 2026-04-01
+
 ### Breaking Changes
 
 - **HTTP action return value is now the response** — the return value of a `handle` action

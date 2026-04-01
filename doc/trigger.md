@@ -11,9 +11,9 @@ trigger "type" "name" {
 ```
 
 All trigger types share a single name namespace — you cannot have two non-disabled
-triggers with the same name regardless of type. `trigger "after"`, `trigger "interval"`, `trigger "once"`, `trigger "start"`,
-and `trigger "watchdog"` blocks expose their result as `trigger.<name>` in the
-global evaluation context.
+triggers with the same name regardless of type. `trigger "after"`, `trigger "interval"`,
+`trigger "once"`, `trigger "start"`, `trigger "watch"`, and `trigger "watchdog"` blocks
+expose their result as `trigger.<name>` in the global evaluation context.
 
 ---
 
@@ -359,12 +359,103 @@ trigger "start" "hello" {
 
 ---
 
+## `trigger "watch"`
+
+```hcl
+trigger "watch" "name" {
+    watch     = expression  # required — must evaluate to a watchable var or metric capsule
+    action    = expression  # required — evaluated on each change
+    skip_when = expression  # optional — skip this firing if true
+    disabled  = false       # optional
+}
+```
+
+Fires `action` each time a [Watchable](#watchables) value changes. The `watch` expression
+is evaluated once at config build time and must produce a `var` or non-computed `metric`
+capsule (gauge or counter). A config build error is raised if the expression does not resolve
+to a watchable type.
+
+When a change is observed, `action` is dispatched to a new goroutine so the caller of
+`set()` / `increment()` is not blocked. If `skip_when` is provided, it is evaluated first
+(in the same goroutine); if it returns `true`, the action is skipped. Each firing evaluates
+`skip_when` independently.
+
+`get(trigger.<name>)` returns the most recently observed `newValue`, or `null` before any
+change has been observed since startup.
+
+On `Stop()`, the trigger unregisters itself from the Watchable and waits for all in-flight
+action goroutines to complete before returning.
+
+When `action` (and `skip_when`) are evaluated, `ctx` provides:
+
+| Variable | Description |
+|---|---|
+| `ctx.trigger` | `"watch"` |
+| `ctx.name` | Name of this trigger block |
+| `ctx.old_value` | The value before the change |
+| `ctx.new_value` | The value after the change |
+
+**Creates** `trigger.<name>` as a capsule; read the last observed value with
+`get(trigger.<name>)`.
+
+Example — log every update on a variable (fires on every `set()`, including repeated equal values):
+
+```hcl
+var "temperature" {}
+
+trigger "watch" "on_temp_update" {
+    watch  = var.temperature
+    action = loginfo("temperature updated", {
+        was = ctx.old_value,
+        now = ctx.new_value,
+    })
+}
+```
+
+Example — fire only when the value actually changes (opt-in via `skip_when`):
+
+```hcl
+trigger "watch" "on_temp_change" {
+    watch     = var.temperature
+    skip_when = ctx.old_value == ctx.new_value
+    action    = loginfo("temperature changed", {
+        was = ctx.old_value,
+        now = ctx.new_value,
+    })
+}
+```
+
+Example — alert on rising edge only (skip deactivation events):
+
+```hcl
+trigger "watch" "alarm_on" {
+    watch     = condition.high_temp
+    skip_when = !ctx.new_value
+    action    = send(ctx, bus.alerts, "alarm/high_temp", "activated")
+}
+```
+
+Example — react to a metric crossing a threshold:
+
+```hcl
+metric "gauge" "queue_depth" {}
+
+trigger "watch" "queue_alert" {
+    watch     = metric.queue_depth
+    skip_when = ctx.new_value < 1000
+    action    = logwarn("queue depth exceeded threshold", {depth = ctx.new_value})
+}
+```
+
+---
+
 ## `trigger "watchdog"`
 
 ```hcl
 trigger "watchdog" "name" {
     window        = expression  # required — fires if not set() within this duration
     action        = expression  # required — evaluated each time the watchdog fires
+    watch         = expression  # optional — Watchable capsule to auto-feed the watchdog
     initial_grace = expression  # optional — grace period before first check; default: window
     repeat        = false       # optional — if true, re-fires every window until set() again
     disabled      = false       # optional
@@ -379,6 +470,12 @@ schedule, it detects when expected work *stops* happening.
 `set(trigger.<name>)` with no value resets the countdown and stores `null`.
 `get(trigger.<name>)` returns the last value passed to `set()`, or `null` if
 `set()` has never been called.
+
+**`watch`** — optional; when set to a [Watchable](#watchables) `var` or `metric` capsule,
+the watchdog auto-feeds itself each time that value changes — exactly as if the producer
+had called `set(trigger.<name>, newValue)`. This decouples the producer from the watchdog:
+the producer only needs to update the variable, not know about any watchdog. Manual
+`set(trigger.<name>, ...)` calls remain valid alongside `watch`.
 
 **`repeat = false` (default)** — After firing, the watchdog goes dormant and
 waits for the next `set()` before re-arming. This avoids flooding repeated
@@ -439,3 +536,52 @@ trigger "watchdog" "upstream" {
     action        = logwarn("upstream health check stopped", {name = ctx.name})
 }
 ```
+
+Example — use `watch =` to decouple the producer from the watchdog (producer only knows
+about the variable; the watchdog feeds itself automatically):
+
+```hcl
+var "sensor_reading" {}
+
+# Producer only sets the variable — no knowledge of any watchdog required.
+subscription "sensor" {
+    bus    = bus.main
+    topics = ["sensor/+"]
+    action = set(var.sensor_reading, ctx.payload.value)
+}
+
+trigger "watchdog" "sensor_alive" {
+    window = "60s"
+    watch  = var.sensor_reading  # auto-feeds on every set(var.sensor_reading, ...)
+    action = logwarn("sensor went silent", {last = ctx.last_set})
+}
+```
+
+---
+
+## Watchables
+
+`var`, gauge `metric`, and counter `metric` values implement the `Watchable` interface.
+Any code that calls `set()` or `increment()` on one of these values will synchronously
+notify all registered watchers after the value is committed and the internal lock is
+released. The `context.Context` passed to `set()`/`increment()` is forwarded verbatim
+to each watcher's `OnChange` callback.
+
+Notifications fire on **every** `set()`/`increment()` call, even when the new value
+equals the old value. This is intentional: a producer that repeatedly writes the same
+value is still alive, and watchdog heartbeat patterns require a notification on every
+write regardless of value change. Consumers that want changes-only semantics should use
+`skip_when = ctx.old_value == ctx.new_value` on a `trigger "watch"` block.
+
+**Watchable types:**
+
+- `var` — fires on `set()` and `increment()`
+- `metric "gauge"` (non-computed) — fires on `set()` and `increment()`; old/new values are `cty.Number`
+- `metric "counter"` (non-computed) — fires on `set()` and `increment()`; old/new values are the
+  cached monotonically increasing total (not the raw argument); a `set()` call that produces no
+  delta (new value ≤ current total) still fires with `old == new`
+
+**Not Watchable:**
+
+- `metric "histogram"` — no meaningful "old value" per observation
+- Computed metric variants (`value = expression`) — value is derived at scrape time, not via `set()`
