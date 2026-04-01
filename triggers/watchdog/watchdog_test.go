@@ -66,6 +66,8 @@ func TestTriggerWatchdogFull(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, wdog.window)
 	assert.Equal(t, 2*time.Minute, wdog.initialGrace)
 	assert.True(t, wdog.repeat)
+	assert.Equal(t, int64(3), wdog.maxMisses)
+	assert.True(t, cfg.IsExpressionProvided(wdog.stopWhenExpr))
 }
 
 func TestTriggerWatchdogDependencyId(t *testing.T) {
@@ -270,4 +272,152 @@ trigger "watchdog" "bad" {
 `)
 	_, diags := cfg.NewConfig().WithSources(src).WithLogger(testLogger(t)).Build()
 	assert.True(t, diags.HasErrors(), "non-watchable watch target should produce a config error")
+}
+
+// --- max_misses tests ---
+
+func TestTriggerWatchdog_MaxMisses_StopsAfterN(t *testing.T) {
+	src := []byte(`
+trigger "watchdog" "limited" {
+    window     = "50ms"
+    max_misses = 2
+    repeat     = true
+    action     = "fired"
+}
+`)
+	c, diags := cfg.NewConfig().WithSources(src).WithLogger(testLogger(t)).Build()
+	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
+
+	wdog, err := GetWatchdogTriggerFromCapsule(c.CtyTriggerMap["limited"])
+	require.NoError(t, err)
+
+	require.NoError(t, wdog.Start())
+
+	// Wait long enough for more than 2 fires.
+	time.Sleep(500 * time.Millisecond)
+
+	wdog.mu.RLock()
+	count := wdog.missCount
+	wdog.mu.RUnlock()
+	assert.Equal(t, int64(2), count, "watchdog should stop at max_misses=2")
+
+	require.NoError(t, wdog.Stop())
+}
+
+func TestTriggerWatchdog_MaxMisses_RevivesOnSet(t *testing.T) {
+	src := []byte(`
+trigger "watchdog" "limited" {
+    window     = "50ms"
+    max_misses = 1
+    repeat     = true
+    action     = "fired"
+}
+`)
+	c, diags := cfg.NewConfig().WithSources(src).WithLogger(testLogger(t)).Build()
+	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
+
+	wdog, err := GetWatchdogTriggerFromCapsule(c.CtyTriggerMap["limited"])
+	require.NoError(t, err)
+
+	require.NoError(t, wdog.Start())
+
+	// Wait for one fire and auto-stop.
+	time.Sleep(300 * time.Millisecond)
+	wdog.mu.RLock()
+	count := wdog.missCount
+	wdog.mu.RUnlock()
+	assert.Equal(t, int64(1), count, "expected exactly 1 fire before auto-stop")
+
+	// Revive by calling set().
+	_, err = wdog.Set(context.Background(), nil)
+	require.NoError(t, err)
+
+	// Wait for the watchdog to fire again after revival.
+	time.Sleep(300 * time.Millisecond)
+	wdog.mu.RLock()
+	count = wdog.missCount
+	wdog.mu.RUnlock()
+	assert.GreaterOrEqual(t, count, int64(1), "watchdog should have fired again after revival")
+
+	require.NoError(t, wdog.Stop())
+}
+
+func TestTriggerWatchdog_MaxMisses_Invalid(t *testing.T) {
+	src := []byte(`
+trigger "watchdog" "bad" {
+    window     = "1h"
+    max_misses = 0
+    action     = "fired"
+}
+`)
+	_, diags := cfg.NewConfig().WithSources(src).WithLogger(testLogger(t)).Build()
+	assert.True(t, diags.HasErrors(), "max_misses = 0 should produce a config error")
+}
+
+// --- stop_when tests ---
+
+func TestTriggerWatchdog_StopWhen_Stops(t *testing.T) {
+	src := []byte(`
+trigger "watchdog" "limited" {
+    window    = "50ms"
+    repeat    = true
+    stop_when = ctx.miss_count >= 2
+    action    = "fired"
+}
+`)
+	c, diags := cfg.NewConfig().WithSources(src).WithLogger(testLogger(t)).Build()
+	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
+
+	wdog, err := GetWatchdogTriggerFromCapsule(c.CtyTriggerMap["limited"])
+	require.NoError(t, err)
+
+	require.NoError(t, wdog.Start())
+
+	// Wait long enough for more than 2 fires.
+	time.Sleep(500 * time.Millisecond)
+
+	wdog.mu.RLock()
+	count := wdog.missCount
+	wdog.mu.RUnlock()
+	assert.Equal(t, int64(2), count, "watchdog should stop when stop_when condition is met")
+
+	require.NoError(t, wdog.Stop())
+}
+
+func TestTriggerWatchdog_StopWhen_RevivesOnSet(t *testing.T) {
+	src := []byte(`
+trigger "watchdog" "limited" {
+    window    = "50ms"
+    repeat    = true
+    stop_when = ctx.miss_count >= 1
+    action    = "fired"
+}
+`)
+	c, diags := cfg.NewConfig().WithSources(src).WithLogger(testLogger(t)).Build()
+	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
+
+	wdog, err := GetWatchdogTriggerFromCapsule(c.CtyTriggerMap["limited"])
+	require.NoError(t, err)
+
+	require.NoError(t, wdog.Start())
+
+	// Wait for one fire and auto-stop.
+	time.Sleep(300 * time.Millisecond)
+	wdog.mu.RLock()
+	count := wdog.missCount
+	wdog.mu.RUnlock()
+	assert.Equal(t, int64(1), count, "expected exactly 1 fire before auto-stop")
+
+	// Revive by calling set() — resets miss_count to 0, so stop_when is false.
+	_, err = wdog.Set(context.Background(), nil)
+	require.NoError(t, err)
+
+	// Wait for the watchdog to fire again after revival.
+	time.Sleep(300 * time.Millisecond)
+	wdog.mu.RLock()
+	count = wdog.missCount
+	wdog.mu.RUnlock()
+	assert.GreaterOrEqual(t, count, int64(1), "watchdog should have fired again after revival")
+
+	require.NoError(t, wdog.Stop())
 }

@@ -32,7 +32,9 @@ type WatchdogTrigger struct {
 	window       time.Duration
 	initialGrace time.Duration // 0 means "use window"
 	actionExpr   hcl.Expression
-	repeat       bool // if true, re-arms immediately after firing instead of going dormant
+	repeat       bool           // if true, re-arms immediately after firing instead of going dormant
+	maxMisses    int64          // 0 means unlimited; stop when missCount reaches this
+	stopWhenExpr hcl.Expression // optional; stop when evaluates true after each fire
 
 	mu        sync.RWMutex
 	lastValue cty.Value // cty.NilVal until first set()
@@ -125,7 +127,9 @@ func (t *WatchdogTrigger) buildEvalContext(missCount int64, lastSet time.Time) (
 		BuildEvalContext(t.config.EvalCtx())
 }
 
-func (t *WatchdogTrigger) fire() {
+// fire evaluates the action expression and returns true if the trigger should
+// auto-stop (max_misses reached or stop_when evaluated true).
+func (t *WatchdogTrigger) fire() bool {
 	t.mu.Lock()
 	t.missCount++
 	missCount := t.missCount
@@ -139,16 +143,88 @@ func (t *WatchdogTrigger) fire() {
 	if err != nil {
 		t.config.Logger.Error("watchdog trigger: error building eval context",
 			zap.String("name", t.name), zap.Error(err))
-		return
+		return false
 	}
 	val, diags := t.actionExpr.Value(evalCtx)
 	if diags.HasErrors() {
 		t.config.Logger.Error("watchdog trigger: action error",
 			zap.String("name", t.name), zap.Error(diags))
-		return
+		return false
 	}
 	t.config.Logger.Debug("watchdog trigger: action completed",
 		zap.String("name", t.name), zap.Any("result", val))
+
+	if t.maxMisses > 0 && missCount >= t.maxMisses {
+		t.config.Logger.Debug("watchdog trigger: max_misses reached, stopping",
+			zap.String("name", t.name), zap.Int64("miss_count", missCount))
+		return true
+	}
+
+	if cfg.IsExpressionProvided(t.stopWhenExpr) {
+		stopVal, stopDiags := t.stopWhenExpr.Value(evalCtx)
+		if stopDiags.HasErrors() {
+			t.config.Logger.Error("watchdog trigger: error evaluating stop_when",
+				zap.String("name", t.name), zap.Error(stopDiags))
+			return false
+		}
+		if stopVal.IsKnown() && !stopVal.IsNull() && stopVal.Type() == cty.Bool && stopVal.True() {
+			t.config.Logger.Debug("watchdog trigger: stop_when satisfied, stopping",
+				zap.String("name", t.name))
+			return true
+		}
+	}
+
+	return false
+}
+
+// shouldRemainStopped checks whether the trigger should stay in the stopped
+// state after a set() call. Returns true if either stop condition is still met.
+func (t *WatchdogTrigger) shouldRemainStopped() bool {
+	t.mu.RLock()
+	missCount := t.missCount
+	lastSet := t.lastSet
+	t.mu.RUnlock()
+
+	if t.maxMisses > 0 && missCount >= t.maxMisses {
+		return true
+	}
+
+	if cfg.IsExpressionProvided(t.stopWhenExpr) {
+		evalCtx, err := t.buildEvalContext(missCount, lastSet)
+		if err != nil {
+			return false
+		}
+		stopVal, stopDiags := t.stopWhenExpr.Value(evalCtx)
+		if stopDiags.HasErrors() {
+			return false
+		}
+		if stopVal.IsKnown() && !stopVal.IsNull() && stopVal.Type() == cty.Bool && stopVal.True() {
+			return true
+		}
+	}
+
+	return false
+}
+
+// waitForRevival blocks until a set() call revives the trigger or Stop() is
+// called. Returns true if the goroutine should exit (shutdown), false if
+// revived (timer has been reset to window).
+func (t *WatchdogTrigger) waitForRevival(timer *time.Timer) bool {
+	t.config.Logger.Debug("watchdog trigger: auto-stopped, waiting for revival via set()",
+		zap.String("name", t.name))
+	for {
+		select {
+		case <-t.setCh:
+			if !t.shouldRemainStopped() {
+				timer.Reset(t.window)
+				t.config.Logger.Debug("watchdog trigger: revived by set()",
+					zap.String("name", t.name))
+				return false
+			}
+		case <-t.stopCh:
+			return true
+		}
+	}
 }
 
 // safeTimerReset stops a timer and resets it to d, correctly draining
@@ -177,7 +253,12 @@ func (t *WatchdogTrigger) run() {
 	for {
 		select {
 		case <-timer.C:
-			t.fire()
+			if t.fire() {
+				if t.waitForRevival(timer) {
+					return // shutdown
+				}
+				continue // revived; timer already reset
+			}
 
 			if !t.repeat {
 				// DORMANT: wait for a set() signal before re-arming.
@@ -233,6 +314,8 @@ type triggerWatchdogBody struct {
 	Watch        hcl.Expression `hcl:"watch,optional"`
 	InitialGrace hcl.Expression `hcl:"initial_grace,optional"`
 	Repeat       *bool          `hcl:"repeat,optional"`
+	MaxMisses    *int64         `hcl:"max_misses,optional"`
+	StopWhen     hcl.Expression `hcl:"stop_when,optional"`
 }
 
 func init() {
@@ -266,6 +349,19 @@ func processWatchdogTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cf
 		repeat = *body.Repeat
 	}
 
+	var maxMisses int64
+	if body.MaxMisses != nil {
+		if *body.MaxMisses < 1 {
+			return append(diags, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Invalid max_misses value",
+				Detail:   fmt.Sprintf("max_misses must be >= 1, got %d", *body.MaxMisses),
+				Subject:  block.DefRange.Ptr(),
+			})
+		}
+		maxMisses = *body.MaxMisses
+	}
+
 	name := block.Labels[1]
 	t := &WatchdogTrigger{
 		name:         name,
@@ -274,6 +370,8 @@ func processWatchdogTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cf
 		initialGrace: initialGrace,
 		actionExpr:   body.Action,
 		repeat:       repeat,
+		maxMisses:    maxMisses,
+		stopWhenExpr: body.StopWhen,
 	}
 
 	if cfg.IsExpressionProvided(body.Watch) {

@@ -458,6 +458,8 @@ trigger "watchdog" "name" {
     watch         = expression  # optional — Watchable capsule to auto-feed the watchdog
     initial_grace = expression  # optional — grace period before first check; default: window
     repeat        = false       # optional — if true, re-fires every window until set() again
+    max_misses    = number      # optional — auto-stop after this many consecutive fires
+    stop_when     = expression  # optional — stop when this boolean expression is true
     disabled      = false       # optional
 }
 ```
@@ -487,6 +489,19 @@ paging systems where ongoing alerting is desired.
 
 The `initial_grace` defaults to `window`, giving components time to start up
 and call `set()` for the first time before the watchdog can fire.
+
+**`max_misses`** — optional integer (≥ 1); after the watchdog fires this many
+consecutive times without a `set()` in between, it auto-stops and waits. Calling
+`set()` resets `miss_count` to 0, which clears the condition, and the watchdog
+re-arms immediately. Use this to cap how many times an alert fires before
+requiring explicit acknowledgement via `set()`.
+
+**`stop_when`** — optional boolean expression evaluated after each fire using
+the same `ctx` as the action (including the updated `ctx.miss_count`). When it
+evaluates `true`, the watchdog auto-stops and waits. Calling `set()` re-evaluates
+the expression against the post-`set()` state (where `ctx.miss_count` is 0); if
+it is now `false`, the watchdog re-arms. For a simple count-based stop,
+`stop_when = ctx.miss_count >= N` is equivalent to `max_misses = N`.
 
 When the action runs, `ctx` provides:
 
@@ -555,6 +570,20 @@ trigger "watchdog" "sensor_alive" {
     watch  = var.sensor_reading  # auto-feeds on every set(var.sensor_reading, ...)
     action = logwarn("sensor went silent", {last = ctx.last_set})
 }
+```
+
+Example — alert at most 3 times, then wait for acknowledgement via `set()`:
+
+```hcl
+trigger "watchdog" "pipeline" {
+    window     = "5m"
+    repeat     = true
+    max_misses = 3
+    action     = send(ctx, bus.alerts, "pipeline/stalled", {missed = ctx.miss_count})
+}
+
+# Operator acknowledges the alert by calling set(trigger.pipeline) — this
+# resets miss_count to 0 and re-arms the watchdog.
 ```
 
 ---

@@ -36,6 +36,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the need for explicit `set(trigger.<name>, ...)` calls in every producer path; manual `set()`
   calls remain valid and are unaffected
 
+- **`trigger "watchdog"` `max_misses` / `stop_when`** — two new optional attributes to
+  auto-stop a watchdog after a condition is met, consistent with `trigger "interval"`:
+  - `max_misses = N` — stops after N consecutive fires without a `set()` in between
+  - `stop_when = expression` — stops when the boolean expression evaluates `true` after a fire;
+    the same `ctx` as the action is available, including the updated `ctx.miss_count`
+  - Both attributes are independent; if both are provided, the trigger stops when either
+    condition is satisfied
+  - A stopped watchdog is **revived** by calling `set()`: `miss_count` resets to 0 (clearing
+    any `max_misses` condition), and `stop_when` is re-evaluated against the post-`set()` state;
+    if it is now `false`, the watchdog re-arms immediately
+
 ## [0.20.0] - 2026-04-01
 
 ### Breaking Changes
