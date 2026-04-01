@@ -53,6 +53,7 @@ type Config struct {
 	TriggerDefRanges map[string]hcl.Range
 
 	MetricsServers map[string]MetricsRegistrar
+	OtlpClients    map[string]OtlpClient
 }
 
 func NewConfig() *ConfigBuilder {

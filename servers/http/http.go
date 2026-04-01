@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
@@ -14,20 +15,28 @@ import (
 	serverauth "github.com/tsarna/vinculum/servers/auth"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
+
 
 type HttpServer struct {
 	cfg.BaseServer
 	Logger    *zap.Logger
 	Server    *http.Server
 	TLSConfig *tls.Config
+
+	// otlpClient is resolved at config parse time; may be nil.
+	otlpClient cfg.OtlpClient
 }
 
 type HttpServerDefinition struct {
 	Listen      string                  `hcl:"listen"`
 	TLS         *cfg.TLSConfig          `hcl:"tls,block"`
 	Auth        *cfg.AuthConfig         `hcl:"auth,block"`
+	Tracing     hcl.Expression          `hcl:"tracing,optional"`
 	DefRange    hcl.Range               `hcl:",def_range"`
 	StaticFiles []staticFilesDefinition `hcl:"files,block"`
 	Handlers    []handlerDefinition     `hcl:"handle,block"`
@@ -61,7 +70,6 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 		return nil, diags
 	}
 
-	// Validate server-level auth if present.
 	if serverDef.Auth != nil {
 		if authDiags := cfg.ValidateAuthConfig(serverDef.Auth); authDiags.HasErrors() {
 			return nil, authDiags
@@ -74,19 +82,45 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 		config.Servers["http"] = httpServers
 	}
 
-	existing, ok := httpServers[block.Labels[1]]
+	serverName := block.Labels[1]
+
+	existing, ok := httpServers[serverName]
 	if ok {
 		return nil, hcl.Diagnostics{
 			&hcl.Diagnostic{
 				Severity: hcl.DiagError,
 				Summary:  "Http server already defined",
-				Detail:   fmt.Sprintf("Http server %s already defined at %s", block.Labels[1], existing.GetDefRange()),
+				Detail:   fmt.Sprintf("Http server %s already defined at %s", serverName, existing.GetDefRange()),
 				Subject:  &serverDef.DefRange,
 			},
 		}
 	}
 
-	serverName := block.Labels[1]
+	// Resolve tracing client at config parse time.
+	var otlpClient cfg.OtlpClient
+	if cfg.IsExpressionProvided(serverDef.Tracing) {
+		var tracingDiags hcl.Diagnostics
+		otlpClient, tracingDiags = cfg.GetOtlpClientFromExpression(config, serverDef.Tracing)
+		if tracingDiags.HasErrors() {
+			return nil, tracingDiags
+		}
+	} else {
+		var defaultDiags hcl.Diagnostics
+		otlpClient, defaultDiags = config.GetDefaultOtlpClient()
+		if defaultDiags.HasErrors() {
+			return nil, defaultDiags
+		}
+	}
+
+	server := &HttpServer{
+		Logger: config.Logger,
+		BaseServer: cfg.BaseServer{
+			Name:     serverName,
+			DefRange: serverDef.DefRange,
+		},
+		otlpClient: otlpClient,
+	}
+
 	mux := http.NewServeMux()
 
 	for _, file := range serverDef.StaticFiles {
@@ -130,13 +164,13 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 		}
 
 		effectiveAuth := resolveAuth(serverDef.Auth, file.Auth)
-		handler := http.Handler(NewLoggingMiddleware(config.Logger,
-			http.StripPrefix(path, http.FileServer(http.Dir(dir)))))
-		handler, diags = wrapWithAuth(handler, effectiveAuth, serverName, config, &file.DefRange)
+		var inner http.Handler = http.StripPrefix(path, http.FileServer(http.Dir(dir)))
+		inner, diags = wrapWithAuth(inner, effectiveAuth, serverName, config, &file.DefRange)
 		if diags.HasErrors() {
 			return nil, diags
 		}
-		mux.Handle(path, handler)
+		inner = newLoggingMiddleware(config.Logger, path, inner)
+		mux.Handle(path, inner)
 	}
 
 	for _, handlerDef := range serverDef.Handlers {
@@ -162,7 +196,7 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 
 		var inner http.Handler
 		if cfg.IsExpressionProvided(handlerDef.Action) {
-			inner = NewLoggingMiddleware(config.Logger, &httpAction{config: config, actionExpr: handlerDef.Action})
+			inner = &httpAction{config: config, actionExpr: handlerDef.Action}
 		} else {
 			handler, handlerDiags := cfg.GetServerFromExpression(config, handlerDef.Handler)
 			if handlerDiags.HasErrors() {
@@ -179,27 +213,21 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 					},
 				}
 			}
-			inner = NewLoggingMiddleware(config.Logger, handlerServer.GetHandler())
+			inner = handlerServer.GetHandler()
 		}
 
 		effectiveAuth := resolveAuth(serverDef.Auth, handlerDef.Auth)
-		wrapped, authDiags := wrapWithAuth(inner, effectiveAuth, serverName, config, &handlerDef.DefRange)
-		if authDiags.HasErrors() {
-			return nil, authDiags
+		inner, diags = wrapWithAuth(inner, effectiveAuth, serverName, config, &handlerDef.DefRange)
+		if diags.HasErrors() {
+			return nil, diags
 		}
-		mux.Handle(handlerDef.Route, wrapped)
+		inner = newLoggingMiddleware(config.Logger, handlerDef.Route, inner)
+		mux.Handle(handlerDef.Route, inner)
 	}
 
-	server := &HttpServer{
-		Logger: config.Logger,
-		BaseServer: cfg.BaseServer{
-			Name:     serverName,
-			DefRange: serverDef.DefRange,
-		},
-		Server: &http.Server{
-			Addr:    serverDef.Listen,
-			Handler: mux,
-		},
+	server.Server = &http.Server{
+		Addr:    serverDef.Listen,
+		Handler: mux,
 	}
 
 	if serverDef.TLS != nil {
@@ -222,10 +250,6 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 	return server, nil
 }
 
-// resolveAuth determines the effective auth config for a route, implementing
-// the scoping rules from the spec:
-//   - block-level auth (any mode, including "none") takes precedence over server auth
-//   - if no block-level auth, use server-level auth (may be nil = unauthenticated)
 func resolveAuth(serverAuth, blockAuth *cfg.AuthConfig) *cfg.AuthConfig {
 	if blockAuth != nil {
 		return blockAuth
@@ -233,8 +257,6 @@ func resolveAuth(serverAuth, blockAuth *cfg.AuthConfig) *cfg.AuthConfig {
 	return serverAuth
 }
 
-// wrapWithAuth wraps handler with auth middleware if effectiveAuth is non-nil
-// and not "none". Returns the original handler unchanged otherwise.
 func wrapWithAuth(handler http.Handler, effectiveAuth *cfg.AuthConfig, serverName string, config *cfg.Config, defRange *hcl.Range) (http.Handler, hcl.Diagnostics) {
 	if effectiveAuth == nil || effectiveAuth.Mode == "none" {
 		return handler, nil
@@ -259,6 +281,34 @@ func wrapWithAuth(handler http.Handler, effectiveAuth *cfg.AuthConfig, serverNam
 }
 
 func (h *HttpServer) Start() error {
+	// Build otelhttp options. Use the explicitly configured (or default) OTLP
+	// client's TracerProvider when available; otherwise fall back to the global
+	// NOOP provider so otelhttp is safe to use even without a tracing client.
+	var otelOpts []otelhttp.Option
+	if h.otlpClient != nil {
+		if tp := h.otlpClient.GetTracerProvider(); tp != nil {
+			otelOpts = append(otelOpts, otelhttp.WithTracerProvider(tp))
+		}
+	}
+	otelOpts = append(otelOpts,
+		// Always use W3C TraceContext + Baggage propagation regardless of whether
+		// a client "otlp" is configured. This means traceparent headers are always
+		// extracted and ctx.trace_id is populated even with no tracing backend.
+		otelhttp.WithPropagators(propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		)),
+		otelhttp.WithServerName(h.Name),
+	)
+
+	// Wrap the entire mux with otelhttp for tracing.
+	tracedHandler := otelhttp.NewHandler(h.Server.Handler, "",
+		append(otelOpts, otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+			return r.Method + " " + r.URL.Path
+		}))...,
+	)
+	h.Server.Handler = tracedHandler
+
 	go func() {
 		h.Logger.Info("Starting HTTP server", zap.String("name", h.Name), zap.String("addr", h.Server.Addr))
 		var err error
@@ -276,23 +326,71 @@ func (h *HttpServer) Start() error {
 	return nil
 }
 
+// ─── loggingMiddleware ────────────────────────────────────────────────────────
+
+type statusCapturingResponseWriter struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+}
+
+func (w *statusCapturingResponseWriter) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusCapturingResponseWriter) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	n, err := w.ResponseWriter.Write(b)
+	w.bytes += n
+	return n, err
+}
+
+func (w *statusCapturingResponseWriter) effectiveStatus() int {
+	if w.status == 0 {
+		return http.StatusOK
+	}
+	return w.status
+}
+
 type loggingMiddleware struct {
 	next   http.Handler
 	logger *zap.Logger
+	route  string
 }
 
-func NewLoggingMiddleware(logger *zap.Logger, next http.Handler) http.Handler {
-	return &loggingMiddleware{
-		logger: logger,
-		next:   next,
-	}
+func newLoggingMiddleware(logger *zap.Logger, route string, next http.Handler) http.Handler {
+	return &loggingMiddleware{logger: logger, route: route, next: next}
 }
 
 func (l *loggingMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// TODO: Log status code
-	l.logger.Info("Request", zap.String("method", r.Method), zap.String("url", r.URL.String()))
-	l.next.ServeHTTP(w, r)
+	start := time.Now()
+	sw := &statusCapturingResponseWriter{ResponseWriter: w}
+	l.next.ServeHTTP(sw, r)
+
+	status := sw.effectiveStatus()
+	durationMs := float64(time.Since(start).Microseconds()) / 1000.0
+
+	fields := []zap.Field{
+		zap.String("method", r.Method),
+		zap.String("route", l.route),
+		zap.String("path", r.URL.Path),
+		zap.Int("status", status),
+		zap.Float64("duration_ms", durationMs),
+		zap.Int("bytes", sw.bytes),
+	}
+
+	// Include trace_id for log-trace correlation when a span is active.
+	if span := trace.SpanFromContext(r.Context()); span.SpanContext().IsValid() {
+		fields = append(fields, zap.String("trace_id", span.SpanContext().TraceID().String()))
+	}
+
+	l.logger.Info("Request", fields...)
 }
+
+// ─── httpAction ───────────────────────────────────────────────────────────────
 
 type httpAction struct {
 	config     *cfg.Config
@@ -325,7 +423,6 @@ func getHttpActionEvalContext(config *cfg.Config, r *http.Request) (*hcl.EvalCon
 }
 
 func writeHTTPResponse(logger *zap.Logger, w http.ResponseWriter, val cty.Value) {
-	// Explicit httpresponse value (from http_response, http_redirect, http_error, etc.)
 	if resp, ok := types.GetHTTPResponseFromValue(val); ok {
 		if resp.IsError {
 			logger.Warn("HTTP action returned http_error",
@@ -336,13 +433,11 @@ func writeHTTPResponse(logger *zap.Logger, w http.ResponseWriter, val cty.Value)
 		return
 	}
 
-	// null → 204 No Content
 	if val.IsNull() {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	// All other types: coerce to body bytes
 	body, contentType, err := types.CoerceBodyToBytes(val)
 	if err != nil {
 		logger.Error("Failed to coerce action return value to HTTP response", zap.Error(err))

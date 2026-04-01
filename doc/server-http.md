@@ -220,6 +220,40 @@ reverse lookup. See [config.md](config.md#ambient-variables) for the full list.
 
 ---
 
+## Distributed Tracing
+
+Add a `tracing` attribute to connect the server to a `client "otlp"` block.
+Every inbound request will produce an OTel span. If the request carries a W3C
+`traceparent` header the span is created as a child of the upstream trace;
+otherwise a new root span is started.
+
+```hcl
+client "otlp" "jaeger" {
+    endpoint     = "http://localhost:4318"
+    service_name = "my-app"
+}
+
+server "http" "api" {
+    listen  = ":8080"
+    tracing = client.jaeger   # optional; auto-wired when there is only one client "otlp"
+    ...
+}
+```
+
+When a span is active, two variables are available in `action` expressions:
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `ctx.trace_id` | string | W3C trace ID (32 hex chars) |
+| `ctx.span_id` | string | W3C span ID (16 hex chars) |
+
+Both are empty strings when no tracing client is configured.
+
+See [client "otlp"](client-otlp.md) for full configuration options and
+auto-wiring rules.
+
+---
+
 ## Authentication
 
 Add an `auth` sub-block to require authentication on the server or on individual routes.
