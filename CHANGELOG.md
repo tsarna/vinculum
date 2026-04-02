@@ -30,6 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`try()` and `can()` functions** — HCL-native error-handling functions from
+  `github.com/hashicorp/hcl/v2/ext/tryfunc`, now registered in the standard function set:
+  - `try(expr...)` — evaluates each argument in sequence and returns the first one that
+    succeeds without error; returns an error only if all arguments fail
+  - `can(expr)` — evaluates the expression and returns `true` if it succeeds, `false` if
+    it produces any error; useful for conditional logic based on whether a value is valid
+
 - **`trigger "file"`** — new filesystem-event trigger backed by
   [fsnotify](https://github.com/fsnotify/fsnotify); fires an action expression each time
   a matching file-system event occurs:

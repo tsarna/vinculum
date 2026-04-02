@@ -6,6 +6,7 @@ import (
 	"github.com/hashicorp/go-cty-funcs/encoding"
 	"github.com/hashicorp/go-cty-funcs/filesystem"
 	"github.com/hashicorp/go-cty-funcs/uuid"
+	"github.com/hashicorp/hcl/v2/ext/tryfunc"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
@@ -122,5 +123,9 @@ func GetStandardLibraryFunctions() map[string]function.Function {
 		// UUID functions
 		"uuidv4": uuid.V4Func,
 		"uuidv5": uuid.V5Func,
+
+		// Try/can functions
+		"try": tryfunc.TryFunc,
+		"can": tryfunc.CanFunc,
 	}
 }
