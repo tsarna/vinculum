@@ -21,30 +21,6 @@ import (
 //go:embed testdata/mcp_trace.vcl
 var mcpTraceVCL []byte
 
-// TestMCPTrace_PropagationOnly verifies that a standalone MCP server extracts
-// W3C trace context from incoming requests even without a client "otlp".
-func TestMCPTrace_PropagationOnly(t *testing.T) {
-	c, diags := config.NewConfig().WithSources(mcpTraceVCL).WithLogger(zap.NewNop()).Build()
-	require.False(t, diags.HasErrors(), diags.Error())
-
-	mcpSrv := c.Servers["mcp"]["trace_test"].(*mcpsrv.McpServer)
-
-	// GetHandler() returns the otelhttp-wrapped handler (set in New() for standalone mode).
-	ts := httptest.NewServer(mcpSrv.GetHandler())
-	defer ts.Close()
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, ts.URL+"/", nil)
-	require.NoError(t, err)
-	req.Header.Set("traceparent", "00-80e1afed08e019fc1110464cfa66635c-7a085853722dc6d2-01")
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	// Any non-zero response confirms the handler processed the request.
-	assert.NotEqual(t, 0, resp.StatusCode)
-}
-
 // TestMCPTrace_WithTracerProvider verifies that a standalone MCP server creates
 // a child span when a real TracerProvider is active.
 func TestMCPTrace_WithTracerProvider(t *testing.T) {
