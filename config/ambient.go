@@ -9,11 +9,17 @@ import (
 // --- Global plugin name registry ---
 
 var registeredPlugins []string
+var registeredPluginSet = map[string]bool{}
 
 // recordPlugin records a plugin name in the global registry.
 // Called from each Register* function in this package.
+// Idempotent: duplicate names are silently ignored so conditional plugins
+// registered during Build() do not produce duplicates on reload.
 func recordPlugin(name string) {
-	registeredPlugins = append(registeredPlugins, name)
+	if !registeredPluginSet[name] {
+		registeredPluginSet[name] = true
+		registeredPlugins = append(registeredPlugins, name)
+	}
 }
 
 // RegisteredPlugins returns a sorted copy of all registered plugin names,

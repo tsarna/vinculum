@@ -1,7 +1,8 @@
 # Trigger Reference
 
 `trigger` blocks define lifecycle actions that fire at specific points: on a
-schedule, at startup, during shutdown, or in response to OS signals.
+schedule, at startup, during shutdown, in response to OS signals, or when
+filesystem events occur.
 
 ```hcl
 trigger "type" "name" {
@@ -12,9 +13,9 @@ trigger "type" "name" {
 
 All trigger types share a single name namespace — you cannot have two non-disabled
 triggers with the same name regardless of type. `trigger "after"`, `trigger "at"`,
-`trigger "interval"`, `trigger "once"`, `trigger "start"`, `trigger "watch"`, and
-`trigger "watchdog"` blocks expose their result as `trigger.<name>` in the global
-evaluation context.
+`trigger "file"`, `trigger "interval"`, `trigger "once"`, `trigger "start"`,
+`trigger "watch"`, and `trigger "watchdog"` blocks expose their result as
+`trigger.<name>` in the global evaluation context.
 
 ---
 
@@ -189,6 +190,171 @@ trigger "cron" "heartbeat" {
     at "@every 30s" "ping" {
         action = send(ctx, bus.main, "system/heartbeat", "ping")
     }
+}
+```
+
+---
+
+## `trigger "file"`
+
+```hcl
+trigger "file" "name" {
+    path              = expression  # required — file or directory to watch
+    action            = expression  # required — evaluated on each matching event
+    events            = ["create", "write", "delete", "rename", "chmod"]  # optional
+    recursive         = false       # optional — watch subdirectories too
+    filter            = expression  # optional — glob pattern applied to event_path
+    debounce          = expression  # optional — coalesce rapid events on same path
+    on_start_existing = false       # optional — synthetic create for existing files at startup
+    skip_when         = expression  # optional — skip this firing if true
+    disabled          = false       # optional
+}
+```
+
+Fires `action` in response to filesystem events — file or directory creates,
+writes, deletes, renames, and permission changes. Backed by OS-native
+notification mechanisms (`inotify` on Linux, `kqueue`/`FSEvents` on macOS,
+`ReadDirectoryChangesW` on Windows) via the
+[`fsnotify`](https://github.com/fsnotify/fsnotify) library.
+
+`path` must exist when vinculum starts; a missing path is a runtime startup
+error. To watch multiple paths, declare multiple `trigger "file"` blocks.
+
+`get(trigger.<name>)` returns the result of the most recently completed action
+invocation, or `null` before any action has run.
+
+> **Network filesystems:** `fsnotify` relies on kernel-level notifications and
+> does not observe remote writes on NFS, SMB/CIFS, SSHFS, or FUSE mounts. Use
+> `trigger "interval"` with a directory-listing function to poll network paths
+> instead.
+
+### `events`
+
+Controls which filesystem event types trigger the action. The default is all
+five types.
+
+| Value | When it fires |
+|---|---|
+| `"create"` | A file or directory is created |
+| `"write"` | A file's contents are modified |
+| `"delete"` | A file or directory is removed |
+| `"rename"` | A file or directory is renamed or moved |
+| `"chmod"` | A file's permissions or attributes change |
+
+> On some platforms `inotify` does not distinguish `write` from `chmod`; both
+> may arrive as `write`. Rely on `"chmod"` only when portability is not required.
+
+### `recursive`
+
+When `true`, subdirectories are also watched and `ctx.event_path` carries the
+full path of the specific file that changed. New subdirectories created after
+startup are added automatically.
+
+> On Linux each subdirectory consumes one inotify watch descriptor. The system
+> default (`fs.inotify.max_user_watches`) may need to be increased for very
+> large trees.
+
+### `filter`
+
+A glob pattern matched against `ctx.event_path` using
+[`path.Match`](https://pkg.go.dev/path#Match) semantics. Events whose path does
+not match are discarded without invoking `action`. `**` is not supported; use
+`*` to match within a single directory component.
+
+### `debounce`
+
+Coalesces rapid successive events on the **same path** into a single invocation.
+The timer resets on each new event; the action fires once the path has been
+quiet for the full duration. Particularly useful when watching files written by
+editors that produce several events per save.
+
+Debounce is per-path: simultaneous changes on two different files each
+independently dispatch after their own quiet window.
+
+Durations follow the same formats as other duration attributes: numbers
+(seconds), Go strings (`"200ms"`, `"1s"`), and ISO 8601 strings (`"PT0.2S"`).
+
+### `on_start_existing`
+
+When `true`, a synthetic `"create"` event is fired for every file already
+present under `path` at startup. This lets a spool-directory handler process
+files that arrived while vinculum was not running. Synthetic events respect
+`filter` and `debounce`. They are dispatched from `PostStart()`, after all
+`Startable` components have completed, so buses and clients are fully ready
+when the action runs.
+
+When the action runs, `ctx` provides:
+
+| Variable | Type | Description |
+|---|---|---|
+| `ctx.trigger` | string | `"file"` |
+| `ctx.name` | string | Name of this trigger block |
+| `ctx.path` | string | The configured `path` (the watched root) |
+| `ctx.event_path` | string | Full path of the file or directory that produced the event |
+| `ctx.event` | string | Event type: `"create"`, `"write"`, `"delete"`, `"rename"`, or `"chmod"` |
+| `ctx.run_count` | number | Number of action invocations since startup |
+| `ctx.last_result` | dynamic | Result of the most recently completed action, or `null` |
+| `ctx.last_error` | string | Error from the most recent action, or `null` if none |
+
+For `"rename"` events, `ctx.event_path` is the **old** (source) path. The new
+destination path is not available from all OS backends; pair rename with a
+subsequent `"create"` event when the destination is needed.
+
+If an action fails, the error is logged and `ctx.last_error` is set for the
+next invocation. The trigger continues watching; subsequent events are not
+suppressed.
+
+**Creates** `trigger.<name>` as a capsule; read the most recent action result
+with `get(trigger.<name>)`.
+
+Example — process a spool directory, including files that arrived while stopped:
+
+```hcl
+trigger "file" "spool" {
+    path              = "/var/spool/myapp/inbound"
+    events            = ["create"]
+    filter            = "*.json"
+    on_start_existing = true
+    action = [
+        loginfo("processing spool file", {path = ctx.event_path}),
+        send(ctx, bus.main, "spool/inbound", fileread(ctx.event_path)),
+    ]
+}
+```
+
+Example — recursive YAML config directory, skipping deletes:
+
+```hcl
+trigger "file" "conf_d" {
+    path      = "/etc/myapp/conf.d"
+    recursive = true
+    filter    = "*.yaml"
+    events    = ["create", "write", "rename"]
+    debounce  = "200ms"
+    action    = reload_fragment(ctx.event_path)
+}
+```
+
+Example — re-read TLS certificates when renewed:
+
+```hcl
+trigger "file" "tls_cert_rotate" {
+    path     = "/etc/ssl/myapp"
+    events   = ["create", "write"]
+    filter   = "*.pem"
+    debounce = "500ms"
+    action   = loginfo("TLS cert changed, reload required", {file = ctx.event_path})
+}
+```
+
+Example — guard against false creates with `skip_when`:
+
+```hcl
+trigger "file" "spool_arrive" {
+    path      = "/var/spool/drop"
+    events    = ["create"]
+    skip_when = !fileexists(ctx.event_path)
+    action    = send(ctx, bus.main, "spool/new", ctx.event_path)
 }
 ```
 

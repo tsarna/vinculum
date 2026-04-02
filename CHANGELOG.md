@@ -30,6 +30,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`trigger "file"`** — new filesystem-event trigger backed by
+  [fsnotify](https://github.com/fsnotify/fsnotify); fires an action expression each time
+  a matching file-system event occurs:
+  - `path = expression` — required; directory to watch (absolute or relative to `--file-path`)
+  - `action = expression` — evaluated on each matching event in a new goroutine
+  - `events = ["create", "write", "delete", "rename", "chmod"]` — optional; defaults to all events
+  - `recursive = true` — optional; also watch all subdirectories (including ones created after start)
+  - `filter = "glob"` — optional; only dispatch events whose filename matches the glob pattern
+  - `debounce = "duration"` — optional; coalesce bursts of events on the same path into a single
+    dispatch after the specified quiet period
+  - `on_start_existing = true` — optional; dispatch synthetic `create` events for all files already
+    present in `path` at `PostStart()` time (the live watch is already active so no real events are
+    lost)
+  - `skip_when = expression` — optional; skip this firing if the expression returns `true`
+  - `ctx.event_path` — full path of the file that triggered the event
+  - `ctx.event` — event type string: `"create"`, `"write"`, `"delete"`, `"rename"`, or `"chmod"`
+  - `ctx.path` — the configured watch directory
+  - `ctx.run_count`, `ctx.last_result`, `ctx.last_error` — standard trigger context values
+  - `get(trigger.<name>)` returns the most recent action result, or `null` before the first firing
+  - Requires `--file-path` to be set; the trigger type is not registered when the feature is absent
+  - See [doc/trigger.md](doc/trigger.md) for full reference and examples
+
 - **`trigger "at"`** — new trigger type that fires an action at a dynamically computed
   absolute time, then repeats by re-evaluating the `time` expression each cycle:
   - `time = expression` — required; must evaluate to a time capsule (e.g. from `now()`,

@@ -147,7 +147,10 @@ func (v *attributeVertexVisitor) Visit(vertex dag.Vertexer) {
 // Kahn's algorithm. When multiple blocks are available (no ordering constraint
 // between them), they are emitted in their original source order. Blocks without
 // a dependency ID (const, signals, function) are appended at the end unchanged.
-func (cb *ConfigBuilder) SortBlocksByDependencies(blocks hcl.Blocks) (hcl.Blocks, hcl.Diagnostics) {
+// handlers must be the same BlockHandler instances that had FinishPreprocessing
+// called on them, so per-build handler state (e.g. conditional trigger registry)
+// is visible during dependency resolution.
+func (cb *ConfigBuilder) SortBlocksByDependencies(blocks hcl.Blocks, handlers map[string]BlockHandler) (hcl.Blocks, hcl.Diagnostics) {
 	var diags hcl.Diagnostics
 
 	type entry struct {
@@ -161,7 +164,7 @@ func (cb *ConfigBuilder) SortBlocksByDependencies(blocks hcl.Blocks) (hcl.Blocks
 	idToIdx := map[string]int{} // block ID → index in dagEntries
 
 	for i, block := range blocks {
-		handler, ok := cb.blockHandlers[block.Type]
+		handler, ok := handlers[block.Type]
 		if !ok {
 			otherBlocks = append(otherBlocks, block)
 			continue
@@ -189,7 +192,7 @@ func (cb *ConfigBuilder) SortBlocksByDependencies(blocks hcl.Blocks) (hcl.Blocks
 	dependents := make([][]int, n)
 
 	for entryIdx, e := range dagEntries {
-		handler := cb.blockHandlers[e.block.Type]
+		handler := handlers[e.block.Type]
 		deps, depDiags := handler.GetBlockDependencies(e.block)
 		diags = diags.Extend(depDiags)
 

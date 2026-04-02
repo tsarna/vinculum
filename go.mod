@@ -6,9 +6,11 @@ require go.uber.org/zap v1.27.1
 
 require (
 	github.com/coder/websocket v1.8.14
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/hashicorp/go-cty-funcs v0.0.0-20250818135842-6aab67130928
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/itchyny/gojq v0.12.18
+	github.com/lestrrat-go/jwx/v2 v2.1.6
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/robfig/cron/v3 v3.0.1
@@ -51,7 +53,6 @@ require (
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
 	github.com/lestrrat-go/httprc v1.0.6 // indirect
 	github.com/lestrrat-go/iter v1.0.2 // indirect
-	github.com/lestrrat-go/jwx/v2 v2.1.6 // indirect
 	github.com/lestrrat-go/option v1.0.1 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect

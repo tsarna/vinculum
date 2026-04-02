@@ -16,6 +16,7 @@ import (
 	_ "github.com/tsarna/vinculum/triggers/after"
 	_ "github.com/tsarna/vinculum/triggers/at"
 	_ "github.com/tsarna/vinculum/triggers/cron"
+	_ "github.com/tsarna/vinculum/triggers/file"
 	_ "github.com/tsarna/vinculum/triggers/interval"
 	_ "github.com/tsarna/vinculum/triggers/once"
 	_ "github.com/tsarna/vinculum/triggers/shutdown"

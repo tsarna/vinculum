@@ -191,7 +191,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		return nil, diags
 	}
 
-	blocks, sortDiags := cb.SortBlocksByDependencies(blocks)
+	blocks, sortDiags := cb.SortBlocksByDependencies(blocks, blockHandlers)
 	diags = diags.Extend(sortDiags)
 
 	// Process blocks

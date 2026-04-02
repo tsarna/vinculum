@@ -16,8 +16,11 @@ type TriggerDefinition struct {
 	RemainingBody hcl.Body  `hcl:",remain"`
 }
 
+// TriggerBlockHandler processes trigger blocks. A fresh instance is created per
+// Build() call; its registry is populated during FinishPreprocessing.
 type TriggerBlockHandler struct {
 	BlockHandlerBase
+	registry map[string]TriggerRegistration // built in FinishPreprocessing; nil until then
 }
 
 func NewTriggerBlockHandler() *TriggerBlockHandler {
@@ -33,21 +36,63 @@ type TriggerRegistration struct {
 	HasDependencyId bool // true if this trigger type produces a cty value at trigger.<name>
 }
 
+// triggerRegistry holds unconditionally available trigger types, registered at
+// init() time via RegisterTriggerType.
 var triggerRegistry = map[string]TriggerRegistration{}
 
-// RegisterTriggerType registers a trigger type by name.
+// RegisterTriggerType registers an unconditional trigger type.
 // Sub-packages call this from their init() function.
 func RegisterTriggerType(typeName string, reg TriggerRegistration) {
 	recordPlugin("trigger." + typeName)
 	triggerRegistry[typeName] = reg
 }
 
+// ConditionalTriggerTypePlugin is evaluated once per Build(). It returns a map
+// of trigger type names to registrations when the required feature is enabled,
+// or nil when the type should not be available for this config.
+type ConditionalTriggerTypePlugin func(cfg *Config) map[string]TriggerRegistration
+
+var conditionalTriggerPlugins []ConditionalTriggerTypePlugin
+
+// RegisterConditionalTriggerType registers a trigger type whose availability
+// depends on config state (e.g. a feature flag). Unlike RegisterTriggerType,
+// it does NOT call recordPlugin at init time; the plugin name is recorded only
+// when the factory returns a non-nil result during Build().
+func RegisterConditionalTriggerType(factory ConditionalTriggerTypePlugin) {
+	conditionalTriggerPlugins = append(conditionalTriggerPlugins, factory)
+}
+
+// FinishPreprocessing builds the per-build trigger registry by merging
+// unconditional types with any conditional types whose features are enabled.
+func (h *TriggerBlockHandler) FinishPreprocessing(config *Config) hcl.Diagnostics {
+	h.registry = make(map[string]TriggerRegistration, len(triggerRegistry))
+	for k, v := range triggerRegistry {
+		h.registry[k] = v
+	}
+	for _, plugin := range conditionalTriggerPlugins {
+		if types := plugin(config); types != nil {
+			for typeName, reg := range types {
+				recordPlugin("trigger." + typeName)
+				h.registry[typeName] = reg
+			}
+		}
+	}
+	return nil
+}
+
 // GetBlockDependencyId returns "trigger.<name>" for trigger types that produce a
-// cty value (like "start"), enabling correct dependency ordering for blocks that
-// reference trigger.<name>. Other trigger types return "" (no ordering needed).
+// cty value, enabling correct dependency ordering for blocks that reference
+// trigger.<name>. Other trigger types return "" (no ordering needed).
+// Falls back to the global (unconditional) registry when called before
+// FinishPreprocessing.
 func (h *TriggerBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {
 	if len(block.Labels) == 2 {
-		if reg, ok := triggerRegistry[block.Labels[0]]; ok && reg.HasDependencyId {
+		reg, ok := h.registry[block.Labels[0]]
+		if !ok {
+			// Fall back to unconditional registry (e.g. when called before FinishPreprocessing).
+			reg, ok = triggerRegistry[block.Labels[0]]
+		}
+		if ok && reg.HasDependencyId {
 			return "trigger." + block.Labels[1], nil
 		}
 	}
@@ -78,7 +123,7 @@ func (h *TriggerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diag
 	}
 	config.TriggerDefRanges[name] = triggerDef.DefRange
 
-	reg, ok := triggerRegistry[block.Labels[0]]
+	reg, ok := h.registry[block.Labels[0]]
 	if !ok {
 		return hcl.Diagnostics{&hcl.Diagnostic{
 			Severity: hcl.DiagError,
