@@ -17,7 +17,10 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
+	"github.com/twmb/franz-go/plugin/kotel"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -82,6 +85,7 @@ type KafkaClientDefinition struct {
 	RequestTimeout hcl.Expression       `hcl:"request_timeout,optional"`
 	MetadataMaxAge hcl.Expression       `hcl:"metadata_max_age,optional"`
 	Metrics        hcl.Expression       `hcl:"metrics,optional"`
+	Tracing        hcl.Expression       `hcl:"tracing,optional"`
 	DefRange       hcl.Range            `hcl:",def_range"`
 }
 
@@ -141,6 +145,7 @@ type KafkaClient struct {
 	consSpecs       []builtConsumerSpec
 	producerProxies map[string]*KafkaProducerProxy
 	metricsProvider o11y.MetricsProvider
+	tracerProvider  trace.TracerProvider
 	logger          *zap.Logger
 
 	mu         sync.RWMutex
@@ -165,9 +170,21 @@ func (c *KafkaClient) CtyValue() cty.Value {
 }
 
 func (c *KafkaClient) Start() error {
+	// Build the effective kgo opts, prepending the kotel tracing hook when a
+	// TracerProvider is configured. Both the producer client and each consumer
+	// client receive the same hook so trace context flows bidirectionally.
+	kgoOpts := c.kgoOpts
+	if c.tracerProvider != nil {
+		kotelTracer := kotel.NewTracer(
+			kotel.TracerProvider(c.tracerProvider),
+			kotel.TracerPropagator(otel.GetTextMapPropagator()),
+		)
+		kgoOpts = append(kgoOpts, kgo.WithHooks(kotel.NewKotel(kotel.WithTracer(kotelTracer)).Hooks()...))
+	}
+
 	var kgoClient *kgo.Client
 	if len(c.prodSpecs) > 0 {
-		client, err := kgo.NewClient(c.kgoOpts...)
+		client, err := kgo.NewClient(kgoOpts...)
 		if err != nil {
 			return fmt.Errorf("kafka client %q: create producer client: %w", c.Name, err)
 		}
@@ -201,7 +218,7 @@ func (c *KafkaClient) Start() error {
 
 	for _, spec := range c.consSpecs {
 		b := kconsumer.NewConsumer().
-			WithBaseOpts(c.kgoOpts).
+			WithBaseOpts(kgoOpts).
 			WithGroupID(spec.groupID).
 			WithStartOffset(spec.startOffset).
 			WithCommitMode(spec.commitMode).
@@ -461,6 +478,24 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		return nil, metricsDiags
 	}
 
+	// Resolve tracing client (same auto-wire pattern as server "http").
+	var tracerProvider trace.TracerProvider
+	if cfg.IsExpressionProvided(def.Tracing) {
+		otlpClient, tracingDiags := cfg.GetOtlpClientFromExpression(config, def.Tracing)
+		if tracingDiags.HasErrors() {
+			return nil, tracingDiags
+		}
+		tracerProvider = otlpClient.GetTracerProvider()
+	} else {
+		otlpClient, defaultDiags := config.GetDefaultOtlpClient()
+		if defaultDiags.HasErrors() {
+			return nil, defaultDiags
+		}
+		if otlpClient != nil {
+			tracerProvider = otlpClient.GetTracerProvider()
+		}
+	}
+
 	client := &KafkaClient{
 		BaseClient: cfg.BaseClient{
 			Name:     block.Labels[1],
@@ -471,6 +506,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		consSpecs:       consSpecs,
 		producerProxies: producerProxies,
 		metricsProvider: metricsProvider,
+		tracerProvider:  tracerProvider,
 		logger:          config.Logger,
 	}
 
