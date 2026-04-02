@@ -68,10 +68,17 @@ func (t *AtTrigger) Set(_ context.Context, args []cty.Value) (cty.Value, error) 
 	return cty.NullVal(cty.DynamicPseudoType), nil
 }
 
-// Start launches the background goroutine. Implements Startable.
+// Start initialises the set and stop channels. Implements Startable.
 func (t *AtTrigger) Start() error {
 	t.setCh = make(chan struct{}, 1)
 	t.stopCh = make(chan struct{})
+	return nil
+}
+
+// PostStart launches the background goroutine. Called after all Startable
+// components have completed, so buses and clients are ready when the action fires.
+// Implements PostStartable.
+func (t *AtTrigger) PostStart() error {
 	t.doneCh = make(chan struct{})
 	go t.run()
 	return nil
@@ -84,7 +91,9 @@ func (t *AtTrigger) Stop() error {
 		return nil
 	}
 	close(t.stopCh)
-	<-t.doneCh
+	if t.doneCh != nil {
+		<-t.doneCh
+	}
 	return nil
 }
 
@@ -300,6 +309,7 @@ func processAtTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.Trig
 	config.CtyTriggerMap[name] = NewAtTriggerCapsule(t)
 	config.EvalCtx().Variables["trigger"] = cfg.CtyObjectOrEmpty(config.CtyTriggerMap)
 	config.Startables = append(config.Startables, t)
+	config.PostStartables = append(config.PostStartables, t)
 	config.Stoppables = append(config.Stoppables, t)
 
 	return diags

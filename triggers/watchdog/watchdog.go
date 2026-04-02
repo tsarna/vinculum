@@ -87,15 +87,23 @@ func (t *WatchdogTrigger) OnChange(ctx context.Context, _, newValue cty.Value) {
 	t.Set(ctx, []cty.Value{newValue}) //nolint:errcheck
 }
 
-// Start launches the background watchdog goroutine and registers as a Watcher
-// if a watch target was configured. Implements Startable.
+// Start initialises the set and stop channels, and registers as a Watcher if
+// a watch target was configured. Channels are created here so that Set() and
+// OnChange() are safe to call as soon as other Startables begin. Implements Startable.
 func (t *WatchdogTrigger) Start() error {
 	t.setCh = make(chan struct{}, 1)
 	t.stopCh = make(chan struct{})
-	t.doneCh = make(chan struct{})
 	if t.watchable != nil {
 		t.watchable.Watch(t)
 	}
+	return nil
+}
+
+// PostStart launches the background watchdog goroutine. Called after all
+// Startable components have completed, so the timeout window is measured from
+// "everything ready." Implements PostStartable.
+func (t *WatchdogTrigger) PostStart() error {
+	t.doneCh = make(chan struct{})
 	go t.run()
 	return nil
 }
@@ -110,7 +118,9 @@ func (t *WatchdogTrigger) Stop() error {
 		t.watchable.Unwatch(t)
 	}
 	close(t.stopCh)
-	<-t.doneCh
+	if t.doneCh != nil {
+		<-t.doneCh
+	}
 	return nil
 }
 
@@ -395,6 +405,7 @@ func processWatchdogTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cf
 	config.CtyTriggerMap[name] = NewWatchdogTriggerCapsule(t)
 	config.EvalCtx().Variables["trigger"] = cfg.CtyObjectOrEmpty(config.CtyTriggerMap)
 	config.Startables = append(config.Startables, t)
+	config.PostStartables = append(config.PostStartables, t)
 	config.Stoppables = append(config.Stoppables, t)
 
 	return diags

@@ -37,8 +37,9 @@ func TestTriggerAfter(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, AfterCapsuleType, triggerVar.GetAttr("warmup").Type())
 
-	// Adds one Startable and one Stoppable.
+	// Adds one Startable, one PostStartable, and one Stoppable.
 	assert.Len(t, c.Startables, 1)
+	assert.Len(t, c.PostStartables, 1)
 	assert.Len(t, c.Stoppables, 1)
 
 	// Delay is parsed at config time.
@@ -97,6 +98,7 @@ func TestTriggerAfterStopBeforeFire(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, trig.Start())
+	require.NoError(t, trig.PostStart())
 
 	done := make(chan struct{})
 	go func() {

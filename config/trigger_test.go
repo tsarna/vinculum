@@ -59,21 +59,29 @@ func TestTriggerCron(t *testing.T) {
 }
 
 func TestTriggerStart(t *testing.T) {
-	cfg, diags := config.NewConfig().WithSources(triggerStartVCL).WithLogger(testLogger(t)).Build()
+	c, diags := config.NewConfig().WithSources(triggerStartVCL).WithLogger(testLogger(t)).Build()
 	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
 
-	// Start trigger produces a cty value
-	require.Contains(t, cfg.CtyTriggerMap, "init")
-	val := cfg.CtyTriggerMap["init"]
-	assert.Equal(t, cty.StringVal("hello from start"), val)
+	// Before PostStart(), the trigger value is a null placeholder.
+	require.Contains(t, c.CtyTriggerMap, "init")
+	assert.True(t, c.CtyTriggerMap["init"].IsNull(), "expected null before PostStart()")
 
-	// trigger.init is available in the eval context
-	triggerVar, ok := cfg.EvalCtx().Variables["trigger"]
+	// trigger.init is null in the eval context until PostStart().
+	triggerVar, ok := c.EvalCtx().Variables["trigger"]
 	require.True(t, ok, "trigger variable should be set in evalCtx")
-	assert.Equal(t, cty.StringVal("hello from start"), triggerVar.GetAttr("init"))
+	assert.True(t, triggerVar.GetAttr("init").IsNull())
 
-	// No Startables added (start triggers run at Process() time)
-	assert.Empty(t, cfg.Startables)
+	// No Startables or Stoppables; one PostStartable.
+	assert.Empty(t, c.Startables)
+	assert.Empty(t, c.Stoppables)
+	assert.Len(t, c.PostStartables, 1)
+
+	// After PostStart(), the value matches the action expression.
+	require.NoError(t, c.PostStartables[0].PostStart())
+	assert.Equal(t, cty.StringVal("hello from start"), c.CtyTriggerMap["init"])
+	triggerVar2, ok := c.EvalCtx().Variables["trigger"]
+	require.True(t, ok)
+	assert.Equal(t, cty.StringVal("hello from start"), triggerVar2.GetAttr("init"))
 }
 
 func TestTriggerShutdown(t *testing.T) {

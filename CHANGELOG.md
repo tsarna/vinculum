@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`PostStartable` lifecycle interface** — new `PostStartable` interface with a `PostStart() error`
+  method, called once for each registered component after all `Startable.Start()` calls complete.
+  This guarantees that buses, clients, and subscriptions are fully initialised before any
+  PostStartable component dispatches events or evaluates action expressions.
+
+- **`trigger "start"` now fires in `PostStart()`** — previously the action was evaluated
+  synchronously during config parsing (before any component had started), which allowed action
+  expressions to race the runtime. The action now fires in `PostStart()`, after the full startup
+  sequence. `trigger.<name>` is `null` until `PostStart()` completes. Use `const` for values
+  that must be computed at parse time (e.g. a startup timestamp captured before any I/O).
+
+- **`trigger "after"`, `trigger "interval"`, `trigger "at"`, `trigger "watchdog"` goroutines now
+  launch in `PostStart()`** — previously goroutines were launched in `Start()`, meaning very short
+  delays or zero initial delays could cause the first action invocation to race other components
+  that had not yet completed `Start()`. Goroutines (and their delay/timeout clocks) now start only
+  after all `Startable`s have completed, so the full runtime is available on every action
+  invocation. `Stop()` continues to work correctly if called before `PostStart()` (returns nil
+  immediately with no goroutine to wait for).
+
 ### Added
 
 - **`trigger "at"`** — new trigger type that fires an action at a dynamically computed

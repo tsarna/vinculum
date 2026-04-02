@@ -41,8 +41,9 @@ func TestTriggerInterval(t *testing.T) {
 	require.True(t, ok, "trigger variable should be set in evalCtx")
 	assert.Equal(t, IntervalCapsuleType, triggerVar.GetAttr("poller").Type())
 
-	// Interval trigger adds one Startable and one Stoppable.
+	// Interval trigger adds one Startable, one PostStartable, and one Stoppable.
 	assert.Len(t, c.Startables, 1)
+	assert.Len(t, c.PostStartables, 1)
 	assert.Len(t, c.Stoppables, 1)
 
 	// Name is tracked for uniqueness enforcement.
@@ -128,6 +129,7 @@ func TestTriggerIntervalStartStop(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, trig.Start())
+	require.NoError(t, trig.PostStart())
 	// Stop should return promptly, not block for the 1h delay.
 	done := make(chan struct{})
 	go func() {

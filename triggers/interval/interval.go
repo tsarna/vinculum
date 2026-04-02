@@ -57,9 +57,16 @@ func (t *IntervalTrigger) Get(_ context.Context, _ []cty.Value) (cty.Value, erro
 	return t.lastResult, nil
 }
 
-// Start launches the background interval loop. Implements Startable.
+// Start initialises the stop channel. Implements Startable.
 func (t *IntervalTrigger) Start() error {
 	t.stopCh = make(chan struct{})
+	return nil
+}
+
+// PostStart launches the background interval loop. Called after all Startable
+// components have completed, so buses and clients are ready on first invocation.
+// Implements PostStartable.
+func (t *IntervalTrigger) PostStart() error {
 	t.doneCh = make(chan struct{})
 	go t.run()
 	return nil
@@ -72,7 +79,9 @@ func (t *IntervalTrigger) Stop() error {
 		return nil
 	}
 	close(t.stopCh)
-	<-t.doneCh
+	if t.doneCh != nil {
+		<-t.doneCh
+	}
 	return nil
 }
 
@@ -280,6 +289,7 @@ func processIntervalTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cf
 	config.CtyTriggerMap[name] = NewIntervalTriggerCapsule(t)
 	config.EvalCtx().Variables["trigger"] = cfg.CtyObjectOrEmpty(config.CtyTriggerMap)
 	config.Startables = append(config.Startables, t)
+	config.PostStartables = append(config.PostStartables, t)
 	config.Stoppables = append(config.Stoppables, t)
 
 	return diags

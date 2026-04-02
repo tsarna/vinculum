@@ -50,9 +50,16 @@ func (t *AfterTrigger) Get(_ context.Context, _ []cty.Value) (cty.Value, error) 
 	return t.result, nil
 }
 
-// Start launches the background wait-then-fire goroutine. Implements Startable.
+// Start initialises the stop channel. Implements Startable.
 func (t *AfterTrigger) Start() error {
 	t.stopCh = make(chan struct{})
+	return nil
+}
+
+// PostStart launches the background wait-then-fire goroutine. Called after all
+// Startable components have completed, so buses and clients are ready when the
+// action expression fires. Implements PostStartable.
+func (t *AfterTrigger) PostStart() error {
 	t.doneCh = make(chan struct{})
 	go t.run()
 	return nil
@@ -65,7 +72,9 @@ func (t *AfterTrigger) Stop() error {
 		return nil
 	}
 	close(t.stopCh)
-	<-t.doneCh
+	if t.doneCh != nil {
+		<-t.doneCh
+	}
 	return nil
 }
 
@@ -169,6 +178,7 @@ func processAfterTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.T
 	config.CtyTriggerMap[name] = NewAfterTriggerCapsule(t)
 	config.EvalCtx().Variables["trigger"] = cfg.CtyObjectOrEmpty(config.CtyTriggerMap)
 	config.Startables = append(config.Startables, t)
+	config.PostStartables = append(config.PostStartables, t)
 	config.Stoppables = append(config.Stoppables, t)
 
 	return diags

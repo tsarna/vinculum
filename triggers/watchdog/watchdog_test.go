@@ -44,8 +44,9 @@ func TestTriggerWatchdog(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, WatchdogCapsuleType, triggerVar.GetAttr("heartbeat").Type())
 
-	// Adds one Startable and one Stoppable.
+	// Adds one Startable, one PostStartable, and one Stoppable.
 	assert.Len(t, c.Startables, 1)
+	assert.Len(t, c.PostStartables, 1)
 	assert.Len(t, c.Stoppables, 1)
 
 	wdog, err := GetWatchdogTriggerFromCapsule(val)
@@ -133,6 +134,7 @@ func TestTriggerWatchdogStopBeforeFire(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, wdog.Start())
+	require.NoError(t, wdog.PostStart())
 
 	done := make(chan struct{})
 	go func() {
@@ -166,6 +168,7 @@ trigger "watchdog" "fast" {
 	require.NoError(t, err)
 
 	require.NoError(t, wdog.Start())
+	require.NoError(t, wdog.PostStart())
 
 	// Wait long enough for at least one fire (window = 50ms, grace = 50ms).
 	time.Sleep(300 * time.Millisecond)
@@ -292,6 +295,7 @@ trigger "watchdog" "limited" {
 	require.NoError(t, err)
 
 	require.NoError(t, wdog.Start())
+	require.NoError(t, wdog.PostStart())
 
 	// Wait long enough for more than 2 fires.
 	time.Sleep(500 * time.Millisecond)
@@ -320,6 +324,7 @@ trigger "watchdog" "limited" {
 	require.NoError(t, err)
 
 	require.NoError(t, wdog.Start())
+	require.NoError(t, wdog.PostStart())
 
 	// Wait for one fire and auto-stop.
 	time.Sleep(300 * time.Millisecond)
@@ -372,6 +377,7 @@ trigger "watchdog" "limited" {
 	require.NoError(t, err)
 
 	require.NoError(t, wdog.Start())
+	require.NoError(t, wdog.PostStart())
 
 	// Wait long enough for more than 2 fires.
 	time.Sleep(500 * time.Millisecond)
@@ -400,6 +406,7 @@ trigger "watchdog" "limited" {
 	require.NoError(t, err)
 
 	require.NoError(t, wdog.Start())
+	require.NoError(t, wdog.PostStart())
 
 	// Wait for one fire and auto-stop.
 	time.Sleep(300 * time.Millisecond)

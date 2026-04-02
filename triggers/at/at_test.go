@@ -40,8 +40,9 @@ func TestTriggerAt(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, AtCapsuleType, triggerVar.GetAttr("alarm").Type())
 
-	// Adds one Startable and one Stoppable.
+	// Adds one Startable, one PostStartable, and one Stoppable.
 	assert.Len(t, c.Startables, 1)
+	assert.Len(t, c.PostStartables, 1)
 	assert.Len(t, c.Stoppables, 1)
 
 	assert.Contains(t, c.TriggerDefRanges, "alarm")
@@ -151,6 +152,7 @@ trigger "at" "future" {
 	require.NoError(t, err)
 
 	require.NoError(t, trig.Start())
+	require.NoError(t, trig.PostStart())
 
 	done := make(chan struct{})
 	go func() {
@@ -184,6 +186,7 @@ trigger "at" "fast" {
 	require.NoError(t, err)
 
 	require.NoError(t, trig.Start())
+	require.NoError(t, trig.PostStart())
 	time.Sleep(300 * time.Millisecond)
 
 	trig.mu.RLock()
@@ -209,6 +212,7 @@ trigger "at" "fast" {
 	require.NoError(t, err)
 
 	require.NoError(t, trig.Start())
+	require.NoError(t, trig.PostStart())
 	time.Sleep(500 * time.Millisecond)
 
 	trig.mu.RLock()
@@ -233,6 +237,7 @@ trigger "at" "past" {
 	require.NoError(t, err)
 
 	require.NoError(t, trig.Start())
+	require.NoError(t, trig.PostStart())
 	time.Sleep(200 * time.Millisecond)
 
 	trig.mu.RLock()
@@ -262,6 +267,7 @@ trigger "at" "future" {
 	assert.True(t, result.IsNull(), "expected null before Start()")
 
 	require.NoError(t, trig.Start())
+	require.NoError(t, trig.PostStart())
 	time.Sleep(100 * time.Millisecond) // let first time evaluation complete
 
 	// After first evaluation: Get() returns a time capsule roughly 999h from now.
@@ -293,6 +299,7 @@ trigger "at" "slow" {
 	require.NoError(t, err)
 
 	require.NoError(t, trig.Start())
+	require.NoError(t, trig.PostStart())
 	time.Sleep(100 * time.Millisecond) // wait for first evaluation
 
 	trig.mu.RLock()

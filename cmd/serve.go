@@ -88,6 +88,12 @@ func runServer(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	for _, ps := range cfg.PostStartables {
+		if err := ps.PostStart(); err != nil {
+			logger.Error("Failed to post-start component", zap.Error(err))
+		}
+	}
+
 	// Wait for SIGINT or SIGTERM, then stop all stoppable components.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

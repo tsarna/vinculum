@@ -29,6 +29,13 @@ type Stoppable interface {
 	Stop() error
 }
 
+// PostStartable is implemented by components that need to run logic after all
+// Startable components have completed their Start() calls. PostStart() is called
+// once, in the same order as Start(), after the full startup sequence completes.
+type PostStartable interface {
+	PostStart() error
+}
+
 type Config struct {
 	Logger    *zap.Logger
 	Functions map[string]function.Function
@@ -40,6 +47,7 @@ type Config struct {
 
 	SigActions       *SignalActionHandler
 	Startables       []Startable
+	PostStartables   []PostStartable
 	Stoppables       []Stoppable
 	BusCapsuleType   cty.Type
 	CtyBusMap        map[string]cty.Value
