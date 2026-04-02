@@ -8,6 +8,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	cfg "github.com/tsarna/vinculum/config"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/propagation"
 	"go.uber.org/zap"
 )
 
@@ -21,6 +23,7 @@ type ServerConfig struct {
 	ServerVersion string
 	TLSConfig     *tls.Config
 	Auth          *cfg.AuthConfig
+	OtlpClient    cfg.OtlpClient
 	ParentEvalCtx *hcl.EvalContext
 	Logger        *zap.Logger
 	Resources     []ResourceDef
@@ -92,6 +95,30 @@ func New(scfg ServerConfig) (*Server, error) {
 		return nil, err
 	}
 
+	// For standalone servers, wrap the assembled handler with otelhttp so that
+	// incoming W3C trace context is extracted and a server span is created.
+	// Mounted servers are left unwrapped — the parent server "http" handles it.
+	if scfg.Listen != "" {
+		var otelOpts []otelhttp.Option
+		if scfg.OtlpClient != nil {
+			if tp := scfg.OtlpClient.GetTracerProvider(); tp != nil {
+				otelOpts = append(otelOpts, otelhttp.WithTracerProvider(tp))
+			}
+		}
+		otelOpts = append(otelOpts,
+			otelhttp.WithPropagators(propagation.NewCompositeTextMapPropagator(
+				propagation.TraceContext{},
+				propagation.Baggage{},
+			)),
+			otelhttp.WithServerName(scfg.Name),
+		)
+		s.httpHandler = otelhttp.NewHandler(s.httpHandler, "",
+			append(otelOpts, otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+				return r.Method + " " + r.URL.Path
+			}))...,
+		)
+	}
+
 	return s, nil
 }
 
@@ -136,6 +163,8 @@ func (s *Server) Start() error {
 		// Mounted under an HTTP server — nothing to start independently
 		return nil
 	}
+
+	// s.httpHandler was already wrapped with otelhttp in New() for standalone mode.
 	httpSrv := &http.Server{
 		Addr:    s.listen,
 		Handler: s.httpHandler,

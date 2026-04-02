@@ -33,6 +33,7 @@ type McpServerDefinition struct {
 	ServerName    string                  `hcl:"server_name,optional"`
 	ServerVersion string                  `hcl:"server_version,optional"`
 	Disabled      bool                    `hcl:"disabled,optional"`
+	Tracing       hcl.Expression          `hcl:"tracing,optional"`
 	TLS           *cfg.TLSConfig          `hcl:"tls,block"`
 	Auth          *cfg.AuthConfig         `hcl:"auth,block"`
 	DefRange      hcl.Range               `hcl:",def_range"`
@@ -149,6 +150,22 @@ func ProcessMcpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody h
 		}
 	}
 
+	// Resolve tracing client at config parse time (same pattern as server "http").
+	var otlpClient cfg.OtlpClient
+	if cfg.IsExpressionProvided(def.Tracing) {
+		var tracingDiags hcl.Diagnostics
+		otlpClient, tracingDiags = cfg.GetOtlpClientFromExpression(config, def.Tracing)
+		if tracingDiags.HasErrors() {
+			return nil, tracingDiags
+		}
+	} else {
+		var defaultDiags hcl.Diagnostics
+		otlpClient, defaultDiags = config.GetDefaultOtlpClient()
+		if defaultDiags.HasErrors() {
+			return nil, defaultDiags
+		}
+	}
+
 	srv, err := New(ServerConfig{
 		Name:          name,
 		Listen:        def.Listen,
@@ -157,6 +174,7 @@ func ProcessMcpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody h
 		ServerVersion: def.ServerVersion,
 		TLSConfig:     tlsCfg,
 		Auth:          def.Auth,
+		OtlpClient:    otlpClient,
 		ParentEvalCtx: config.EvalCtx(),
 		Logger:        config.Logger,
 		Resources:     resources,

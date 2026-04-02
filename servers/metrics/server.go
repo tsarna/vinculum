@@ -14,6 +14,8 @@ import (
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/internal/promadapter"
 	metricsauth "github.com/tsarna/vinculum/servers/auth"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 // MetricsServer implements a Prometheus/OpenMetrics exposition server.
@@ -21,13 +23,14 @@ import (
 // mode (implements HandlerServer so it can be attached to a server "http" block).
 type MetricsServer struct {
 	cfg.BaseServer
-	registry  *prometheus.Registry
-	provider  *promadapter.Provider
-	handler   http.Handler
-	listen    string      // empty = mounted mode only
-	path      string      // default "/metrics"
-	tlsConfig *tls.Config // nil = plain HTTP
-	isDefault bool
+	registry   *prometheus.Registry
+	provider   *promadapter.Provider
+	handler    http.Handler
+	listen     string         // empty = mounted mode only
+	path       string         // default "/metrics"
+	tlsConfig  *tls.Config    // nil = plain HTTP
+	isDefault  bool
+	otlpClient cfg.OtlpClient // nil = no explicit tracing
 }
 
 // GetHandler returns the HTTP handler for the metrics endpoint.
@@ -62,9 +65,30 @@ func (s *MetricsServer) Start() error {
 
 	mux := http.NewServeMux()
 	mux.Handle(s.path, s.handler)
+
+	// Wrap with otelhttp for trace context extraction (same pattern as server "http").
+	var otelOpts []otelhttp.Option
+	if s.otlpClient != nil {
+		if tp := s.otlpClient.GetTracerProvider(); tp != nil {
+			otelOpts = append(otelOpts, otelhttp.WithTracerProvider(tp))
+		}
+	}
+	otelOpts = append(otelOpts,
+		otelhttp.WithPropagators(propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		)),
+		otelhttp.WithServerName(s.GetName()),
+	)
+	tracedMux := otelhttp.NewHandler(mux, "",
+		append(otelOpts, otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+			return r.Method + " " + r.URL.Path
+		}))...,
+	)
+
 	srv := &http.Server{
 		Addr:    s.listen,
-		Handler: mux,
+		Handler: tracedMux,
 	}
 
 	go func() {
@@ -84,7 +108,7 @@ func (s *MetricsServer) Start() error {
 }
 
 // newMetricsServer constructs a MetricsServer with a private registry.
-func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDefault, includeGoMetrics bool, tlsCfg *tls.Config) *MetricsServer {
+func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDefault, includeGoMetrics bool, tlsCfg *tls.Config, otlpClient cfg.OtlpClient) *MetricsServer {
 	reg := prometheus.NewRegistry()
 	if includeGoMetrics {
 		reg.MustRegister(
@@ -104,6 +128,7 @@ func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDe
 		path:       path,
 		tlsConfig:  tlsCfg,
 		isDefault:  isDefault,
+		otlpClient: otlpClient,
 	}
 }
 
@@ -113,6 +138,7 @@ type MetricsServerDefinition struct {
 	Path             *string         `hcl:"path,optional"`
 	Default          *bool           `hcl:"default,optional"`
 	IncludeGoMetrics *bool           `hcl:"include_go_metrics,optional"`
+	Tracing          hcl.Expression  `hcl:"tracing,optional"`
 	TLS              *cfg.TLSConfig  `hcl:"tls,block"`
 	Auth             *cfg.AuthConfig `hcl:"auth,block"`
 	DefRange         hcl.Range       `hcl:",def_range"`
@@ -185,7 +211,23 @@ func ProcessMetricsServerBlock(config *cfg.Config, block *hcl.Block, remainingBo
 		}
 	}
 
-	srv := newMetricsServer(name, def.DefRange, listen, path, isDefault, includeGoMetrics, tlsCfg)
+	// Resolve tracing client (same pattern as server "http").
+	var otlpClient cfg.OtlpClient
+	if cfg.IsExpressionProvided(def.Tracing) {
+		var tracingDiags hcl.Diagnostics
+		otlpClient, tracingDiags = cfg.GetOtlpClientFromExpression(config, def.Tracing)
+		if tracingDiags.HasErrors() {
+			return nil, tracingDiags
+		}
+	} else {
+		var defaultDiags hcl.Diagnostics
+		otlpClient, defaultDiags = config.GetDefaultOtlpClient()
+		if defaultDiags.HasErrors() {
+			return nil, defaultDiags
+		}
+	}
+
+	srv := newMetricsServer(name, def.DefRange, listen, path, isDefault, includeGoMetrics, tlsCfg, otlpClient)
 
 	// Wrap the metrics handler with auth middleware if configured.
 	if def.Auth != nil && def.Auth.Mode != "none" {

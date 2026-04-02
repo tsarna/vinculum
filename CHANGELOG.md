@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Auto-wires to the single `client "otlp"` block (or one marked `default = true`) when `tracing =` is omitted
   - Span name: `METHOD /path`; OTel HTTP semantic conventions applied via `otelhttp`
   - Rich access log at request completion: method, route, path, status, duration_ms, bytes, trace_id
+- **Distributed tracing for `server "mcp"` (standalone mode)** — when a `server "mcp"` block has a `listen` address, it now accepts an optional `tracing = client.<name>` attribute. Incoming W3C `traceparent` / `tracestate` headers are extracted and a server span is created for each request, exactly as with `server "http"`. Auto-wires to the default OTLP client when `tracing =` is omitted. Mounted MCP servers (no `listen`) continue to inherit tracing from the parent `server "http"`.
+- **Distributed tracing for `server "metrics"` (standalone mode)** — same as above: when `server "metrics"` has a `listen` address, add `tracing = client.<name>` (or rely on auto-wiring) to extract trace context and create spans for `/metrics` scrape requests. Mounted metrics servers inherit tracing from their parent HTTP server.
 - **`ctx.trace_id` and `ctx.span_id`** — when a request is being handled inside an active OTel span, these string variables are available in all VCL action expressions (not just HTTP); both are `""` when no span is active (NOOP tracer or no `client "otlp"` configured)
 
 ## [0.21.0] - 2026-04-02
