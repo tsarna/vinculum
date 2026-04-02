@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`client "otlp"` — distributed tracing via OpenTelemetry** — new client type that configures the OTel SDK and exports spans to any OTLP/HTTP collector (Jaeger, Grafana Tempo, Honeycomb, etc.):
+  - `endpoint` — OTLP/HTTP base URL (e.g. `"http://localhost:4318"`)
+  - `service_name` / `service_version` — recorded on every span
+  - `sampling_ratio` — head-based sampling for new root spans (default `1.0`); inherited traces are always continued
+  - `default = true` — marks this client as the auto-wire target when multiple OTLP clients are declared; omit when there is only one
+  - `headers` — `map(string)` of HTTP headers added to every export request (e.g. auth tokens)
+  - `tls {}` — optional TLS configuration for the collector connection
+  - On `Start()`, sets the global OTel `TracerProvider` and installs W3C TraceContext + Baggage propagation; flushes pending spans on `Stop()`
+  - See [doc/client-otlp.md](doc/client-otlp.md) for full reference
+- **Distributed tracing for `server "http"`** — add `tracing = client.<name>` to instrument an HTTP server with OTel spans. Each inbound request produces a span: incoming `traceparent` headers are continued as child spans; requests without one start a new root span.
+  - Auto-wires to the single `client "otlp"` block (or one marked `default = true`) when `tracing =` is omitted
+  - Span name: `METHOD /path`; OTel HTTP semantic conventions applied via `otelhttp`
+  - Rich access log at request completion: method, route, path, status, duration_ms, bytes, trace_id
+- **`ctx.trace_id` and `ctx.span_id`** — when a request is being handled inside an active OTel span, these string variables are available in all VCL action expressions (not just HTTP); both are `""` when no span is active (NOOP tracer or no `client "otlp"` configured)
+
+## [0.21.0] - 2026-04-02
+
 ### Changed
 
 - **`PostStartable` lifecycle interface** — new `PostStartable` interface with a `PostStart() error`
