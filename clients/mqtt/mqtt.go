@@ -21,6 +21,7 @@ import (
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -45,6 +46,7 @@ type MQTTClientDefinition struct {
 	Publishers            []MQTTPublisherDef     `hcl:"sender,block"`
 	Subscribers           []MQTTSubscriberDef    `hcl:"receiver,block"`
 	Metrics               hcl.Expression         `hcl:"metrics,optional"`
+	Tracing               hcl.Expression         `hcl:"tracing,optional"`
 	DefRange              hcl.Range              `hcl:",def_range"`
 }
 
@@ -152,6 +154,7 @@ type MQTTClientWrapper struct {
 	subSpecs         []builtMQTTSubscriberSpec
 	publisherProxies map[string]*MQTTPublisherProxy
 	metricsProvider  o11y.MetricsProvider
+	tracerProvider   trace.TracerProvider
 	logger           *zap.Logger
 
 	mu         sync.RWMutex
@@ -187,6 +190,7 @@ func (c *MQTTClientWrapper) Start() error {
 			WithDefaultRetain(spec.defaultRetain).
 			WithDefaultTransform(spec.defaultXform).
 			WithMetricsProvider(c.metricsProvider).
+			WithTracerProvider(c.tracerProvider).
 			WithLogger(c.logger)
 		for _, tm := range spec.topicMappings {
 			b = b.WithTopicMapping(tm)
@@ -208,6 +212,7 @@ func (c *MQTTClientWrapper) Start() error {
 			WithHandleRetained(spec.handleRetained).
 			WithSharedGroup(spec.sharedGroup).
 			WithMetricsProvider(c.metricsProvider).
+			WithTracerProvider(c.tracerProvider).
 			WithLogger(c.logger)
 		for _, ts := range spec.subscriptions {
 			b = b.WithSubscription(ts)
@@ -470,6 +475,19 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		return nil, metricsDiags
 	}
 
+	var tracerProvider trace.TracerProvider
+	if cfg.IsExpressionProvided(def.Tracing) {
+		otlpClient, tracingDiags := cfg.GetOtlpClientFromExpression(config, def.Tracing)
+		if tracingDiags.HasErrors() {
+			return nil, tracingDiags
+		}
+		if otlpClient != nil {
+			tracerProvider = otlpClient.GetTracerProvider()
+		}
+	} else if otlpClient, _ := config.GetDefaultOtlpClient(); otlpClient != nil {
+		tracerProvider = otlpClient.GetTracerProvider()
+	}
+
 	clientCfg := mqttclient.ClientConfig{
 		ServerURLs:            serverURLs,
 		ClientID:              clientID,
@@ -515,6 +533,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		subSpecs:         subSpecs,
 		publisherProxies: publisherProxies,
 		metricsProvider:  metricsProvider,
+		tracerProvider:   tracerProvider,
 		logger:           config.Logger,
 	}
 
