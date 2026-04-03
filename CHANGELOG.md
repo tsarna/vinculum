@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Distributed tracing for `bus` blocks** — add `tracing = client.<name>` to instrument an event bus with OTel spans. Each `Publish` and `PublishSync` call creates a producer span; each subscriber delivery creates a consumer span (child for sync, new root with a link for async) per OTel messaging semantic conventions. Auto-wires to the default OTLP client when `tracing =` is omitted.
+- **Distributed tracing for VWS** - vinculum now depends on v0.10.0 of vinculum-vws, which adds support for tracing headers.
 
 ### Changed
 
