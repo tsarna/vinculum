@@ -26,7 +26,7 @@ require (
 	github.com/tsarna/time-cty-funcs v0.1.0
 	github.com/tsarna/vinculum-bus v0.9.3
 	github.com/tsarna/vinculum-kafka v0.6.0
-	github.com/tsarna/vinculum-mqtt v0.1.1
+	github.com/tsarna/vinculum-mqtt v0.2.0
 	github.com/tsarna/vinculum-vws v0.9.3
 	github.com/twmb/franz-go v1.18.1
 	github.com/twmb/franz-go/plugin/kotel v1.6.0
