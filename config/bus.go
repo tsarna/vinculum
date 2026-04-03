@@ -15,6 +15,7 @@ type BusDefinition struct {
 	Type      *string        `hcl:"type,optional"`
 	QueueSize *int           `hcl:"queue_size,optional"`
 	Metrics   hcl.Expression `hcl:"metrics,optional"`
+	Tracing   hcl.Expression `hcl:"tracing,optional"`
 	Options   hcl.Body       `hcl:",remain"`
 }
 
@@ -154,6 +155,14 @@ func (h *BusBlockHandler) BuildEventBus(config *Config, busDef *BusDefinition, d
 	}
 	if metricsProvider != nil {
 		busBuilder = busBuilder.WithMetrics(metricsProvider)
+	}
+
+	tp, tracingDiags := config.ResolveTracerProvider(busDef.Tracing)
+	if tracingDiags.HasErrors() {
+		return tracingDiags
+	}
+	if tp != nil {
+		busBuilder = busBuilder.WithTracerProvider(tp)
 	}
 
 	eventBus, err := busBuilder.Build()
