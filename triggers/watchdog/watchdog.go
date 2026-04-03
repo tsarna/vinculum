@@ -124,12 +124,12 @@ func (t *WatchdogTrigger) Stop() error {
 	return nil
 }
 
-func (t *WatchdogTrigger) buildEvalContext(missCount int64, lastSet time.Time) (*hcl.EvalContext, error) {
+func (t *WatchdogTrigger) buildEvalContext(ctx context.Context, missCount int64, lastSet time.Time) (*hcl.EvalContext, error) {
 	lastSetVal := cty.NullVal(cty.DynamicPseudoType)
 	if !lastSet.IsZero() {
 		lastSetVal = timecty.NewTimeCapsule(lastSet)
 	}
-	return hclutil.NewEvalContext(context.Background()).
+	return hclutil.NewEvalContext(ctx).
 		WithStringAttribute("trigger", "watchdog").
 		WithStringAttribute("name", t.name).
 		WithInt64Attribute("miss_count", missCount).
@@ -149,18 +149,23 @@ func (t *WatchdogTrigger) fire() bool {
 	t.config.Logger.Debug("watchdog trigger: window expired",
 		zap.String("name", t.name), zap.Int64("miss_count", missCount))
 
-	evalCtx, err := t.buildEvalContext(missCount, lastSet)
+	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "watchdog", t.name)
+
+	evalCtx, err := t.buildEvalContext(spanCtx, missCount, lastSet)
 	if err != nil {
 		t.config.Logger.Error("watchdog trigger: error building eval context",
 			zap.String("name", t.name), zap.Error(err))
+		stopSpan(err)
 		return false
 	}
 	val, diags := t.actionExpr.Value(evalCtx)
 	if diags.HasErrors() {
 		t.config.Logger.Error("watchdog trigger: action error",
 			zap.String("name", t.name), zap.Error(diags))
+		stopSpan(diags)
 		return false
 	}
+	stopSpan(nil)
 	t.config.Logger.Debug("watchdog trigger: action completed",
 		zap.String("name", t.name), zap.Any("result", val))
 
@@ -200,7 +205,7 @@ func (t *WatchdogTrigger) shouldRemainStopped() bool {
 	}
 
 	if cfg.IsExpressionProvided(t.stopWhenExpr) {
-		evalCtx, err := t.buildEvalContext(missCount, lastSet)
+		evalCtx, err := t.buildEvalContext(context.Background(), missCount, lastSet)
 		if err != nil {
 			return false
 		}

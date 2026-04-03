@@ -87,7 +87,7 @@ func (t *IntervalTrigger) Stop() error {
 
 // buildEvalContext constructs the per-iteration HCL eval context, exposing
 // ctx.trigger, ctx.name, ctx.run_count, ctx.last_result, and ctx.last_error.
-func (t *IntervalTrigger) buildEvalContext(runCount int64, lastResult cty.Value, lastErr error) (*hcl.EvalContext, error) {
+func (t *IntervalTrigger) buildEvalContext(ctx context.Context, runCount int64, lastResult cty.Value, lastErr error) (*hcl.EvalContext, error) {
 	lastResultVal := lastResult
 	if lastResultVal == cty.NilVal {
 		lastResultVal = cty.NullVal(cty.DynamicPseudoType)
@@ -96,7 +96,7 @@ func (t *IntervalTrigger) buildEvalContext(runCount int64, lastResult cty.Value,
 	if lastErr != nil {
 		lastErrStr = cty.StringVal(lastErr.Error())
 	}
-	return hclutil.NewEvalContext(context.Background()).
+	return hclutil.NewEvalContext(ctx).
 		WithStringAttribute("trigger", "interval").
 		WithStringAttribute("name", t.name).
 		WithInt64Attribute("run_count", runCount).
@@ -130,7 +130,8 @@ func (t *IntervalTrigger) run() {
 		lastErr := t.lastError
 		t.mu.RUnlock()
 
-		evalCtx, err := t.buildEvalContext(runCount, lastResult, lastErr)
+		// Build eval context with background ctx for delay computation (no span yet).
+		evalCtx, err := t.buildEvalContext(context.Background(), runCount, lastResult, lastErr)
 		if err != nil {
 			t.config.Logger.Error("interval trigger: error building eval context",
 				zap.String("name", t.name), zap.Error(err))
@@ -168,10 +169,20 @@ func (t *IntervalTrigger) run() {
 			return
 		}
 
+		// Each action execution gets its own root span (covers only the action, not the delay).
+		spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "interval", t.name)
+		actionEvalCtx, err := t.buildEvalContext(spanCtx, runCount, lastResult, lastErr)
+		if err != nil {
+			t.config.Logger.Error("interval trigger: error building action eval context",
+				zap.String("name", t.name), zap.Error(err))
+			stopSpan(err)
+			return
+		}
+
 		// Evaluate the action.
 		t.config.Logger.Debug("interval trigger: executing action",
 			zap.String("name", t.name), zap.Int64("run_count", runCount))
-		actionVal, actionDiags := t.actionExpr.Value(evalCtx)
+		actionVal, actionDiags := t.actionExpr.Value(actionEvalCtx)
 		var actionErr error
 		if actionDiags.HasErrors() {
 			actionErr = actionDiags
@@ -183,6 +194,8 @@ func (t *IntervalTrigger) run() {
 				zap.String("name", t.name), zap.Int64("run_count", runCount), zap.Any("result", actionVal))
 		}
 
+		stopSpan(actionErr)
+
 		t.mu.Lock()
 		t.runCount++
 		newRunCount := t.runCount
@@ -192,7 +205,7 @@ func (t *IntervalTrigger) run() {
 
 		// Evaluate stop_when (if provided) against the post-action state.
 		if cfg.IsExpressionProvided(t.stopWhenExpr) {
-			stopCtx, stopErr := t.buildEvalContext(newRunCount, actionVal, actionErr)
+			stopCtx, stopErr := t.buildEvalContext(context.Background(), newRunCount, actionVal, actionErr)
 			if stopErr != nil {
 				t.config.Logger.Error("interval trigger: error building stop_when context",
 					zap.String("name", t.name), zap.Error(stopErr))

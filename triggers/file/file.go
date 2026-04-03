@@ -291,7 +291,9 @@ func (t *FileTrigger) dispatch(eventPath, eventStr string) {
 		lastErrStr = cty.StringVal(lastErr.Error())
 	}
 
-	evalCtx, err := hclutil.NewEvalContext(context.Background()).
+	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "file", t.name)
+
+	evalCtx, err := hclutil.NewEvalContext(spanCtx).
 		WithStringAttribute("trigger", "file").
 		WithStringAttribute("name", t.name).
 		WithStringAttribute("path", t.watchPath).
@@ -304,6 +306,7 @@ func (t *FileTrigger) dispatch(eventPath, eventStr string) {
 	if err != nil {
 		t.config.Logger.Error("file trigger: error building eval context",
 			zap.String("name", t.name), zap.Error(err))
+		stopSpan(err)
 		return
 	}
 
@@ -312,9 +315,11 @@ func (t *FileTrigger) dispatch(eventPath, eventStr string) {
 		if diags.HasErrors() {
 			t.config.Logger.Error("file trigger: skip_when error",
 				zap.String("name", t.name), zap.Error(diags))
+			stopSpan(diags)
 			return
 		}
 		if skipVal.Type() == cty.Bool && skipVal.True() {
+			stopSpan(nil)
 			return
 		}
 	}
@@ -334,6 +339,7 @@ func (t *FileTrigger) dispatch(eventPath, eventStr string) {
 			zap.String("name", t.name), zap.String("event_path", eventPath))
 	}
 
+	stopSpan(actionErr)
 	t.runCount.Add(1)
 
 	t.lastMu.Lock()

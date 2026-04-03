@@ -44,21 +44,26 @@ type ShutdownTriggerAction struct {
 func (a *ShutdownTriggerAction) Stop() error {
 	a.config.Logger.Debug("Executing shutdown trigger", zap.String("name", a.name))
 
-	evalCtx, err := hclutil.NewEvalContext(context.Background()).
+	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "shutdown", a.name)
+
+	evalCtx, err := hclutil.NewEvalContext(spanCtx).
 		WithStringAttribute("trigger", "shutdown").
 		WithStringAttribute("name", a.name).
 		BuildEvalContext(a.config.EvalCtx())
 	if err != nil {
 		a.config.Logger.Error("Error building shutdown trigger context", zap.String("name", a.name), zap.Error(err))
+		stopSpan(err)
 		return nil
 	}
 
 	value, addDiags := a.action.Value(evalCtx)
 	if addDiags.HasErrors() {
 		a.config.Logger.Error("Error executing shutdown trigger", zap.String("name", a.name), zap.Error(addDiags))
+		stopSpan(addDiags)
 		return nil
 	}
 
+	stopSpan(nil)
 	a.config.Logger.Debug("Shutdown trigger executed", zap.String("name", a.name), zap.Any("result", value))
 	return nil
 }

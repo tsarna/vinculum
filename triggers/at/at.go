@@ -97,11 +97,11 @@ func (t *AtTrigger) Stop() error {
 	return nil
 }
 
-func (t *AtTrigger) buildEvalContext(runCount int64, lastResult cty.Value) (*hcl.EvalContext, error) {
+func (t *AtTrigger) buildEvalContext(ctx context.Context, runCount int64, lastResult cty.Value) (*hcl.EvalContext, error) {
 	if lastResult == cty.NilVal {
 		lastResult = cty.NullVal(cty.DynamicPseudoType)
 	}
-	return hclutil.NewEvalContext(context.Background()).
+	return hclutil.NewEvalContext(ctx).
 		WithStringAttribute("trigger", "at").
 		WithStringAttribute("name", t.name).
 		WithInt64Attribute("run_count", runCount).
@@ -128,8 +128,8 @@ func (t *AtTrigger) run() {
 		lastResult := t.lastResult
 		t.mu.RUnlock()
 
-		// Evaluate the time expression.
-		evalCtx, err := t.buildEvalContext(runCount, lastResult)
+		// Evaluate the time expression (no span here — the span lives in fire()).
+		evalCtx, err := t.buildEvalContext(context.Background(), runCount, lastResult)
 		if err != nil {
 			t.config.Logger.Error("at trigger: error building eval context",
 				zap.String("name", t.name), zap.Error(err))
@@ -205,8 +205,23 @@ func (t *AtTrigger) run() {
 }
 
 // fire evaluates the action expression and updates runCount and lastResult.
-func (t *AtTrigger) fire(evalCtx *hcl.EvalContext) {
+func (t *AtTrigger) fire(_ *hcl.EvalContext) {
 	t.config.Logger.Debug("at trigger: firing", zap.String("name", t.name))
+
+	t.mu.RLock()
+	runCount := t.runCount
+	lastResult := t.lastResult
+	t.mu.RUnlock()
+
+	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "at", t.name)
+
+	evalCtx, err := t.buildEvalContext(spanCtx, runCount, lastResult)
+	if err != nil {
+		t.config.Logger.Error("at trigger: error building eval context",
+			zap.String("name", t.name), zap.Error(err))
+		stopSpan(err)
+		return
+	}
 
 	val, diags := t.actionExpr.Value(evalCtx)
 	t.mu.Lock()
@@ -214,10 +229,12 @@ func (t *AtTrigger) fire(evalCtx *hcl.EvalContext) {
 	if diags.HasErrors() {
 		t.config.Logger.Error("at trigger: action error",
 			zap.String("name", t.name), zap.Error(diags))
+		stopSpan(diags)
 	} else {
 		t.lastResult = val
 		t.config.Logger.Debug("at trigger: action completed",
 			zap.String("name", t.name), zap.Any("result", val))
+		stopSpan(nil)
 	}
 	t.mu.Unlock()
 }

@@ -90,13 +90,17 @@ func (t *AfterTrigger) run() {
 
 	t.config.Logger.Debug("after trigger: firing", zap.String("name", t.name))
 
-	evalCtx, err := hclutil.NewEvalContext(context.Background()).
+	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "after", t.name)
+
+	var actionErr error
+	evalCtx, err := hclutil.NewEvalContext(spanCtx).
 		WithStringAttribute("trigger", "after").
 		WithStringAttribute("name", t.name).
 		BuildEvalContext(t.config.EvalCtx())
 	if err != nil {
 		t.config.Logger.Error("after trigger: error building eval context",
 			zap.String("name", t.name), zap.Error(err))
+		stopSpan(err)
 		t.mu.Lock()
 		t.err = err
 		t.mu.Unlock()
@@ -106,6 +110,7 @@ func (t *AfterTrigger) run() {
 	val, diags := t.expr.Value(evalCtx)
 	t.mu.Lock()
 	if diags.HasErrors() {
+		actionErr = diags
 		t.err = diags
 		t.config.Logger.Error("after trigger: action error",
 			zap.String("name", t.name), zap.Error(diags))
@@ -115,6 +120,7 @@ func (t *AfterTrigger) run() {
 			zap.String("name", t.name), zap.Any("result", val))
 	}
 	t.mu.Unlock()
+	stopSpan(actionErr)
 }
 
 // --- Capsule type ---

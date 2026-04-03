@@ -28,20 +28,25 @@ type OnceTrigger struct {
 // result on all subsequent calls. Implements Gettable.
 func (o *OnceTrigger) Get(ctx context.Context, _ []cty.Value) (cty.Value, error) {
 	o.once.Do(func() {
-		evalCtx, err := hclutil.NewEvalContext(ctx).
+		spanCtx, stopSpan := hclutil.StartTriggerSpan(ctx, "once", o.name)
+
+		evalCtx, err := hclutil.NewEvalContext(spanCtx).
 			WithStringAttribute("trigger", "once").
 			WithStringAttribute("name", o.name).
 			BuildEvalContext(o.config.EvalCtx())
 		if err != nil {
+			stopSpan(err)
 			o.err = err
 			return
 		}
 
 		val, diags := o.expr.Value(evalCtx)
 		if diags.HasErrors() {
+			stopSpan(diags)
 			o.err = diags
 			return
 		}
+		stopSpan(nil)
 		o.value = val
 	})
 	if o.err != nil {

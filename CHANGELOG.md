@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Distributed tracing for `client "mqtt"`** — add `tracing = client.<name>` to instrument an MQTT client with OTel spans. The subscriber extracts incoming `traceparent`/`tracestate` user properties and creates a `process <topic>` child span; the publisher injects trace context into outbound user properties and creates a `send <topic>` span. Auto-wires to the default OTLP client when `tracing =` is omitted. Trace headers are filtered from the `fields` map delivered to VCL actions.
 - **Distributed tracing for `client "kafka"`** — add `tracing = client.<name>` to instrument a Kafka client with OTel spans. Uses the official `kotel` plugin from franz-go: the consumer extracts incoming `traceparent`/`tracestate` headers and creates a `vinculum.process <topic>` child span; the producer injects trace context into outbound record headers. Auto-wires to the default OTLP client when `tracing =` is omitted. Trace headers are filtered from the `fields` map delivered to VCL actions.
 - **`ctx.trace_id` and `ctx.span_id`** — when a request is being handled inside an active OTel span, these string variables are available in all VCL action expressions (not just HTTP); both are `""` when no span is active (NOOP tracer or no `client "otlp"` configured)
+- **Distributed tracing for all trigger types** — every trigger firing now creates its own root OTel span (or a child span when context is available), so the full work chain from trigger through bus events to outgoing clients is traceable as a single trace:
+  - Span name: `trigger.<type> <name>` (e.g. `trigger.interval my_poll`, `trigger.cron nightly/cleanup`)
+  - Span covers only the action execution, not idle wait time (delay, sleep, or timer countdown)
+  - Errors from action expression evaluation are recorded on the span (`span.RecordError` + `codes.Error` status)
+  - `ctx.trace_id` / `ctx.span_id` are populated in the VCL action context for all trigger types
+  - `trigger "watch"` uses the incoming context as parent (preserving the trace from the `set()` caller); all other triggers start a new root span
+  - `trigger "signals"` creates a span per signal delivery (timing and errors recorded; VCL context uses pre-built eval context from config time)
 
 ## [0.21.0] - 2026-04-02
 

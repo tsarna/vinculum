@@ -26,13 +26,16 @@ type startTrigger struct {
 }
 
 func (t *startTrigger) PostStart() error {
-	evalCtx, err := hclutil.NewEvalContext(context.Background()).
+	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "start", t.name)
+
+	evalCtx, err := hclutil.NewEvalContext(spanCtx).
 		WithStringAttribute("trigger", "start").
 		WithStringAttribute("name", t.name).
 		BuildEvalContext(t.config.EvalCtx())
 	if err != nil {
 		t.config.Logger.Error("start trigger: error building eval context",
 			zap.String("name", t.name), zap.Error(err))
+		stopSpan(err)
 		return nil
 	}
 
@@ -40,9 +43,11 @@ func (t *startTrigger) PostStart() error {
 	if diags.HasErrors() {
 		t.config.Logger.Error("start trigger: action error",
 			zap.String("name", t.name), zap.Error(diags))
+		stopSpan(diags)
 		return nil
 	}
 
+	stopSpan(nil)
 	t.config.CtyTriggerMap[t.name] = value
 	t.config.EvalCtx().Variables["trigger"] = cfg.CtyObjectOrEmpty(t.config.CtyTriggerMap)
 	return nil

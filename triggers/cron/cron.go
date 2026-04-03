@@ -112,21 +112,26 @@ type AtAction struct {
 func (a *AtAction) Run() {
 	a.config.Logger.Debug("Executing action", zap.String("cron", a.cronName), zap.String("at", a.atName))
 
-	evalCtx, err := hclutil.NewEvalContext(context.Background()).
+	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "cron", a.cronName+"/"+a.atName)
+
+	evalCtx, err := hclutil.NewEvalContext(spanCtx).
 		WithStringAttribute("cron_name", a.cronName).
 		WithStringAttribute("at_name", a.atName).
 		BuildEvalContext(a.config.EvalCtx())
 	if err != nil {
 		a.config.Logger.Error("Error building evaluation context", zap.Error(err))
+		stopSpan(err)
 		return
 	}
 
 	value, diags := a.action.Value(evalCtx)
 	if diags.HasErrors() {
 		a.config.Logger.Error("Error executing action", zap.Error(diags))
+		stopSpan(diags)
 		return
 	}
 
+	stopSpan(nil)
 	a.config.Logger.Debug("Action executed", zap.String("cron", a.cronName), zap.String("at", a.atName), zap.Any("result", value))
 }
 

@@ -51,6 +51,8 @@ func (t *WatchTrigger) OnChange(ctx context.Context, oldValue, newValue cty.Valu
 }
 
 func (t *WatchTrigger) dispatch(ctx context.Context, oldValue, newValue cty.Value) {
+	ctx, stopSpan := hclutil.StartTriggerSpan(ctx, "watch", t.name)
+
 	evalCtx, err := hclutil.NewEvalContext(ctx).
 		WithStringAttribute("trigger", "watch").
 		WithStringAttribute("name", t.name).
@@ -60,6 +62,7 @@ func (t *WatchTrigger) dispatch(ctx context.Context, oldValue, newValue cty.Valu
 	if err != nil {
 		t.config.Logger.Error("watch trigger: error building eval context",
 			zap.String("name", t.name), zap.Error(err))
+		stopSpan(err)
 		return
 	}
 
@@ -68,9 +71,11 @@ func (t *WatchTrigger) dispatch(ctx context.Context, oldValue, newValue cty.Valu
 		if diags.HasErrors() {
 			t.config.Logger.Error("watch trigger: skip_when error",
 				zap.String("name", t.name), zap.Error(diags))
+			stopSpan(diags)
 			return
 		}
 		if skipVal.Type() == cty.Bool && skipVal.True() {
+			stopSpan(nil)
 			return
 		}
 	}
@@ -79,8 +84,10 @@ func (t *WatchTrigger) dispatch(ctx context.Context, oldValue, newValue cty.Valu
 	if diags.HasErrors() {
 		t.config.Logger.Error("watch trigger: action error",
 			zap.String("name", t.name), zap.Error(diags))
+		stopSpan(diags)
 		return
 	}
+	stopSpan(nil)
 	t.config.Logger.Debug("watch trigger: action completed",
 		zap.String("name", t.name), zap.Any("result", val))
 }
