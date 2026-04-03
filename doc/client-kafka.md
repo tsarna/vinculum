@@ -318,6 +318,38 @@ subscription "sensors_only" {
 
 ---
 
+## Distributed Tracing
+
+Add a `tracing` attribute to enable W3C TraceContext propagation across Kafka
+records. The consumer extracts incoming `traceparent`/`tracestate` headers and
+creates a child span; the producer injects trace context into outgoing record
+headers.
+
+```hcl
+client "kafka" "events" {
+    tracing = client.tracer   # optional; auto-wired to the default client "otlp"
+    ...
+}
+```
+
+If there is exactly one `client "otlp"` block (or one marked `default = true`),
+the Kafka client auto-wires to it when `tracing =` is omitted.
+
+**Consumer:** a `vinculum.process <topic>` span is created for each record
+received. If the record headers carry a `traceparent` header, the span is
+created as a child of the upstream trace.
+
+**Producer:** the current trace context is injected into outgoing record headers
+as `traceparent` / `tracestate`.
+
+**Header filtering:** W3C trace headers (`traceparent`, `tracestate`, `baggage`)
+are stripped from the `fields` map visible in VCL action expressions so business
+metadata stays clean.
+
+See [client "otlp"](client-otlp.md) for tracing configuration and auto-wiring rules.
+
+---
+
 ## Observability
 
 When a [`server "metrics"`](server-metrics.md) block is present, the Kafka

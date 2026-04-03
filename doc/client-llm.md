@@ -166,6 +166,25 @@ Error response shape:
 
 ---
 
+## Distributed Tracing
+
+When a `client "otlp"` block is configured, every `call()` to an OpenAI client
+automatically creates a child OTel span for the outgoing HTTP request. No
+`tracing =` attribute is needed — the client uses the global `TracerProvider`
+set by `client "otlp"`.
+
+The span covers the full round-trip to the LLM API (request send through
+response receive). It is a child of whatever span is active when `call()` is
+invoked — so if `call()` is used inside an HTTP handler action, the LLM span
+will appear nested under the inbound request span in your trace viewer.
+
+`ctx.trace_id` / `ctx.span_id` are available in `action` expressions and
+reflect the enclosing trigger or request span, not the individual LLM call span.
+
+See [client "otlp"](client-otlp.md) for full tracing configuration.
+
+---
+
 ## Security: Prompt Injection
 
 Prompt injection is when user-controlled input manipulates the LLM into ignoring

@@ -860,3 +860,61 @@ write regardless of value change. Consumers that want changes-only semantics sho
 
 - `metric "histogram"` — no meaningful "old value" per observation
 - Computed metric variants (`value = expression`) — value is derived at scrape time, not via `set()`
+
+---
+
+## Distributed Tracing
+
+When a `client "otlp"` block is configured, every trigger firing automatically
+creates an OTel span. No `tracing =` attribute is needed — trigger spans use the
+global `TracerProvider` set by `client "otlp"`.
+
+**Span naming:**
+
+| Trigger type | Span name |
+|---|---|
+| `trigger "after"` | `trigger.after <name>` |
+| `trigger "at"` | `trigger.at <name>` |
+| `trigger "cron"` | `trigger.cron <cron-name>/<at-name>` |
+| `trigger "file"` | `trigger.file <name>` |
+| `trigger "interval"` | `trigger.interval <name>` |
+| `trigger "once"` | `trigger.once <name>` |
+| `trigger "shutdown"` | `trigger.shutdown <name>` |
+| `trigger "signals"` | `trigger.signal <signal-name>` |
+| `trigger "start"` | `trigger.start <name>` |
+| `trigger "watch"` | `trigger.watch <name>` |
+| `trigger "watchdog"` | `trigger.watchdog <name>` |
+
+**Span scope:** The span covers the action expression evaluation only — idle
+wait time (delays, sleep periods, timer countdowns) is excluded. This ensures
+span duration reflects actual work, not scheduling overhead.
+
+**Span parenting:**
+
+- Most trigger types start a **new root span** on each firing.
+- `trigger "watch"` uses the **incoming context** as its parent, so the span
+  becomes a child of whatever called `set()` or `increment()` on the watched
+  value. This chains watch-triggered actions into the same trace as the
+  upstream event (e.g. an HTTP request that triggered a `var` update).
+
+**Error recording:** If the action expression returns an HCL diagnostic error,
+the error is recorded on the span (`span.RecordError`) and the span status is
+set to `Error`.
+
+**`ctx.trace_id` / `ctx.span_id`:** Available in all trigger `action`
+expressions when a span is active. Both are `""` when no OTLP client is
+configured.
+
+Example — include the trace ID in a downstream HTTP request:
+
+```hcl
+trigger "interval" "poll" {
+    delay  = "30s"
+    action = send(ctx, bus.main, "poll/result", {
+        trace = ctx.trace_id
+        data  = fetch_data()
+    })
+}
+```
+
+See [client "otlp"](client-otlp.md) for full tracing configuration.

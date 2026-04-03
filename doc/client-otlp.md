@@ -73,7 +73,18 @@ On `Start()` the client:
 
 ## Auto-wiring
 
-Servers with a `tracing =` attribute accept a `client "otlp"` reference:
+The following components accept an optional `tracing = client.<name>` attribute
+to select a specific OTLP client:
+
+| Component | `tracing =` attribute | Auto-wires |
+|---|---|---|
+| `server "http"` | yes | yes |
+| `server "mcp"` (standalone) | yes | yes |
+| `server "metrics"` (standalone) | yes | yes |
+| `client "kafka"` | yes | yes |
+| `client "mqtt"` | yes | yes |
+| `client "openai"` | — | always (uses global TracerProvider) |
+| all `trigger` types | — | always (uses global TracerProvider) |
 
 ```hcl
 server "http" "api" {
@@ -81,19 +92,29 @@ server "http" "api" {
     tracing = client.tracer
     ...
 }
+
+client "kafka" "events" {
+    tracing = client.tracer
+    ...
+}
 ```
 
 If there is **exactly one** `client "otlp"` block, or one marked
-`default = true`, servers that omit `tracing =` are wired to it automatically.
-With multiple clients and no default, each server must specify `tracing =`
-explicitly.
+`default = true`, components that support `tracing =` and omit it are wired to
+it automatically. With multiple clients and no default, each component must
+specify `tracing =` explicitly.
+
+`client "openai"` and trigger types always use the global `TracerProvider` (set
+by `client "otlp"` on `Start()`), so they instrument automatically without any
+`tracing =` attribute.
 
 ---
 
 ## Trace context in VCL expressions
 
-When a request arrives inside a traced span, two variables are available in the
-`ctx` object for all servers that use the VCL eval context:
+When an action expression is evaluated inside an active OTel span, two variables
+are available in the `ctx` object. This applies to all contexts: HTTP handler
+actions, trigger actions, Kafka/MQTT receiver actions, and subscription actions.
 
 | Variable | Type | Description |
 |----------|------|-------------|

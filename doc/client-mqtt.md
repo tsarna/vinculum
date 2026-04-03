@@ -328,6 +328,37 @@ subscription "alerts_to_mqtt" {
 
 ---
 
+## Distributed Tracing
+
+Add a `tracing` attribute to enable W3C TraceContext propagation over MQTT 5
+user properties. The subscriber extracts incoming trace properties and creates
+a child span; the publisher injects trace context into outgoing user properties.
+
+```hcl
+client "mqtt" "iot" {
+    tracing = client.tracer   # optional; auto-wired to the default client "otlp"
+    ...
+}
+```
+
+If there is exactly one `client "otlp"` block (or one marked `default = true`),
+the MQTT client auto-wires to it when `tracing =` is omitted.
+
+**Subscriber:** a `process <topic>` span is created for each message received.
+If the message carries `traceparent`/`tracestate` user properties, the span is
+created as a child of the upstream trace.
+
+**Publisher:** the current trace context is injected into outgoing MQTT 5 user
+properties as `traceparent` / `tracestate`.
+
+**Property filtering:** W3C trace user properties (`traceparent`, `tracestate`,
+`baggage`) are stripped from the `fields` map visible in VCL action expressions
+so business metadata stays clean.
+
+See [client "otlp"](client-otlp.md) for tracing configuration and auto-wiring rules.
+
+---
+
 ## Observability
 
 When a [`server "metrics"`](server-metrics.md) block is present, the MQTT
