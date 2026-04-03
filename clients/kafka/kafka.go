@@ -178,6 +178,7 @@ func (c *KafkaClient) Start() error {
 		kotelTracer := kotel.NewTracer(
 			kotel.TracerProvider(c.tracerProvider),
 			kotel.TracerPropagator(otel.GetTextMapPropagator()),
+			kotel.LinkSpans(),
 		)
 		kgoOpts = append(kgoOpts, kgo.WithHooks(kotel.NewKotel(kotel.WithTracer(kotelTracer)).Hooks()...))
 	}
