@@ -100,6 +100,11 @@ func runServer(cmd *cobra.Command, args []string) error {
 	<-quit
 
 	logger.Info("Shutting down")
+	for i := len(cfg.PreStoppables) - 1; i >= 0; i-- {
+		if err := cfg.PreStoppables[i].PreStop(); err != nil {
+			logger.Error("Failed to pre-stop component", zap.Error(err))
+		}
+	}
 	for i := len(cfg.Stoppables) - 1; i >= 0; i-- {
 		if err := cfg.Stoppables[i].Stop(); err != nil {
 			logger.Error("Failed to stop component", zap.Error(err))

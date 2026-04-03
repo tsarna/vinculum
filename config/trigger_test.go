@@ -88,8 +88,9 @@ func TestTriggerShutdown(t *testing.T) {
 	cfg, diags := config.NewConfig().WithSources(triggerShutdownVCL).WithLogger(testLogger(t)).Build()
 	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
 
-	// Shutdown trigger adds one Stoppable
-	assert.Len(t, cfg.Stoppables, 1)
+	// Shutdown trigger adds one PreStoppable (not a Stoppable)
+	assert.Len(t, cfg.PreStoppables, 1)
+	assert.Empty(t, cfg.Stoppables)
 	// No cty value created
 	assert.NotContains(t, cfg.CtyTriggerMap, "bye")
 	// Name is tracked

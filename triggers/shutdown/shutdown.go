@@ -30,7 +30,7 @@ func processShutdownTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cf
 		action: body.Action,
 		name:   block.Labels[1],
 	}
-	config.Stoppables = append(config.Stoppables, action)
+	config.PreStoppables = append(config.PreStoppables, action)
 	return diags
 }
 
@@ -41,7 +41,7 @@ type ShutdownTriggerAction struct {
 	name   string
 }
 
-func (a *ShutdownTriggerAction) Stop() error {
+func (a *ShutdownTriggerAction) PreStop() error {
 	a.config.Logger.Debug("Executing shutdown trigger", zap.String("name", a.name))
 
 	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "shutdown", a.name)

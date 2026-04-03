@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`PreStoppable` lifecycle interface and `trigger "shutdown"` fix** — new `PreStoppable`
+  interface with a `PreStop() error` method, called in reverse registration order before any
+  `Stoppable.Stop()` calls begin. `trigger "shutdown"` now implements `PreStoppable` instead of
+  `Stoppable`, guaranteeing that shutdown actions execute while all clients, buses, and
+  subscriptions are still fully operational. Previously, whether a shutdown action had access to a
+  given client depended on registration order in the config file.
+
 ### Added
 
 - **`client "otlp"` — distributed tracing via OpenTelemetry** — new client type that configures the OTel SDK and exports spans to any OTLP/HTTP collector (Jaeger, Grafana Tempo, Honeycomb, etc.):

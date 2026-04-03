@@ -135,7 +135,9 @@ func TestTriggerFileGetError(t *testing.T) {
 }
 
 func TestTriggerFileStartStop(t *testing.T) {
-	c, diags := withReadfiles(cfg.NewConfig().WithSources(triggerFileVCL).WithLogger(testLogger(t))).Build()
+	dir := t.TempDir()
+	src := []byte("trigger \"file\" \"watcher\" {\n  path = \"" + dir + "\"\n  action = \"ok\"\n}\n")
+	c, diags := cfg.NewConfig().WithSources(src).WithLogger(testLogger(t)).WithFeature("readfiles", dir).Build()
 	require.False(t, diags.HasErrors())
 
 	trig, err := GetFileTriggerFromCapsule(c.CtyTriggerMap["watcher"])

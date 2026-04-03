@@ -36,6 +36,15 @@ type PostStartable interface {
 	PostStart() error
 }
 
+// PreStoppable is implemented by components that need to run logic before any
+// Stoppable components have their Stop() called. PreStop() is called in reverse
+// registration order, before the full teardown sequence begins. This guarantees
+// that the full runtime environment (clients, buses, subscriptions) is still
+// available when PreStop() executes.
+type PreStoppable interface {
+	PreStop() error
+}
+
 type Config struct {
 	Logger    *zap.Logger
 	Functions map[string]function.Function
@@ -48,6 +57,7 @@ type Config struct {
 	SigActions       *SignalActionHandler
 	Startables       []Startable
 	PostStartables   []PostStartable
+	PreStoppables    []PreStoppable
 	Stoppables       []Stoppable
 	BusCapsuleType   cty.Type
 	CtyBusMap        map[string]cty.Value
