@@ -158,7 +158,9 @@ The `name` label is included in the error message if the assertion fails.
 
 ```hcl
 bus "name" {
-    queue_size = 1000  # optional, default 1000
+    queue_size = 1000          # optional, default 1000
+    metrics    = server.prom   # optional; auto-wires to default server "metrics"
+    tracing    = client.tracer # optional; auto-wires to default client "otlp"
 }
 ```
 
@@ -169,6 +171,24 @@ example, `bus "foo" {}` creates `bus.foo`.
 messages start being dropped.
 
 `bus.main` always exists implicitly and does not need to be declared.
+
+When `tracing` is configured (or auto-wired to a `client "otlp"` block), each
+publish and delivery is wrapped in an OTel span:
+
+- **`Publish`** — a `SpanKindProducer` span (`publish <topic>`) is created when
+  a message is enqueued. The span context flows with the message.
+- **`PublishSync`** — same producer span, plus a `SpanKindConsumer` child span
+  (`process <topic>`) per subscriber, giving a complete trace tree:
+  `publish → process → subscriber work`.
+- **Async delivery** — each subscriber delivery creates a new root
+  `SpanKindConsumer` span linked to the publish span, per
+  [OTel messaging semantic conventions](https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/messaging/)
+  for async pub/sub.
+
+All bus spans carry `messaging.system = "vinculum"`, `messaging.destination.name`,
+`messaging.operation.type`, `messaging.operation.name`, and `vinculum.bus.name`
+attributes. See [`client "otlp"`](client-otlp.md) for tracing configuration and
+auto-wiring rules.
 
 ---
 

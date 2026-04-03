@@ -344,12 +344,17 @@ client "mqtt" "iot" {
 If there is exactly one `client "otlp"` block (or one marked `default = true`),
 the MQTT client auto-wires to it when `tracing =` is omitted.
 
-**Subscriber:** a `process <topic>` span is created for each message received.
-If the message carries `traceparent`/`tracestate` user properties, the span is
-created as a child of the upstream trace.
+**Subscriber:** for each message received, a new root `SpanKindConsumer` span is
+created and linked to the producer span (extracted from the `traceparent` user
+property). This follows the [OTel messaging semantic conventions](https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/messaging/)
+recommendation for async pub/sub: the consumer trace is independent but linked,
+so the async boundary is correctly represented. Spans carry `messaging.system`,
+`messaging.destination.name`, `messaging.operation.type`, and
+`messaging.operation.name` attributes.
 
 **Publisher:** the current trace context is injected into outgoing MQTT 5 user
-properties as `traceparent` / `tracestate`.
+properties as `traceparent` / `tracestate`, and a `SpanKindProducer` span wraps
+the broker publish call.
 
 **Property filtering:** W3C trace user properties (`traceparent`, `tracestate`,
 `baggage`) are stripped from the `fields` map visible in VCL action expressions

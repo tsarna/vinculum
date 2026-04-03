@@ -335,12 +335,16 @@ client "kafka" "events" {
 If there is exactly one `client "otlp"` block (or one marked `default = true`),
 the Kafka client auto-wires to it when `tracing =` is omitted.
 
-**Consumer:** a `vinculum.process <topic>` span is created for each record
-received. If the record headers carry a `traceparent` header, the span is
-created as a child of the upstream trace.
+**Consumer:** for each record received, a new root `SpanKindConsumer` span is
+created and linked to the producer span (extracted from the `traceparent` header).
+This follows the [OTel messaging semantic conventions](https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/messaging/)
+recommendation for async pub/sub: the consumer trace is independent but linked,
+so the async boundary is correctly represented. Spans carry `messaging.system`,
+`messaging.destination.name`, `messaging.operation.type`, and
+`messaging.operation.name` attributes automatically.
 
 **Producer:** the current trace context is injected into outgoing record headers
-as `traceparent` / `tracestate`.
+as `traceparent` / `tracestate`, and a `SpanKindProducer` span wraps the produce call.
 
 **Header filtering:** W3C trace headers (`traceparent`, `tracestate`, `baggage`)
 are stripped from the `fields` map visible in VCL action expressions so business
