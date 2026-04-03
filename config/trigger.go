@@ -117,21 +117,11 @@ func (h *TriggerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diag
 	}
 
 	// Resolve tracing provider (explicit tracing = or auto-wire).
-	if IsExpressionProvided(triggerDef.Tracing) {
-		otlpClient, tracingDiags := GetOtlpClientFromExpression(config, triggerDef.Tracing)
-		if tracingDiags.HasErrors() {
-			return tracingDiags
-		}
-		triggerDef.TracerProvider = otlpClient.GetTracerProvider()
-	} else {
-		otlpClient, defaultDiags := config.GetDefaultOtlpClient()
-		if defaultDiags.HasErrors() {
-			return defaultDiags
-		}
-		if otlpClient != nil {
-			triggerDef.TracerProvider = otlpClient.GetTracerProvider()
-		}
+	tp, tracingDiags := config.ResolveTracerProvider(triggerDef.Tracing)
+	if tracingDiags.HasErrors() {
+		return tracingDiags
 	}
+	triggerDef.TracerProvider = tp
 
 	name := block.Labels[1]
 

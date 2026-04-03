@@ -478,22 +478,9 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		return nil, metricsDiags
 	}
 
-	// Resolve tracing client (same auto-wire pattern as server "http").
-	var tracerProvider trace.TracerProvider
-	if cfg.IsExpressionProvided(def.Tracing) {
-		otlpClient, tracingDiags := cfg.GetOtlpClientFromExpression(config, def.Tracing)
-		if tracingDiags.HasErrors() {
-			return nil, tracingDiags
-		}
-		tracerProvider = otlpClient.GetTracerProvider()
-	} else {
-		otlpClient, defaultDiags := config.GetDefaultOtlpClient()
-		if defaultDiags.HasErrors() {
-			return nil, defaultDiags
-		}
-		if otlpClient != nil {
-			tracerProvider = otlpClient.GetTracerProvider()
-		}
+	tracerProvider, tracingDiags := config.ResolveTracerProvider(def.Tracing)
+	if tracingDiags.HasErrors() {
+		return nil, tracingDiags
 	}
 
 	client := &KafkaClient{

@@ -211,20 +211,10 @@ func ProcessMetricsServerBlock(config *cfg.Config, block *hcl.Block, remainingBo
 		}
 	}
 
-	// Resolve tracing client (same pattern as server "http").
-	var otlpClient cfg.OtlpClient
-	if cfg.IsExpressionProvided(def.Tracing) {
-		var tracingDiags hcl.Diagnostics
-		otlpClient, tracingDiags = cfg.GetOtlpClientFromExpression(config, def.Tracing)
-		if tracingDiags.HasErrors() {
-			return nil, tracingDiags
-		}
-	} else {
-		var defaultDiags hcl.Diagnostics
-		otlpClient, defaultDiags = config.GetDefaultOtlpClient()
-		if defaultDiags.HasErrors() {
-			return nil, defaultDiags
-		}
+	// Resolve tracing client.
+	otlpClient, tracingDiags := config.ResolveOtlpClient(def.Tracing)
+	if tracingDiags.HasErrors() {
+		return nil, tracingDiags
 	}
 
 	srv := newMetricsServer(name, def.DefRange, listen, path, isDefault, includeGoMetrics, tlsCfg, otlpClient)

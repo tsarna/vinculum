@@ -86,3 +86,24 @@ func (c *Config) GetDefaultOtlpClient() (OtlpClient, hcl.Diagnostics) {
 	// Multiple clients, none marked default
 	return nil, nil
 }
+
+// ResolveOtlpClient returns the OtlpClient selected by expr (explicit wiring)
+// or the default OTLP client (auto-wire). Returns nil with no error when no
+// OTLP client is configured and no explicit tracing = is set.
+func (c *Config) ResolveOtlpClient(expr hcl.Expression) (OtlpClient, hcl.Diagnostics) {
+	if IsExpressionProvided(expr) {
+		return GetOtlpClientFromExpression(c, expr)
+	}
+	return c.GetDefaultOtlpClient()
+}
+
+// ResolveTracerProvider returns the TracerProvider selected by expr (explicit
+// wiring) or the default OTLP client (auto-wire). Returns nil with no error
+// when no OTLP client is configured and no explicit tracing = is set.
+func (c *Config) ResolveTracerProvider(expr hcl.Expression) (trace.TracerProvider, hcl.Diagnostics) {
+	oc, diags := c.ResolveOtlpClient(expr)
+	if diags.HasErrors() || oc == nil {
+		return nil, diags
+	}
+	return oc.GetTracerProvider(), nil
+}

@@ -475,17 +475,9 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		return nil, metricsDiags
 	}
 
-	var tracerProvider trace.TracerProvider
-	if cfg.IsExpressionProvided(def.Tracing) {
-		otlpClient, tracingDiags := cfg.GetOtlpClientFromExpression(config, def.Tracing)
-		if tracingDiags.HasErrors() {
-			return nil, tracingDiags
-		}
-		if otlpClient != nil {
-			tracerProvider = otlpClient.GetTracerProvider()
-		}
-	} else if otlpClient, _ := config.GetDefaultOtlpClient(); otlpClient != nil {
-		tracerProvider = otlpClient.GetTracerProvider()
+	tracerProvider, tracingDiags := config.ResolveTracerProvider(def.Tracing)
+	if tracingDiags.HasErrors() {
+		return nil, tracingDiags
 	}
 
 	clientCfg := mqttclient.ClientConfig{

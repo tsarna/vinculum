@@ -150,20 +150,10 @@ func ProcessMcpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody h
 		}
 	}
 
-	// Resolve tracing client at config parse time (same pattern as server "http").
-	var otlpClient cfg.OtlpClient
-	if cfg.IsExpressionProvided(def.Tracing) {
-		var tracingDiags hcl.Diagnostics
-		otlpClient, tracingDiags = cfg.GetOtlpClientFromExpression(config, def.Tracing)
-		if tracingDiags.HasErrors() {
-			return nil, tracingDiags
-		}
-	} else {
-		var defaultDiags hcl.Diagnostics
-		otlpClient, defaultDiags = config.GetDefaultOtlpClient()
-		if defaultDiags.HasErrors() {
-			return nil, defaultDiags
-		}
+	// Resolve tracing client at config parse time.
+	otlpClient, tracingDiags := config.ResolveOtlpClient(def.Tracing)
+	if tracingDiags.HasErrors() {
+		return nil, tracingDiags
 	}
 
 	srv, err := New(ServerConfig{

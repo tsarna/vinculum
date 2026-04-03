@@ -97,19 +97,9 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 	}
 
 	// Resolve tracing client at config parse time.
-	var otlpClient cfg.OtlpClient
-	if cfg.IsExpressionProvided(serverDef.Tracing) {
-		var tracingDiags hcl.Diagnostics
-		otlpClient, tracingDiags = cfg.GetOtlpClientFromExpression(config, serverDef.Tracing)
-		if tracingDiags.HasErrors() {
-			return nil, tracingDiags
-		}
-	} else {
-		var defaultDiags hcl.Diagnostics
-		otlpClient, defaultDiags = config.GetDefaultOtlpClient()
-		if defaultDiags.HasErrors() {
-			return nil, defaultDiags
-		}
+	otlpClient, tracingDiags := config.ResolveOtlpClient(serverDef.Tracing)
+	if tracingDiags.HasErrors() {
+		return nil, tracingDiags
 	}
 
 	server := &HttpServer{
