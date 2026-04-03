@@ -84,7 +84,7 @@ to select a specific OTLP client:
 | `client "kafka"` | yes | yes |
 | `client "mqtt"` | yes | yes |
 | `client "openai"` | yes | yes |
-| all `trigger` types (except `signals`) | yes | yes |
+| all `trigger` types | yes | yes |
 
 ```hcl
 server "http" "api" {
@@ -109,9 +109,6 @@ If there is **exactly one** `client "otlp"` block, or one marked
 `default = true`, components that support `tracing =` and omit it are wired to
 it automatically. With multiple clients and no default, each component must
 specify `tracing =` explicitly.
-
-The `signals` trigger always uses the global `TracerProvider` and does not
-support a `tracing =` attribute.
 
 ---
 

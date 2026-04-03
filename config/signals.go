@@ -10,6 +10,7 @@ import (
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/tsarna/vinculum/platform"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -29,6 +30,7 @@ type SignalActionHandler struct {
 	SignalCtx      map[platform.Signal]*hcl.EvalContext
 	SigChannel     chan os.Signal
 	AddedStartable bool
+	TracerProvider trace.TracerProvider
 }
 
 func NewSignalActionHandler(logger *zap.Logger) *SignalActionHandler {
@@ -119,7 +121,7 @@ func (sa *SignalActionHandler) Start() error {
 						return
 					}
 
-					_, stopSpan := hclutil.StartTriggerSpan(context.Background(), nil, "signal", platformSig.String())
+					_, stopSpan := hclutil.StartTriggerSpan(context.Background(), sa.TracerProvider, "signal", platformSig.String())
 					result, diags := sigExpr.Value(evalCtx)
 					if diags.HasErrors() {
 						sa.Logger.Error("Error executing signal action", zap.Error(diags))

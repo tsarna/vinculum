@@ -17,6 +17,8 @@ func processSignalsTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg
 		return diags
 	}
 
+	config.SigActions.TracerProvider = triggerDef.TracerProvider
+
 	diags = diags.Extend(config.SetSignalAction("SIGHUP", signalsDef.SigHup))
 	diags = diags.Extend(config.SetSignalAction("SIGINFO", signalsDef.SigInfo))
 	diags = diags.Extend(config.SetSignalAction("SIGUSR1", signalsDef.SigUsr1))
