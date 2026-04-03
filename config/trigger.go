@@ -6,14 +6,20 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type TriggerDefinition struct {
-	Type          string    `hcl:",label"`
-	Name          string    `hcl:",label"`
-	Disabled      bool      `hcl:"disabled,optional"`
-	DefRange      hcl.Range `hcl:",def_range"`
-	RemainingBody hcl.Body  `hcl:",remain"`
+	Type          string         `hcl:",label"`
+	Name          string         `hcl:",label"`
+	Disabled      bool           `hcl:"disabled,optional"`
+	Tracing       hcl.Expression `hcl:"tracing,optional"`
+	DefRange      hcl.Range      `hcl:",def_range"`
+	RemainingBody hcl.Body       `hcl:",remain"`
+
+	// TracerProvider is resolved from Tracing (or auto-wired) during Process()
+	// and is available to trigger-type processors via triggerDef.TracerProvider.
+	TracerProvider trace.TracerProvider
 }
 
 // TriggerBlockHandler processes trigger blocks. A fresh instance is created per
@@ -108,6 +114,23 @@ func (h *TriggerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diag
 
 	if triggerDef.Disabled {
 		return nil
+	}
+
+	// Resolve tracing provider (explicit tracing = or auto-wire).
+	if IsExpressionProvided(triggerDef.Tracing) {
+		otlpClient, tracingDiags := GetOtlpClientFromExpression(config, triggerDef.Tracing)
+		if tracingDiags.HasErrors() {
+			return tracingDiags
+		}
+		triggerDef.TracerProvider = otlpClient.GetTracerProvider()
+	} else {
+		otlpClient, defaultDiags := config.GetDefaultOtlpClient()
+		if defaultDiags.HasErrors() {
+			return defaultDiags
+		}
+		if otlpClient != nil {
+			triggerDef.TracerProvider = otlpClient.GetTracerProvider()
+		}
 	}
 
 	name := block.Labels[1]

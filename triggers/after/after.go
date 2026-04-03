@@ -12,6 +12,7 @@ import (
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -23,10 +24,11 @@ import (
 // If shutdown occurs before the delay elapses, the action is skipped entirely —
 // the trigger never fires and get(trigger.<name>) continues to return null.
 type AfterTrigger struct {
-	name   string
-	config *cfg.Config
-	delay  time.Duration
-	expr   hcl.Expression
+	name           string
+	config         *cfg.Config
+	delay          time.Duration
+	expr           hcl.Expression
+	tracerProvider trace.TracerProvider
 
 	mu     sync.RWMutex
 	result cty.Value // cty.NilVal until fired
@@ -90,7 +92,7 @@ func (t *AfterTrigger) run() {
 
 	t.config.Logger.Debug("after trigger: firing", zap.String("name", t.name))
 
-	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "after", t.name)
+	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), t.tracerProvider, "after", t.name)
 
 	var actionErr error
 	evalCtx, err := hclutil.NewEvalContext(spanCtx).
@@ -175,10 +177,11 @@ func processAfterTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.T
 
 	name := block.Labels[1]
 	t := &AfterTrigger{
-		name:   name,
-		config: config,
-		delay:  delay,
-		expr:   body.Action,
+		name:           name,
+		config:         config,
+		delay:          delay,
+		expr:           body.Action,
+		tracerProvider: triggerDef.TracerProvider,
 	}
 
 	config.CtyTriggerMap[name] = NewAfterTriggerCapsule(t)

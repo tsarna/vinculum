@@ -18,6 +18,7 @@ import (
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -44,6 +45,7 @@ type FileTrigger struct {
 	debounce        time.Duration // 0 = disabled
 	onStartExisting bool
 	disabled        bool
+	tracerProvider  trace.TracerProvider
 
 	// runtime
 	watcher   *fsnotify.Watcher
@@ -291,7 +293,7 @@ func (t *FileTrigger) dispatch(eventPath, eventStr string) {
 		lastErrStr = cty.StringVal(lastErr.Error())
 	}
 
-	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "file", t.name)
+	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), t.tracerProvider, "file", t.name)
 
 	evalCtx, err := hclutil.NewEvalContext(spanCtx).
 		WithStringAttribute("trigger", "file").
@@ -551,6 +553,7 @@ func processFileTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.Tr
 		debounce:        debounce,
 		onStartExisting: onStartExisting,
 		disabled:        disabled,
+		tracerProvider:  triggerDef.TracerProvider,
 		debounceT:       make(map[string]*time.Timer),
 		debounceE:       make(map[string]string),
 	}

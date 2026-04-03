@@ -13,6 +13,7 @@ import (
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -29,10 +30,11 @@ import (
 // "interval") to poke the at trigger whenever conditions change, such as
 // a vehicle's position shifting significantly.
 type AtTrigger struct {
-	name       string
-	config     *cfg.Config
-	timeExpr   hcl.Expression
-	actionExpr hcl.Expression
+	name           string
+	config         *cfg.Config
+	timeExpr       hcl.Expression
+	actionExpr     hcl.Expression
+	tracerProvider trace.TracerProvider
 
 	mu            sync.RWMutex
 	scheduledTime time.Time // zero = not yet evaluated
@@ -213,7 +215,7 @@ func (t *AtTrigger) fire(_ *hcl.EvalContext) {
 	lastResult := t.lastResult
 	t.mu.RUnlock()
 
-	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "at", t.name)
+	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), t.tracerProvider, "at", t.name)
 
 	evalCtx, err := t.buildEvalContext(spanCtx, runCount, lastResult)
 	if err != nil {
@@ -317,10 +319,11 @@ func processAtTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.Trig
 
 	name := block.Labels[1]
 	t := &AtTrigger{
-		name:       name,
-		config:     config,
-		timeExpr:   body.Time,
-		actionExpr: body.Action,
+		name:           name,
+		config:         config,
+		timeExpr:       body.Time,
+		actionExpr:     body.Action,
+		tracerProvider: triggerDef.TracerProvider,
 	}
 
 	config.CtyTriggerMap[name] = NewAtTriggerCapsule(t)

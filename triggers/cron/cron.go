@@ -10,6 +10,7 @@ import (
 	"github.com/robfig/cron/v3"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -25,7 +26,7 @@ func processCronTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.Tr
 	}
 	cronDef.Name = block.Labels[1]
 
-	cronObj, addDiags := BuildCron(config, block, &cronDef)
+	cronObj, addDiags := BuildCron(config, block, &cronDef, triggerDef.TracerProvider)
 	diags = diags.Extend(addDiags)
 	if diags.HasErrors() {
 		return diags
@@ -48,7 +49,7 @@ type CronAtDefinition struct {
 	DefRange hcl.Range      `hcl:",def_range"`
 }
 
-func BuildCron(config *cfg.Config, block *hcl.Block, cronDef *CronDefinition) (*cron.Cron, hcl.Diagnostics) {
+func BuildCron(config *cfg.Config, block *hcl.Block, cronDef *CronDefinition, tp trace.TracerProvider) (*cron.Cron, hcl.Diagnostics) {
 	cronLogger := NewZapCronLogger(config.Logger)
 
 	cronParser := cron.NewParser(
@@ -90,10 +91,11 @@ func BuildCron(config *cfg.Config, block *hcl.Block, cronDef *CronDefinition) (*
 		}
 
 		atAction := &AtAction{
-			config:   config,
-			action:   action,
-			cronName: cronDef.Name,
-			atName:   atBlock.Name,
+			config:         config,
+			action:         action,
+			cronName:       cronDef.Name,
+			atName:         atBlock.Name,
+			tracerProvider: tp,
 		}
 
 		cronObj.AddJob(atBlock.Schedule, atAction)
@@ -103,16 +105,17 @@ func BuildCron(config *cfg.Config, block *hcl.Block, cronDef *CronDefinition) (*
 }
 
 type AtAction struct {
-	config   *cfg.Config
-	action   hcl.Expression
-	cronName string
-	atName   string
+	config         *cfg.Config
+	action         hcl.Expression
+	cronName       string
+	atName         string
+	tracerProvider trace.TracerProvider
 }
 
 func (a *AtAction) Run() {
 	a.config.Logger.Debug("Executing action", zap.String("cron", a.cronName), zap.String("at", a.atName))
 
-	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "cron", a.cronName+"/"+a.atName)
+	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), a.tracerProvider, "cron", a.cronName+"/"+a.atName)
 
 	evalCtx, err := hclutil.NewEvalContext(spanCtx).
 		WithStringAttribute("cron_name", a.cronName).

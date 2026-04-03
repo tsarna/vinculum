@@ -13,17 +13,19 @@ import (
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
 // WatchTrigger fires its action expression each time a Watchable value changes.
 // It implements Watcher, Gettable, Startable, and Stoppable.
 type WatchTrigger struct {
-	name         string
-	config       *cfg.Config
-	watchable    types.Watchable
-	actionExpr   hcl.Expression
-	skipWhenExpr hcl.Expression // nil if not provided
+	name           string
+	config         *cfg.Config
+	watchable      types.Watchable
+	actionExpr     hcl.Expression
+	skipWhenExpr   hcl.Expression // nil if not provided
+	tracerProvider trace.TracerProvider
 
 	mu        sync.RWMutex
 	lastValue cty.Value // last observed newValue; cty.NilVal until first change
@@ -51,7 +53,7 @@ func (t *WatchTrigger) OnChange(ctx context.Context, oldValue, newValue cty.Valu
 }
 
 func (t *WatchTrigger) dispatch(ctx context.Context, oldValue, newValue cty.Value) {
-	ctx, stopSpan := hclutil.StartTriggerSpan(ctx, "watch", t.name)
+	ctx, stopSpan := hclutil.StartTriggerSpan(ctx, t.tracerProvider, "watch", t.name)
 
 	evalCtx, err := hclutil.NewEvalContext(ctx).
 		WithStringAttribute("trigger", "watch").
@@ -191,11 +193,12 @@ func processWatchTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.T
 
 	name := block.Labels[1]
 	t := &WatchTrigger{
-		name:         name,
-		config:       config,
-		watchable:    watchable,
-		actionExpr:   body.Action,
-		skipWhenExpr: skipWhenExpr,
+		name:           name,
+		config:         config,
+		watchable:      watchable,
+		actionExpr:     body.Action,
+		skipWhenExpr:   skipWhenExpr,
+		tracerProvider: triggerDef.TracerProvider,
 	}
 
 	config.CtyTriggerMap[name] = newWatchTriggerCapsule(t)

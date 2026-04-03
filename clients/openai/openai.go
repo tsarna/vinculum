@@ -14,6 +14,7 @@ import (
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func init() {
@@ -28,6 +29,7 @@ type OpenAIClientDefinition struct {
 	Temperature    *float64       `hcl:"temperature,optional"`
 	Timeout        hcl.Expression `hcl:"timeout,optional"`
 	MaxInputLength *int           `hcl:"max_input_length,optional"`
+	Tracing        hcl.Expression `hcl:"tracing,optional"`
 	DefRange       hcl.Range      `hcl:",def_range"`
 }
 
@@ -36,6 +38,7 @@ type OpenAIClient struct {
 	llm.BaseClient
 	openaiClient   *openailib.Client
 	maxInputLength *int
+	tracerProvider trace.TracerProvider
 }
 
 func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Client, hcl.Diagnostics) {
@@ -63,14 +66,42 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		openaiCfg.BaseURL = baseURLVal.AsString()
 	}
 
+	// Resolve tracing client (same auto-wire pattern as server "http").
+	var tracerProvider trace.TracerProvider
+	if cfg.IsExpressionProvided(clientDef.Tracing) {
+		otlpClient, tracingDiags := cfg.GetOtlpClientFromExpression(config, clientDef.Tracing)
+		if tracingDiags.HasErrors() {
+			return nil, tracingDiags
+		}
+		tracerProvider = otlpClient.GetTracerProvider()
+	} else {
+		otlpClient, defaultDiags := config.GetDefaultOtlpClient()
+		if defaultDiags.HasErrors() {
+			return nil, defaultDiags
+		}
+		if otlpClient != nil {
+			tracerProvider = otlpClient.GetTracerProvider()
+		}
+	}
+
+	var otelOpts []otelhttp.Option
+	if tracerProvider != nil {
+		otelOpts = append(otelOpts, otelhttp.WithTracerProvider(tracerProvider))
+	}
+
+	var timeout time.Duration
 	if cfg.IsExpressionProvided(clientDef.Timeout) {
-		timeout, valDiags := config.ParseDuration(clientDef.Timeout)
+		var valDiags hcl.Diagnostics
+		timeout, valDiags = config.ParseDuration(clientDef.Timeout)
 		if valDiags.HasErrors() {
 			return nil, valDiags
 		}
-		openaiCfg.HTTPClient = &http.Client{Timeout: timeout, Transport: otelhttp.NewTransport(http.DefaultTransport)}
 	} else {
-		openaiCfg.HTTPClient = &http.Client{Timeout: 120 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)}
+		timeout = 120 * time.Second
+	}
+	openaiCfg.HTTPClient = &http.Client{
+		Timeout:   timeout,
+		Transport: otelhttp.NewTransport(http.DefaultTransport, otelOpts...),
 	}
 
 	var maxTokens *int
@@ -93,6 +124,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		},
 		openaiClient:   openailib.NewClientWithConfig(openaiCfg),
 		maxInputLength: clientDef.MaxInputLength,
+		tracerProvider: tracerProvider,
 	}
 
 	return c, nil

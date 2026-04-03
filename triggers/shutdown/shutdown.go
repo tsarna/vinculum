@@ -7,6 +7,7 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -26,9 +27,10 @@ func processShutdownTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cf
 	}
 
 	action := &ShutdownTriggerAction{
-		config: config,
-		action: body.Action,
-		name:   block.Labels[1],
+		config:         config,
+		action:         body.Action,
+		name:           block.Labels[1],
+		tracerProvider: triggerDef.TracerProvider,
 	}
 	config.PreStoppables = append(config.PreStoppables, action)
 	return diags
@@ -36,15 +38,16 @@ func processShutdownTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cf
 
 // ShutdownTriggerAction evaluates an action expression during graceful shutdown.
 type ShutdownTriggerAction struct {
-	config *cfg.Config
-	action hcl.Expression
-	name   string
+	config         *cfg.Config
+	action         hcl.Expression
+	name           string
+	tracerProvider trace.TracerProvider
 }
 
 func (a *ShutdownTriggerAction) PreStop() error {
 	a.config.Logger.Debug("Executing shutdown trigger", zap.String("name", a.name))
 
-	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "shutdown", a.name)
+	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), a.tracerProvider, "shutdown", a.name)
 
 	evalCtx, err := hclutil.NewEvalContext(spanCtx).
 		WithStringAttribute("trigger", "shutdown").

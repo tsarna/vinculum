@@ -13,10 +13,11 @@ import (
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
-// IntervalTrigger repeatedly evaluates its action expression, sleeping for a
+//IntervalTrigger repeatedly evaluates its action expression, sleeping for a
 // dynamically computed delay between each run. Both the delay and the action
 // are re-evaluated each iteration against a context that exposes ctx.run_count,
 // ctx.last_result, and ctx.last_error, enabling adaptive schedules (e.g. "poll
@@ -33,6 +34,7 @@ type IntervalTrigger struct {
 	actionExpr       hcl.Expression
 	stopWhenExpr     hcl.Expression // optional; trigger stops when this evaluates true
 	jitter           float64        // fraction in [0,1]: actual delay uniform in [delay*(1-jitter/2), delay*(1+jitter/2)]
+	tracerProvider   trace.TracerProvider
 
 	mu         sync.RWMutex
 	runCount   int64     // number of completed action evaluations
@@ -170,7 +172,7 @@ func (t *IntervalTrigger) run() {
 		}
 
 		// Each action execution gets its own root span (covers only the action, not the delay).
-		spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "interval", t.name)
+		spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), t.tracerProvider, "interval", t.name)
 		actionEvalCtx, err := t.buildEvalContext(spanCtx, runCount, lastResult, lastErr)
 		if err != nil {
 			t.config.Logger.Error("interval trigger: error building action eval context",
@@ -297,6 +299,7 @@ func processIntervalTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cf
 		actionExpr:       body.Action,
 		stopWhenExpr:     body.StopWhen,
 		jitter:           jitter,
+		tracerProvider:   triggerDef.TracerProvider,
 	}
 
 	config.CtyTriggerMap[name] = NewIntervalTriggerCapsule(t)

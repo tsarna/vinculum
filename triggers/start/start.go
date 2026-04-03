@@ -8,6 +8,7 @@ import (
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -20,13 +21,14 @@ type triggerStartBody struct {
 }
 
 type startTrigger struct {
-	name   string
-	config *cfg.Config
-	expr   hcl.Expression
+	name           string
+	config         *cfg.Config
+	expr           hcl.Expression
+	tracerProvider trace.TracerProvider
 }
 
 func (t *startTrigger) PostStart() error {
-	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "start", t.name)
+	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), t.tracerProvider, "start", t.name)
 
 	evalCtx, err := hclutil.NewEvalContext(spanCtx).
 		WithStringAttribute("trigger", "start").
@@ -66,7 +68,7 @@ func processStartTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.T
 	// The real value is set in PostStart() after all Startables have completed.
 	config.CtyTriggerMap[name] = cty.NullVal(cty.DynamicPseudoType)
 	config.EvalCtx().Variables["trigger"] = cfg.CtyObjectOrEmpty(config.CtyTriggerMap)
-	config.PostStartables = append(config.PostStartables, &startTrigger{name: name, config: config, expr: body.Action})
+	config.PostStartables = append(config.PostStartables, &startTrigger{name: name, config: config, expr: body.Action, tracerProvider: triggerDef.TracerProvider})
 
 	return diags
 }

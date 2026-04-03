@@ -11,24 +11,26 @@ import (
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // OnceTrigger evaluates its action expression at most once, on the first call
 // to Get(), and caches the result (or error) for all subsequent calls.
 type OnceTrigger struct {
-	once   sync.Once
-	value  cty.Value
-	err    error
-	expr   hcl.Expression
-	config *cfg.Config
-	name   string
+	once           sync.Once
+	value          cty.Value
+	err            error
+	expr           hcl.Expression
+	config         *cfg.Config
+	name           string
+	tracerProvider trace.TracerProvider
 }
 
 // Get evaluates the action expression on the first call and returns the cached
 // result on all subsequent calls. Implements Gettable.
 func (o *OnceTrigger) Get(ctx context.Context, _ []cty.Value) (cty.Value, error) {
 	o.once.Do(func() {
-		spanCtx, stopSpan := hclutil.StartTriggerSpan(ctx, "once", o.name)
+		spanCtx, stopSpan := hclutil.StartTriggerSpan(ctx, o.tracerProvider, "once", o.name)
 
 		evalCtx, err := hclutil.NewEvalContext(spanCtx).
 			WithStringAttribute("trigger", "once").
@@ -100,9 +102,10 @@ func processOnceTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.Tr
 
 	name := block.Labels[1]
 	o := &OnceTrigger{
-		expr:   body.Action,
-		config: config,
-		name:   name,
+		expr:           body.Action,
+		config:         config,
+		name:           name,
+		tracerProvider: triggerDef.TracerProvider,
 	}
 
 	config.CtyTriggerMap[name] = NewOnceTriggerCapsule(o)

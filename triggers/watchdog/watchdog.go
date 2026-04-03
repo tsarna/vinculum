@@ -14,6 +14,7 @@ import (
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -27,14 +28,15 @@ import (
 //
 // If shutdown occurs while the watchdog is waiting, it exits without firing.
 type WatchdogTrigger struct {
-	name         string
-	config       *cfg.Config
-	window       time.Duration
-	initialGrace time.Duration // 0 means "use window"
-	actionExpr   hcl.Expression
-	repeat       bool           // if true, re-arms immediately after firing instead of going dormant
-	maxMisses    int64          // 0 means unlimited; stop when missCount reaches this
-	stopWhenExpr hcl.Expression // optional; stop when evaluates true after each fire
+	name           string
+	config         *cfg.Config
+	window         time.Duration
+	initialGrace   time.Duration // 0 means "use window"
+	actionExpr     hcl.Expression
+	repeat         bool           // if true, re-arms immediately after firing instead of going dormant
+	maxMisses      int64          // 0 means unlimited; stop when missCount reaches this
+	stopWhenExpr   hcl.Expression // optional; stop when evaluates true after each fire
+	tracerProvider trace.TracerProvider
 
 	mu        sync.RWMutex
 	lastValue cty.Value // cty.NilVal until first set()
@@ -149,7 +151,7 @@ func (t *WatchdogTrigger) fire() bool {
 	t.config.Logger.Debug("watchdog trigger: window expired",
 		zap.String("name", t.name), zap.Int64("miss_count", missCount))
 
-	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), "watchdog", t.name)
+	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), t.tracerProvider, "watchdog", t.name)
 
 	evalCtx, err := t.buildEvalContext(spanCtx, missCount, lastSet)
 	if err != nil {
@@ -379,14 +381,15 @@ func processWatchdogTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cf
 
 	name := block.Labels[1]
 	t := &WatchdogTrigger{
-		name:         name,
-		config:       config,
-		window:       window,
-		initialGrace: initialGrace,
-		actionExpr:   body.Action,
-		repeat:       repeat,
-		maxMisses:    maxMisses,
-		stopWhenExpr: body.StopWhen,
+		name:           name,
+		config:         config,
+		window:         window,
+		initialGrace:   initialGrace,
+		actionExpr:     body.Action,
+		repeat:         repeat,
+		maxMisses:      maxMisses,
+		stopWhenExpr:   body.StopWhen,
+		tracerProvider: triggerDef.TracerProvider,
 	}
 
 	if cfg.IsExpressionProvided(body.Watch) {

@@ -119,7 +119,7 @@ func (sa *SignalActionHandler) Start() error {
 						return
 					}
 
-					_, stopSpan := hclutil.StartTriggerSpan(context.Background(), "signal", platformSig.String())
+					_, stopSpan := hclutil.StartTriggerSpan(context.Background(), nil, "signal", platformSig.String())
 					result, diags := sigExpr.Value(evalCtx)
 					if diags.HasErrors() {
 						sa.Logger.Error("Error executing signal action", zap.Error(diags))
