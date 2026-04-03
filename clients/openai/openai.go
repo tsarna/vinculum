@@ -13,6 +13,7 @@ import (
 	"github.com/tsarna/vinculum/clients/llm"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func init() {
@@ -67,9 +68,9 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		if valDiags.HasErrors() {
 			return nil, valDiags
 		}
-		openaiCfg.HTTPClient = &http.Client{Timeout: timeout}
+		openaiCfg.HTTPClient = &http.Client{Timeout: timeout, Transport: otelhttp.NewTransport(http.DefaultTransport)}
 	} else {
-		openaiCfg.HTTPClient = &http.Client{Timeout: 120 * time.Second}
+		openaiCfg.HTTPClient = &http.Client{Timeout: 120 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)}
 	}
 
 	var maxTokens *int
