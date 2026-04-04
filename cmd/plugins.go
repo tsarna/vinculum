@@ -4,6 +4,7 @@ package cmd
 // ambient provider, and function plugin implementations that live outside the config package.
 import (
 	_ "github.com/tsarna/vinculum/ambient"
+	_ "github.com/tsarna/vinculum/editors/line"
 	_ "github.com/tsarna/vinculum/clients/kafka"
 	_ "github.com/tsarna/vinculum/clients/mqtt"
 	_ "github.com/tsarna/vinculum/clients/openai"

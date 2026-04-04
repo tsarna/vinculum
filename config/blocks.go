@@ -58,6 +58,10 @@ var blockSchema = []hcl.BlockHeaderSchema{
 		LabelNames: []string{"name"},
 	},
 	{
+		Type:       "editor",
+		LabelNames: []string{"type", "name"},
+	},
+	{
 		Type:       "bus",
 		LabelNames: []string{"name"},
 	},

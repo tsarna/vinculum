@@ -161,10 +161,22 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		Variables: config.Constants,
 	}
 
+	evalCtxFn := func() *hcl.EvalContext { return config.evalCtx }
+
 	functions, nonFunctionBodies, addDiags := config.ExtractUserFunctions(bodies)
 	diags = diags.Extend(addDiags)
 	if diags.HasErrors() {
 		return nil, diags
+	}
+
+	editorFuncs, nonEditorBodies, addDiags := extractEditorFunctions(nonFunctionBodies, config, evalCtxFn)
+	diags = diags.Extend(addDiags)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	for name, fn := range editorFuncs {
+		functions[name] = fn
 	}
 
 	config.Functions, addDiags = config.GetFunctions(functions)
@@ -176,7 +188,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	// Update evaluation context with functions
 	config.evalCtx.Functions = config.Functions
 
-	blocks, addDiags := cb.GetBlocks(nonFunctionBodies)
+	blocks, addDiags := cb.GetBlocks(nonEditorBodies)
 	diags = diags.Extend(addDiags)
 	if diags.HasErrors() {
 		return nil, diags
