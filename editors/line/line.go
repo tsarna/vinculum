@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -25,10 +26,11 @@ func init() {
 // --- Config-time structs ---
 
 type lineEditorBody struct {
-	Mode    string        `hcl:"mode,optional"`
-	Before  *contentBlock `hcl:"before,block"`
-	After   *contentBlock `hcl:"after,block"`
-	Matches []matchBlock  `hcl:"match,block"`
+	Mode    string         `hcl:"mode,optional"`
+	State   hcl.Expression `hcl:"state,optional"`
+	Before  *contentBlock  `hcl:"before,block"`
+	After   *contentBlock  `hcl:"after,block"`
+	Matches []matchBlock   `hcl:"match,block"`
 }
 
 type contentBlock struct {
@@ -36,22 +38,24 @@ type contentBlock struct {
 }
 
 type matchBlock struct {
-	Pattern  string         `hcl:",label"`
-	Required hcl.Expression `hcl:"required,optional"`
-	Max      hcl.Expression `hcl:"max,optional"`
-	When     hcl.Expression `hcl:"when,optional"`
-	Replace  hcl.Expression `hcl:"replace,optional"`
-	Abort    hcl.Expression `hcl:"abort,optional"`
+	Pattern     string         `hcl:",label"`
+	Required    hcl.Expression `hcl:"required,optional"`
+	Max         hcl.Expression `hcl:"max,optional"`
+	When        hcl.Expression `hcl:"when,optional"`
+	Replace     hcl.Expression `hcl:"replace,optional"`
+	Abort       hcl.Expression `hcl:"abort,optional"`
+	UpdateState hcl.Expression `hcl:"update_state,optional"`
 }
 
 // compiledRule is a match rule with the regex pre-compiled and required/max resolved.
 type compiledRule struct {
-	re       *regexp.Regexp
-	required int            // minimum match count required
-	max      int            // 0 = unlimited
-	when     hcl.Expression // nil if absent
-	replace  hcl.Expression // nil if absent
-	abort    hcl.Expression // nil if absent
+	re          *regexp.Regexp
+	required    int            // minimum match count required
+	max         int            // 0 = unlimited
+	when        hcl.Expression // nil if absent
+	replace     hcl.Expression // nil if absent
+	abort       hcl.Expression // nil if absent
+	updateState hcl.Expression // nil if absent
 }
 
 // lineEditor holds everything needed at runtime for one editor "line" block.
@@ -64,6 +68,7 @@ type lineEditor struct {
 	variadicParam  string
 	backup         string
 	createIfAbsent bool
+	initialState   hcl.Expression // nil if no state block
 	before         hcl.Expression // nil if absent
 	after          hcl.Expression // nil if absent
 	rules          []compiledRule
@@ -109,12 +114,13 @@ func processLineEditor(config *cfg.Config, evalCtxFn func() *hcl.EvalContext, de
 	}
 
 	ed := &lineEditor{
-		config:        config,
-		evalCtxFn:     evalCtxFn,
-		name:          def.Name,
-		mode:          mode,
-		params:        def.Params,
+		config:       config,
+		evalCtxFn:    evalCtxFn,
+		name:         def.Name,
+		mode:         mode,
+		params:       def.Params,
 		variadicParam: def.VariadicParam,
+		initialState: body.State,
 	}
 
 	if body.Before != nil {
@@ -166,12 +172,13 @@ func processLineEditor(config *cfg.Config, evalCtxFn func() *hcl.EvalContext, de
 		}
 
 		ed.rules = append(ed.rules, compiledRule{
-			re:       re,
-			required: required,
-			max:      max,
-			when:     m.When,
-			replace:  m.Replace,
-			abort:    m.Abort,
+			re:          re,
+			required:    required,
+			max:         max,
+			when:        m.When,
+			replace:     m.Replace,
+			abort:       m.Abort,
+			updateState: m.UpdateState,
 		})
 	}
 
@@ -239,19 +246,66 @@ func (ed *lineEditor) userParamsFromArgs(args []cty.Value) map[string]cty.Value 
 	return userParams
 }
 
+// evalInitialState evaluates the state = { ... } expression at call time.
+// Returns an empty map if no state was declared.
+func (ed *lineEditor) evalInitialState(userParams map[string]cty.Value) (map[string]cty.Value, error) {
+	if ed.initialState == nil {
+		return make(map[string]cty.Value), nil
+	}
+	evalCtx := ed.evalCtxFn().NewChild()
+	evalCtx.Variables = make(map[string]cty.Value, len(userParams))
+	maps.Copy(evalCtx.Variables, userParams)
+	val, diags := ed.initialState.Value(evalCtx)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+	if !val.Type().IsObjectType() {
+		return nil, fmt.Errorf("state must be an object value, got %s", val.Type().FriendlyName())
+	}
+	state := make(map[string]cty.Value)
+	for k := range val.Type().AttributeTypes() {
+		state[k] = val.GetAttr(k)
+	}
+	return state, nil
+}
+
+// stateToValue converts the state map to a cty object value for use in eval contexts.
+func stateToValue(state map[string]cty.Value) cty.Value {
+	if len(state) == 0 {
+		return cty.EmptyObjectVal
+	}
+	return cty.ObjectVal(state)
+}
+
+// mergeState returns a new state map with keys from update merged into current.
+// Keys not present in update are preserved unchanged.
+func mergeState(current map[string]cty.Value, update cty.Value) (map[string]cty.Value, error) {
+	if !update.Type().IsObjectType() {
+		return nil, fmt.Errorf("update_state must be an object value, got %s", update.Type().FriendlyName())
+	}
+	result := make(map[string]cty.Value, len(current))
+	maps.Copy(result, current)
+	for k := range update.Type().AttributeTypes() {
+		result[k] = update.GetAttr(k)
+	}
+	return result, nil
+}
+
 // runRules processes lines from scanner (nil = no lines) through the configured rules,
-// writing output to w. Returns whether any content changed relative to the input,
-// and whether a soft-abort occurred (abort expr fired or required constraint not met).
+// writing output to w. state is the initial state for this invocation (modified in place).
+// Returns whether any content changed relative to the input, and whether a soft-abort
+// occurred (abort expr fired or required constraint not met).
 func (ed *lineEditor) runRules(
 	goCtx context.Context,
 	w io.Writer,
 	scanner *bufio.Scanner,
 	filename string,
 	userParams map[string]cty.Value,
+	state map[string]cty.Value,
 ) (changed bool, softAbort bool, err error) {
-	// Write before block
+	// Write before block (state not in scope for before)
 	if ed.before != nil {
-		evalCtx := ed.buildBeforeAfterCtx(goCtx, filename, userParams)
+		evalCtx := ed.buildBeforeCtx(goCtx, filename, userParams)
 		val, evalErr := ed.evalStringExpr(ed.before, evalCtx)
 		if evalErr != nil {
 			return false, false, fmt.Errorf("before block: %w", evalErr)
@@ -280,8 +334,9 @@ func (ed *lineEditor) runRules(
 					continue
 				}
 
+				// when: current state in scope
 				if rule.when != nil {
-					whenCtx := ed.buildPreMatchCtx(goCtx, filename, lineno, userParams)
+					whenCtx := ed.buildPreMatchCtx(goCtx, filename, lineno, userParams, state)
 					whenVal, whenErr := rule.when.Value(whenCtx)
 					if whenErr != nil {
 						return false, false, fmt.Errorf("line %d when expression: %w", lineno, whenErr)
@@ -299,7 +354,8 @@ func (ed *lineEditor) runRules(
 				matched = true
 				matchCounts[ri]++
 
-				matchCtx := ed.buildMatchCtx(goCtx, filename, lineno, line, groups, rule.re, matchCounts[ri], userParams)
+				// replace, abort, update_state: state in scope
+				matchCtx := ed.buildMatchCtx(goCtx, filename, lineno, line, groups, rule.re, matchCounts[ri], userParams, state)
 
 				if rule.abort != nil {
 					abortVal, abortErr := rule.abort.Value(matchCtx)
@@ -327,6 +383,19 @@ func (ed *lineEditor) runRules(
 				if _, writeErr := io.WriteString(w, output); writeErr != nil {
 					return false, false, fmt.Errorf("writing line %d: %w", lineno, writeErr)
 				}
+
+				// update_state: evaluated after replace/abort, merged into running state
+				if rule.updateState != nil {
+					updateVal, updateErr := rule.updateState.Value(matchCtx)
+					if updateErr != nil {
+						return false, false, fmt.Errorf("line %d update_state expression: %w", lineno, updateErr)
+					}
+					state, err = mergeState(state, updateVal)
+					if err != nil {
+						return false, false, fmt.Errorf("line %d update_state: %w", lineno, err)
+					}
+				}
+
 				break
 			}
 
@@ -349,9 +418,9 @@ func (ed *lineEditor) runRules(
 		}
 	}
 
-	// Write after block
+	// Write after block (final state in scope)
 	if ed.after != nil {
-		evalCtx := ed.buildBeforeAfterCtx(goCtx, filename, userParams)
+		evalCtx := ed.buildAfterCtx(goCtx, filename, userParams, state)
 		val, evalErr := ed.evalStringExpr(ed.after, evalCtx)
 		if evalErr != nil {
 			return false, false, fmt.Errorf("after block: %w", evalErr)
@@ -380,6 +449,11 @@ func (ed *lineEditor) impl(args []cty.Value, _ cty.Type) (cty.Value, error) {
 	}
 
 	userParams := ed.userParamsFromArgs(args)
+
+	state, err := ed.evalInitialState(userParams)
+	if err != nil {
+		return cty.False, fmt.Errorf("editor %s: state: %w", ed.name, err)
+	}
 
 	// Open original file (or handle create_if_absent)
 	origFile, err := os.Open(filePath)
@@ -424,7 +498,7 @@ func (ed *lineEditor) impl(args []cty.Value, _ cty.Type) (cty.Value, error) {
 		scanner = bufio.NewScanner(origFile)
 	}
 
-	changed, softAbort, runErr := ed.runRules(goCtx, tmpFile, scanner, filePath, userParams)
+	changed, softAbort, runErr := ed.runRules(goCtx, tmpFile, scanner, filePath, userParams, state)
 
 	if origFile != nil {
 		origFile.Close()
@@ -479,10 +553,15 @@ func (ed *lineEditor) implString(args []cty.Value, _ cty.Type) (cty.Value, error
 	input := args[1].AsString()
 	userParams := ed.userParamsFromArgs(args)
 
+	state, err := ed.evalInitialState(userParams)
+	if err != nil {
+		return cty.NullVal(cty.String), fmt.Errorf("editor %s: state: %w", ed.name, err)
+	}
+
 	var buf strings.Builder
 	scanner := bufio.NewScanner(strings.NewReader(input))
 
-	_, softAbort, runErr := ed.runRules(goCtx, &buf, scanner, "", userParams)
+	_, softAbort, runErr := ed.runRules(goCtx, &buf, scanner, "", userParams, state)
 	if runErr != nil {
 		return cty.NullVal(cty.String), fmt.Errorf("editor %s: %w", ed.name, runErr)
 	}
@@ -493,8 +572,8 @@ func (ed *lineEditor) implString(args []cty.Value, _ cty.Type) (cty.Value, error
 	return cty.StringVal(buf.String()), nil
 }
 
-// buildBeforeAfterCtx builds an eval context for before/after blocks (no line context).
-func (ed *lineEditor) buildBeforeAfterCtx(goCtx context.Context, filename string, userParams map[string]cty.Value) *hcl.EvalContext {
+// buildBeforeCtx builds an eval context for before blocks (no line context, no state).
+func (ed *lineEditor) buildBeforeCtx(goCtx context.Context, filename string, userParams map[string]cty.Value) *hcl.EvalContext {
 	ctxObj := ctyutil.NewContextObject(goCtx)
 	ctxObj.WithStringAttribute("filename", filename)
 	ctxObjVal, _ := ctxObj.Build()
@@ -502,30 +581,41 @@ func (ed *lineEditor) buildBeforeAfterCtx(goCtx context.Context, filename string
 	evalCtx := ed.evalCtxFn().NewChild()
 	evalCtx.Variables = make(map[string]cty.Value, len(userParams)+1)
 	evalCtx.Variables["ctx"] = ctxObjVal
-	for k, v := range userParams {
-		evalCtx.Variables[k] = v
-	}
+	maps.Copy(evalCtx.Variables, userParams)
 	return evalCtx
 }
 
-// buildPreMatchCtx builds an eval context for when expressions (pre-regex, no match info).
-func (ed *lineEditor) buildPreMatchCtx(goCtx context.Context, filename string, lineno int, userParams map[string]cty.Value) *hcl.EvalContext {
+// buildAfterCtx builds an eval context for after blocks (no line context, final state in scope).
+func (ed *lineEditor) buildAfterCtx(goCtx context.Context, filename string, userParams map[string]cty.Value, state map[string]cty.Value) *hcl.EvalContext {
+	ctxObj := ctyutil.NewContextObject(goCtx)
+	ctxObj.WithStringAttribute("filename", filename)
+	ctxObjVal, _ := ctxObj.Build()
+
+	evalCtx := ed.evalCtxFn().NewChild()
+	evalCtx.Variables = make(map[string]cty.Value, len(userParams)+2)
+	evalCtx.Variables["ctx"] = ctxObjVal
+	evalCtx.Variables["state"] = stateToValue(state)
+	maps.Copy(evalCtx.Variables, userParams)
+	return evalCtx
+}
+
+// buildPreMatchCtx builds an eval context for when expressions (pre-regex, no match info, current state in scope).
+func (ed *lineEditor) buildPreMatchCtx(goCtx context.Context, filename string, lineno int, userParams map[string]cty.Value, state map[string]cty.Value) *hcl.EvalContext {
 	ctxObj := ctyutil.NewContextObject(goCtx)
 	ctxObj.WithStringAttribute("filename", filename)
 	ctxObj.WithInt64Attribute("lineno", int64(lineno))
 	ctxObjVal, _ := ctxObj.Build()
 
 	evalCtx := ed.evalCtxFn().NewChild()
-	evalCtx.Variables = make(map[string]cty.Value, len(userParams)+1)
+	evalCtx.Variables = make(map[string]cty.Value, len(userParams)+2)
 	evalCtx.Variables["ctx"] = ctxObjVal
-	for k, v := range userParams {
-		evalCtx.Variables[k] = v
-	}
+	evalCtx.Variables["state"] = stateToValue(state)
+	maps.Copy(evalCtx.Variables, userParams)
 	return evalCtx
 }
 
-// buildMatchCtx builds an eval context for replace/abort expressions (post-regex match).
-func (ed *lineEditor) buildMatchCtx(goCtx context.Context, filename string, lineno int, line string, groups []string, re *regexp.Regexp, count int, userParams map[string]cty.Value) *hcl.EvalContext {
+// buildMatchCtx builds an eval context for replace/abort/update_state expressions (post-regex match, state in scope).
+func (ed *lineEditor) buildMatchCtx(goCtx context.Context, filename string, lineno int, line string, groups []string, re *regexp.Regexp, count int, userParams map[string]cty.Value, state map[string]cty.Value) *hcl.EvalContext {
 	ctxObj := ctyutil.NewContextObject(goCtx)
 	ctxObj.WithStringAttribute("filename", filename)
 	ctxObj.WithInt64Attribute("lineno", int64(lineno))
@@ -557,11 +647,10 @@ func (ed *lineEditor) buildMatchCtx(goCtx context.Context, filename string, line
 	ctxObjVal, _ := ctxObj.Build()
 
 	evalCtx := ed.evalCtxFn().NewChild()
-	evalCtx.Variables = make(map[string]cty.Value, len(userParams)+1)
+	evalCtx.Variables = make(map[string]cty.Value, len(userParams)+2)
 	evalCtx.Variables["ctx"] = ctxObjVal
-	for k, v := range userParams {
-		evalCtx.Variables[k] = v
-	}
+	evalCtx.Variables["state"] = stateToValue(state)
+	maps.Copy(evalCtx.Variables, userParams)
 	return evalCtx
 }
 
