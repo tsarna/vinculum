@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
@@ -23,6 +25,7 @@ func init() {
 // --- Config-time structs ---
 
 type lineEditorBody struct {
+	Mode    string        `hcl:"mode,optional"`
 	Before  *contentBlock `hcl:"before,block"`
 	After   *contentBlock `hcl:"after,block"`
 	Matches []matchBlock  `hcl:"match,block"`
@@ -56,6 +59,7 @@ type lineEditor struct {
 	config         *cfg.Config
 	evalCtxFn      func() *hcl.EvalContext
 	name           string
+	mode           string // "file" or "string"
 	params         []string
 	variadicParam  string
 	backup         string
@@ -76,10 +80,39 @@ func processLineEditor(config *cfg.Config, evalCtxFn func() *hcl.EvalContext, de
 		return function.Function{}, diags
 	}
 
+	mode := body.Mode
+	if mode == "" {
+		mode = "file"
+	}
+
+	switch mode {
+	case "file", "string":
+		// valid
+	default:
+		diags = diags.Append(&hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "Invalid editor mode",
+			Detail:   fmt.Sprintf("editor mode must be \"file\" or \"string\", got %q", mode),
+			Subject:  def.DefRange.Ptr(),
+		})
+		return function.Function{}, diags
+	}
+
+	if mode == "file" && config.WriteDir == "" {
+		diags = diags.Append(&hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "editor block requires writefiles",
+			Detail:   "editor blocks with mode = \"file\" require the --write-path flag to be set",
+			Subject:  def.DefRange.Ptr(),
+		})
+		return function.Function{}, diags
+	}
+
 	ed := &lineEditor{
 		config:        config,
 		evalCtxFn:     evalCtxFn,
 		name:          def.Name,
+		mode:          mode,
 		params:        def.Params,
 		variadicParam: def.VariadicParam,
 	}
@@ -153,16 +186,30 @@ func processLineEditor(config *cfg.Config, evalCtxFn func() *hcl.EvalContext, de
 func (ed *lineEditor) makeFunc() function.Function {
 	params := []function.Parameter{
 		{Name: "ctx", Type: cty.DynamicPseudoType},
-		{Name: "filename", Type: cty.String},
 	}
+
+	var retType cty.Type
+	if ed.mode == "string" {
+		params = append(params, function.Parameter{Name: "input", Type: cty.String})
+		retType = cty.String
+	} else {
+		params = append(params, function.Parameter{Name: "filename", Type: cty.String})
+		retType = cty.Bool
+	}
+
 	for _, p := range ed.params {
 		params = append(params, function.Parameter{Name: p, Type: cty.DynamicPseudoType})
 	}
 
+	implFn := ed.impl
+	if ed.mode == "string" {
+		implFn = ed.implString
+	}
+
 	spec := &function.Spec{
 		Params: params,
-		Type:   function.StaticReturnType(cty.Bool),
-		Impl:   ed.impl,
+		Type:   function.StaticReturnType(retType),
+		Impl:   implFn,
 	}
 
 	if ed.variadicParam != "" {
@@ -172,9 +219,156 @@ func (ed *lineEditor) makeFunc() function.Function {
 	return function.New(spec)
 }
 
-// impl is the runtime implementation of the editor function.
+// userParamsFromArgs extracts the user-declared parameter values from the args slice.
+// args[0] = ctx, args[1] = filename or input, args[2+] = user params.
+func (ed *lineEditor) userParamsFromArgs(args []cty.Value) map[string]cty.Value {
+	userParams := make(map[string]cty.Value, len(ed.params))
+	for i, p := range ed.params {
+		userParams[p] = args[2+i]
+	}
+	if ed.variadicParam != "" {
+		varArgs := args[2+len(ed.params):]
+		if len(varArgs) > 0 {
+			varVals := make([]cty.Value, len(varArgs))
+			copy(varVals, varArgs)
+			userParams[ed.variadicParam] = cty.TupleVal(varVals)
+		} else {
+			userParams[ed.variadicParam] = cty.EmptyObjectVal
+		}
+	}
+	return userParams
+}
+
+// runRules processes lines from scanner (nil = no lines) through the configured rules,
+// writing output to w. Returns whether any content changed relative to the input,
+// and whether a soft-abort occurred (abort expr fired or required constraint not met).
+func (ed *lineEditor) runRules(
+	goCtx context.Context,
+	w io.Writer,
+	scanner *bufio.Scanner,
+	filename string,
+	userParams map[string]cty.Value,
+) (changed bool, softAbort bool, err error) {
+	// Write before block
+	if ed.before != nil {
+		evalCtx := ed.buildBeforeAfterCtx(goCtx, filename, userParams)
+		val, evalErr := ed.evalStringExpr(ed.before, evalCtx)
+		if evalErr != nil {
+			return false, false, fmt.Errorf("before block: %w", evalErr)
+		}
+		if val != "" {
+			changed = true
+			if _, writeErr := io.WriteString(w, val); writeErr != nil {
+				return false, false, fmt.Errorf("writing before block: %w", writeErr)
+			}
+		}
+	}
+
+	// Per-rule match counters
+	matchCounts := make([]int, len(ed.rules))
+
+	// Process lines
+	if scanner != nil {
+		lineno := 0
+		for scanner.Scan() {
+			lineno++
+			line := scanner.Text() + "\n"
+
+			matched := false
+			for ri, rule := range ed.rules {
+				if rule.max > 0 && matchCounts[ri] >= rule.max {
+					continue
+				}
+
+				if rule.when != nil {
+					whenCtx := ed.buildPreMatchCtx(goCtx, filename, lineno, userParams)
+					whenVal, whenErr := rule.when.Value(whenCtx)
+					if whenErr != nil {
+						return false, false, fmt.Errorf("line %d when expression: %w", lineno, whenErr)
+					}
+					if whenVal.IsNull() || !whenVal.IsKnown() || (whenVal.Type() == cty.Bool && whenVal.False()) {
+						continue
+					}
+				}
+
+				groups := rule.re.FindStringSubmatch(line)
+				if groups == nil {
+					continue
+				}
+
+				matched = true
+				matchCounts[ri]++
+
+				matchCtx := ed.buildMatchCtx(goCtx, filename, lineno, line, groups, rule.re, matchCounts[ri], userParams)
+
+				if rule.abort != nil {
+					abortVal, abortErr := rule.abort.Value(matchCtx)
+					if abortErr != nil {
+						return false, false, fmt.Errorf("line %d abort expression: %w", lineno, abortErr)
+					}
+					if abortVal.IsKnown() && !abortVal.IsNull() && abortVal.Type() == cty.Bool && abortVal.True() {
+						return false, true, nil
+					}
+				}
+
+				var output string
+				if rule.replace != nil {
+					output, err = ed.evalStringExpr(rule.replace, matchCtx)
+					if err != nil {
+						return false, false, fmt.Errorf("line %d replace expression: %w", lineno, err)
+					}
+					if output != line {
+						changed = true
+					}
+				} else {
+					output = line
+				}
+
+				if _, writeErr := io.WriteString(w, output); writeErr != nil {
+					return false, false, fmt.Errorf("writing line %d: %w", lineno, writeErr)
+				}
+				break
+			}
+
+			if !matched {
+				if _, writeErr := io.WriteString(w, line); writeErr != nil {
+					return false, false, fmt.Errorf("writing line %d: %w", lineno, writeErr)
+				}
+			}
+		}
+
+		if scanErr := scanner.Err(); scanErr != nil {
+			return false, false, fmt.Errorf("reading input: %w", scanErr)
+		}
+	}
+
+	// Check required constraints
+	for ri, rule := range ed.rules {
+		if rule.required > 0 && matchCounts[ri] < rule.required {
+			return false, true, nil
+		}
+	}
+
+	// Write after block
+	if ed.after != nil {
+		evalCtx := ed.buildBeforeAfterCtx(goCtx, filename, userParams)
+		val, evalErr := ed.evalStringExpr(ed.after, evalCtx)
+		if evalErr != nil {
+			return false, false, fmt.Errorf("after block: %w", evalErr)
+		}
+		if val != "" {
+			changed = true
+			if _, writeErr := io.WriteString(w, val); writeErr != nil {
+				return false, false, fmt.Errorf("writing after block: %w", writeErr)
+			}
+		}
+	}
+
+	return changed, false, nil
+}
+
+// impl is the runtime implementation for mode = "file".
 func (ed *lineEditor) impl(args []cty.Value, _ cty.Type) (cty.Value, error) {
-	// args[0] = ctx, args[1] = filename, args[2+] = user params
 	goCtx, err := ctyutil.GetContextFromValue(args[0])
 	if err != nil {
 		return cty.False, fmt.Errorf("editor %s: %w", ed.name, err)
@@ -184,6 +378,8 @@ func (ed *lineEditor) impl(args []cty.Value, _ cty.Type) (cty.Value, error) {
 	if err != nil {
 		return cty.False, fmt.Errorf("editor %s: %w", ed.name, err)
 	}
+
+	userParams := ed.userParamsFromArgs(args)
 
 	// Open original file (or handle create_if_absent)
 	origFile, err := os.Open(filePath)
@@ -207,7 +403,6 @@ func (ed *lineEditor) impl(args []cty.Value, _ cty.Type) (cty.Value, error) {
 	}
 	tmpPath := tmpFile.Name()
 
-	// cleanup helper — removes temp file on failure
 	cleanup := func() {
 		tmpFile.Close()
 		os.Remove(tmpPath)
@@ -215,8 +410,7 @@ func (ed *lineEditor) impl(args []cty.Value, _ cty.Type) (cty.Value, error) {
 
 	// Copy permissions from original file
 	if fileExists {
-		fi, statErr := os.Stat(filePath)
-		if statErr == nil {
+		if fi, statErr := os.Stat(filePath); statErr == nil {
 			os.Chmod(tmpPath, fi.Mode()) //nolint:errcheck
 			if uid, gid, ok := fileOwnership(fi); ok {
 				os.Lchown(tmpPath, uid, gid) //nolint:errcheck // best-effort; requires root
@@ -224,172 +418,25 @@ func (ed *lineEditor) impl(args []cty.Value, _ cty.Type) (cty.Value, error) {
 		}
 	}
 
-	// Build user param bindings for eval contexts
-	userParams := make(map[string]cty.Value, len(ed.params))
-	for i, p := range ed.params {
-		userParams[p] = args[2+i]
-	}
-	if ed.variadicParam != "" {
-		varArgs := args[2+len(ed.params):]
-		if len(varArgs) > 0 {
-			varVals := make([]cty.Value, len(varArgs))
-			copy(varVals, varArgs)
-			userParams[ed.variadicParam] = cty.TupleVal(varVals)
-		} else {
-			userParams[ed.variadicParam] = cty.EmptyObjectVal
-		}
-	}
-
-	changed := false
-
-	// Write before block
-	if ed.before != nil {
-		evalCtx := ed.buildBeforeAfterCtx(goCtx, filePath, userParams)
-		val, evalErr := ed.evalStringExpr(ed.before, evalCtx)
-		if evalErr != nil {
-			cleanup()
-			if origFile != nil {
-				origFile.Close()
-			}
-			return cty.False, fmt.Errorf("editor %s: before block: %w", ed.name, evalErr)
-		}
-		if val != "" {
-			changed = true
-			if _, writeErr := tmpFile.WriteString(val); writeErr != nil {
-				cleanup()
-				if origFile != nil {
-					origFile.Close()
-				}
-				return cty.False, fmt.Errorf("editor %s: writing before block: %w", ed.name, writeErr)
-			}
-		}
-	}
-
-	// Per-rule match counters
-	matchCounts := make([]int, len(ed.rules))
-
-	// Process lines
+	// Build scanner over original file (nil if file doesn't exist)
+	var scanner *bufio.Scanner
 	if fileExists {
-		scanner := bufio.NewScanner(origFile)
-		lineno := 0
-		var scanErr error
-		for scanner.Scan() {
-			lineno++
-			line := scanner.Text() + "\n"
+		scanner = bufio.NewScanner(origFile)
+	}
 
-			matched := false
-			for ri, rule := range ed.rules {
-				// Check max
-				if rule.max > 0 && matchCounts[ri] >= rule.max {
-					continue
-				}
+	changed, softAbort, runErr := ed.runRules(goCtx, tmpFile, scanner, filePath, userParams)
 
-				// Check when guard (pre-regex, no match context)
-				if rule.when != nil {
-					whenCtx := ed.buildPreMatchCtx(goCtx, filePath, lineno, userParams)
-					whenVal, whenErr := rule.when.Value(whenCtx)
-					if whenErr != nil {
-						cleanup()
-						origFile.Close()
-						return cty.False, fmt.Errorf("editor %s: line %d when expression: %w", ed.name, lineno, whenErr)
-					}
-					if whenVal.IsNull() || !whenVal.IsKnown() || (whenVal.Type() == cty.Bool && whenVal.False()) {
-						continue
-					}
-				}
-
-				// Test regex
-				groups := rule.re.FindStringSubmatch(line)
-				if groups == nil {
-					continue
-				}
-
-				// Matched
-				matched = true
-				matchCounts[ri]++
-
-				// Build post-match eval context
-				matchCtx := ed.buildMatchCtx(goCtx, filePath, lineno, line, groups, rule.re, matchCounts[ri], userParams)
-
-				// Check abort
-				if rule.abort != nil {
-					abortVal, abortErr := rule.abort.Value(matchCtx)
-					if abortErr != nil {
-						cleanup()
-						origFile.Close()
-						return cty.False, fmt.Errorf("editor %s: line %d abort expression: %w", ed.name, lineno, abortErr)
-					}
-					if abortVal.IsKnown() && !abortVal.IsNull() && abortVal.Type() == cty.Bool && abortVal.True() {
-						cleanup()
-						origFile.Close()
-						return cty.False, nil
-					}
-				}
-
-				// Write replacement or original
-				var output string
-				if rule.replace != nil {
-					output, err = ed.evalStringExpr(rule.replace, matchCtx)
-					if err != nil {
-						cleanup()
-						origFile.Close()
-						return cty.False, fmt.Errorf("editor %s: line %d replace expression: %w", ed.name, lineno, err)
-					}
-					if output != line {
-						changed = true
-					}
-				} else {
-					output = line
-				}
-
-				if _, writeErr := tmpFile.WriteString(output); writeErr != nil {
-					cleanup()
-					origFile.Close()
-					return cty.False, fmt.Errorf("editor %s: writing line %d: %w", ed.name, lineno, writeErr)
-				}
-				break
-			}
-
-			if !matched {
-				if _, writeErr := tmpFile.WriteString(line); writeErr != nil {
-					cleanup()
-					origFile.Close()
-					return cty.False, fmt.Errorf("editor %s: writing line %d: %w", ed.name, lineno, writeErr)
-				}
-			}
-		}
-
-		scanErr = scanner.Err()
+	if origFile != nil {
 		origFile.Close()
-		if scanErr != nil {
-			cleanup()
-			return cty.False, fmt.Errorf("editor %s: reading %s: %w", ed.name, filePath, scanErr)
-		}
 	}
 
-	// Check required constraints
-	for ri, rule := range ed.rules {
-		if rule.required > 0 && matchCounts[ri] < rule.required {
-			cleanup()
-			return cty.False, nil
-		}
+	if runErr != nil {
+		cleanup()
+		return cty.False, fmt.Errorf("editor %s: %w", ed.name, runErr)
 	}
-
-	// Write after block
-	if ed.after != nil {
-		evalCtx := ed.buildBeforeAfterCtx(goCtx, filePath, userParams)
-		val, evalErr := ed.evalStringExpr(ed.after, evalCtx)
-		if evalErr != nil {
-			cleanup()
-			return cty.False, fmt.Errorf("editor %s: after block: %w", ed.name, evalErr)
-		}
-		if val != "" {
-			changed = true
-			if _, writeErr := tmpFile.WriteString(val); writeErr != nil {
-				cleanup()
-				return cty.False, fmt.Errorf("editor %s: writing after block: %w", ed.name, writeErr)
-			}
-		}
+	if softAbort {
+		cleanup()
+		return cty.False, nil
 	}
 
 	// If nothing changed (and not a fresh creation), discard and return false
@@ -406,7 +453,7 @@ func (ed *lineEditor) impl(args []cty.Value, _ cty.Type) (cty.Value, error) {
 	// Create backup via hard link before rename
 	if ed.backup != "" && fileExists {
 		backupPath := filePath + ed.backup
-		os.Remove(backupPath) //nolint:errcheck // remove stale backup; ignore error
+		os.Remove(backupPath) //nolint:errcheck // remove stale backup
 		if linkErr := os.Link(filePath, backupPath); linkErr != nil {
 			os.Remove(tmpPath)
 			return cty.False, fmt.Errorf("editor %s: creating backup %s: %w", ed.name, backupPath, linkErr)
@@ -420,6 +467,30 @@ func (ed *lineEditor) impl(args []cty.Value, _ cty.Type) (cty.Value, error) {
 	}
 
 	return cty.True, nil
+}
+
+// implString is the runtime implementation for mode = "string".
+func (ed *lineEditor) implString(args []cty.Value, _ cty.Type) (cty.Value, error) {
+	goCtx, err := ctyutil.GetContextFromValue(args[0])
+	if err != nil {
+		return cty.NullVal(cty.String), fmt.Errorf("editor %s: %w", ed.name, err)
+	}
+
+	input := args[1].AsString()
+	userParams := ed.userParamsFromArgs(args)
+
+	var buf strings.Builder
+	scanner := bufio.NewScanner(strings.NewReader(input))
+
+	_, softAbort, runErr := ed.runRules(goCtx, &buf, scanner, "", userParams)
+	if runErr != nil {
+		return cty.NullVal(cty.String), fmt.Errorf("editor %s: %w", ed.name, runErr)
+	}
+	if softAbort {
+		return cty.NullVal(cty.String), fmt.Errorf("editor %s: aborted", ed.name)
+	}
+
+	return cty.StringVal(buf.String()), nil
 }
 
 // buildBeforeAfterCtx builds an eval context for before/after blocks (no line context).
@@ -461,7 +532,6 @@ func (ed *lineEditor) buildMatchCtx(goCtx context.Context, filename string, line
 	ctxObj.WithStringAttribute("line", line)
 	ctxObj.WithInt64Attribute("count", int64(count))
 
-	// ctx.groups: list of strings from FindStringSubmatch
 	groupVals := make([]cty.Value, len(groups))
 	for i, g := range groups {
 		groupVals[i] = cty.StringVal(g)
@@ -472,7 +542,6 @@ func (ed *lineEditor) buildMatchCtx(goCtx context.Context, filename string, line
 		ctxObj.WithAttribute("groups", cty.ListValEmpty(cty.String))
 	}
 
-	// ctx.named: map of named capture groups
 	namedMap := make(map[string]cty.Value)
 	for i, name := range re.SubexpNames() {
 		if name != "" && i < len(groups) {

@@ -61,17 +61,6 @@ func extractEditorFunctions(bodies []hcl.Body, config *Config, evalCtxFn func() 
 		remainingBodies = append(remainingBodies, remainBody)
 
 		for _, block := range content.Blocks {
-			// Require writefiles feature for any editor block
-			if config.WriteDir == "" {
-				diags = diags.Append(&hcl.Diagnostic{
-					Severity: hcl.DiagError,
-					Summary:  "editor block requires writefiles",
-					Detail:   "editor blocks require the --write-path flag to be set",
-					Subject:  block.DefRange.Ptr(),
-				})
-				continue
-			}
-
 			editorType := block.Labels[0]
 			editorName := block.Labels[1]
 
