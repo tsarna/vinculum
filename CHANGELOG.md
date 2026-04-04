@@ -9,8 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Distributed tracing for `bus` blocks** — add `tracing = client.<name>` to instrument an event bus with OTel spans. Each `Publish` and `PublishSync` call creates a producer span; each subscriber delivery creates a consumer span (child for sync, new root with a link for async) per OTel messaging semantic conventions. Auto-wires to the default OTLP client when `tracing =` is omitted.
-- **Distributed tracing for VWS** - vinculum now depends on v0.10.0 of vinculum-vws, which adds support for tracing headers.
+- **`editor "line"` blocks** — compile into callable functions that edit a text file (or string) in-place using ordered regex match-and-replace rules. Processed early alongside `function` and `jq` blocks so the resulting functions are available throughout the rest of the config.
+  - `params` / `variadic_param` — declare function parameters, same semantics as `function` blocks
+  - `mode = "file"` (default) — edits a file on disk; requires `--write-path`. Returns `true` if the file was modified, `false` otherwise.
+  - `mode = "string"` — operates on a string in memory; returns the processed string. Does not require `--write-path`.
+  - `match "<regex>" { ... }` — ordered match rules; first matching rule wins per line. Attributes: `required` (minimum match count), `max` (stop after n matches), `when` (guard expression), `replace` (replacement text), `abort` (clean-abort if truthy), `update_state` (merge into running state).
+  - `before { content = expr }` / `after { content = expr }` — prepend/append content to the output. Both blocks see the **final accumulated state** after all lines are processed. `before` uses a two-pass mechanism internally so that prepended content can reference state collected during the body.
+  - `state = { ... }` — declares initial values for state variables; rules accumulate state via `update_state`; `state.<name>` is in scope in all expressions.
+  - `backup = "<suffix>"` — hard-links the original file to `<path><suffix>` before the atomic rename (e.g. `backup = "~"` or `backup = ".bak"`).
+  - `create_if_absent = true` — treat a missing file as empty rather than an error.
+  - Regex capture groups exposed as `ctx.groups` (list) and `ctx.named` (map); `ctx.count` tracks per-rule match count; `ctx.line` / `ctx.lineno` / `ctx.filename` provide line context.
+  - See [doc/editor.md](doc/editor.md) for full reference.
+
+## [0.22.0] - 2026-04-03
 
 ### Changed
 
@@ -49,6 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ctx.trace_id` / `ctx.span_id` are populated in the VCL action context for all trigger types
   - `trigger "watch"` uses the incoming context as parent (preserving the trace from the `set()` caller); all other triggers start a new root span
   - `trigger "signals"` creates a span per signal delivery (timing and errors recorded; VCL context uses pre-built eval context from config time)
+  - **Distributed tracing for `bus` blocks** — add `tracing = client.<name>` to instrument an event bus with OTel spans. Each `Publish` and `PublishSync` call creates a producer span; each subscriber delivery creates a consumer span (child for sync, new root with a link for async) per OTel messaging semantic conventions. Auto-wires to the default OTLP client when `tracing =` is omitted.
+- **Distributed tracing for VWS** - vinculum now depends on v0.10.0 of vinculum-vws, which adds support for tracing headers.
 
 ## [0.21.0] - 2026-04-02
 

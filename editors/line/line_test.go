@@ -254,6 +254,24 @@ match "x" {
 	assert.Equal(t, "x\n", out)
 }
 
+func TestStringModeWhenFalseContinues(t *testing.T) {
+	// when = false — rule never applies even when regex matches, but later matches do
+	fn := buildEditor(t, "", `
+mode = "string"
+match "x" {
+    when    = 1 > 2
+    replace = "X\n"
+}
+match "x" {
+    when    = 2 > 1
+	replace = "Y\n"
+}
+`)
+	out, err := callString(t, fn, "x\n")
+	require.NoError(t, err)
+	assert.Equal(t, "Y\n", out)
+}
+
 func TestStringModeAbort(t *testing.T) {
 	fn := buildEditor(t, "", `
 mode = "string"
