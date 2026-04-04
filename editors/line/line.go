@@ -26,11 +26,13 @@ func init() {
 // --- Config-time structs ---
 
 type lineEditorBody struct {
-	Mode    string         `hcl:"mode,optional"`
-	State   hcl.Expression `hcl:"state,optional"`
-	Before  *contentBlock  `hcl:"before,block"`
-	After   *contentBlock  `hcl:"after,block"`
-	Matches []matchBlock   `hcl:"match,block"`
+	Mode           string         `hcl:"mode,optional"`
+	Backup         string         `hcl:"backup,optional"`
+	CreateIfAbsent bool           `hcl:"create_if_absent,optional"`
+	State          hcl.Expression `hcl:"state,optional"`
+	Before         *contentBlock  `hcl:"before,block"`
+	After          *contentBlock  `hcl:"after,block"`
+	Matches        []matchBlock   `hcl:"match,block"`
 }
 
 type contentBlock struct {
@@ -114,13 +116,15 @@ func processLineEditor(config *cfg.Config, evalCtxFn func() *hcl.EvalContext, de
 	}
 
 	ed := &lineEditor{
-		config:       config,
-		evalCtxFn:    evalCtxFn,
-		name:         def.Name,
-		mode:         mode,
-		params:       def.Params,
-		variadicParam: def.VariadicParam,
-		initialState: body.State,
+		config:         config,
+		evalCtxFn:      evalCtxFn,
+		name:           def.Name,
+		mode:           mode,
+		params:         def.Params,
+		variadicParam:  def.VariadicParam,
+		backup:         body.Backup,
+		createIfAbsent: body.CreateIfAbsent,
+		initialState:   body.State,
 	}
 
 	if body.Before != nil {
@@ -143,7 +147,7 @@ func processLineEditor(config *cfg.Config, evalCtxFn func() *hcl.EvalContext, de
 		}
 
 		required := 0
-		if m.Required != nil {
+		if cfg.IsExpressionProvided(m.Required) {
 			val, valDiags := m.Required.Value(evalCtxFn())
 			diags = diags.Extend(valDiags)
 			if !valDiags.HasErrors() {
@@ -161,7 +165,7 @@ func processLineEditor(config *cfg.Config, evalCtxFn func() *hcl.EvalContext, de
 		}
 
 		max := 0
-		if m.Max != nil {
+		if cfg.IsExpressionProvided(m.Max) {
 			val, valDiags := m.Max.Value(evalCtxFn())
 			diags = diags.Extend(valDiags)
 			if !valDiags.HasErrors() && val.Type() == cty.Number {
@@ -171,14 +175,23 @@ func processLineEditor(config *cfg.Config, evalCtxFn func() *hcl.EvalContext, de
 			}
 		}
 
+		// Use nil for absent expressions — gohcl sets optional hcl.Expression fields
+		// to non-nil placeholder expressions when absent; IsExpressionProvided distinguishes them.
+		exprOrNil := func(e hcl.Expression) hcl.Expression {
+			if cfg.IsExpressionProvided(e) {
+				return e
+			}
+			return nil
+		}
+
 		ed.rules = append(ed.rules, compiledRule{
 			re:          re,
 			required:    required,
 			max:         max,
-			when:        m.When,
-			replace:     m.Replace,
-			abort:       m.Abort,
-			updateState: m.UpdateState,
+			when:        exprOrNil(m.When),
+			replace:     exprOrNil(m.Replace),
+			abort:       exprOrNil(m.Abort),
+			updateState: exprOrNil(m.UpdateState),
 		})
 	}
 
@@ -249,7 +262,7 @@ func (ed *lineEditor) userParamsFromArgs(args []cty.Value) map[string]cty.Value 
 // evalInitialState evaluates the state = { ... } expression at call time.
 // Returns an empty map if no state was declared.
 func (ed *lineEditor) evalInitialState(userParams map[string]cty.Value) (map[string]cty.Value, error) {
-	if ed.initialState == nil {
+	if ed.initialState == nil || !cfg.IsExpressionProvided(ed.initialState) {
 		return make(map[string]cty.Value), nil
 	}
 	evalCtx := ed.evalCtxFn().NewChild()
