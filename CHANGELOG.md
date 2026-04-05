@@ -9,15 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`editor "line"` — `when` is now a post-match guard**: `when` is evaluated after the regex matches rather than before it. The full match context — `ctx.groups`, `ctx.named`, `ctx.count`, `ctx.line` — is available inside `when`, enabling capture-group–based qualification (e.g. `when = ctx.groups[1] == recordname`). If `when` is falsy the line continues to the next rule uncounted.
+
 - **`editor "line"` blocks** — compile into callable functions that edit a text file (or string) in-place using ordered regex match-and-replace rules. Processed early alongside `function` and `jq` blocks so the resulting functions are available throughout the rest of the config.
   - `params` / `variadic_param` — declare function parameters, same semantics as `function` blocks
   - `mode = "file"` (default) — edits a file on disk; requires `--write-path`. Returns `true` if the file was modified, `false` otherwise.
   - `mode = "string"` — operates on a string in memory; returns the processed string. Does not require `--write-path`.
-  - `match "<regex>" { ... }` — ordered match rules; first matching rule wins per line. Attributes: `required` (minimum match count), `max` (stop after n matches), `when` (guard expression), `replace` (replacement text), `abort` (clean-abort if truthy), `update_state` (merge into running state).
-  - `before { content = expr }` / `after { content = expr }` — prepend/append content to the output. Both blocks see the **final accumulated state** after all lines are processed. `before` uses a two-pass mechanism internally so that prepended content can reference state collected during the body.
+  - `match "<regex>" { ... }` — ordered match rules; first matching rule wins per line. Attributes: `required` (minimum match count), `max` (stop after n matches), `when` (post-match guard expression), `replace` (replacement text), `abort` (clean-abort if truthy), `update_state` (merge into running state), `incidental` (see below).
+  - `before { content = expr }` / `after { content = expr }` — prepend/append content to the output. Both blocks see the **final accumulated state** after all lines are processed. `before` uses a two-pass mechanism internally so that prepended content can reference state collected during the body. Both accept `incidental = true`.
+  - `incidental = true` on a `match`, `before`, or `after` block — the replacement/content is written but does not itself count as a change. If all modifications in an edit run were incidental, the file is not written and the function returns `false`. Useful for housekeeping updates (timestamps, serial numbers) that should ride along with a real change but not trigger a write on their own.
   - `state = { ... }` — declares initial values for state variables; rules accumulate state via `update_state`; `state.<name>` is in scope in all expressions.
   - `backup = "<suffix>"` — hard-links the original file to `<path><suffix>` before the atomic rename (e.g. `backup = "~"` or `backup = ".bak"`).
   - `create_if_absent = true` — treat a missing file as empty rather than an error.
+  - `lock = true` — acquire an exclusive `flock(2)` on a sibling `.lock` file before editing, serializing concurrent invocations. Works on local filesystems and NFSv4 (including AWS EFS). Lock is released automatically on return.
   - Regex capture groups exposed as `ctx.groups` (list) and `ctx.named` (map); `ctx.count` tracks per-rule match count; `ctx.line` / `ctx.lineno` / `ctx.filename` provide line context.
   - See [doc/editor.md](doc/editor.md) for full reference.
 

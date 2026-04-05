@@ -787,3 +787,80 @@ match "([unclosed" {
 `)
 	assert.Contains(t, diags.Error(), "Invalid regex")
 }
+
+// --- Incidental tests ---
+
+func TestFileModeIncidentalOnlyNoWrite(t *testing.T) {
+	// If all replacements are incidental, the file must not be written.
+	dir := t.TempDir()
+	fn := buildEditor(t, dir, `
+match "timestamp" {
+    incidental = true
+    replace    = "timestamp updated\n"
+}
+`)
+	path := filepath.Join(dir, "test.txt")
+	writeFile(t, path, "timestamp\n")
+
+	changed, err := callFile(t, fn, path)
+	require.NoError(t, err)
+	assert.False(t, changed)
+	assert.Equal(t, "timestamp\n", readFile(t, path), "file must not be modified")
+}
+
+func TestFileModeIncidentalPlusRealChange(t *testing.T) {
+	// An incidental replacement plus a real change → file is written.
+	dir := t.TempDir()
+	fn := buildEditor(t, dir, `
+match "serial" {
+    incidental = true
+    replace    = "serial 2\n"
+}
+match "ip" {
+    replace = "ip 10.0.0.2\n"
+}
+`)
+	path := filepath.Join(dir, "test.txt")
+	writeFile(t, path, "serial 1\nip 10.0.0.1\n")
+
+	changed, err := callFile(t, fn, path)
+	require.NoError(t, err)
+	assert.True(t, changed)
+	assert.Equal(t, "serial 2\nip 10.0.0.2\n", readFile(t, path))
+}
+
+func TestFileModeIncidentalBeforeOnlyNoWrite(t *testing.T) {
+	// before block with incidental = true and no other change → no write.
+	dir := t.TempDir()
+	fn := buildEditor(t, dir, `
+before {
+    content    = "# header\n"
+    incidental = true
+}
+`)
+	path := filepath.Join(dir, "test.txt")
+	writeFile(t, path, "body\n")
+
+	changed, err := callFile(t, fn, path)
+	require.NoError(t, err)
+	assert.False(t, changed)
+	assert.Equal(t, "body\n", readFile(t, path))
+}
+
+func TestFileModeIncidentalAfterOnlyNoWrite(t *testing.T) {
+	// after block with incidental = true and no other change → no write.
+	dir := t.TempDir()
+	fn := buildEditor(t, dir, `
+after {
+    content    = "# footer\n"
+    incidental = true
+}
+`)
+	path := filepath.Join(dir, "test.txt")
+	writeFile(t, path, "body\n")
+
+	changed, err := callFile(t, fn, path)
+	require.NoError(t, err)
+	assert.False(t, changed)
+	assert.Equal(t, "body\n", readFile(t, path))
+}

@@ -29,6 +29,7 @@ type lineEditorBody struct {
 	Mode           string         `hcl:"mode,optional"`
 	Backup         string         `hcl:"backup,optional"`
 	CreateIfAbsent bool           `hcl:"create_if_absent,optional"`
+	Lock           bool           `hcl:"lock,optional"`
 	State          hcl.Expression `hcl:"state,optional"`
 	Before         *contentBlock  `hcl:"before,block"`
 	After          *contentBlock  `hcl:"after,block"`
@@ -36,7 +37,8 @@ type lineEditorBody struct {
 }
 
 type contentBlock struct {
-	Content hcl.Expression `hcl:"content"`
+	Content    hcl.Expression `hcl:"content"`
+	Incidental hcl.Expression `hcl:"incidental,optional"`
 }
 
 type matchBlock struct {
@@ -47,6 +49,7 @@ type matchBlock struct {
 	Replace     hcl.Expression `hcl:"replace,optional"`
 	Abort       hcl.Expression `hcl:"abort,optional"`
 	UpdateState hcl.Expression `hcl:"update_state,optional"`
+	Incidental  hcl.Expression `hcl:"incidental,optional"`
 }
 
 // compiledRule is a match rule with the regex pre-compiled and required/max resolved.
@@ -58,6 +61,7 @@ type compiledRule struct {
 	replace     hcl.Expression // nil if absent
 	abort       hcl.Expression // nil if absent
 	updateState hcl.Expression // nil if absent
+	incidental  bool           // if true, a replacement from this rule does not set changed
 }
 
 // lineEditor holds everything needed at runtime for one editor "line" block.
@@ -70,10 +74,13 @@ type lineEditor struct {
 	variadicParam  string
 	backup         string
 	createIfAbsent bool
-	initialState   hcl.Expression // nil if no state block
-	before         hcl.Expression // nil if absent
-	after          hcl.Expression // nil if absent
-	rules          []compiledRule
+	lock           bool
+	initialState       hcl.Expression // nil if no state block
+	before             hcl.Expression // nil if absent
+	beforeIncidental   bool
+	after              hcl.Expression // nil if absent
+	afterIncidental    bool
+	rules              []compiledRule
 }
 
 // processLineEditor is called at config time to compile an editor "line" block.
@@ -124,14 +131,29 @@ func processLineEditor(config *cfg.Config, evalCtxFn func() *hcl.EvalContext, de
 		variadicParam:  def.VariadicParam,
 		backup:         body.Backup,
 		createIfAbsent: body.CreateIfAbsent,
+		lock:           body.Lock,
 		initialState:   body.State,
 	}
 
 	if body.Before != nil {
 		ed.before = body.Before.Content
+		if cfg.IsExpressionProvided(body.Before.Incidental) {
+			val, valDiags := body.Before.Incidental.Value(evalCtxFn())
+			diags = diags.Extend(valDiags)
+			if !valDiags.HasErrors() && val.Type() == cty.Bool {
+				ed.beforeIncidental = val.True()
+			}
+		}
 	}
 	if body.After != nil {
 		ed.after = body.After.Content
+		if cfg.IsExpressionProvided(body.After.Incidental) {
+			val, valDiags := body.After.Incidental.Value(evalCtxFn())
+			diags = diags.Extend(valDiags)
+			if !valDiags.HasErrors() && val.Type() == cty.Bool {
+				ed.afterIncidental = val.True()
+			}
+		}
 	}
 
 	for i, m := range body.Matches {
@@ -184,6 +206,15 @@ func processLineEditor(config *cfg.Config, evalCtxFn func() *hcl.EvalContext, de
 			return nil
 		}
 
+		incidental := false
+		if cfg.IsExpressionProvided(m.Incidental) {
+			val, valDiags := m.Incidental.Value(evalCtxFn())
+			diags = diags.Extend(valDiags)
+			if !valDiags.HasErrors() && val.Type() == cty.Bool {
+				incidental = val.True()
+			}
+		}
+
 		ed.rules = append(ed.rules, compiledRule{
 			re:          re,
 			required:    required,
@@ -192,6 +223,7 @@ func processLineEditor(config *cfg.Config, evalCtxFn func() *hcl.EvalContext, de
 			replace:     exprOrNil(m.Replace),
 			abort:       exprOrNil(m.Abort),
 			updateState: exprOrNil(m.UpdateState),
+			incidental:  incidental,
 		})
 	}
 
@@ -333,9 +365,17 @@ func (ed *lineEditor) runRules(
 					continue
 				}
 
-				// when: current state in scope
+				groups := rule.re.FindStringSubmatch(line)
+				if groups == nil {
+					continue
+				}
+
+				// when: post-match guard evaluated after the regex matches, so
+				// ctx.groups, ctx.named, and ctx.count are all in scope.
+				// ctx.count reflects the value this match would have if it fires.
+				// If falsy, the line continues to the next rule uncounted.
 				if rule.when != nil {
-					whenCtx := ed.buildPreMatchCtx(goCtx, filename, lineno, userParams, state)
+					whenCtx := ed.buildMatchCtx(goCtx, filename, lineno, line, groups, rule.re, matchCounts[ri]+1, userParams, state)
 					whenVal, whenErr := rule.when.Value(whenCtx)
 					if whenErr != nil {
 						return false, false, state, fmt.Errorf("line %d when expression: %w", lineno, whenErr)
@@ -343,11 +383,6 @@ func (ed *lineEditor) runRules(
 					if whenVal.IsNull() || !whenVal.IsKnown() || (whenVal.Type() == cty.Bool && whenVal.False()) {
 						continue
 					}
-				}
-
-				groups := rule.re.FindStringSubmatch(line)
-				if groups == nil {
-					continue
 				}
 
 				matched = true
@@ -372,7 +407,7 @@ func (ed *lineEditor) runRules(
 					if err != nil {
 						return false, false, state, fmt.Errorf("line %d replace expression: %w", lineno, err)
 					}
-					if output != line {
+					if output != line && !rule.incidental {
 						changed = true
 					}
 				} else {
@@ -437,6 +472,15 @@ func (ed *lineEditor) impl(args []cty.Value, _ cty.Type) (cty.Value, error) {
 	state, err := ed.evalInitialState(userParams)
 	if err != nil {
 		return cty.False, fmt.Errorf("editor %s: state: %w", ed.name, err)
+	}
+
+	// Acquire lock if requested (sibling .lock file + flock)
+	if ed.lock {
+		lockFile, lockErr := acquireFileLock(filePath)
+		if lockErr != nil {
+			return cty.False, fmt.Errorf("editor %s: %w", ed.name, lockErr)
+		}
+		defer lockFile.Close()
 	}
 
 	// Open original file (or handle create_if_absent)
@@ -506,7 +550,9 @@ func (ed *lineEditor) impl(args []cty.Value, _ cty.Type) (cty.Value, error) {
 			return cty.False, fmt.Errorf("editor %s: after block: %w", ed.name, evalErr)
 		}
 		if afterContent != "" {
-			changed = true
+			if !ed.afterIncidental {
+				changed = true
+			}
 			if _, writeErr := io.WriteString(tmpFile, afterContent); writeErr != nil {
 				cleanup()
 				return cty.False, fmt.Errorf("editor %s: writing after block: %w", ed.name, writeErr)
@@ -523,7 +569,9 @@ func (ed *lineEditor) impl(args []cty.Value, _ cty.Type) (cty.Value, error) {
 			return cty.False, fmt.Errorf("editor %s: before block: %w", ed.name, evalErr)
 		}
 		if beforeContent != "" {
-			changed = true
+			if !ed.beforeIncidental {
+				changed = true
+			}
 			// Create a second temp file: write before content, then copy tmpFile into it.
 			tmp2, tmp2Err := os.CreateTemp(dir, ".tmp*")
 			if tmp2Err != nil {
@@ -650,21 +698,6 @@ func (ed *lineEditor) buildBeforeCtx(goCtx context.Context, filename string, use
 func (ed *lineEditor) buildAfterCtx(goCtx context.Context, filename string, userParams map[string]cty.Value, state map[string]cty.Value) *hcl.EvalContext {
 	ctxObj := ctyutil.NewContextObject(goCtx)
 	ctxObj.WithStringAttribute("filename", filename)
-	ctxObjVal, _ := ctxObj.Build()
-
-	evalCtx := ed.evalCtxFn().NewChild()
-	evalCtx.Variables = make(map[string]cty.Value, len(userParams)+2)
-	evalCtx.Variables["ctx"] = ctxObjVal
-	evalCtx.Variables["state"] = stateToValue(state)
-	maps.Copy(evalCtx.Variables, userParams)
-	return evalCtx
-}
-
-// buildPreMatchCtx builds an eval context for when expressions (pre-regex, no match info, current state in scope).
-func (ed *lineEditor) buildPreMatchCtx(goCtx context.Context, filename string, lineno int, userParams map[string]cty.Value, state map[string]cty.Value) *hcl.EvalContext {
-	ctxObj := ctyutil.NewContextObject(goCtx)
-	ctxObj.WithStringAttribute("filename", filename)
-	ctxObj.WithInt64Attribute("lineno", int64(lineno))
 	ctxObjVal, _ := ctxObj.Build()
 
 	evalCtx := ed.evalCtxFn().NewChild()

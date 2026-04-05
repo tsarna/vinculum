@@ -15,6 +15,7 @@ editor "line" "name" {
     mode            = "file"           # optional — "file" (default) or "string"
     backup          = "~"              # optional — suffix for hard-link backup
     create_if_absent = false           # optional — treat missing file as empty
+    lock            = false            # optional — acquire exclusive flock before editing
 
     state = {                          # optional — initial state variable values
         count = 0
@@ -22,7 +23,8 @@ editor "line" "name" {
     }
 
     before {                           # optional — content prepended to output
-        content = expr
+        content    = expr
+        incidental = true              # optional — don't count as a change
     }
 
     match "<regex>" {
@@ -37,7 +39,8 @@ editor "line" "name" {
     # additional match blocks...
 
     after {                            # optional — content appended to output
-        content = expr
+        content    = expr
+        incidental = true              # optional — don't count as a change
     }
 }
 ```
@@ -85,8 +88,8 @@ foo(ctx, input, a, b) → string
 ```
 
 The input string is processed through the same match/replace rules, and the result is
-returned as a string. `backup`, `create_if_absent`, and path-restriction semantics do
-not apply. The `--write-path` flag is not required.
+returned as a string. `backup`, `create_if_absent`, `lock`, and path-restriction semantics
+do not apply. The `--write-path` flag is not required.
 
 ---
 
@@ -100,6 +103,7 @@ match "<regex>" {
     replace      = expr  # optional
     abort        = expr  # optional
     update_state = expr  # optional
+    incidental   = true  # optional; replacement doesn't count as a change on its own
 }
 ```
 
@@ -113,9 +117,18 @@ order**: the first rule whose guards pass and whose regex matches wins for that 
 are passed to subsequent rules instead (or copied unchanged if no later rule matches).
 `required = 1, max = 1` means the pattern must match exactly once.
 
-**`when`**: A guard expression evaluated before the regex. If falsy, the rule is skipped
-for that line. Only `ctx.filename`, `ctx.lineno`, `state`, and function parameters are in
-scope — the match has not yet occurred.
+**`when`**: A guard expression evaluated after the regex matches. If falsy, the rule is
+skipped for that line and matching continues with the next rule. The full match context
+is in scope — `ctx.groups`, `ctx.named`, `ctx.count`, and `ctx.line` — so `when` can
+inspect capture groups to further qualify a match:
+
+```hcl
+# Match any A record but only act on the one for the target host
+match "^(\\S+)(\\s+(?:IN\\s+)?A\\s+)\\S+" {
+    when    = ctx.groups[1] == recordname
+    replace = "${ctx.groups[1]}${ctx.groups[2]}${ipaddr}\n"
+}
+```
 
 **`replace`**: An expression evaluated to produce the output for this line. If absent, the
 original line is written unchanged (but the match is still counted for `required`).
@@ -136,6 +149,13 @@ invalid without being an error condition. Has the same expression context as `re
 and `abort` have been evaluated. Keys not present in the expression are preserved
 unchanged. State is then available to subsequent rules via `state.<name>`.
 
+**`incidental = true`**: The replacement fires normally, but does not itself mark the
+file as changed. If every modification across the entire edit (all match rules,
+`before`, and `after`) was incidental, the file is not written and the function returns
+`false`. Useful for housekeeping replacements — like updating a timestamp or serial
+number — that should ride along when another change is made but should not trigger a
+write on their own.
+
 ---
 
 ## Context Variables in Expressions
@@ -155,8 +175,9 @@ unchanged. State is then available to subsequent rules via `state.<name>`.
 
 ### Inside `when`
 
-Same as above, except `ctx.groups`, `ctx.named`, `ctx.count`, and `ctx.line` are not
-available (the match has not yet occurred).
+Same as `replace`/`abort`/`update_state` — `when` is evaluated after the regex matches,
+so the full match context is available. `ctx.count` reflects the count this match would
+have if `when` passes (i.e. one more than the current count).
 
 ### Inside `before` and `after`
 
@@ -207,17 +228,19 @@ with final state) is prepended atomically.
 
 **`before`**: Content written before any input lines in the output. Evaluated once, after
 all lines have been processed (so that `state` reflects accumulated values from the entire
-file). Content must end with `\n` for proper line termination.
+file). Content must end with `\n` for proper line termination. Accepts `incidental = true`
+to write the content without marking it as a change.
 
 **`after`**: Content written after all input lines in the output. Evaluated once, after
-all lines have been processed.
+all lines have been processed. Accepts `incidental = true` to write the content without
+marking it as a change.
 
 Both `before` and `after` have access to final state and function parameters, but not to
 line-specific context (`ctx.line`, `ctx.groups`, etc.).
 
 ---
 
-## `backup` and `create_if_absent`
+## `backup`, `create_if_absent`, and `lock`
 
 **`backup`**: When set, the original file is hard-linked to `<path><suffix>` before the
 atomic rename. Using a hard link keeps the original filename present throughout, so there
@@ -233,6 +256,18 @@ Only applies when the file exists and was modified.
 **`create_if_absent`**: When `true`, a missing file is treated as empty (zero lines).
 The function proceeds normally and creates the file if the output is non-empty. When
 `false` (the default), a missing file is an error.
+
+**`lock`**: When `true`, an exclusive `flock(2)` is acquired on a sibling `.lock` file
+(e.g. `/etc/zones/example.com.lock`) before the edit begins, and released automatically
+when the function returns. This serializes concurrent invocations — useful when multiple
+processes or webhook handlers may edit the same file simultaneously.
+
+The lock file is created on first use and left on disk (it is empty and harmless).
+Locking is advisory: other processes that do not use `lock = true` are not excluded.
+
+Works on local filesystems and NFSv4 (including AWS EFS). On NFSv3, the lock manager
+(NLM) may leave stale locks after a server reboot; NFSv4+ handles this via lease expiry.
+`lock` is not supported on non-Unix platforms and will return an error if attempted there.
 
 ---
 
@@ -272,9 +307,11 @@ editor "line" "update_zone_record" {
     }
 
     # Replace the A record for the named host: matches "www    IN A    1.2.3.4"
-    match "^(${recordname}\\s+(?:IN\\s+)?A\\s+)\\S+" {
+    # when = ... filters to just the target host; other A records pass through unchanged.
+    match "^(\\S+)(\\s+(?:IN\\s+)?A\\s+)\\S+" {
         required = 1
-        replace  = "${ctx.groups[1]}${ipaddr}\n"
+        when     = ctx.groups[1] == recordname
+        replace  = "${ctx.groups[1]}${ctx.groups[2]}${ipaddr}\n"
     }
 }
 
