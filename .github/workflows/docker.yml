@@ -67,7 +67,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build and push Alpine image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
@@ -79,7 +79,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push minimal image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.minimal
