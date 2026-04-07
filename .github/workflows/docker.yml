@@ -42,7 +42,7 @@ jobs:
       # v1.2.3    → :1.2.3, :1.2, :1
       - name: Docker metadata (alpine)
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ env.IMAGE_NAME }}
           tags: |
@@ -54,7 +54,7 @@ jobs:
 
       - name: Docker metadata (minimal)
         id: meta-minimal
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ env.IMAGE_NAME }}
           flavor: |
