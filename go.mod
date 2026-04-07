@@ -7,7 +7,7 @@ require go.uber.org/zap v1.27.1
 require (
 	github.com/coder/websocket v1.8.14
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/hashicorp/go-cty-funcs v0.0.0-20250818135842-6aab67130928
+	github.com/hashicorp/go-cty-funcs v0.1.0
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/itchyny/gojq v0.12.18
 	github.com/lestrrat-go/jwx/v2 v2.1.6
