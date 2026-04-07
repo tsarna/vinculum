@@ -7,7 +7,7 @@ require go.uber.org/zap v1.27.1
 require (
 	github.com/coder/websocket v1.8.14
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/hashicorp/go-cty-funcs v0.0.0-20250818135842-6aab67130928
+	github.com/hashicorp/go-cty-funcs v0.1.0
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/itchyny/gojq v0.12.18
 	github.com/lestrrat-go/jwx/v2 v2.1.6
@@ -41,9 +41,9 @@ require (
 
 require (
 	github.com/amir-yaghoubi/mqttpattern v0.0.0-20250829083210-f7d8d46a786e // indirect
-	github.com/apparentlymart/go-cidr v1.0.1 // indirect
+	github.com/apparentlymart/go-cidr v1.1.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/bmatcuk/doublestar v1.1.5 // indirect
+	github.com/bmatcuk/doublestar v1.3.4 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
