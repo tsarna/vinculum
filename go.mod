@@ -31,7 +31,7 @@ require (
 	github.com/twmb/franz-go v1.18.1
 	github.com/twmb/franz-go/plugin/kotel v1.6.0
 	github.com/yosida95/uritemplate/v3 v3.0.2
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.62.0
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.68.0
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.42.0
 	go.opentelemetry.io/otel/sdk v1.43.0
