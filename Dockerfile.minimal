@@ -39,7 +39,7 @@ COPY --from=builder /out/rootfs/tmp  /tmp
 # The binary
 COPY --from=builder /out/vinculum /vinculum
 
-USER nobody
+USER 65534
 
 ENTRYPOINT ["/vinculum"]
 CMD ["serve", "-f", "/data", "-w", "/data/write", "/conf"]
