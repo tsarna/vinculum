@@ -28,7 +28,7 @@ jobs:
           python-version: "3.14"
 
       - name: Cache fastembed model
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/fastembed
           key: fastembed-BAAI-bge-small-en-v1.5
