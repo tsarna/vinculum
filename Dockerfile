@@ -18,9 +18,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/vinculu
 FROM alpine:3.23
 
 RUN apk add --no-cache ca-certificates-bundle tzdata \
-    && mkdir -p /conf /data
+    && mkdir -p /conf /data /data/write
 
 COPY --from=builder /out/vinculum /vinculum
 
 ENTRYPOINT ["/vinculum"]
-CMD ["serve", "-f", "/data", "/conf"]
+CMD ["serve", "-f", "/data", "-w", "/data/write", "/conf"]

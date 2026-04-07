@@ -16,7 +16,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/vinculum .
 
 # Pre-create empty mount-point directories so Docker volumes work out of the box
-RUN mkdir -p /out/rootfs/conf /out/rootfs/data /out/rootfs/tmp
+RUN mkdir -p /out/rootfs/conf /out/rootfs/data /out/rootfs/data/write /out/rootfs/tmp
 
 # ── Runtime stage (scratch) ───────────────────────────────────────────────────
 FROM scratch
@@ -42,4 +42,4 @@ COPY --from=builder /out/vinculum /vinculum
 USER nobody
 
 ENTRYPOINT ["/vinculum"]
-CMD ["serve", "-f", "/data", "/conf"]
+CMD ["serve", "-f", "/data", "-w", "/data/write", "/conf"]
