@@ -12,17 +12,26 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+// --- InstrumentMetrics interface ---
+
+// InstrumentMetrics is satisfied by both server "metrics" and client "otlp".
+// Used to resolve the metrics MeterProvider for metric blocks and server
+// auto-instrumentation.
+type InstrumentMetrics interface {
+	GetMeterProvider() metric.MeterProvider
+	IsDefaultMetricsBackend() bool
+}
+
 // --- MetricsRegistrar interface ---
 
 // MetricsRegistrar is implemented by server types that provide a Prometheus
 // registry for metric blocks to register against.
 type MetricsRegistrar interface {
 	Listener
+	InstrumentMetrics
 	GetRegistry() *prometheus.Registry
 	GetMetricsProvider() o11y.MetricsProvider
-	GetMeterProvider() metric.MeterProvider
 	IsDefaultServer() bool
-	IsDefaultMetricsBackend() bool
 }
 
 // GetMetricsRegistrarFromExpression evaluates an HCL expression expecting a
@@ -104,17 +113,138 @@ func (c *Config) GetDefaultMetricsProvider() (o11y.MetricsProvider, hcl.Diagnost
 
 // ResolveMetricsProvider resolves an o11y.MetricsProvider from an optional HCL
 // expression. If the expression is provided it must reference a server "metrics"
-// block. If omitted, the default metrics provider is used. Returns nil, nil when
-// no metrics server is configured at all (metrics are simply disabled).
+// or client "otlp" block. If omitted, the default metrics backend is used.
+// Returns nil, nil when no metrics backend is configured (metrics disabled).
+//
+// Deprecated: Use ResolveMeterProvider once consumers accept metric.MeterProvider.
 func ResolveMetricsProvider(config *Config, expr hcl.Expression) (o11y.MetricsProvider, hcl.Diagnostics) {
 	if IsExpressionProvided(expr) {
-		ms, diags := GetMetricsRegistrarFromExpression(config, expr)
+		im, diags := GetInstrumentMetricsFromExpression(config, expr)
 		if diags.HasErrors() {
 			return nil, diags
 		}
-		return ms.GetMetricsProvider(), nil
+		if mp, ok := im.(interface{ GetMetricsProvider() o11y.MetricsProvider }); ok {
+			return mp.GetMetricsProvider(), nil
+		}
+		return nil, nil
 	}
-	return config.GetDefaultMetricsProvider()
+
+	im, diags := config.GetDefaultInstrumentMetrics()
+	if diags.HasErrors() || im == nil {
+		return nil, diags
+	}
+	if mp, ok := im.(interface{ GetMetricsProvider() o11y.MetricsProvider }); ok {
+		return mp.GetMetricsProvider(), nil
+	}
+	return nil, nil
+}
+
+// --- InstrumentMetrics resolution ---
+
+// GetDefaultInstrumentMetrics returns the default InstrumentMetrics backend
+// by searching both MetricsServers and OtlpClients. Selection rules:
+//  1. Exactly one candidate total → use it
+//  2. Multiple, exactly one with IsDefaultMetricsBackend()=true → use it
+//  3. Multiple with IsDefaultMetricsBackend()=true → config error
+//  4. Multiple, none default → return nil (explicit wiring required)
+//  5. Zero → return nil
+func (c *Config) GetDefaultInstrumentMetrics() (InstrumentMetrics, hcl.Diagnostics) {
+	var all []InstrumentMetrics
+
+	for _, ms := range c.MetricsServers {
+		all = append(all, ms)
+	}
+	for _, oc := range c.OtlpClients {
+		all = append(all, oc)
+	}
+
+	if len(all) == 0 {
+		return nil, nil
+	}
+	if len(all) == 1 {
+		return all[0], nil
+	}
+
+	var defaults []InstrumentMetrics
+	for _, im := range all {
+		if im.IsDefaultMetricsBackend() {
+			defaults = append(defaults, im)
+		}
+	}
+
+	if len(defaults) == 1 {
+		return defaults[0], nil
+	}
+	if len(defaults) > 1 {
+		return nil, hcl.Diagnostics{
+			&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Multiple default metrics backends",
+				Detail:   "More than one server \"metrics\" or client \"otlp\" block has default_metrics = true. At most one can be the default.",
+			},
+		}
+	}
+
+	// Multiple backends, none marked default
+	return nil, nil
+}
+
+// GetInstrumentMetricsFromExpression evaluates an HCL expression and returns
+// it as an InstrumentMetrics. The expression may reference either a
+// server "metrics" block or a client "otlp" block.
+func GetInstrumentMetricsFromExpression(config *Config, expr hcl.Expression) (InstrumentMetrics, hcl.Diagnostics) {
+	val, diags := expr.Value(config.evalCtx)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	exprRange := expr.Range()
+
+	switch val.Type() {
+	case ServerCapsuleType:
+		server, err := GetServerFromCapsule(val)
+		if err != nil {
+			return nil, hcl.Diagnostics{{Severity: hcl.DiagError, Summary: "Invalid server reference", Detail: err.Error(), Subject: &exprRange}}
+		}
+		im, ok := server.(InstrumentMetrics)
+		if !ok {
+			return nil, hcl.Diagnostics{{Severity: hcl.DiagError, Summary: "Server does not support metrics", Detail: fmt.Sprintf("Server %q does not implement InstrumentMetrics", server.GetName()), Subject: &exprRange}}
+		}
+		return im, nil
+
+	case ClientCapsuleType:
+		client, err := GetClientFromCapsule(val)
+		if err != nil {
+			return nil, hcl.Diagnostics{{Severity: hcl.DiagError, Summary: "Invalid client reference", Detail: err.Error(), Subject: &exprRange}}
+		}
+		im, ok := client.(InstrumentMetrics)
+		if !ok {
+			return nil, hcl.Diagnostics{{Severity: hcl.DiagError, Summary: "Client does not support metrics", Detail: fmt.Sprintf("Client %q does not implement InstrumentMetrics", client.GetName()), Subject: &exprRange}}
+		}
+		return im, nil
+
+	default:
+		return nil, hcl.Diagnostics{{Severity: hcl.DiagError, Summary: "Invalid metrics reference", Detail: "Expected a server \"metrics\" or client \"otlp\" reference", Subject: &exprRange}}
+	}
+}
+
+// ResolveMeterProvider resolves a metric.MeterProvider from an optional HCL
+// expression. If the expression is provided it must reference a server "metrics"
+// or client "otlp" block. If omitted, the default metrics backend is used.
+// Returns nil, nil when no metrics backend is configured (metrics disabled).
+func ResolveMeterProvider(config *Config, expr hcl.Expression) (metric.MeterProvider, hcl.Diagnostics) {
+	if IsExpressionProvided(expr) {
+		im, diags := GetInstrumentMetricsFromExpression(config, expr)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		return im.GetMeterProvider(), nil
+	}
+	im, diags := config.GetDefaultInstrumentMetrics()
+	if diags.HasErrors() || im == nil {
+		return nil, diags
+	}
+	return im.GetMeterProvider(), nil
 }
 
 // --- MetricBlockHandler ---
