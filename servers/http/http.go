@@ -16,6 +16,7 @@ import (
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -29,7 +30,8 @@ type HttpServer struct {
 	TLSConfig *tls.Config
 
 	// otlpClient is resolved at config parse time; may be nil.
-	otlpClient cfg.OtlpClient
+	otlpClient    cfg.OtlpClient
+	meterProvider otelmetric.MeterProvider // nil = no HTTP metrics
 }
 
 type HttpServerDefinition struct {
@@ -37,6 +39,7 @@ type HttpServerDefinition struct {
 	TLS         *cfg.TLSConfig          `hcl:"tls,block"`
 	Auth        *cfg.AuthConfig         `hcl:"auth,block"`
 	Tracing     hcl.Expression          `hcl:"tracing,optional"`
+	Metrics     hcl.Expression          `hcl:"metrics,optional"`
 	DefRange    hcl.Range               `hcl:",def_range"`
 	StaticFiles []staticFilesDefinition `hcl:"files,block"`
 	Handlers    []handlerDefinition     `hcl:"handle,block"`
@@ -102,13 +105,20 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 		return nil, tracingDiags
 	}
 
+	// Resolve metrics backend at config parse time.
+	mp, metricsDiags := cfg.ResolveMeterProvider(config, serverDef.Metrics)
+	if metricsDiags.HasErrors() {
+		return nil, metricsDiags
+	}
+
 	server := &HttpServer{
 		Logger: config.Logger,
 		BaseServer: cfg.BaseServer{
 			Name:     serverName,
 			DefRange: serverDef.DefRange,
 		},
-		otlpClient: otlpClient,
+		otlpClient:    otlpClient,
+		meterProvider: mp,
 	}
 
 	mux := http.NewServeMux()
@@ -279,6 +289,9 @@ func (h *HttpServer) Start() error {
 		if tp := h.otlpClient.GetTracerProvider(); tp != nil {
 			otelOpts = append(otelOpts, otelhttp.WithTracerProvider(tp))
 		}
+	}
+	if h.meterProvider != nil {
+		otelOpts = append(otelOpts, otelhttp.WithMeterProvider(h.meterProvider))
 	}
 	otelOpts = append(otelOpts,
 		// Always use W3C TraceContext + Baggage propagation regardless of whether
