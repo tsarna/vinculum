@@ -82,12 +82,15 @@ func (s *MetricsServer) Start() error {
 	mux := http.NewServeMux()
 	mux.Handle(s.path, s.handler)
 
-	// Wrap with otelhttp for trace context extraction (same pattern as server "http").
+	// Wrap with otelhttp for trace context extraction and HTTP metrics.
 	var otelOpts []otelhttp.Option
 	if s.otlpClient != nil {
 		if tp := s.otlpClient.GetTracerProvider(); tp != nil {
 			otelOpts = append(otelOpts, otelhttp.WithTracerProvider(tp))
 		}
+	}
+	if s.meterProvider != nil {
+		otelOpts = append(otelOpts, otelhttp.WithMeterProvider(s.meterProvider))
 	}
 	otelOpts = append(otelOpts,
 		otelhttp.WithPropagators(propagation.NewCompositeTextMapPropagator(

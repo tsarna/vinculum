@@ -254,6 +254,42 @@ auto-wiring rules.
 
 ---
 
+## HTTP Server Metrics
+
+Add a `metrics` attribute to enable automatic HTTP server metrics via OTel's
+`otelhttp` instrumentation. Metrics follow the
+[OTel HTTP semantic conventions](https://opentelemetry.io/docs/specs/semconv/http/http-metrics/).
+
+```hcl
+server "http" "api" {
+    listen  = ":8080"
+    metrics = server.metrics   # optional; auto-wired when there is only one metrics backend
+}
+```
+
+When enabled, the following metrics are produced automatically:
+
+| Metric (OTel name)                  | Type      | Description                       |
+|-------------------------------------|-----------|-----------------------------------|
+| `http.server.request.duration`      | histogram | Request duration in seconds       |
+| `http.server.active_requests`       | gauge     | Currently active requests         |
+| `http.server.request.body.size`     | histogram | Request body size in bytes        |
+| `http.server.response.body.size`    | histogram | Response body size in bytes       |
+
+Attributes include `http.request.method`, `http.response.status_code`,
+`url.scheme`, `server.address` (set to the server block name), and
+`network.protocol.version`.
+
+In Prometheus format, dots are converted to underscores automatically (e.g.
+`http_server_request_duration_seconds_bucket`). OTLP receivers get the canonical
+dotted names.
+
+The `metrics` attribute accepts a reference to either a `server "metrics"` or
+`client "otlp"` block. If omitted and exactly one metrics backend exists, it is
+auto-wired.
+
+---
+
 ## Authentication
 
 Add an `auth` sub-block to require authentication on the server or on individual routes.

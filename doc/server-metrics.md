@@ -1,8 +1,15 @@
 # Prometheus/OpenMetrics Metrics Server (`server "metrics"`)
 
-A `server "metrics"` block creates a private Prometheus registry and exposes it as
-an HTTP endpoint in either **standalone** mode (owns its own listener) or **mounted**
-mode (acts as an `http.Handler` inside a [`server "http"`](server-http.md) block).
+A `server "metrics"` block creates an OTel `MeterProvider` bridged to a private
+Prometheus registry and exposes it as an HTTP endpoint in either **standalone** mode
+(owns its own listener) or **mounted** mode (acts as an `http.Handler` inside a
+[`server "http"`](server-http.md) block).
+
+All metrics — including user-defined `metric` blocks, Go runtime metrics, and
+bus/client instrumentation — flow through the OTel SDK. The OTel-to-Prometheus
+exporter bridge converts them to Prometheus format for scraping. This means the
+same `metric` blocks also work with [`client "otlp"`](client-otlp.md) for push-based
+OTLP export.
 
 The endpoint serves both the classic Prometheus text format and the OpenMetrics format
 transparently via HTTP content negotiation — Prometheus-compatible scrapers (Prometheus
@@ -61,34 +68,35 @@ but the metrics will not be scraped. This may be useful during development.
 
 ## Attributes
 
-| Attribute            | Type   | Required | Default      | Description |
-|----------------------|--------|----------|--------------|-------------|
-| `listen`             | string | no       | —            | If set, starts a standalone HTTP server on this address (e.g. `":9090"`) |
-| `path`               | string | no       | `"/metrics"` | Metrics endpoint path; only used in standalone mode |
-| `default`            | bool   | no       | see below    | Whether this is the default metrics server |
-| `include_go_metrics` | bool   | no       | `true`       | When `false`, the Go runtime (`go_*`) and process (`process_*`) collectors are not registered |
-| `tls {}`             | block  | no       | —            | Enable HTTPS; standalone mode only. See [TLS configuration](config.md#tls). |
+| Attribute            | Type   | Required | Default      | Description                                                               |
+|----------------------|--------|----------|--------------|---------------------------------------------------------------------------|
+| `listen`             | string | no       | —            | If set, starts a standalone HTTP server on this address (e.g. `":9090"`)  |
+| `path`               | string | no       | `"/metrics"` | Metrics endpoint path; only used in standalone mode                       |
+| `default_metrics`    | bool   | no       | see below    | Whether this is the default metrics backend                               |
+| `include_go_metrics` | bool   | no       | `true`       | When `false`, Go runtime metrics are not registered                       |
+| `tls {}`             | block  | no       | —            | Enable HTTPS; standalone mode only. See [TLS configuration](config.md#tls)|
 
 ---
 
-## The Default Metrics Server
+## The Default Metrics Backend
 
-Many blocks (`bus`, `server "vws"`, `client "kafka"`, `metric`) need a metrics provider. If none is
-explicitly configured on the block, Vinculum looks for a *default* metrics server
-using these rules:
+Many blocks (`bus`, `server "vws"`, `client "kafka"`, `metric`, `server "http"`,
+`server "mcp"`) need a metrics backend. If none is explicitly configured on the
+block, Vinculum looks for a *default* backend by searching both `server "metrics"`
+and `client "otlp"` blocks using these rules:
 
-1. If exactly one `server "metrics"` is defined, it is automatically the default.
-2. If more than one is defined, the one with `default = true` is the default.
-3. If more than one has `default = true`, it is a configuration error.
-4. If more than one is defined and none has `default = true`, there is no implicit
-   default — explicit `metrics = server.<name>` wiring is required.
+1. If exactly one metrics-capable block exists (either type), it is automatically the default.
+2. If more than one exists, the one with `default_metrics = true` is the default.
+3. If more than one has `default_metrics = true`, it is a configuration error.
+4. If more than one exists and none has `default_metrics = true`, there is no implicit
+   default — explicit `metrics = server.<name>` or `metrics = client.<name>` wiring is required.
 
 In the common single-server case no extra declaration is needed:
 
 ```hcl
 server "metrics" "metrics" {
     listen = ":9090"
-    # automatically the default because it is the only metrics server
+    # automatically the default because it is the only metrics backend
 }
 
 bus "main" {}           # picks up the default metrics provider automatically
@@ -96,17 +104,35 @@ server "vws" "ws" { bus = bus.main }  # same
 metric "counter" "requests_total" { help = "Total requests" }  # same
 ```
 
+When both Prometheus and OTLP are configured, mark one as the default:
+
+```hcl
+server "metrics" "prom" {
+    listen          = ":9090"
+    default_metrics = true   # metric blocks and bus instrumentation go here
+}
+
+client "otlp" "collector" {
+    endpoint     = "http://localhost:4318"
+    service_name = "my-app"
+    default      = true      # tracing default (unchanged)
+    # default_metrics not set — not the metrics default
+}
+```
+
 ---
 
 ## Behaviour
 
-- On initialisation the block creates a **private** `prometheus.Registry` (not the
-  global default registry, so unrelated Go library metrics are excluded).
-- A Go runtime collector (`go_goroutines`, `go_memstats_*`, etc.) and a process
-  collector (`process_cpu_seconds_total`, `process_open_fds`, etc.) are registered
-  automatically unless `include_go_metrics = false` is set.
+- On initialisation the block creates an OTel `MeterProvider` bridged to a private
+  `prometheus.Registry` via the OTel-to-Prometheus exporter. All metrics flow through
+  the OTel SDK, ensuring they work identically with both Prometheus scraping and OTLP push.
+- Go runtime metrics (`go_goroutine_count`, `go_memory_used_bytes`, etc.) are registered
+  via OTel runtime instrumentation unless `include_go_metrics = false` is set.
+- In standalone mode, HTTP server metrics (`http_server_request_duration_seconds`, etc.)
+  are automatically produced via `otelhttp`.
 - The server is available in VCL expressions as `server.<name>` and can be passed
-  wherever a metrics provider is accepted (e.g. `metrics = server.metrics`).
+  wherever a metrics backend is accepted (e.g. `metrics = server.metrics`).
 
 ---
 
@@ -209,7 +235,7 @@ bus "main" {}
 
 ### Multiple registries, explicit wiring
 
-When two or more `server "metrics"` blocks are present, mark one `default = true` so
+When two or more `server "metrics"` blocks are present, mark one `default_metrics = true` so
 that blocks with no explicit `metrics =` attribute know which registry to use.
 Blocks that need a different registry set `metrics` explicitly.
 
@@ -217,7 +243,7 @@ Blocks that need a different registry set `metrics` explicitly.
 # :9090 — bus and application metrics (default for everything without explicit wiring)
 server "metrics" "app" {
     listen  = ":9090"
-    default = true
+    default_metrics = true
 }
 
 # :9091 — Kafka-only metrics, isolated from the bus registry
@@ -240,24 +266,22 @@ metrics. Each registry is completely isolated.
 
 ---
 
-## Standard Go and Process Metrics
+## Standard Go Runtime Metrics
 
-The following collectors are registered automatically on every `server "metrics"` block
-unless `include_go_metrics = false` is set.
+OTel runtime instrumentation is registered automatically on every `server "metrics"`
+block unless `include_go_metrics = false` is set. The following metrics are produced
+(shown in Prometheus format with dots converted to underscores):
 
-### Go Runtime (`go_*`)
-
-`go_goroutines`, `go_threads`, `go_gc_duration_seconds`, `go_info`,
-`go_memstats_alloc_bytes`, `go_memstats_heap_alloc_bytes`, and many more.
-
-### Process (`process_*`)
-
-`process_cpu_seconds_total`, `process_open_fds`, `process_max_fds`,
-`process_virtual_memory_bytes`, `process_resident_memory_bytes`,
-`process_start_time_seconds`.
-
-> Note: Process metrics are Linux-only. On macOS/Windows they are partially or
-> fully unavailable; the collector degrades gracefully.
+| Metric                      | Unit          | Description                                    |
+|-----------------------------|---------------|------------------------------------------------|
+| `go_goroutine_count`        | {goroutine}   | Count of live goroutines                       |
+| `go_memory_used_bytes`      | By            | Memory used by the Go runtime                  |
+| `go_memory_limit_bytes`     | By            | Go runtime memory limit (if configured)        |
+| `go_memory_allocated_bytes` | By            | Memory allocated to the heap                   |
+| `go_memory_allocations`     | {allocation}  | Count of heap allocations                      |
+| `go_memory_gc_goal_bytes`   | By            | Heap size target for end of GC cycle           |
+| `go_processor_limit`        | {thread}      | OS threads for user-level Go code              |
+| `go_config_gogc`            | %             | GOGC percentage                                |
 
 ---
 

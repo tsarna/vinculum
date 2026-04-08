@@ -1,8 +1,9 @@
 # Metric Blocks
 
-The `metric` block declares an application-level Prometheus/OpenMetrics metric.
-Declared metrics are registered in a [`server "metrics"`](server-metrics.md)
-registry and are then accessible in VCL expressions as `metric.<name>`.
+The `metric` block declares an application-level metric using the OpenTelemetry SDK.
+Metrics are created via a `MeterProvider` from a [`server "metrics"`](server-metrics.md)
+(Prometheus pull) or [`client "otlp"`](client-otlp.md) (OTLP push) block and are
+accessible in VCL expressions as `metric.<name>`.
 
 ---
 
@@ -55,13 +56,14 @@ metric "histogram" "job_duration_seconds" {
 |-----------|------|----------|-------------|
 | `help` | string | **yes** | Human-readable description shown in `/metrics` output |
 | `label_names` | list(string) | no | Names of dynamic labels; if omitted, the metric has no labels |
-| `namespace` | string | no | Prefix prepended as `<namespace>_<name>` |
+| `namespace` | string | no | Prefix prepended as `<namespace>.<name>` in OTel (underscored in Prometheus) |
 | `buckets` | list(number) | no | Histogram bucket boundaries (histograms only) |
-| `server` | expression | no | Reference to a specific `server "metrics"` block |
-| `value` | expression | no | Expression evaluated at each Prometheus scrape (see [Computed Metrics](#computed-metrics)) |
+| `server` | expression | no | Reference to a `server "metrics"` or `client "otlp"` block |
+| `value` | expression | no | Expression evaluated on a polling interval (see [Computed Metrics](#computed-metrics)) |
+| `computed_interval` | string | no | Polling interval for computed metrics (default `"15s"`) |
 
-If `server` is omitted and exactly one `server "metrics"` block is defined, that
-server is used automatically. See [server-metrics.md#default](server-metrics.md#the-default-metrics-server)
+If `server` is omitted, the default metrics backend is used automatically. See
+[server-metrics.md#default](server-metrics.md#the-default-metrics-backend)
 for the full default-resolution rules.
 
 ---
@@ -162,7 +164,9 @@ is metric-only.
 ## Computed Metrics
 
 Adding `value = <expression>` to a metric block makes it **computed**: the expression
-is evaluated automatically each time Prometheus scrapes the `/metrics` endpoint.
+is evaluated automatically on a polling interval (default 15s, configurable via
+`computed_interval`). This means the value is available to both Prometheus scraping
+and OTLP push.
 
 ```hcl
 metric "gauge" "queue_depth" {
@@ -183,18 +187,20 @@ metric "histogram" "sampled_latency_seconds" {
 
 ### Per-type behaviour
 
-| Type | What the expression computes | Prometheus behaviour |
-|------|------------------------------|---------------------|
-| `gauge` | Current gauge value | Reported as-is at each scrape |
-| `counter` | Current total value | Reported as raw counter value; Prometheus detects resets automatically (e.g. after a reboot) |
-| `histogram` | A single observation value | One observation is recorded per scrape |
+| Type | What the expression computes | Behaviour |
+|------|------------------------------|-----------|
+| `gauge` | Current gauge value | Reported as-is at each poll |
+| `counter` | Current total value | Only positive deltas are forwarded; Prometheus detects resets automatically |
+| `histogram` | A single observation value | One observation is recorded per poll |
 
 ### Constraints
 
 - `label_names` and `value` cannot be combined — computed metrics always operate on the no-label series.
 - Calling `set()` or `increment()` on a computed metric is a runtime error.
-- `get()` on a computed gauge or counter returns the value from the most recent scrape (0 before the first scrape).
+- `get()` on a computed gauge or counter returns the value from the most recent poll (0 before the first poll).
 - `observe()` on a computed histogram still works — it records an additional manual observation.
+- `computed_interval` controls the polling frequency (default `"15s"`). The value
+  seen at Prometheus scrape time is the most recently polled value.
 
 ### Counter resets
 
@@ -206,6 +212,41 @@ Prometheus, which treats the drop as a counter reset. PromQL functions such as `
 For labeled counters where you need to sync an external total per label, use `set()` on a
 regular (non-computed) counter instead. Note that `set()` on a regular counter uses delta
 semantics and cannot propagate resets.
+
+---
+
+## Dot-separated Metric Names
+
+Metric block labels can contain dots, following OTel naming conventions. Dots are
+preserved in the OTel instrument name but translated to underscores for VCL access
+(since cty object attributes cannot contain dots):
+
+```hcl
+metric "gauge" "http.server.active_requests" {
+    help = "Active HTTP requests"
+}
+```
+
+- OTel instrument name: `http.server.active_requests`
+- Prometheus metric name: `http_server_active_requests` (dots → underscores via exporter bridge)
+- VCL access: `metric.http_server_active_requests`
+
+If `namespace` contains dots, they are preserved in the OTel name and converted
+in VCL/Prometheus:
+
+```hcl
+metric "counter" "requests_total" {
+    help      = "Total requests"
+    namespace = "my.app"
+}
+```
+
+- OTel instrument name: `my.app.requests_total`
+- Prometheus metric name: `my_app_requests_total_total`
+- VCL access: `metric.requests_total` (namespace does not affect the VCL key)
+
+If two metric names would produce the same underscore-translated VCL key (e.g.
+`foo.bar` and `foo_bar`), it is a configuration error detected at parse time.
 
 ---
 
