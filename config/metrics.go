@@ -9,6 +9,7 @@ import (
 	"github.com/tsarna/vinculum-bus/o11y"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // --- MetricsRegistrar interface ---
@@ -19,7 +20,9 @@ type MetricsRegistrar interface {
 	Listener
 	GetRegistry() *prometheus.Registry
 	GetMetricsProvider() o11y.MetricsProvider
+	GetMeterProvider() metric.MeterProvider
 	IsDefaultServer() bool
+	IsDefaultMetricsBackend() bool
 }
 
 // GetMetricsRegistrarFromExpression evaluates an HCL expression expecting a

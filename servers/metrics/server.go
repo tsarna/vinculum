@@ -8,14 +8,17 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/tsarna/vinculum-bus/o11y"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/internal/promadapter"
 	metricsauth "github.com/tsarna/vinculum/servers/auth"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
+	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
+	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
 // MetricsServer implements a Prometheus/OpenMetrics exposition server.
@@ -23,14 +26,15 @@ import (
 // mode (implements HandlerServer so it can be attached to a server "http" block).
 type MetricsServer struct {
 	cfg.BaseServer
-	registry   *prometheus.Registry
-	provider   *promadapter.Provider
-	handler    http.Handler
-	listen     string         // empty = mounted mode only
-	path       string         // default "/metrics"
-	tlsConfig  *tls.Config    // nil = plain HTTP
-	isDefault  bool
-	otlpClient cfg.OtlpClient // nil = no explicit tracing
+	registry      *prometheus.Registry
+	provider      *promadapter.Provider
+	meterProvider *sdkmetric.MeterProvider
+	handler       http.Handler
+	listen        string         // empty = mounted mode only
+	path          string         // default "/metrics"
+	tlsConfig     *tls.Config    // nil = plain HTTP
+	isDefault     bool
+	otlpClient    cfg.OtlpClient // nil = no explicit tracing
 }
 
 // GetHandler returns the HTTP handler for the metrics endpoint.
@@ -54,6 +58,18 @@ func (s *MetricsServer) GetRegistry() *prometheus.Registry {
 // IsDefaultServer reports whether this server is the default metrics server.
 // Implements cfg.MetricsRegistrar.
 func (s *MetricsServer) IsDefaultServer() bool {
+	return s.isDefault
+}
+
+// GetMeterProvider returns the OTel MeterProvider bridged to this server's Prometheus registry.
+// Implements cfg.MetricsRegistrar.
+func (s *MetricsServer) GetMeterProvider() otelmetric.MeterProvider {
+	return s.meterProvider
+}
+
+// IsDefaultMetricsBackend reports whether this server is the default metrics backend.
+// Implements cfg.MetricsRegistrar.
+func (s *MetricsServer) IsDefaultMetricsBackend() bool {
 	return s.isDefault
 }
 
@@ -107,36 +123,46 @@ func (s *MetricsServer) Start() error {
 	return nil
 }
 
-// newMetricsServer constructs a MetricsServer with a private registry.
-func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDefault, includeGoMetrics bool, tlsCfg *tls.Config, otlpClient cfg.OtlpClient) *MetricsServer {
+// newMetricsServer constructs a MetricsServer with a private registry and an
+// OTel MeterProvider bridged to it via the OTel→Prometheus exporter.
+func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDefault, includeGoMetrics bool, tlsCfg *tls.Config, otlpClient cfg.OtlpClient) (*MetricsServer, error) {
 	reg := prometheus.NewRegistry()
-	if includeGoMetrics {
-		reg.MustRegister(
-			collectors.NewGoCollector(),
-			collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-		)
+
+	exporter, err := otelprom.New(otelprom.WithRegisterer(reg))
+	if err != nil {
+		return nil, fmt.Errorf("server \"metrics\" %q: prometheus exporter: %w", name, err)
 	}
+
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(exporter))
+
+	if includeGoMetrics {
+		if err := runtime.Start(runtime.WithMeterProvider(mp)); err != nil {
+			return nil, fmt.Errorf("server \"metrics\" %q: runtime metrics: %w", name, err)
+		}
+	}
+
 	provider := promadapter.New(reg)
 	handler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
 
 	return &MetricsServer{
-		BaseServer: cfg.BaseServer{Name: name, DefRange: defRange},
-		registry:   reg,
-		provider:   provider,
-		handler:    handler,
-		listen:     listen,
-		path:       path,
-		tlsConfig:  tlsCfg,
-		isDefault:  isDefault,
-		otlpClient: otlpClient,
-	}
+		BaseServer:    cfg.BaseServer{Name: name, DefRange: defRange},
+		registry:      reg,
+		provider:      provider,
+		meterProvider: mp,
+		handler:       handler,
+		listen:        listen,
+		path:          path,
+		tlsConfig:     tlsCfg,
+		isDefault:     isDefault,
+		otlpClient:    otlpClient,
+	}, nil
 }
 
 // MetricsServerDefinition holds the decoded HCL attributes for a server "metrics" block.
 type MetricsServerDefinition struct {
 	Listen           *string         `hcl:"listen,optional"`
 	Path             *string         `hcl:"path,optional"`
-	Default          *bool           `hcl:"default,optional"`
+	DefaultMetrics   *bool           `hcl:"default_metrics,optional"`
 	IncludeGoMetrics *bool           `hcl:"include_go_metrics,optional"`
 	Tracing          hcl.Expression  `hcl:"tracing,optional"`
 	TLS              *cfg.TLSConfig  `hcl:"tls,block"`
@@ -169,8 +195,8 @@ func ProcessMetricsServerBlock(config *cfg.Config, block *hcl.Block, remainingBo
 	}
 
 	isDefault := false
-	if def.Default != nil {
-		isDefault = *def.Default
+	if def.DefaultMetrics != nil {
+		isDefault = *def.DefaultMetrics
 	}
 
 	includeGoMetrics := true
@@ -217,7 +243,17 @@ func ProcessMetricsServerBlock(config *cfg.Config, block *hcl.Block, remainingBo
 		return nil, tracingDiags
 	}
 
-	srv := newMetricsServer(name, def.DefRange, listen, path, isDefault, includeGoMetrics, tlsCfg, otlpClient)
+	srv, err := newMetricsServer(name, def.DefRange, listen, path, isDefault, includeGoMetrics, tlsCfg, otlpClient)
+	if err != nil {
+		return nil, hcl.Diagnostics{
+			&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Failed to create metrics server",
+				Detail:   err.Error(),
+				Subject:  def.DefRange.Ptr(),
+			},
+		}
+	}
 
 	// Wrap the metrics handler with auth middleware if configured.
 	if def.Auth != nil && def.Auth.Mode != "none" {

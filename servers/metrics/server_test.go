@@ -66,8 +66,8 @@ func TestStandaloneMetricsServerScrape(t *testing.T) {
 	require.NoError(t, err)
 	text := string(body)
 
-	// Go runtime metrics appear immediately since the Go collector always has values
-	assert.True(t, strings.Contains(text, "go_goroutines"), "go runtime metrics should be present")
+	// OTel runtime instrumentation produces go.goroutine.count → go_goroutine_count in Prometheus format
+	assert.True(t, strings.Contains(text, "go_goroutine_count"), "go runtime metrics should be present")
 }
 
 func TestMountedMetricsServerConfig(t *testing.T) {
@@ -98,6 +98,6 @@ func TestMountedMetricsServerScrape(t *testing.T) {
 
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
-	// Go runtime metrics appear via mounted handler too
-	assert.True(t, strings.Contains(string(body), "go_goroutines"), "go runtime metrics should appear via mounted handler")
+	// OTel runtime instrumentation produces go.goroutine.count → go_goroutine_count in Prometheus format
+	assert.True(t, strings.Contains(string(body), "go_goroutine_count"), "go runtime metrics should appear via mounted handler")
 }
