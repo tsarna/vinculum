@@ -1,28 +1,39 @@
 package types
 
 import (
+	"context"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
+
+func newTestMeter(t *testing.T) otelmetric.Meter {
+	t.Helper()
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { mp.Shutdown(context.Background()) })
+	return mp.Meter("test")
+}
 
 func newTestGaugeMetric(t *testing.T) *GaugeMetric {
 	t.Helper()
-	reg := prometheus.NewRegistry()
-	vec := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "test_gauge", Help: "test"}, []string{})
-	reg.MustRegister(vec)
-	return NewGaugeMetric(vec, []string{})
+	m := newTestMeter(t)
+	inst, err := m.Float64UpDownCounter("test_gauge")
+	require.NoError(t, err)
+	return NewGaugeMetric(inst, []attribute.Key{})
 }
 
 func newTestCounterMetric(t *testing.T) *CounterMetric {
 	t.Helper()
-	reg := prometheus.NewRegistry()
-	vec := prometheus.NewCounterVec(prometheus.CounterOpts{Name: "test_counter", Help: "test"}, []string{})
-	reg.MustRegister(vec)
-	return NewCounterMetric(vec, []string{})
+	m := newTestMeter(t)
+	inst, err := m.Float64Counter("test_counter")
+	require.NoError(t, err)
+	return NewCounterMetric(inst, []attribute.Key{})
 }
 
 // --- GaugeMetric ---
