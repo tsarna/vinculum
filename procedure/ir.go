@@ -23,3 +23,19 @@ type Return struct {
 }
 
 func (r *Return) stmtRange() hcl.Range { return r.SrcRange }
+
+// IfChain represents an if/elif/else conditional chain.
+type IfChain struct {
+	Branches []CondBranch // if + elif(s)
+	Else     []Statement  // else body, nil if no else clause
+	SrcRange hcl.Range
+}
+
+func (c *IfChain) stmtRange() hcl.Range { return c.SrcRange }
+
+// CondBranch is a single branch (if or elif) with a condition and body.
+type CondBranch struct {
+	Condition hcl.Expression
+	Body      []Statement
+	SrcRange  hcl.Range
+}

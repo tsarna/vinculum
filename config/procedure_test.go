@@ -31,6 +31,21 @@ var procedureErrorsVCL []byte
 //go:embed testdata/procedure_dup.vcl
 var procedureDupVCL []byte
 
+//go:embed testdata/procedure_if.vcl
+var procedureIfVCL []byte
+
+//go:embed testdata/procedure_if_errors.vcl
+var procedureIfErrorsVCL []byte
+
+//go:embed testdata/procedure_orphan_else.vcl
+var procedureOrphanElseVCL []byte
+
+//go:embed testdata/procedure_double_else.vcl
+var procedureDoubleElseVCL []byte
+
+//go:embed testdata/procedure_if_unreachable.vcl
+var procedureIfUnreachableVCL []byte
+
 func TestProcedureBasic(t *testing.T) {
 	_, diags := NewConfig().WithSources(procedureBasicVCL).WithLogger(procTestLogger(t)).Build()
 	if diags.HasErrors() {
@@ -63,5 +78,40 @@ func TestProcedureDuplicate(t *testing.T) {
 	_, diags := NewConfig().WithSources(procedureDupVCL).WithLogger(procTestLogger(t)).Build()
 	if !diags.HasErrors() {
 		t.Fatal("expected diagnostics for duplicate procedure, got none")
+	}
+}
+
+func TestProcedureIf(t *testing.T) {
+	_, diags := NewConfig().WithSources(procedureIfVCL).WithLogger(procTestLogger(t)).Build()
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+}
+
+func TestProcedureOrphanElif(t *testing.T) {
+	_, diags := NewConfig().WithSources(procedureIfErrorsVCL).WithLogger(procTestLogger(t)).Build()
+	if !diags.HasErrors() {
+		t.Fatal("expected diagnostics for orphan elif, got none")
+	}
+}
+
+func TestProcedureOrphanElse(t *testing.T) {
+	_, diags := NewConfig().WithSources(procedureOrphanElseVCL).WithLogger(procTestLogger(t)).Build()
+	if !diags.HasErrors() {
+		t.Fatal("expected diagnostics for orphan else, got none")
+	}
+}
+
+func TestProcedureDoubleElse(t *testing.T) {
+	_, diags := NewConfig().WithSources(procedureDoubleElseVCL).WithLogger(procTestLogger(t)).Build()
+	if !diags.HasErrors() {
+		t.Fatal("expected diagnostics for double else, got none")
+	}
+}
+
+func TestProcedureIfUnreachable(t *testing.T) {
+	_, diags := NewConfig().WithSources(procedureIfUnreachableVCL).WithLogger(procTestLogger(t)).Build()
+	if !diags.HasErrors() {
+		t.Fatal("expected diagnostics for unreachable code after all-branch return, got none")
 	}
 }

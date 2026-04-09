@@ -40,6 +40,9 @@ func executeStatement(stmt Statement, scope *Scope, parentCtx *hcl.EvalContext) 
 		}
 		return &Signal{Kind: SignalReturn, Value: val}, nil
 
+	case *IfChain:
+		return executeIfChain(s, scope, parentCtx)
+
 	default:
 		return nil, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
@@ -47,6 +50,37 @@ func executeStatement(stmt Statement, scope *Scope, parentCtx *hcl.EvalContext) 
 			Detail:   "Internal error: unrecognized IR node.",
 		}}
 	}
+}
+
+// executeIfChain evaluates an if/elif/else chain. It tests each branch
+// condition in order and executes the body of the first truthy branch.
+// If no branch matches, the else body (if any) is executed.
+func executeIfChain(chain *IfChain, scope *Scope, parentCtx *hcl.EvalContext) (*Signal, hcl.Diagnostics) {
+	for _, branch := range chain.Branches {
+		evalCtx := scopeEvalContext(scope, parentCtx)
+		condVal, diags := branch.Condition.Value(evalCtx)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		if condVal.True() {
+			childScope := NewScope(scope)
+			_, sig, execDiags := Execute(branch.Body, childScope, parentCtx)
+			if execDiags.HasErrors() {
+				return nil, execDiags
+			}
+			return sig, nil
+		}
+	}
+	// No branch matched — execute else if present
+	if chain.Else != nil {
+		childScope := NewScope(scope)
+		_, sig, execDiags := Execute(chain.Else, childScope, parentCtx)
+		if execDiags.HasErrors() {
+			return nil, execDiags
+		}
+		return sig, nil
+	}
+	return nil, nil
 }
 
 // scopeEvalContext builds an HCL EvalContext from the scope chain and the
