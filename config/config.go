@@ -179,6 +179,16 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		functions[name] = fn
 	}
 
+	procFuncs, nonProcBodies, addDiags := extractProcedureFunctions(nonEditorBodies, config, evalCtxFn)
+	diags = diags.Extend(addDiags)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	for name, fn := range procFuncs {
+		functions[name] = fn
+	}
+
 	config.Functions, addDiags = config.GetFunctions(functions)
 	diags = diags.Extend(addDiags)
 	if diags.HasErrors() {
@@ -188,7 +198,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	// Update evaluation context with functions
 	config.evalCtx.Functions = config.Functions
 
-	blocks, addDiags := cb.GetBlocks(nonEditorBodies)
+	blocks, addDiags := cb.GetBlocks(nonProcBodies)
 	diags = diags.Extend(addDiags)
 	if diags.HasErrors() {
 		return nil, diags
