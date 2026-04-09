@@ -6,6 +6,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // Compile compiles an HCL body (the procedure body after spec extraction)
@@ -73,8 +74,13 @@ func compileItems(items []bodyItem, loopDepth int) ([]Statement, hcl.Diagnostics
 				return nil, diags
 			}
 			stmts = append(stmts, stmt)
-			if _, ok := stmt.(*Return); ok {
+			switch stmt.(type) {
+			case *Return:
 				terminated = true
+			case *Break, *Continue:
+				if isUnconditionalSignal(item.attr) {
+					terminated = true
+				}
 			}
 		} else {
 			stmt, consumed, blockDiags := compileBlock(items, i, loopDepth)
@@ -102,6 +108,8 @@ func compileBlock(items []bodyItem, idx int, loopDepth int) (Statement, int, hcl
 	switch block.Type {
 	case "if":
 		return compileIfChain(items, idx, loopDepth)
+	case "while":
+		return compileWhile(block, loopDepth)
 	case "elif":
 		return nil, 0, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
@@ -242,6 +250,40 @@ func compileCondBranch(block *hclsyntax.Block, kind string, loopDepth int) (*Con
 	}, nil
 }
 
+// compileWhile compiles a while block into a While IR node.
+func compileWhile(block *hclsyntax.Block, loopDepth int) (Statement, int, hcl.Diagnostics) {
+	if len(block.Labels) != 1 {
+		return nil, 0, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "Invalid while block",
+			Detail:   "while requires exactly one label: a quoted condition expression.",
+			Subject:  block.DefRange().Ptr(),
+		}}
+	}
+
+	condExpr, diags := hclsyntax.ParseExpression(
+		[]byte(block.Labels[0]),
+		block.DefRange().Filename,
+		block.DefRange().Start,
+	)
+	if diags.HasErrors() {
+		return nil, 0, diags
+	}
+
+	bodyItems := sortBodyItems(block.Body)
+	bodyStmts, bodyDiags := compileItems(bodyItems, loopDepth+1)
+	diags = diags.Extend(bodyDiags)
+	if bodyDiags.HasErrors() {
+		return nil, 0, diags
+	}
+
+	return &While{
+		Condition: condExpr,
+		Body:      bodyStmts,
+		SrcRange:  block.Range(),
+	}, 0, nil
+}
+
 // alwaysTerminates returns true if a statement unconditionally exits the
 // procedure (or the current scope, for unreachable code detection).
 func alwaysTerminates(stmt Statement) bool {
@@ -290,12 +332,10 @@ func compileAttribute(attr *hclsyntax.Attribute, loopDepth int) (Statement, hcl.
 				Subject:  attr.SrcRange.Ptr(),
 			}}
 		}
-		return nil, hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  "Unexpected statement",
-			Detail:   "break is not yet supported in procedures.",
-			Subject:  attr.SrcRange.Ptr(),
-		}}
+		return &Break{
+			Condition: attr.Expr,
+			SrcRange:  attr.SrcRange,
+		}, nil
 
 	case "continue":
 		if loopDepth == 0 {
@@ -306,12 +346,10 @@ func compileAttribute(attr *hclsyntax.Attribute, loopDepth int) (Statement, hcl.
 				Subject:  attr.SrcRange.Ptr(),
 			}}
 		}
-		return nil, hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  "Unexpected statement",
-			Detail:   "continue is not yet supported in procedures.",
-			Subject:  attr.SrcRange.Ptr(),
-		}}
+		return &Continue{
+			Condition: attr.Expr,
+			SrcRange:  attr.SrcRange,
+		}, nil
 
 	default:
 		return &Assignment{
@@ -320,6 +358,16 @@ func compileAttribute(attr *hclsyntax.Attribute, loopDepth int) (Statement, hcl.
 			SrcRange: attr.SrcRange,
 		}, nil
 	}
+}
+
+// isUnconditionalSignal returns true if the attribute's expression is the
+// literal `true`, meaning the break/continue always fires.
+func isUnconditionalSignal(attr *hclsyntax.Attribute) bool {
+	lit, ok := attr.Expr.(*hclsyntax.LiteralValueExpr)
+	if !ok {
+		return false
+	}
+	return lit.Val.Equals(cty.True).True()
 }
 
 func itemRange(item bodyItem) hcl.Range {

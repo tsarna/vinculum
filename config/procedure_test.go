@@ -46,6 +46,15 @@ var procedureDoubleElseVCL []byte
 //go:embed testdata/procedure_if_unreachable.vcl
 var procedureIfUnreachableVCL []byte
 
+//go:embed testdata/procedure_while.vcl
+var procedureWhileVCL []byte
+
+//go:embed testdata/procedure_break_outside.vcl
+var procedureBreakOutsideVCL []byte
+
+//go:embed testdata/procedure_continue_outside.vcl
+var procedureContinueOutsideVCL []byte
+
 func TestProcedureBasic(t *testing.T) {
 	_, diags := NewConfig().WithSources(procedureBasicVCL).WithLogger(procTestLogger(t)).Build()
 	if diags.HasErrors() {
@@ -113,5 +122,26 @@ func TestProcedureIfUnreachable(t *testing.T) {
 	_, diags := NewConfig().WithSources(procedureIfUnreachableVCL).WithLogger(procTestLogger(t)).Build()
 	if !diags.HasErrors() {
 		t.Fatal("expected diagnostics for unreachable code after all-branch return, got none")
+	}
+}
+
+func TestProcedureWhile(t *testing.T) {
+	_, diags := NewConfig().WithSources(procedureWhileVCL).WithLogger(procTestLogger(t)).Build()
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+}
+
+func TestProcedureBreakOutsideLoop(t *testing.T) {
+	_, diags := NewConfig().WithSources(procedureBreakOutsideVCL).WithLogger(procTestLogger(t)).Build()
+	if !diags.HasErrors() {
+		t.Fatal("expected diagnostics for break outside loop, got none")
+	}
+}
+
+func TestProcedureContinueOutsideLoop(t *testing.T) {
+	_, diags := NewConfig().WithSources(procedureContinueOutsideVCL).WithLogger(procTestLogger(t)).Build()
+	if !diags.HasErrors() {
+		t.Fatal("expected diagnostics for continue outside loop, got none")
 	}
 }

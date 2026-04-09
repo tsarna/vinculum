@@ -39,3 +39,28 @@ type CondBranch struct {
 	Body      []Statement
 	SrcRange  hcl.Range
 }
+
+// While represents a while loop: while "condition" { ... }
+type While struct {
+	Condition hcl.Expression
+	Body      []Statement
+	SrcRange  hcl.Range
+}
+
+func (w *While) stmtRange() hcl.Range { return w.SrcRange }
+
+// Break represents a break statement: break = bool_expr
+type Break struct {
+	Condition hcl.Expression
+	SrcRange  hcl.Range
+}
+
+func (b *Break) stmtRange() hcl.Range { return b.SrcRange }
+
+// Continue represents a continue statement: continue = bool_expr
+type Continue struct {
+	Condition hcl.Expression
+	SrcRange  hcl.Range
+}
+
+func (c *Continue) stmtRange() hcl.Range { return c.SrcRange }

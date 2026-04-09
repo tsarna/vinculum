@@ -161,6 +161,36 @@ update that outer binding.
 If all branches of an if/elif/else chain (including an else) contain a `return`,
 statements after the chain are unreachable and produce a compile-time error.
 
+### While
+
+```hcl
+while "condition_expr" {
+    # ...
+}
+```
+
+Evaluates the condition (a quoted HCL expression) before each iteration. The loop
+exits when the condition is false or a `break` signal is raised. Each iteration
+executes in a new child scope.
+
+### Break and Continue
+
+```hcl
+break    = bool_expr
+continue = bool_expr
+```
+
+`break` and `continue` are reserved attribute names. The expression is evaluated; if
+the result is `true`, the corresponding signal is raised.
+
+`break` exits the innermost enclosing `while` or `range` loop. `continue` skips the
+remainder of the current iteration and proceeds to the next.
+
+These signals propagate outward through nested `if`/`elif`/`else` blocks until they
+reach the containing loop. Using `break` or `continue` outside of any loop is a
+compile-time error. Statements after an unconditional `break = true` or
+`continue = true` in the same scope are unreachable and produce a compile-time error.
+
 ---
 
 ## Example
@@ -210,6 +240,28 @@ procedure "classify" {
     else {
         return = "zero"
     }
+}
+```
+
+An example with a while loop:
+
+```hcl
+procedure "sum_to" {
+    spec {
+        params {
+            n = null
+        }
+    }
+
+    total = 0
+    i = 0
+
+    while "i < n" {
+        i = i + 1
+        total = total + i
+    }
+
+    return = total
 }
 ```
 

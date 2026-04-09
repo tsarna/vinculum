@@ -43,6 +43,29 @@ func executeStatement(stmt Statement, scope *Scope, parentCtx *hcl.EvalContext) 
 	case *IfChain:
 		return executeIfChain(s, scope, parentCtx)
 
+	case *While:
+		return executeWhile(s, scope, parentCtx)
+
+	case *Break:
+		condVal, diags := s.Condition.Value(evalCtx)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		if condVal.True() {
+			return &Signal{Kind: SignalBreak}, nil
+		}
+		return nil, nil
+
+	case *Continue:
+		condVal, diags := s.Condition.Value(evalCtx)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		if condVal.True() {
+			return &Signal{Kind: SignalContinue}, nil
+		}
+		return nil, nil
+
 	default:
 		return nil, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
@@ -79,6 +102,40 @@ func executeIfChain(chain *IfChain, scope *Scope, parentCtx *hcl.EvalContext) (*
 			return nil, execDiags
 		}
 		return sig, nil
+	}
+	return nil, nil
+}
+
+// executeWhile runs a while loop. On each iteration it evaluates the condition,
+// creates a child scope, and executes the body. Break consumes the signal and
+// exits; Continue consumes the signal and proceeds to the next iteration;
+// Return propagates upward.
+func executeWhile(w *While, scope *Scope, parentCtx *hcl.EvalContext) (*Signal, hcl.Diagnostics) {
+	for {
+		evalCtx := scopeEvalContext(scope, parentCtx)
+		condVal, diags := w.Condition.Value(evalCtx)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		if !condVal.True() {
+			break
+		}
+
+		childScope := NewScope(scope)
+		_, sig, execDiags := Execute(w.Body, childScope, parentCtx)
+		if execDiags.HasErrors() {
+			return nil, execDiags
+		}
+		if sig != nil {
+			switch sig.Kind {
+			case SignalBreak:
+				return nil, nil // consume break, exit loop
+			case SignalContinue:
+				continue // consume continue, next iteration
+			case SignalReturn:
+				return sig, nil // propagate return
+			}
+		}
 	}
 	return nil, nil
 }
