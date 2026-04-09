@@ -298,6 +298,46 @@ const {
 
 ---
 
+### `editor`
+
+Defines a callable function that performs structured text editing using ordered
+match-and-replace rules. See [editor.md](editor.md) for the full reference.
+
+```hcl
+editor "line" "name" {
+    params         = [param1, param2]
+    variadic_param = rest
+
+    match "regex" {
+        replace = expr
+    }
+}
+```
+
+---
+
+### `procedure`
+
+Defines a callable function using an imperative body with variable assignments,
+conditionals, loops, and switch/case. See [procedure.md](procedure.md) for the
+full reference.
+
+```hcl
+procedure "name" {
+    spec {
+        params {
+            req   = required
+            limit = 10
+        }
+    }
+
+    # imperative statements...
+    return = expr
+}
+```
+
+---
+
 ### `client`
 
 ```hcl

@@ -3,19 +3,21 @@
 ## Table of Contents
 
 1. [Introduction](#introduction)
-3. [Core Concepts and Features](#core-concepts)
-4. [Features](#features)
-5. [Configuration Language](config.md)
-6. [Built-in Functions](functions.md)
-7. [Message Transforms](transforms.md)
-8. [MCP Server](server-mcp.md)
-9. [HTTP Server](server-http.md)
-10. [VWS Server & Client](server-vws.md)
-11. [Simple WebSocket Server](server-websocket.md)
-11. [Protocols and Transports](#protocols-and-transports)
-8. [Advanced Topics](#advanced-topics)
-9. [Examples](#examples)
-10. [API Reference](#api-reference)
+2. [Core Concepts and Features](#core-concepts)
+3. [Features](#features)
+4. [Configuration Language](config.md)
+5. [Built-in Functions](functions.md)
+6. [Editor Blocks](editor.md)
+7. [Procedure Blocks](procedure.md)
+8. [Message Transforms](transforms.md)
+9. [MCP Server](server-mcp.md)
+10. [HTTP Server](server-http.md)
+11. [VWS Server & Client](server-vws.md)
+12. [Simple WebSocket Server](server-websocket.md)
+13. [Protocols and Transports](#protocols-and-transports)
+14. [Advanced Topics](#advanced-topics)
+15. [Examples](#examples)
+16. [API Reference](#api-reference)
 
 ## Introduction
 
@@ -322,6 +324,8 @@ subscription "event_router" {
 - `const`: Constant value definitions
 - `assert`: Configuration validation
 - `jq`: JQ function definitions
+- `editor`: Structured text editing functions (see [editor.md](editor.md))
+- `procedure`: Imperative function definitions (see [procedure.md](procedure.md))
 
 #### Attribute Types
 - String literals and interpolated strings
