@@ -131,7 +131,24 @@ func parseSpecBody(body *hclsyntax.Body, spec *ProcSpec) hcl.Diagnostics {
 	if attr, ok := body.Attributes["variadic_param"]; ok {
 		vars := attr.Expr.Variables()
 		if len(vars) == 1 && len(vars[0]) == 1 {
-			spec.VariadicParam = vars[0].RootName()
+			name := vars[0].RootName()
+			switch {
+			case name == "return" || name == "break" || name == "continue":
+				return hcl.Diagnostics{{
+					Severity: hcl.DiagError,
+					Summary:  "Reserved variadic parameter name",
+					Detail:   fmt.Sprintf("%q is a reserved name and cannot be used as a variadic parameter.", name),
+					Subject:  attr.SrcRange.Ptr(),
+				}}
+			case strings.HasPrefix(name, "_"):
+				return hcl.Diagnostics{{
+					Severity: hcl.DiagError,
+					Summary:  "Discard variadic parameter name",
+					Detail:   fmt.Sprintf("Variadic parameter name %q starts with _ and would be treated as a discard.", name),
+					Subject:  attr.SrcRange.Ptr(),
+				}}
+			}
+			spec.VariadicParam = name
 		} else {
 			diags = diags.Append(&hcl.Diagnostic{
 				Severity: hcl.DiagError,
@@ -185,6 +202,23 @@ func parseSpecBody(body *hclsyntax.Body, spec *ProcSpec) hcl.Diagnostics {
 
 		paramDiags := parseParams(block.Body, spec)
 		diags = diags.Extend(paramDiags)
+	}
+
+	if diags.HasErrors() {
+		return diags
+	}
+
+	// Validate variadic param doesn't overlap with a regular param
+	if spec.VariadicParam != "" {
+		for _, name := range spec.ParamNames {
+			if name == spec.VariadicParam {
+				return hcl.Diagnostics{{
+					Severity: hcl.DiagError,
+					Summary:  "Variadic parameter name conflict",
+					Detail:   fmt.Sprintf("variadic_param %q conflicts with a regular parameter of the same name.", spec.VariadicParam),
+				}}
+			}
+		}
 	}
 
 	return diags

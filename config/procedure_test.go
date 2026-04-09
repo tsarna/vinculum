@@ -67,6 +67,15 @@ var procedureSwitchAssignVCL []byte
 //go:embed testdata/procedure_switch_double_default.vcl
 var procedureSwitchDoubleDefaultVCL []byte
 
+//go:embed testdata/procedure_switch_unreachable.vcl
+var procedureSwitchUnreachableVCL []byte
+
+//go:embed testdata/procedure_edge_cases.vcl
+var procedureEdgeCasesVCL []byte
+
+//go:embed testdata/procedure_variadic_overlap.vcl
+var procedureVariadicOverlapVCL []byte
+
 func TestProcedureBasic(t *testing.T) {
 	_, diags := NewConfig().WithSources(procedureBasicVCL).WithLogger(procTestLogger(t)).Build()
 	if diags.HasErrors() {
@@ -183,5 +192,26 @@ func TestProcedureSwitchDoubleDefault(t *testing.T) {
 	_, diags := NewConfig().WithSources(procedureSwitchDoubleDefaultVCL).WithLogger(procTestLogger(t)).Build()
 	if !diags.HasErrors() {
 		t.Fatal("expected diagnostics for duplicate default, got none")
+	}
+}
+
+func TestProcedureSwitchUnreachable(t *testing.T) {
+	_, diags := NewConfig().WithSources(procedureSwitchUnreachableVCL).WithLogger(procTestLogger(t)).Build()
+	if !diags.HasErrors() {
+		t.Fatal("expected diagnostics for unreachable code after switch, got none")
+	}
+}
+
+func TestProcedureEdgeCases(t *testing.T) {
+	_, diags := NewConfig().WithSources(procedureEdgeCasesVCL).WithLogger(procTestLogger(t)).Build()
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+}
+
+func TestProcedureVariadicOverlap(t *testing.T) {
+	_, diags := NewConfig().WithSources(procedureVariadicOverlapVCL).WithLogger(procTestLogger(t)).Build()
+	if !diags.HasErrors() {
+		t.Fatal("expected diagnostics for variadic param overlapping regular param, got none")
 	}
 }
