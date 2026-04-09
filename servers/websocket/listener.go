@@ -30,7 +30,7 @@ func newListener(config *Config) *Listener {
 	return &Listener{
 		eventBus:    config.eventBus,
 		config:      config,
-		metrics:     NewWebSocketMetrics(config.metricsProvider),
+		metrics:     NewWebSocketMetrics(config.meterProvider),
 		connections: make(map[*Connection]struct{}),
 		shutdown:    make(chan struct{}),
 	}

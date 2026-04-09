@@ -5,14 +5,19 @@ package otlp
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdkresource "go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
@@ -34,6 +39,11 @@ type otlpClientDefinition struct {
 	Headers        hcl.Expression `hcl:"headers,optional"`
 	TLS            *cfg.TLSConfig `hcl:"tls,block"`
 	DefRange       hcl.Range      `hcl:",def_range"`
+
+	MetricEndpoint  *string `hcl:"metric_endpoint,optional"`
+	MetricInterval  *string `hcl:"metric_interval,optional"`
+	IncludeGoMetrics *bool  `hcl:"include_go_metrics,optional"`
+	DefaultMetrics  bool    `hcl:"default_metrics,optional"`
 }
 
 // ─── Client struct ────────────────────────────────────────────────────────────
@@ -50,7 +60,13 @@ type OtlpClientImpl struct {
 	baseDir        string
 	isDefault      bool
 
+	metricEndpoint   string
+	metricInterval   time.Duration
+	includeGoMetrics bool
+	isDefaultMetrics bool
+
 	tracerProvider *sdktrace.TracerProvider
+	meterProvider  *sdkmetric.MeterProvider
 }
 
 // ─── cfg.OtlpClient interface ─────────────────────────────────────────────────
@@ -61,6 +77,14 @@ func (c *OtlpClientImpl) GetTracerProvider() trace.TracerProvider {
 
 func (c *OtlpClientImpl) IsDefaultClient() bool {
 	return c.isDefault
+}
+
+func (c *OtlpClientImpl) GetMeterProvider() otelmetric.MeterProvider {
+	return c.meterProvider
+}
+
+func (c *OtlpClientImpl) IsDefaultMetricsBackend() bool {
+	return c.isDefaultMetrics
 }
 
 // ─── Startable / Stoppable ────────────────────────────────────────────────────
@@ -124,10 +148,59 @@ func (c *OtlpClientImpl) Start() error {
 		propagation.Baggage{},
 	))
 
+	// --- Metric provider ---
+	metricEndpoint := c.metricEndpoint
+	if metricEndpoint == "" {
+		metricEndpoint = c.endpoint
+	}
+
+	metricOptions := []otlpmetrichttp.Option{
+		otlpmetrichttp.WithEndpointURL(metricEndpoint),
+	}
+
+	if c.tlsConfig != nil {
+		tlsCfg, err := c.tlsConfig.BuildTLSClientConfig(c.baseDir)
+		if err != nil {
+			return fmt.Errorf("client \"otlp\" %q: metric TLS config: %w", c.Name, err)
+		}
+		if tlsCfg != nil {
+			metricOptions = append(metricOptions, otlpmetrichttp.WithTLSClientConfig(tlsCfg))
+		}
+	}
+
+	if len(c.headers) > 0 {
+		metricOptions = append(metricOptions, otlpmetrichttp.WithHeaders(c.headers))
+	}
+
+	metricExporter, err := otlpmetrichttp.New(ctx, metricOptions...)
+	if err != nil {
+		return fmt.Errorf("client \"otlp\" %q: metric exporter: %w", c.Name, err)
+	}
+
+	c.meterProvider = sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter,
+			sdkmetric.WithInterval(c.metricInterval),
+		)),
+		sdkmetric.WithResource(res),
+	)
+
+	otel.SetMeterProvider(c.meterProvider)
+
+	if c.includeGoMetrics {
+		if err := runtime.Start(runtime.WithMeterProvider(c.meterProvider)); err != nil {
+			return fmt.Errorf("client \"otlp\" %q: runtime metrics: %w", c.Name, err)
+		}
+	}
+
 	return nil
 }
 
 func (c *OtlpClientImpl) Stop() error {
+	if c.meterProvider != nil {
+		if err := c.meterProvider.Shutdown(context.Background()); err != nil {
+			return fmt.Errorf("client \"otlp\" %q: metric shutdown: %w", c.Name, err)
+		}
+	}
 	if c.tracerProvider != nil {
 		if err := c.tracerProvider.Shutdown(context.Background()); err != nil {
 			return fmt.Errorf("client \"otlp\" %q: trace shutdown: %w", c.Name, err)
@@ -168,19 +241,49 @@ func process(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Client, h
 		samplingRatio = *def.SamplingRatio
 	}
 
+	metricInterval := 60 * time.Second
+	if def.MetricInterval != nil {
+		d, err := time.ParseDuration(*def.MetricInterval)
+		if err != nil {
+			return nil, hcl.Diagnostics{
+				&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "Invalid metric_interval",
+					Detail:   fmt.Sprintf("client \"otlp\" %q: metric_interval: %s", name, err),
+					Subject:  def.DefRange.Ptr(),
+				},
+			}
+		}
+		metricInterval = d
+	}
+
+	var metricEndpoint string
+	if def.MetricEndpoint != nil {
+		metricEndpoint = *def.MetricEndpoint
+	}
+
+	includeGoMetrics := true
+	if def.IncludeGoMetrics != nil {
+		includeGoMetrics = *def.IncludeGoMetrics
+	}
+
 	client := &OtlpClientImpl{
 		BaseClient: cfg.BaseClient{
 			Name:     name,
 			DefRange: def.DefRange,
 		},
-		endpoint:       def.Endpoint,
-		serviceName:    def.ServiceName,
-		serviceVersion: def.ServiceVersion,
-		samplingRatio:  samplingRatio,
-		headers:        headers,
-		tlsConfig:      def.TLS,
-		baseDir:        config.BaseDir,
-		isDefault:      def.Default,
+		endpoint:         def.Endpoint,
+		serviceName:      def.ServiceName,
+		serviceVersion:   def.ServiceVersion,
+		samplingRatio:    samplingRatio,
+		headers:          headers,
+		tlsConfig:        def.TLS,
+		baseDir:          config.BaseDir,
+		isDefault:        def.Default,
+		metricEndpoint:   metricEndpoint,
+		metricInterval:   metricInterval,
+		includeGoMetrics: includeGoMetrics,
+		isDefaultMetrics: def.DefaultMetrics,
 	}
 
 	if config.OtlpClients == nil {

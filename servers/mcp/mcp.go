@@ -34,6 +34,7 @@ type McpServerDefinition struct {
 	ServerVersion string                  `hcl:"server_version,optional"`
 	Disabled      bool                    `hcl:"disabled,optional"`
 	Tracing       hcl.Expression          `hcl:"tracing,optional"`
+	Metrics       hcl.Expression          `hcl:"metrics,optional"`
 	TLS           *cfg.TLSConfig          `hcl:"tls,block"`
 	Auth          *cfg.AuthConfig         `hcl:"auth,block"`
 	DefRange      hcl.Range               `hcl:",def_range"`
@@ -156,6 +157,12 @@ func ProcessMcpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody h
 		return nil, tracingDiags
 	}
 
+	// Resolve metrics backend at config parse time.
+	mp, metricsDiags := cfg.ResolveMeterProvider(config, def.Metrics)
+	if metricsDiags.HasErrors() {
+		return nil, metricsDiags
+	}
+
 	srv, err := New(ServerConfig{
 		Name:          name,
 		Listen:        def.Listen,
@@ -165,6 +172,7 @@ func ProcessMcpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody h
 		TLSConfig:     tlsCfg,
 		Auth:          def.Auth,
 		OtlpClient:    otlpClient,
+		MeterProvider: mp,
 		ParentEvalCtx: config.EvalCtx(),
 		Logger:        config.Logger,
 		Resources:     resources,
