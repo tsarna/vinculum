@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	bus "github.com/tsarna/vinculum-bus"
-	"github.com/tsarna/vinculum-bus/o11y"
 	"github.com/tsarna/vinculum-bus/transform"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 )
 
@@ -15,7 +15,7 @@ import (
 type Config struct {
 	eventBus             bus.EventBus
 	logger               *zap.Logger
-	metricsProvider      o11y.MetricsProvider
+	meterProvider        metric.MeterProvider
 	queueSize            int
 	initialSubscriptions []string
 	sendBinary           bool
@@ -43,7 +43,7 @@ const (
 //	    WithSendBinary(true).
 //	    WithReceivedTextTopic("messages/text").
 //	    WithReceivedBinaryTopic("messages/binary").
-//	    WithMetricsProvider(metricsProvider).
+//	    WithMeterProvider(meterProvider).
 //	    WithOutboundTransforms(transform.DropTopicPrefix("debug/")).
 //	    Build()
 func NewServer() *Config {
@@ -68,13 +68,13 @@ func (c *Config) WithLogger(logger *zap.Logger) *Config {
 	return c
 }
 
-// WithMetricsProvider sets the MetricsProvider for the WebSocket server.
-// The MetricsProvider is optional and enables collection of WebSocket server metrics
+// WithMeterProvider sets the OTel MeterProvider for the WebSocket server.
+// The MeterProvider is optional and enables collection of WebSocket server metrics
 // such as connection counts, message rates, error rates, and connection durations.
 //
 // If not provided, no metrics will be collected.
-func (c *Config) WithMetricsProvider(provider o11y.MetricsProvider) *Config {
-	c.metricsProvider = provider
+func (c *Config) WithMeterProvider(provider metric.MeterProvider) *Config {
+	c.meterProvider = provider
 	return c
 }
 

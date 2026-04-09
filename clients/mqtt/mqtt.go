@@ -14,13 +14,13 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
 	bus "github.com/tsarna/vinculum-bus"
-	"github.com/tsarna/vinculum-bus/o11y"
 	mqttclient "github.com/tsarna/vinculum-mqtt/client"
 	mqttpublisher "github.com/tsarna/vinculum-mqtt/publisher"
 	mqttsubscriber "github.com/tsarna/vinculum-mqtt/subscriber"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
@@ -153,8 +153,8 @@ type MQTTClientWrapper struct {
 	pubSpecs         []builtMQTTPublisherSpec
 	subSpecs         []builtMQTTSubscriberSpec
 	publisherProxies map[string]*MQTTPublisherProxy
-	metricsProvider  o11y.MetricsProvider
-	tracerProvider   trace.TracerProvider
+	meterProvider  metric.MeterProvider
+	tracerProvider trace.TracerProvider
 	logger           *zap.Logger
 
 	mu         sync.RWMutex
@@ -189,7 +189,7 @@ func (c *MQTTClientWrapper) Start() error {
 			WithDefaultQoS(spec.defaultQoS).
 			WithDefaultRetain(spec.defaultRetain).
 			WithDefaultTransform(spec.defaultXform).
-			WithMetricsProvider(c.metricsProvider).
+			WithMeterProvider(c.meterProvider).
 			WithTracerProvider(c.tracerProvider).
 			WithLogger(c.logger)
 		for _, tm := range spec.topicMappings {
@@ -211,7 +211,7 @@ func (c *MQTTClientWrapper) Start() error {
 			WithSubscriber(spec.subscriber).
 			WithHandleRetained(spec.handleRetained).
 			WithSharedGroup(spec.sharedGroup).
-			WithMetricsProvider(c.metricsProvider).
+			WithMeterProvider(c.meterProvider).
 			WithTracerProvider(c.tracerProvider).
 			WithLogger(c.logger)
 		for _, ts := range spec.subscriptions {
@@ -470,7 +470,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	onConnect := makeLifecycleHook(config, def.OnConnect)
 	onDisconnect := makeLifecycleHook(config, def.OnDisconnect)
 
-	metricsProvider, metricsDiags := cfg.ResolveMetricsProvider(config, def.Metrics)
+	mp, metricsDiags := cfg.ResolveMeterProvider(config, def.Metrics)
 	if metricsDiags.HasErrors() {
 		return nil, metricsDiags
 	}
@@ -493,7 +493,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		ReconnectBackoffFunc:  reconnectFn,
 		OnConnect:             onConnect,
 		OnDisconnect:          onDisconnect,
-		MetricsProvider:       metricsProvider,
+		MeterProvider:         mp,
 		Logger:                config.Logger,
 	}
 
@@ -524,8 +524,8 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		pubSpecs:         pubSpecs,
 		subSpecs:         subSpecs,
 		publisherProxies: publisherProxies,
-		metricsProvider:  metricsProvider,
-		tracerProvider:   tracerProvider,
+		meterProvider:  mp,
+		tracerProvider: tracerProvider,
 		logger:           config.Logger,
 	}
 

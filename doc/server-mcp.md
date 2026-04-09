@@ -27,6 +27,7 @@ server "mcp" "name" {
 - `path` — URL path to mount the MCP endpoint on
 - `server_name` / `server_version` — reported to clients during capability negotiation
 - `disabled` — if true, the server block is skipped entirely
+- `metrics` — optional reference to a `server "metrics"` or `client "otlp"` block to enable HTTP server metrics on the standalone listener (auto-wired when there is only one metrics backend)
 - `tls` — optional sub-block to enable HTTPS; standalone mode only. See [TLS](#tls) below.
 
 The server uses the [Streamable HTTP transport](https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/transports/#streamable-http)

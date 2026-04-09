@@ -81,7 +81,7 @@ func main() {
         WithSendBinary(false).
         WithReceivedTextTopic("messages/text").
         WithReceivedBinaryTopic("messages/binary").
-        WithMetricsProvider(metricsProvider).
+        WithMeterProvider(meterProvider).
         WithOutboundTransforms(transform.DropTopicPrefix("debug/")).
         WithInboundTransforms(transform.AddField("source", "websocket")).
         Build()
@@ -245,35 +245,28 @@ listener := server.NewServer().
 
 ### Metrics Support
 
-When a `MetricsProvider` is configured, the server automatically tracks:
+When a `MeterProvider` is configured, the server automatically tracks:
 
 #### Connection Metrics
-- `simple_websocket_active_connections` - Current number of active connections (gauge)
-- `simple_websocket_connections_total` - Total connections established (counter)
-- `simple_websocket_connection_duration_seconds` - Connection duration (histogram)
-- `simple_websocket_connection_errors_total` - Connection errors by type (counter)
+- `websocket.active_connections` - Current number of active connections (gauge)
+- `websocket.connections` - Total connections established (counter)
+- `websocket.connection.duration` - Connection duration in seconds (histogram)
+- `websocket.connection.errors` - Connection errors by `error.type` (counter)
 
 #### Message Metrics
-- `simple_websocket_messages_received_total` - Messages received from clients (counter)
-- `simple_websocket_messages_sent_total` - Messages sent to clients (counter)
-- `simple_websocket_message_errors_total` - Message processing errors (counter)
-- `simple_websocket_message_size_bytes` - Message size distribution (histogram)
+- `websocket.received.messages` - Messages received from clients (counter)
+- `websocket.sent.messages` - Messages sent to clients (counter)
+- `websocket.message.errors` - Message processing errors (counter)
+- `websocket.message.size` - Message size distribution in bytes (histogram)
 
 #### Example with Metrics
 
 ```go
-// Create metrics provider
-metricsProvider := o11y.NewStandaloneMetricsProvider(nil, &o11y.StandaloneMetricsConfig{
-    Interval:     30 * time.Second,
-    MetricsTopic: "$metrics",
-    ServiceName:  "simple-websocket-server",
-})
-
-// Create server with metrics
+// Create server with OTel metrics
 server := server.NewServer().
     WithEventBus(eventBus).
     WithLogger(logger).
-    WithMetricsProvider(metricsProvider).
+    WithMeterProvider(meterProvider).
     Build()
 ```
 

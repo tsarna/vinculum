@@ -9,6 +9,7 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	cfg "github.com/tsarna/vinculum/config"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	"go.uber.org/zap"
 )
@@ -24,6 +25,7 @@ type ServerConfig struct {
 	TLSConfig     *tls.Config
 	Auth          *cfg.AuthConfig
 	OtlpClient    cfg.OtlpClient
+	MeterProvider otelmetric.MeterProvider
 	ParentEvalCtx *hcl.EvalContext
 	Logger        *zap.Logger
 	Resources     []ResourceDef
@@ -104,6 +106,9 @@ func New(scfg ServerConfig) (*Server, error) {
 			if tp := scfg.OtlpClient.GetTracerProvider(); tp != nil {
 				otelOpts = append(otelOpts, otelhttp.WithTracerProvider(tp))
 			}
+		}
+		if scfg.MeterProvider != nil {
+			otelOpts = append(otelOpts, otelhttp.WithMeterProvider(scfg.MeterProvider))
 		}
 		otelOpts = append(otelOpts,
 			otelhttp.WithPropagators(propagation.NewCompositeTextMapPropagator(

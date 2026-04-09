@@ -1,9 +1,9 @@
 # OTLP Client (`client "otlp"`)
 
-Vinculum can export distributed traces to any
+Vinculum can export distributed traces and metrics to any
 [OpenTelemetry](https://opentelemetry.io/) collector using the OTLP/HTTP
 protocol. Declare a `client "otlp"` block to configure the exporter and wire
-it to servers that produce spans.
+it to servers that produce spans and metrics.
 
 ---
 
@@ -28,6 +28,21 @@ client "otlp" "tracer" {
     # client "otlp" block it is always the default regardless of this flag.
     default = false             # optional
 
+    # --- Metrics ---
+
+    # Separate endpoint for metric export (defaults to endpoint).
+    metric_endpoint = "http://localhost:4318"  # optional
+
+    # Push interval for periodic metric export.
+    metric_interval = "60s"     # optional, default "60s"
+
+    # Include Go runtime metrics (goroutines, memory, GC, etc.).
+    include_go_metrics = true   # optional, default true
+
+    # When true this client is used as the default metrics backend.
+    # Controls which backend metric blocks, buses, and servers wire to.
+    default_metrics = false     # optional
+
     # Optional HTTP headers added to every export request (e.g. auth tokens).
     headers = {
         Authorization = "Bearer ${env.OTEL_API_KEY}"
@@ -45,15 +60,19 @@ client "otlp" "tracer" {
 
 ### Attributes
 
-| Attribute | Required | Description |
-|-----------|----------|-------------|
-| `endpoint` | yes | Base URL of the OTLP/HTTP collector (e.g. `"http://localhost:4318"`) |
-| `service_name` | yes | Service name recorded on every span |
-| `service_version` | no | Service version recorded on every span |
-| `sampling_ratio` | no | Head-based sampling ratio for new root spans (default `1.0`) |
-| `default` | no | Mark as the default tracing backend for auto-wiring |
-| `headers` | no | `map(string)` of HTTP headers added to export requests |
-| `tls` | no | TLS configuration block; see [TLS configuration](config.md#tls) |
+| Attribute            | Required | Description                                                                  |
+|----------------------|----------|------------------------------------------------------------------------------|
+| `endpoint`           | yes      | Base URL of the OTLP/HTTP collector (e.g. `"http://localhost:4318"`)         |
+| `service_name`       | yes      | Service name recorded on every span and metric                               |
+| `service_version`    | no       | Service version recorded on every span and metric                            |
+| `sampling_ratio`     | no       | Head-based sampling ratio for new root spans (default `1.0`)                 |
+| `default`            | no       | Mark as the default tracing backend for auto-wiring                          |
+| `metric_endpoint`    | no       | Separate endpoint for metric export (defaults to `endpoint`)                 |
+| `metric_interval`    | no       | Push interval for periodic metric export (default `"60s"`)                   |
+| `include_go_metrics` | no       | Include Go runtime metrics (default `true`)                                  |
+| `default_metrics`    | no       | Mark as the default metrics backend for auto-wiring                          |
+| `headers`            | no       | `map(string)` of HTTP headers added to export requests                       |
+| `tls`                | no       | TLS configuration block; see [TLS configuration](config.md#tls)              |
 
 ---
 
@@ -65,26 +84,47 @@ On `Start()` the client:
    the given sampling ratio and a `ParentBased` sampler — incoming requests
    that carry a W3C `traceparent` header are always continued as child spans;
    requests without one create a new root span sampled at `sampling_ratio`.
-2. Sets the OpenTelemetry global `TracerProvider` and configures W3C
-   TraceContext + Baggage propagation globally.
-3. On `Stop()`, flushes all pending spans before the process exits.
+2. Creates an OTLP/HTTP metric exporter with a `PeriodicReader` at
+   `metric_interval` and a `MeterProvider`. If `include_go_metrics` is true
+   (the default), Go runtime metrics are registered automatically.
+3. Sets the OpenTelemetry global `TracerProvider` and `MeterProvider`, and
+   configures W3C TraceContext + Baggage propagation globally.
+4. On `Stop()`, flushes all pending metrics and spans before the process exits.
 
 ---
 
 ## Auto-wiring
 
-The following components accept an optional `tracing = client.<name>` attribute
-to select a specific OTLP client:
+### Tracing
 
-| Component | `tracing =` attribute | Auto-wires |
-|---|---|---|
-| `server "http"` | yes | yes |
-| `server "mcp"` (standalone) | yes | yes |
-| `server "metrics"` (standalone) | yes | yes |
-| `client "kafka"` | yes | yes |
-| `client "mqtt"` | yes | yes |
-| `client "openai"` | yes | yes |
-| all `trigger` types | yes | yes |
+The following components accept an optional `tracing = client.<name>` attribute
+to select a specific OTLP client for tracing:
+
+| Component                       | `tracing =` attribute | Auto-wires |
+|---------------------------------|-----------------------|------------|
+| `server "http"`                 | yes                   | yes        |
+| `server "mcp"` (standalone)    | yes                   | yes        |
+| `server "metrics"` (standalone) | yes                   | yes        |
+| `client "kafka"`                | yes                   | yes        |
+| `client "mqtt"`                 | yes                   | yes        |
+| `client "openai"`               | yes                   | yes        |
+| all `trigger` types             | yes                   | yes        |
+
+### Metrics
+
+When `default_metrics = true` is set, the OTLP client also serves as a metrics
+backend. The following components accept an optional `metrics =` attribute
+pointing to either a `server "metrics"` or `client "otlp"`:
+
+| Component                       | `metrics =` attribute | Auto-wires |
+|---------------------------------|-----------------------|------------|
+| `server "http"`                 | yes                   | yes        |
+| `server "mcp"` (standalone)    | yes                   | yes        |
+| `bus`                           | yes                   | yes        |
+| `server "vws"`                  | yes                   | yes        |
+| `client "kafka"`                | yes                   | yes        |
+| `client "mqtt"`                 | yes                   | yes        |
+| `metric` blocks                 | `server =`            | yes        |
 
 ```hcl
 server "http" "api" {

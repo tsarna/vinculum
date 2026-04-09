@@ -9,7 +9,6 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
 	bus "github.com/tsarna/vinculum-bus"
-	"github.com/tsarna/vinculum-bus/o11y"
 	kconsumer "github.com/tsarna/vinculum-kafka/consumer"
 	kproducer "github.com/tsarna/vinculum-kafka/producer"
 	cfg "github.com/tsarna/vinculum/config"
@@ -20,6 +19,7 @@ import (
 	"github.com/twmb/franz-go/plugin/kotel"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
@@ -144,8 +144,8 @@ type KafkaClient struct {
 	prodSpecs       []builtProducerSpec
 	consSpecs       []builtConsumerSpec
 	producerProxies map[string]*KafkaProducerProxy
-	metricsProvider o11y.MetricsProvider
-	tracerProvider  trace.TracerProvider
+	meterProvider  metric.MeterProvider
+	tracerProvider trace.TracerProvider
 	logger          *zap.Logger
 
 	mu         sync.RWMutex
@@ -198,7 +198,7 @@ func (c *KafkaClient) Start() error {
 			WithClient(kgoClient).
 			WithProduceMode(spec.produceMode).
 			WithDefaultTransform(spec.defaultXform).
-			WithMetricsProvider(c.metricsProvider).
+			WithMeterProvider(c.meterProvider).
 			WithLogger(c.logger)
 		for _, tm := range spec.topicMappings {
 			b = b.WithTopicMapping(tm)
@@ -225,7 +225,7 @@ func (c *KafkaClient) Start() error {
 			WithCommitMode(spec.commitMode).
 			WithDLQTopic(spec.dlqTopic).
 			WithSubscriber(spec.subscriber).
-			WithMetricsProvider(c.metricsProvider).
+			WithMeterProvider(c.meterProvider).
 			WithLogger(c.logger)
 		for _, sub := range spec.subscriptions {
 			b = b.WithSubscription(sub)
@@ -474,7 +474,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}
 	}
 
-	metricsProvider, metricsDiags := cfg.ResolveMetricsProvider(config, def.Metrics)
+	mp, metricsDiags := cfg.ResolveMeterProvider(config, def.Metrics)
 	if metricsDiags.HasErrors() {
 		return nil, metricsDiags
 	}
@@ -493,7 +493,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		prodSpecs:       prodSpecs,
 		consSpecs:       consSpecs,
 		producerProxies: producerProxies,
-		metricsProvider: metricsProvider,
+		meterProvider:   mp,
 		tracerProvider:  tracerProvider,
 		logger:          config.Logger,
 	}

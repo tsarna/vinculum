@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-04-09
+
+### Added
+
+- **OTel-native metrics**: All metrics are now OpenTelemetry SDK-native. `metric` blocks create OTel instruments via a `MeterProvider`; `server "metrics"` bridges them to Prometheus exposition using the OTel-to-Prometheus exporter. `client "otlp"` can now push metrics via OTLP in addition to traces.
+- **`client "otlp"` push metrics**: New attributes `metric_endpoint`, `metric_interval` (default `"60s"`), `include_go_metrics` (default `true`), and `default_metrics` for OTLP metric export alongside traces.
+- **`metrics =` attribute on `server "http"` and `server "mcp"`**: Enables automatic HTTP server metrics (`http.server.request.duration`, `http.server.active_requests`, etc.) via `otelhttp`, following OTel semantic conventions.
+- **HTTP metrics on standalone `server "metrics"` and `server "mcp"`**: Standalone servers that create their own HTTP listeners now produce HTTP metrics when a metrics backend is available.
+- **Unified metrics auto-wire**: New `InstrumentMetrics` interface and `GetDefaultInstrumentMetrics()` search both `server "metrics"` and `client "otlp"` blocks for a default metrics backend. The `default_metrics` attribute controls which backend is used when both are configured.
+- **Dot-separated metric names**: Metric block labels can use dots (e.g. `metric "gauge" "http.server.active_requests"`). OTel instrument names preserve dots; VCL access uses underscore translation (`metric.http_server_active_requests`). Collisions are detected at parse time.
+- **`computed_interval` attribute on metric blocks**: Controls the polling interval for computed metrics (default `"15s"`).
+- **`ResolveMeterProvider()`**: New config function for resolving a `metric.MeterProvider` from an HCL expression or default, accepting both server and client references.
+
+### Changed
+
+- **Go runtime metrics via OTel**: `server "metrics"` now uses OTel runtime instrumentation instead of raw Prometheus Go/process collectors. Metric names change from `go_goroutines` to `go_goroutine_count`, etc.
+- **Computed metrics use polling**: Computed metrics (`value = expr`) now evaluate on a fixed interval (default 15s) instead of at each Prometheus scrape. Configurable via `computed_interval`. OTLP push benefits from this change.
+- **Metric namespace separator**: `namespace` now uses dots for OTel instrument names (`namespace.name`) instead of underscores.
+
+### Removed
+
+- **`internal/promadapter` package deleted** — the `promadapter.Provider` (which bridged `prometheus.Registry` to `o11y.MetricsProvider`) is no longer needed since all consumers now use `metric.MeterProvider` directly.
+- **`GetMetricsProvider()` removed from `MetricsRegistrar` interface** — consumers use `GetMeterProvider()` instead.
+- **`GetDefaultMetricsProvider()` and `ResolveMetricsProvider()` removed** — replaced by `ResolveMeterProvider()`.
+- **`o11y.MetricsProvider` dependency removed** — vinculum no longer imports or uses the `o11y.MetricsProvider`, `Counter`, `Histogram`, `Gauge`, or `Label` types.
+
+### Breaking Changes
+
+- **`server "metrics"`: `default` renamed to `default_metrics`** — Update existing HCL configs that use `default = true` on a `server "metrics"` block.
+- **Prometheus metric name changes**: The OTel-to-Prometheus exporter adds `_total` suffix to counters and converts dots to underscores. Go runtime metric names have changed (e.g. `go_goroutines` to `go_goroutine_count`). Dashboard queries may need updating.
+- **`client "kafka"` / `client "mqtt"` / `server "vws"` / `server "websocket"` metrics API** — these now use `WithMeterProvider(metric.MeterProvider)` instead of `WithMetricsProvider(o11y.MetricsProvider)`. Metric names follow OTel semantic conventions. Requires vinculum-bus v0.11.0, vinculum-kafka v0.8.0, vinculum-mqtt v0.6.0, vinculum-vws v0.11.0.
+
+## [0.23.0] - 2026-04-07
+
 ### Added
 
 - **`editor "line"` — `when` is now a post-match guard**: `when` is evaluated after the regex matches rather than before it. The full match context — `ctx.groups`, `ctx.named`, `ctx.count`, `ctx.line` — is available inside `when`, enabling capture-group–based qualification (e.g. `when = ctx.groups[1] == recordname`). If `when` is falsy the line continues to the next rule uncounted.

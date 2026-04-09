@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/hcl/v2"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -18,6 +19,12 @@ type OtlpClient interface {
 	// IsDefaultClient returns true if this client should be used when no
 	// explicit tracing = attribute is specified.
 	IsDefaultClient() bool
+	// GetMeterProvider returns the OTel SDK MeterProvider for creating
+	// metric instruments (counters, histograms, gauges).
+	GetMeterProvider() metric.MeterProvider
+	// IsDefaultMetricsBackend returns true if this client should be used
+	// as the default metrics backend when no explicit metrics = is specified.
+	IsDefaultMetricsBackend() bool
 }
 
 // GetOtlpClientFromExpression evaluates an HCL expression expecting a client

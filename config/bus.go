@@ -149,12 +149,12 @@ func (h *BusBlockHandler) BuildEventBus(config *Config, busDef *BusDefinition, d
 		busBuilder = busBuilder.WithBufferSize(*busDef.QueueSize)
 	}
 
-	metricsProvider, diags := ResolveMetricsProvider(config, busDef.Metrics)
+	mp, diags := ResolveMeterProvider(config, busDef.Metrics)
 	if diags.HasErrors() {
 		return diags
 	}
-	if metricsProvider != nil {
-		busBuilder = busBuilder.WithMetrics(metricsProvider)
+	if mp != nil {
+		busBuilder = busBuilder.WithMeterProvider(mp)
 	}
 
 	tp, tracingDiags := config.ResolveTracerProvider(busDef.Tracing)
