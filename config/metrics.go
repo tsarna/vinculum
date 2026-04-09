@@ -9,7 +9,6 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/tsarna/vinculum-bus/o11y"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/otel/metric"
@@ -33,7 +32,6 @@ type MetricsRegistrar interface {
 	Listener
 	InstrumentMetrics
 	GetRegistry() *prometheus.Registry
-	GetMetricsProvider() o11y.MetricsProvider
 	IsDefaultServer() bool
 }
 
@@ -101,44 +99,6 @@ func (c *Config) GetDefaultMetricsRegistrar() (MetricsRegistrar, hcl.Diagnostics
 	}
 
 	// Multiple servers, none marked default
-	return nil, nil
-}
-
-// GetDefaultMetricsProvider returns the o11y.MetricsProvider from the default
-// MetricsRegistrar. See GetDefaultMetricsRegistrar for selection rules.
-func (c *Config) GetDefaultMetricsProvider() (o11y.MetricsProvider, hcl.Diagnostics) {
-	ms, diags := c.GetDefaultMetricsRegistrar()
-	if diags.HasErrors() || ms == nil {
-		return nil, diags
-	}
-	return ms.GetMetricsProvider(), nil
-}
-
-// ResolveMetricsProvider resolves an o11y.MetricsProvider from an optional HCL
-// expression. If the expression is provided it must reference a server "metrics"
-// or client "otlp" block. If omitted, the default metrics backend is used.
-// Returns nil, nil when no metrics backend is configured (metrics disabled).
-//
-// Deprecated: Use ResolveMeterProvider once consumers accept metric.MeterProvider.
-func ResolveMetricsProvider(config *Config, expr hcl.Expression) (o11y.MetricsProvider, hcl.Diagnostics) {
-	if IsExpressionProvided(expr) {
-		im, diags := GetInstrumentMetricsFromExpression(config, expr)
-		if diags.HasErrors() {
-			return nil, diags
-		}
-		if mp, ok := im.(interface{ GetMetricsProvider() o11y.MetricsProvider }); ok {
-			return mp.GetMetricsProvider(), nil
-		}
-		return nil, nil
-	}
-
-	im, diags := config.GetDefaultInstrumentMetrics()
-	if diags.HasErrors() || im == nil {
-		return nil, diags
-	}
-	if mp, ok := im.(interface{ GetMetricsProvider() o11y.MetricsProvider }); ok {
-		return mp.GetMetricsProvider(), nil
-	}
 	return nil, nil
 }
 

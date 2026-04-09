@@ -138,12 +138,12 @@ func ProcessVinculumWebsocketsServerBlock(config *cfg.Config, block *hcl.Block, 
 		}
 	}
 
-	metricsProvider, metricsDiags := cfg.ResolveMetricsProvider(config, serverDef.Metrics)
+	mp, metricsDiags := cfg.ResolveMeterProvider(config, serverDef.Metrics)
 	if metricsDiags.HasErrors() {
 		return nil, metricsDiags
 	}
-	if metricsProvider != nil {
-		listenerBuilder = listenerBuilder.WithMetricsProvider(metricsProvider)
+	if mp != nil {
+		listenerBuilder = listenerBuilder.WithMeterProvider(mp)
 	}
 
 	listener, err := listenerBuilder.Build()

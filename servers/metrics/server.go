@@ -9,9 +9,7 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/tsarna/vinculum-bus/o11y"
 	cfg "github.com/tsarna/vinculum/config"
-	"github.com/tsarna/vinculum/internal/promadapter"
 	metricsauth "github.com/tsarna/vinculum/servers/auth"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
@@ -27,7 +25,6 @@ import (
 type MetricsServer struct {
 	cfg.BaseServer
 	registry      *prometheus.Registry
-	provider      *promadapter.Provider
 	meterProvider *sdkmetric.MeterProvider
 	handler       http.Handler
 	listen        string         // empty = mounted mode only
@@ -41,12 +38,6 @@ type MetricsServer struct {
 // Implements cfg.HandlerServer.
 func (s *MetricsServer) GetHandler() http.Handler {
 	return s.handler
-}
-
-// GetMetricsProvider returns the o11y.MetricsProvider backed by this server's registry.
-// Implements cfg.MetricsRegistrar.
-func (s *MetricsServer) GetMetricsProvider() o11y.MetricsProvider {
-	return s.provider
 }
 
 // GetRegistry returns the underlying prometheus registry.
@@ -144,13 +135,11 @@ func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDe
 		}
 	}
 
-	provider := promadapter.New(reg)
 	handler := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
 
 	return &MetricsServer{
 		BaseServer:    cfg.BaseServer{Name: name, DefRange: defRange},
 		registry:      reg,
-		provider:      provider,
 		meterProvider: mp,
 		handler:       handler,
 		listen:        listen,

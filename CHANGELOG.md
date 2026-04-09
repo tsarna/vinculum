@@ -24,10 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Computed metrics use polling**: Computed metrics (`value = expr`) now evaluate on a fixed interval (default 15s) instead of at each Prometheus scrape. Configurable via `computed_interval`. OTLP push benefits from this change.
 - **Metric namespace separator**: `namespace` now uses dots for OTel instrument names (`namespace.name`) instead of underscores.
 
+### Removed
+
+- **`internal/promadapter` package deleted** — the `promadapter.Provider` (which bridged `prometheus.Registry` to `o11y.MetricsProvider`) is no longer needed since all consumers now use `metric.MeterProvider` directly.
+- **`GetMetricsProvider()` removed from `MetricsRegistrar` interface** — consumers use `GetMeterProvider()` instead.
+- **`GetDefaultMetricsProvider()` and `ResolveMetricsProvider()` removed** — replaced by `ResolveMeterProvider()`.
+- **`o11y.MetricsProvider` dependency removed** — vinculum no longer imports or uses the `o11y.MetricsProvider`, `Counter`, `Histogram`, `Gauge`, or `Label` types.
+
 ### Breaking Changes
 
 - **`server "metrics"`: `default` renamed to `default_metrics`** — Update existing HCL configs that use `default = true` on a `server "metrics"` block.
 - **Prometheus metric name changes**: The OTel-to-Prometheus exporter adds `_total` suffix to counters and converts dots to underscores. Go runtime metric names have changed (e.g. `go_goroutines` to `go_goroutine_count`). Dashboard queries may need updating.
+- **`client "kafka"` / `client "mqtt"` / `server "vws"` / `server "websocket"` metrics API** — these now use `WithMeterProvider(metric.MeterProvider)` instead of `WithMetricsProvider(o11y.MetricsProvider)`. Metric names follow OTel semantic conventions. Requires vinculum-bus v0.11.0, vinculum-kafka v0.8.0, vinculum-mqtt v0.6.0, vinculum-vws v0.11.0.
 
 ## [0.23.0] - 2026-04-07
 

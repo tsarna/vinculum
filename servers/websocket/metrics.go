@@ -4,7 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/tsarna/vinculum-bus/o11y"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // WebSocketMetrics defines the metrics collected by the simple WebSocket server.
@@ -12,37 +13,70 @@ import (
 // important connection and message metrics.
 type WebSocketMetrics struct {
 	// Connection metrics
-	activeConnections  o11y.Gauge     // Current number of active WebSocket connections
-	totalConnections   o11y.Counter   // Total number of connections established
-	connectionDuration o11y.Histogram // Duration of WebSocket connections
-	connectionErrors   o11y.Counter   // Number of connection errors (upgrade failures, etc.)
+	activeConnections  metric.Float64Gauge    // websocket.active_connections
+	totalConnections   metric.Int64Counter    // websocket.connections
+	connectionDuration metric.Float64Histogram // websocket.connection.duration
+	connectionErrors   metric.Int64Counter    // websocket.connection.errors
 
 	// Message metrics
-	messagesReceived o11y.Counter   // Total messages received from clients
-	messagesSent     o11y.Counter   // Total messages sent to clients
-	messageErrors    o11y.Counter   // Number of message processing errors
-	messageSize      o11y.Histogram // Size distribution of messages (bytes)
+	messagesReceived metric.Int64Counter    // websocket.received.messages
+	messagesSent     metric.Int64Counter    // websocket.sent.messages
+	messageErrors    metric.Int64Counter    // websocket.message.errors
+	messageSize      metric.Float64Histogram // websocket.message.size
 }
 
-// NewWebSocketMetrics creates a new WebSocketMetrics instance using the provided MetricsProvider.
+// NewWebSocketMetrics creates a new WebSocketMetrics instance using the provided MeterProvider.
 // If the provider is nil, returns nil (no metrics will be collected).
-func NewWebSocketMetrics(provider o11y.MetricsProvider) *WebSocketMetrics {
-	if provider == nil {
+func NewWebSocketMetrics(mp metric.MeterProvider) *WebSocketMetrics {
+	if mp == nil {
 		return nil
 	}
 
-	return &WebSocketMetrics{
-		// Connection metrics
-		activeConnections:  provider.Gauge("simple_websocket_active_connections"),
-		totalConnections:   provider.Counter("simple_websocket_connections_total"),
-		connectionDuration: provider.Histogram("simple_websocket_connection_duration_seconds"),
-		connectionErrors:   provider.Counter("simple_websocket_connection_errors_total"),
+	meter := mp.Meter("github.com/tsarna/vinculum/servers/websocket")
 
-		// Message metrics
-		messagesReceived: provider.Counter("simple_websocket_messages_received_total"),
-		messagesSent:     provider.Counter("simple_websocket_messages_sent_total"),
-		messageErrors:    provider.Counter("simple_websocket_message_errors_total"),
-		messageSize:      provider.Histogram("simple_websocket_message_size_bytes"),
+	ac, _ := meter.Float64Gauge("websocket.active_connections",
+		metric.WithUnit("{connection}"),
+		metric.WithDescription("Current number of active WebSocket connections"),
+	)
+	tc, _ := meter.Int64Counter("websocket.connections",
+		metric.WithUnit("{connection}"),
+		metric.WithDescription("Total WebSocket connections established"),
+	)
+	cd, _ := meter.Float64Histogram("websocket.connection.duration",
+		metric.WithUnit("s"),
+		metric.WithDescription("Duration of WebSocket connections"),
+	)
+	ce, _ := meter.Int64Counter("websocket.connection.errors",
+		metric.WithUnit("{error}"),
+		metric.WithDescription("WebSocket connection errors"),
+	)
+
+	mr, _ := meter.Int64Counter("websocket.received.messages",
+		metric.WithUnit("{message}"),
+		metric.WithDescription("Messages received from WebSocket clients"),
+	)
+	ms, _ := meter.Int64Counter("websocket.sent.messages",
+		metric.WithUnit("{message}"),
+		metric.WithDescription("Messages sent to WebSocket clients"),
+	)
+	me, _ := meter.Int64Counter("websocket.message.errors",
+		metric.WithUnit("{error}"),
+		metric.WithDescription("WebSocket message processing errors"),
+	)
+	msz, _ := meter.Float64Histogram("websocket.message.size",
+		metric.WithUnit("By"),
+		metric.WithDescription("Size of WebSocket messages"),
+	)
+
+	return &WebSocketMetrics{
+		activeConnections:  ac,
+		totalConnections:   tc,
+		connectionDuration: cd,
+		connectionErrors:   ce,
+		messagesReceived:   mr,
+		messagesSent:       ms,
+		messageErrors:      me,
+		messageSize:        msz,
 	}
 }
 
@@ -61,7 +95,7 @@ func (m *WebSocketMetrics) RecordConnectionActive(ctx context.Context, count int
 	if m == nil {
 		return
 	}
-	m.activeConnections.Set(ctx, float64(count))
+	m.activeConnections.Record(ctx, float64(count))
 }
 
 // RecordConnectionEnd records when a WebSocket connection ends and its duration.
@@ -77,7 +111,7 @@ func (m *WebSocketMetrics) RecordConnectionError(ctx context.Context, errorType 
 	if m == nil {
 		return
 	}
-	m.connectionErrors.Add(ctx, 1, o11y.Label{Key: "error_type", Value: errorType})
+	m.connectionErrors.Add(ctx, 1, metric.WithAttributes(attribute.String("error.type", errorType)))
 }
 
 // Message metrics
@@ -87,8 +121,8 @@ func (m *WebSocketMetrics) RecordMessageReceived(ctx context.Context, sizeBytes 
 	if m == nil {
 		return
 	}
-	m.messagesReceived.Add(ctx, 1, o11y.Label{Key: "type", Value: messageType})
-	m.messageSize.Record(ctx, float64(sizeBytes), o11y.Label{Key: "direction", Value: "received"})
+	m.messagesReceived.Add(ctx, 1, metric.WithAttributes(attribute.String("websocket.message.type", messageType)))
+	m.messageSize.Record(ctx, float64(sizeBytes), metric.WithAttributes(attribute.String("websocket.message.direction", "received")))
 }
 
 // RecordMessageSent records when a message is sent to a client.
@@ -96,8 +130,8 @@ func (m *WebSocketMetrics) RecordMessageSent(ctx context.Context, sizeBytes int,
 	if m == nil {
 		return
 	}
-	m.messagesSent.Add(ctx, 1, o11y.Label{Key: "type", Value: messageType})
-	m.messageSize.Record(ctx, float64(sizeBytes), o11y.Label{Key: "direction", Value: "sent"})
+	m.messagesSent.Add(ctx, 1, metric.WithAttributes(attribute.String("websocket.message.type", messageType)))
+	m.messageSize.Record(ctx, float64(sizeBytes), metric.WithAttributes(attribute.String("websocket.message.direction", "sent")))
 }
 
 // RecordMessageError records message processing errors.
@@ -105,9 +139,8 @@ func (m *WebSocketMetrics) RecordMessageError(ctx context.Context, errorType str
 	if m == nil {
 		return
 	}
-	labels := []o11y.Label{
-		{Key: "error_type", Value: errorType},
-		{Key: "type", Value: messageType},
-	}
-	m.messageErrors.Add(ctx, 1, labels...)
+	m.messageErrors.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("error.type", errorType),
+		attribute.String("websocket.message.type", messageType),
+	))
 }
