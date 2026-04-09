@@ -55,6 +55,9 @@ var procedureBreakOutsideVCL []byte
 //go:embed testdata/procedure_continue_outside.vcl
 var procedureContinueOutsideVCL []byte
 
+//go:embed testdata/procedure_range.vcl
+var procedureRangeVCL []byte
+
 func TestProcedureBasic(t *testing.T) {
 	_, diags := NewConfig().WithSources(procedureBasicVCL).WithLogger(procTestLogger(t)).Build()
 	if diags.HasErrors() {
@@ -143,5 +146,12 @@ func TestProcedureContinueOutsideLoop(t *testing.T) {
 	_, diags := NewConfig().WithSources(procedureContinueOutsideVCL).WithLogger(procTestLogger(t)).Build()
 	if !diags.HasErrors() {
 		t.Fatal("expected diagnostics for continue outside loop, got none")
+	}
+}
+
+func TestProcedureRange(t *testing.T) {
+	_, diags := NewConfig().WithSources(procedureRangeVCL).WithLogger(procTestLogger(t)).Build()
+	if diags.HasErrors() {
+		t.Fatal(diags)
 	}
 }

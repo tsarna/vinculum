@@ -33,19 +33,6 @@ func executeStatement(stmt Statement, scope *Scope, parentCtx *hcl.EvalContext) 
 		scope.Set(s.Name, val)
 		return nil, nil
 
-	case *Return:
-		val, diags := s.Expr.Value(evalCtx)
-		if diags.HasErrors() {
-			return nil, diags
-		}
-		return &Signal{Kind: SignalReturn, Value: val}, nil
-
-	case *IfChain:
-		return executeIfChain(s, scope, parentCtx)
-
-	case *While:
-		return executeWhile(s, scope, parentCtx)
-
 	case *Break:
 		condVal, diags := s.Condition.Value(evalCtx)
 		if diags.HasErrors() {
@@ -65,6 +52,22 @@ func executeStatement(stmt Statement, scope *Scope, parentCtx *hcl.EvalContext) 
 			return &Signal{Kind: SignalContinue}, nil
 		}
 		return nil, nil
+
+	case *IfChain:
+		return executeIfChain(s, scope, parentCtx)
+
+	case *Range:
+		return executeRange(s, scope, parentCtx)
+
+	case *Return:
+		val, diags := s.Expr.Value(evalCtx)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		return &Signal{Kind: SignalReturn, Value: val}, nil
+
+	case *While:
+		return executeWhile(s, scope, parentCtx)
 
 	default:
 		return nil, hcl.Diagnostics{{
@@ -134,6 +137,66 @@ func executeWhile(w *While, scope *Scope, parentCtx *hcl.EvalContext) (*Signal, 
 				continue // consume continue, next iteration
 			case SignalReturn:
 				return sig, nil // propagate return
+			}
+		}
+	}
+	return nil, nil
+}
+
+// executeRange iterates over a collection (list, tuple, set, or map/object),
+// binding each element to the item variable. For maps/objects, the item is an
+// object with .key and .value attributes. Signal handling matches executeWhile.
+func executeRange(r *Range, scope *Scope, parentCtx *hcl.EvalContext) (*Signal, hcl.Diagnostics) {
+	evalCtx := scopeEvalContext(scope, parentCtx)
+	collVal, diags := r.Collection.Value(evalCtx)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	collType := collVal.Type()
+
+	var items []cty.Value
+
+	switch {
+	case collType.IsListType() || collType.IsTupleType() || collType.IsSetType():
+		for it := collVal.ElementIterator(); it.Next(); {
+			_, v := it.Element()
+			items = append(items, v)
+		}
+	case collType.IsObjectType() || collType.IsMapType():
+		for it := collVal.ElementIterator(); it.Next(); {
+			k, v := it.Element()
+			entry := cty.ObjectVal(map[string]cty.Value{
+				"key":   k,
+				"value": v,
+			})
+			items = append(items, entry)
+		}
+	default:
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "Invalid range collection",
+			Detail:   "range requires a list, set, map, or object value.",
+			Subject:  r.Collection.Range().Ptr(),
+		}}
+	}
+
+	for _, item := range items {
+		childScope := NewScope(scope)
+		childScope.Set(r.ItemName, item)
+
+		_, sig, execDiags := Execute(r.Body, childScope, parentCtx)
+		if execDiags.HasErrors() {
+			return nil, execDiags
+		}
+		if sig != nil {
+			switch sig.Kind {
+			case SignalBreak:
+				return nil, nil
+			case SignalContinue:
+				continue
+			case SignalReturn:
+				return sig, nil
 			}
 		}
 	}

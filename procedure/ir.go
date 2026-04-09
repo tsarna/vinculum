@@ -64,3 +64,13 @@ type Continue struct {
 }
 
 func (c *Continue) stmtRange() hcl.Range { return c.SrcRange }
+
+// Range represents a range loop: range "item" "collection_expr" { ... }
+type Range struct {
+	ItemName   string         // iteration variable name
+	Collection hcl.Expression // parsed from label
+	Body       []Statement
+	SrcRange   hcl.Range
+}
+
+func (r *Range) stmtRange() hcl.Range { return r.SrcRange }

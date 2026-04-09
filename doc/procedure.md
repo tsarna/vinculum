@@ -193,6 +193,29 @@ reach the containing loop. Using `break` or `continue` outside of any loop is a
 compile-time error. Statements after an unconditional `break = true` or
 `continue = true` in the same scope are unreachable and produce a compile-time error.
 
+### Range
+
+```hcl
+range "item" "collection_expr" {
+    # ...
+}
+```
+
+Two labels: the first is a bare identifier naming the iteration variable; the second
+is a quoted HCL expression that evaluates to a collection (list, set, or map). On each
+iteration, the item variable is bound in the block's scope to the current element.
+
+For maps and objects, the iteration variable is an object with `.key` and `.value`
+attributes:
+
+```hcl
+range "entry" "my_map" {
+    _1 = log_debug(entry.key, entry.value)
+}
+```
+
+Break, continue, and return work inside range loops the same as in while loops.
+
 ---
 
 ## Example
@@ -261,6 +284,26 @@ procedure "sum_to" {
     while "i < n" {
         i = i + 1
         total = total + i
+    }
+
+    return = total
+}
+```
+
+An example with a range loop:
+
+```hcl
+procedure "sum_list" {
+    spec {
+        params {
+            items = required
+        }
+    }
+
+    total = 0
+
+    range "item" "items" {
+        total = total + item
     }
 
     return = total

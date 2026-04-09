@@ -108,8 +108,6 @@ func compileBlock(items []bodyItem, idx int, loopDepth int) (Statement, int, hcl
 	switch block.Type {
 	case "if":
 		return compileIfChain(items, idx, loopDepth)
-	case "while":
-		return compileWhile(block, loopDepth)
 	case "elif":
 		return nil, 0, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
@@ -124,6 +122,10 @@ func compileBlock(items []bodyItem, idx int, loopDepth int) (Statement, int, hcl
 			Detail:   "else must immediately follow an if or elif block.",
 			Subject:  block.DefRange().Ptr(),
 		}}
+	case "range":
+		return compileRange(block, loopDepth)
+	case "while":
+		return compileWhile(block, loopDepth)
 	default:
 		return nil, 0, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
@@ -281,6 +283,43 @@ func compileWhile(block *hclsyntax.Block, loopDepth int) (Statement, int, hcl.Di
 		Condition: condExpr,
 		Body:      bodyStmts,
 		SrcRange:  block.Range(),
+	}, 0, nil
+}
+
+// compileRange compiles a range block into a Range IR node.
+func compileRange(block *hclsyntax.Block, loopDepth int) (Statement, int, hcl.Diagnostics) {
+	if len(block.Labels) != 2 {
+		return nil, 0, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "Invalid range block",
+			Detail:   "range requires exactly two labels: an item variable name and a quoted collection expression.",
+			Subject:  block.DefRange().Ptr(),
+		}}
+	}
+
+	itemName := block.Labels[0]
+
+	collExpr, diags := hclsyntax.ParseExpression(
+		[]byte(block.Labels[1]),
+		block.DefRange().Filename,
+		block.DefRange().Start,
+	)
+	if diags.HasErrors() {
+		return nil, 0, diags
+	}
+
+	bodyItems := sortBodyItems(block.Body)
+	bodyStmts, bodyDiags := compileItems(bodyItems, loopDepth+1)
+	diags = diags.Extend(bodyDiags)
+	if bodyDiags.HasErrors() {
+		return nil, 0, diags
+	}
+
+	return &Range{
+		ItemName:   itemName,
+		Collection: collExpr,
+		Body:       bodyStmts,
+		SrcRange:   block.Range(),
 	}, 0, nil
 }
 
