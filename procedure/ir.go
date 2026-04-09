@@ -74,3 +74,20 @@ type Range struct {
 }
 
 func (r *Range) stmtRange() hcl.Range { return r.SrcRange }
+
+// Switch represents a switch/case/default block.
+type Switch struct {
+	Subject  hcl.Expression
+	Cases    []Case
+	Default  []Statement // nil if no default clause
+	SrcRange hcl.Range
+}
+
+func (s *Switch) stmtRange() hcl.Range { return s.SrcRange }
+
+// Case is a single case within a switch, with a value expression and body.
+type Case struct {
+	Value    hcl.Expression
+	Body     []Statement
+	SrcRange hcl.Range
+}

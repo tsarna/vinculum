@@ -124,6 +124,8 @@ func compileBlock(items []bodyItem, idx int, loopDepth int) (Statement, int, hcl
 		}}
 	case "range":
 		return compileRange(block, loopDepth)
+	case "switch":
+		return compileSwitch(block, loopDepth)
 	case "while":
 		return compileWhile(block, loopDepth)
 	default:
@@ -323,6 +325,122 @@ func compileRange(block *hclsyntax.Block, loopDepth int) (Statement, int, hcl.Di
 	}, 0, nil
 }
 
+// compileSwitch compiles a switch block into a Switch IR node.
+func compileSwitch(block *hclsyntax.Block, loopDepth int) (Statement, int, hcl.Diagnostics) {
+	if len(block.Labels) != 1 {
+		return nil, 0, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "Invalid switch block",
+			Detail:   "switch requires exactly one label: a quoted subject expression.",
+			Subject:  block.DefRange().Ptr(),
+		}}
+	}
+
+	subjExpr, diags := hclsyntax.ParseExpression(
+		[]byte(block.Labels[0]),
+		block.DefRange().Filename,
+		block.DefRange().Start,
+	)
+	if diags.HasErrors() {
+		return nil, 0, diags
+	}
+
+	// Validate: no attributes directly in switch body
+	if len(block.Body.Attributes) > 0 {
+		// Pick the first attribute for the error location
+		for _, attr := range block.Body.Attributes {
+			return nil, 0, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "Assignment in switch body",
+				Detail:   "Assignments are not allowed directly inside a switch block. Only case and default blocks are permitted.",
+				Subject:  attr.SrcRange.Ptr(),
+			}}
+		}
+	}
+
+	sw := &Switch{
+		Subject:  subjExpr,
+		SrcRange: block.Range(),
+	}
+
+	for _, inner := range block.Body.Blocks {
+		switch inner.Type {
+		case "case":
+			if len(inner.Labels) != 1 {
+				diags = diags.Append(&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "Invalid case block",
+					Detail:   "case requires exactly one label: a quoted value expression.",
+					Subject:  inner.DefRange().Ptr(),
+				})
+				return nil, 0, diags
+			}
+
+			valExpr, parseDiags := hclsyntax.ParseExpression(
+				[]byte(inner.Labels[0]),
+				inner.DefRange().Filename,
+				inner.DefRange().Start,
+			)
+			diags = diags.Extend(parseDiags)
+			if parseDiags.HasErrors() {
+				return nil, 0, diags
+			}
+
+			bodyItems := sortBodyItems(inner.Body)
+			bodyStmts, bodyDiags := compileItems(bodyItems, loopDepth)
+			diags = diags.Extend(bodyDiags)
+			if bodyDiags.HasErrors() {
+				return nil, 0, diags
+			}
+
+			sw.Cases = append(sw.Cases, Case{
+				Value:    valExpr,
+				Body:     bodyStmts,
+				SrcRange: inner.Range(),
+			})
+
+		case "default":
+			if sw.Default != nil {
+				diags = diags.Append(&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "Duplicate default",
+					Detail:   "Only one default block is allowed per switch.",
+					Subject:  inner.DefRange().Ptr(),
+				})
+				return nil, 0, diags
+			}
+			if len(inner.Labels) > 0 {
+				diags = diags.Append(&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "Invalid default block",
+					Detail:   "default takes no labels.",
+					Subject:  inner.DefRange().Ptr(),
+				})
+				return nil, 0, diags
+			}
+
+			bodyItems := sortBodyItems(inner.Body)
+			bodyStmts, bodyDiags := compileItems(bodyItems, loopDepth)
+			diags = diags.Extend(bodyDiags)
+			if bodyDiags.HasErrors() {
+				return nil, 0, diags
+			}
+			sw.Default = bodyStmts
+
+		default:
+			diags = diags.Append(&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Unexpected block in switch",
+				Detail:   fmt.Sprintf("Block type %q is not allowed inside a switch. Only case and default are permitted.", inner.Type),
+				Subject:  inner.DefRange().Ptr(),
+			})
+			return nil, 0, diags
+		}
+	}
+
+	return sw, 0, diags
+}
+
 // alwaysTerminates returns true if a statement unconditionally exits the
 // procedure (or the current scope, for unreachable code detection).
 func alwaysTerminates(stmt Statement) bool {
@@ -331,7 +449,7 @@ func alwaysTerminates(stmt Statement) bool {
 		return true
 	case *IfChain:
 		if s.Else == nil {
-			return false // no else means the chain might not execute anything
+			return false
 		}
 		for _, branch := range s.Branches {
 			if !bodyAlwaysTerminates(branch.Body) {
@@ -339,6 +457,16 @@ func alwaysTerminates(stmt Statement) bool {
 			}
 		}
 		return bodyAlwaysTerminates(s.Else)
+	case *Switch:
+		if s.Default == nil {
+			return false
+		}
+		for _, c := range s.Cases {
+			if !bodyAlwaysTerminates(c.Body) {
+				return false
+			}
+		}
+		return bodyAlwaysTerminates(s.Default)
 	default:
 		return false
 	}

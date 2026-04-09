@@ -216,6 +216,34 @@ range "entry" "my_map" {
 
 Break, continue, and return work inside range loops the same as in while loops.
 
+### Switch / Case / Default
+
+```hcl
+switch "subject_expr" {
+    case "value_expr" {
+        # ...
+    }
+    case "value_expr" {
+        # ...
+    }
+    default {
+        # ...
+    }
+}
+```
+
+`switch` takes a single label: a quoted HCL expression (the subject). Inside the
+switch body, only `case` and `default` blocks are permitted; assignments directly in
+the switch body are a compile-time error.
+
+At runtime, the subject expression is evaluated once. Each `case` label expression is
+then evaluated in source order and compared to the subject for equality. The first
+matching case executes its body; no other cases are tested (no fallthrough). If no case
+matches, the `default` body executes if present.
+
+At most one `default` block is allowed. Each case and default body introduces a new
+child scope.
+
 ---
 
 ## Example

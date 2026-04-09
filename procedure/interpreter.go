@@ -66,6 +66,9 @@ func executeStatement(stmt Statement, scope *Scope, parentCtx *hcl.EvalContext) 
 		}
 		return &Signal{Kind: SignalReturn, Value: val}, nil
 
+	case *Switch:
+		return executeSwitch(s, scope, parentCtx)
+
 	case *While:
 		return executeWhile(s, scope, parentCtx)
 
@@ -106,6 +109,43 @@ func executeIfChain(chain *IfChain, scope *Scope, parentCtx *hcl.EvalContext) (*
 		}
 		return sig, nil
 	}
+	return nil, nil
+}
+
+// executeSwitch evaluates the subject expression once, then compares it against
+// each case value in source order. The first matching case body is executed.
+// If no case matches, the default body (if any) is executed.
+func executeSwitch(sw *Switch, scope *Scope, parentCtx *hcl.EvalContext) (*Signal, hcl.Diagnostics) {
+	evalCtx := scopeEvalContext(scope, parentCtx)
+	subjVal, diags := sw.Subject.Value(evalCtx)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	for _, c := range sw.Cases {
+		caseVal, caseDiags := c.Value.Value(evalCtx)
+		if caseDiags.HasErrors() {
+			return nil, caseDiags
+		}
+		if subjVal.Equals(caseVal).True() {
+			childScope := NewScope(scope)
+			_, sig, execDiags := Execute(c.Body, childScope, parentCtx)
+			if execDiags.HasErrors() {
+				return nil, execDiags
+			}
+			return sig, nil
+		}
+	}
+
+	if sw.Default != nil {
+		childScope := NewScope(scope)
+		_, sig, execDiags := Execute(sw.Default, childScope, parentCtx)
+		if execDiags.HasErrors() {
+			return nil, execDiags
+		}
+		return sig, nil
+	}
+
 	return nil, nil
 }
 

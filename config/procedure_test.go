@@ -58,6 +58,15 @@ var procedureContinueOutsideVCL []byte
 //go:embed testdata/procedure_range.vcl
 var procedureRangeVCL []byte
 
+//go:embed testdata/procedure_switch.vcl
+var procedureSwitchVCL []byte
+
+//go:embed testdata/procedure_switch_assign.vcl
+var procedureSwitchAssignVCL []byte
+
+//go:embed testdata/procedure_switch_double_default.vcl
+var procedureSwitchDoubleDefaultVCL []byte
+
 func TestProcedureBasic(t *testing.T) {
 	_, diags := NewConfig().WithSources(procedureBasicVCL).WithLogger(procTestLogger(t)).Build()
 	if diags.HasErrors() {
@@ -153,5 +162,26 @@ func TestProcedureRange(t *testing.T) {
 	_, diags := NewConfig().WithSources(procedureRangeVCL).WithLogger(procTestLogger(t)).Build()
 	if diags.HasErrors() {
 		t.Fatal(diags)
+	}
+}
+
+func TestProcedureSwitch(t *testing.T) {
+	_, diags := NewConfig().WithSources(procedureSwitchVCL).WithLogger(procTestLogger(t)).Build()
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+}
+
+func TestProcedureSwitchAssignError(t *testing.T) {
+	_, diags := NewConfig().WithSources(procedureSwitchAssignVCL).WithLogger(procTestLogger(t)).Build()
+	if !diags.HasErrors() {
+		t.Fatal("expected diagnostics for assignment in switch body, got none")
+	}
+}
+
+func TestProcedureSwitchDoubleDefault(t *testing.T) {
+	_, diags := NewConfig().WithSources(procedureSwitchDoubleDefaultVCL).WithLogger(procTestLogger(t)).Build()
+	if !diags.HasErrors() {
+		t.Fatal("expected diagnostics for duplicate default, got none")
 	}
 }
