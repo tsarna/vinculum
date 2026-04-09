@@ -18,8 +18,8 @@ Since procedures are both somewhat clunky and limited, if you find yourself bump
 procedure "name" {
     spec {
         params {
-            req   = null    # required parameter (no default)
-            limit = 10      # optional parameter, defaults to 10
+            req   = required  # required parameter (no default)
+            limit = 10        # optional parameter, defaults to 10
         }
 
         variadic_param = extra_args   # optional
@@ -48,16 +48,18 @@ parameter: the name is the parameter name, and the value is the default.
 ```hcl
 spec {
     params {
-        req     = null    # required — caller must provide
-        limit   = 10      # optional — defaults to 10
-        verbose = false   # optional — defaults to false
+        req     = required  # required — caller must provide
+        limit   = 10        # optional — defaults to 10
+        verbose = false     # optional — defaults to false
+        label   = null      # optional — defaults to null
     }
 }
 ```
 
-A value of `null` means the parameter is required. Any other value becomes the default,
-making the parameter optional. Required parameters must precede optional parameters in
-source order.
+The special value `required` marks a parameter as required — the caller must supply an
+argument for it. Any other value (including `null`) becomes the default, making the
+parameter optional. Required parameters must precede optional parameters in source
+order.
 
 Parameters are mapped to positional arguments in source order (determined by byte
 offset in the source file).
@@ -70,7 +72,7 @@ arguments into a list:
 ```hcl
 spec {
     params {
-        url = null
+        url = required
     }
     variadic_param = headers
 }
@@ -199,8 +201,8 @@ compile-time error. Statements after an unconditional `break = true` or
 procedure "add" {
     spec {
         params {
-            a = null
-            b = null
+            a = required
+            b = required
         }
     }
 
@@ -227,7 +229,7 @@ A more complete example with conditionals:
 procedure "classify" {
     spec {
         params {
-            n = null
+            n = required
         }
     }
 
@@ -249,7 +251,7 @@ An example with a while loop:
 procedure "sum_to" {
     spec {
         params {
-            n = null
+            n = required
         }
     }
 

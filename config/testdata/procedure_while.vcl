@@ -1,7 +1,7 @@
 procedure "countdown" {
     spec {
         params {
-            n = null
+            n = required
         }
     }
 
@@ -18,7 +18,7 @@ procedure "countdown" {
 procedure "sum_to" {
     spec {
         params {
-            n = null
+            n = required
         }
     }
 
@@ -36,7 +36,7 @@ procedure "sum_to" {
 procedure "find_first_even" {
     spec {
         params {
-            items = null
+            items = required
         }
     }
 
@@ -61,8 +61,8 @@ procedure "find_first_even" {
 procedure "nested_loops" {
     spec {
         params {
-            rows = null
-            cols = null
+            rows = required
+            cols = required
         }
     }
 
@@ -84,8 +84,8 @@ procedure "nested_loops" {
 procedure "early_return_in_loop" {
     spec {
         params {
-            items = null
-            target = null
+            items = required
+            target = required
         }
     }
 
@@ -104,7 +104,7 @@ procedure "early_return_in_loop" {
 procedure "conditional_break" {
     spec {
         params {
-            limit = null
+            limit = required
         }
     }
 

@@ -1,7 +1,7 @@
 procedure "all_branches_return" {
     spec {
         params {
-            x = null
+            x = required
         }
     }
 

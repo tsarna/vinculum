@@ -1,7 +1,7 @@
 procedure "sum_all" {
     spec {
         params {
-            first = null
+            first = required
         }
         variadic_param = rest
     }

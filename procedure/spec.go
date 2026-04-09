@@ -2,6 +2,7 @@ package procedure
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -11,11 +12,35 @@ import (
 	"github.com/zclconf/go-cty/cty/function"
 )
 
+// requiredMarker is the Go type backing the "required" sentinel capsule value.
+type requiredMarker struct{}
+
+// RequiredType is the cty capsule type for the "required" sentinel.
+var RequiredType = cty.CapsuleWithOps("required", reflect.TypeOf(requiredMarker{}), &cty.CapsuleOps{})
+
+// RequiredVal is the sentinel value that marks a procedure parameter as required.
+var RequiredVal = cty.CapsuleVal(RequiredType, &requiredMarker{})
+
+// isRequired returns true if the value is the "required" sentinel.
+func isRequired(v cty.Value) bool {
+	return v.Type() == RequiredType
+}
+
 // ProcSpec holds the parsed spec block information for a procedure.
 type ProcSpec struct {
 	ParamNames    []string    // parameter names in source order
 	ParamDefaults []cty.Value // parallel to ParamNames; cty.NilVal means required
 	VariadicParam string      // empty if no variadic parameter
+}
+
+// ParamsEvalContext returns an EvalContext with the "required" sentinel bound,
+// for use when evaluating parameter default expressions.
+func ParamsEvalContext() *hcl.EvalContext {
+	return &hcl.EvalContext{
+		Variables: map[string]cty.Value{
+			"required": RequiredVal,
+		},
+	}
 }
 
 // ParseSpec extracts and parses the spec block from a procedure body.
@@ -210,13 +235,13 @@ func parseParams(body *hclsyntax.Body, spec *ProcSpec) hcl.Diagnostics {
 			}}
 		}
 
-		// Evaluate the default value in an empty context
-		val, diags := p.attr.Expr.Value(nil)
+		// Evaluate the default value with "required" sentinel available
+		val, diags := p.attr.Expr.Value(ParamsEvalContext())
 		if diags.HasErrors() {
 			return diags
 		}
 
-		if val.IsNull() {
+		if isRequired(val) {
 			// Required parameter
 			if seenOptional {
 				return hcl.Diagnostics{{
@@ -229,7 +254,7 @@ func parseParams(body *hclsyntax.Body, spec *ProcSpec) hcl.Diagnostics {
 			spec.ParamNames = append(spec.ParamNames, p.name)
 			spec.ParamDefaults = append(spec.ParamDefaults, cty.NilVal)
 		} else {
-			// Optional parameter with default
+			// Optional parameter with default (null is a valid default)
 			seenOptional = true
 			spec.ParamNames = append(spec.ParamNames, p.name)
 			spec.ParamDefaults = append(spec.ParamDefaults, val)

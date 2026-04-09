@@ -1,7 +1,7 @@
 procedure "classify" {
     spec {
         params {
-            n = null
+            n = required
         }
     }
 
@@ -19,7 +19,7 @@ procedure "classify" {
 procedure "my_abs" {
     spec {
         params {
-            n = null
+            n = required
         }
     }
 
@@ -33,7 +33,7 @@ procedure "my_abs" {
 procedure "nested_if" {
     spec {
         params {
-            x = null
+            x = required
         }
     }
 
@@ -52,7 +52,7 @@ procedure "nested_if" {
 procedure "if_no_else" {
     spec {
         params {
-            x = null
+            x = required
         }
     }
 

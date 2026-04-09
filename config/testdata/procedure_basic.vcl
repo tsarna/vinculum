@@ -1,8 +1,8 @@
 procedure "add" {
     spec {
         params {
-            a = null
-            b = null
+            a = required
+            b = required
         }
     }
 
@@ -28,12 +28,24 @@ procedure "no_return" {
     x = 1
 }
 
+procedure "null_default" {
+    spec {
+        params {
+            val = null
+        }
+    }
+
+    return = val
+}
+
 const {
     sum     = add(3, 4)
     hello   = greet()
     hello2  = greet("Claude")
     fixed   = no_spec()
     nothing = no_return()
+    nd1     = null_default()
+    nd2     = null_default("provided")
 }
 
 assert "sum" {
@@ -54,4 +66,12 @@ assert "fixed" {
 
 assert "nothing" {
     condition = (nothing == null)
+}
+
+assert "nd1" {
+    condition = (nd1 == null)
+}
+
+assert "nd2" {
+    condition = (nd2 == "provided")
 }

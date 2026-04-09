@@ -1,7 +1,7 @@
 procedure "with_discard" {
     spec {
         params {
-            x = null
+            x = required
         }
     }
 
