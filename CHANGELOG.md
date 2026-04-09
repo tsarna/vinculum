@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-04-09
+
 ### Added
 
 - **OTel-native metrics**: All metrics are now OpenTelemetry SDK-native. `metric` blocks create OTel instruments via a `MeterProvider`; `server "metrics"` bridges them to Prometheus exposition using the OTel-to-Prometheus exporter. `client "otlp"` can now push metrics via OTLP in addition to traces.
