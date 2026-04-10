@@ -3,7 +3,6 @@ package llm
 
 import (
 	cfg "github.com/tsarna/vinculum/config"
-	"github.com/tsarna/vinculum/ctyutil"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -71,8 +70,3 @@ type BaseClient struct {
 	MaxTokens   *int
 	Temperature *float32
 }
-
-// Re-export ctyutil helpers under their original names for convenience.
-var GetStringAttr = ctyutil.GetStringAttr
-var GetIntAttr = ctyutil.GetIntAttr
-var GetFloat32Attr = ctyutil.GetFloat32Attr
