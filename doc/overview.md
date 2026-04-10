@@ -3,21 +3,19 @@
 ## Table of Contents
 
 1. [Introduction](#introduction)
-2. [Core Concepts and Features](#core-concepts)
-3. [Features](#features)
-4. [Configuration Language](config.md)
-5. [Built-in Functions](functions.md)
-6. [Editor Blocks](editor.md)
-7. [Procedure Blocks](procedure.md)
-8. [Message Transforms](transforms.md)
-9. [MCP Server](server-mcp.md)
-10. [HTTP Server](server-http.md)
-11. [VWS Server & Client](server-vws.md)
-12. [Simple WebSocket Server](server-websocket.md)
-13. [Protocols and Transports](#protocols-and-transports)
-14. [Advanced Topics](#advanced-topics)
-15. [Examples](#examples)
-16. [API Reference](#api-reference)
+2. [Core Concepts](#core-concepts)
+3. [Triggers](#triggers)
+4. [Configuration Language](#configuration-language)
+5. [Built-in Functions](#built-in-functions)
+6. [Message Transforms](#message-transforms)
+7. [Procedures](#procedures)
+8. [Editors](#editors)
+9. [Metrics](#metrics)
+10. [Servers](#servers)
+11. [Clients](#clients)
+12. [Examples](#examples)
+13. [Observability](#observability)
+14. [Block Type Reference](#block-type-reference)
 
 ## Introduction
 
@@ -28,19 +26,22 @@ Think of it like a Swiss Army Knife for communications.
 While it isn't the best tool for demanding tasks where you would want a purpose-built tool, it can perform a large variety of tasks adequately.
 Like a Swiss Army Knife, it's a handy thing to have in your pocket, allowing you to quickly MacGyver together a solution.
 
-For example, with a few lines of configuration, you could create:
-
-TODO examples
+See the [examples/](../examples/) directory for working configurations, including a dynamic
+DNS zone updater that exposes an authenticated HTTP endpoint and uses an `editor "line"`
+block to safely rewrite BIND zone files in place.
 
 ### Key Features
 
-- **Configuraton via files in Hashicorp Config Language (HCL), similar to Terraform**
-- **Publish/Subscribe Messaging**
-- **Suport for many different protocols**
-- **A "cron-like" scheduler**
-- **JSON data transformations using the JQ language**
+- **HCL Configuration** — Declarative configuration in HashiCorp Config Language (similar to Terraform), with constants, expressions, and assertions
+- **Publish/Subscribe Messaging** — One or more event buses with MQTT-style topic routing, wildcards, and parameter extraction
+- **Server Protocols** — HTTP(S), Vinculum WebSocket (VWS), plain WebSocket, Model Context Protocol (MCP), and Prometheus/OpenMetrics, with pluggable authentication (basic, OIDC, OAuth2)
+- **Client Protocols** — Kafka, MQTT, VWS (to other Vinculum instances), OpenAI / LLM, and OpenTelemetry (OTLP) export
+- **Triggers** — A range of trigger types for time-, event-, and lifecycle-driven actions: cron, dynamic intervals with optional jitter, absolute / dynamic times, file-system events, OS signals, startup/shutdown, watchdogs, and watches over reactive values
+- **Transformations and Procedures** — JQ-based message transforms, structured-text `editor` blocks, and `procedure` blocks for small imperative helpers
+- **Built-in Functions** — A large standard library covering HTTP, files, templates, time, randomness, IDs, LLMs, and more
+- **Observability** — Context propagation, OpenTelemetry tracing and metrics, and Prometheus exposition throughout
 
-## Core Concepts and Features
+## Core Concepts
 
 ### Event Buses
 
@@ -50,190 +51,106 @@ Event buses are the core messaging channels in Vinculum. Functioning like an int
 - **Multiple Subscribers**: Many subscribers can listen to the same topics
 - **Queue Management**: Configurable queue sizes and buffering
 
-You can have more than one bus, for isolation or organization purposes. 
+You can have more than one bus, for isolation or organization purposes.
 
-#### Messages
+### Messages
 
-Messages, also referred to as events, are sent and received from buses and external protocols. Mesages have:
+Messages, also referred to as events, are sent and received from buses and external protocols. Messages have:
 
 - **Topic**: as described above, for routing purposes
 - **Payload**: The actual message content (JSON, binary, etc.)
-- **Context**: Contexts are tracked through the system for observability. An event received via HTTP, for example, will retain that original context as it passes through the system, allowing tracability.
+- **Context**: Contexts are tracked through the system for observability. An event received via HTTP, for example, will retain that original context as it passes through the system, allowing traceability.
 
-#### Topics
+### Topics
 
 Topics follow a hierarchical naming convention matching that of MQTT. A topic is a string with slash-separated segments, like `category/subcategory/event`. Topics create a hierarchy to organize different kinds of messages, and allow subscribers to register to get the subset of messages they're interested in. The segments are meant to be organized from broadest to most specific.
 
-#### Topic Patterns
+### Topic Patterns
 
 Subscribers register to receive messages from a bus using one or more topic patterns. These follow the MQTT syntax, with `+` matching a single path segment, and `#` matching any number of segments. For example, the pattern `sensors/+/update` would match `sensors/weather/update` but not `sensors/weather/alarms` or `sensors/weather/configuration/units/update`, while `sensors/weather/#` would match all three.
 
 Some Vinculum features allow naming the wildcarded segments and extracting the value. For example `sensors/kind+/update` would match `sensors/weather/update` and extract `weather` into a variable or value under the name `kind`.
 
-#### Subscribers
+### Subscribers
 
-Subscribers register with busses or other message sources to recieve messages. A subscriber may be an action that is performed with the message, or a client or server protocol over which the message will be sent, or it may be a bus to which the message will be published.
+Subscribers register with buses or other message sources to receive messages. A subscriber may be an action that is performed with the message, or a client or server protocol over which the message will be sent, or it may be a bus to which the message will be published.
 
-#### Transformations
+### Transformations
 
-Subscriptions may declare some transformations to be performed on messages before they are given to the receiver. A number of common transformations are built in. For more complicated cases, you can create an action that can do whatever is needed then call the send() function to pass the result on to another subscriber.
+Subscriptions may declare some transformations to be performed on messages before they are given to the receiver. A number of common transformations are built in. For more complicated cases, you can create an action that can do whatever is needed then call the `send()` function to pass the result on to another subscriber.
 
-### Cron
+## Triggers
 
-Vinculum includes a cron-style scheduling facility. An action can be performed on the given schedule, for example to send messages to a bus or other subscriber.
+Triggers cause an action to be evaluated in response to time, lifecycle, or external events. Vinculum supports many trigger types: classic cron schedules, fixed and dynamically computed intervals, absolute / dynamically computed wall-clock times (e.g. sunrise/sunset), file-system events, OS signals, application startup and shutdown, watchdogs (fire when expected work *stops*), and watches over reactive values.
 
-### Protocols
-
-Vinculum implements a number of protocols as servers, clients, or both. Depending on the protocol, received data is either sent to a subscriber or triggers an action (which may in turn send to a subscriber, or do something else). Likewise, depending on the protocol, data is sent by actions or by subscribing the protocol to a bus or other message source.
-
-#### HTTP Server
-
-The HTTP Server protocol can have actions configured in response to GET, POST, PUT, etc HTTP calls on paths. Multiple routes may be configured, each with their own action.
-
-It can also be configured to serve static files.
-
-#### Kafka
-
-Vinculum can produce messages to and consume messages from Apache Kafka. A
-`client "kafka"` block may contain any number of named `producer` and
-`consumer` sub-blocks. Producers map vinculum topics to Kafka topics (with
-optional record keys) and implement `bus.Subscriber`, so they can be the target
-of any `subscription` block or used with the send() functions. Consumers run
-independent poll loops and publish received messages to a target bus, with
-configurable consumer groups, offset management, and dead-letter queue support. See
-[client-kafka.md](client-kafka.md) for the full reference.
-
-#### Vinculum Websocket Server
-
-Vinculum Websockets Server offers a simple MQTT-like publish/subscribe protocol to expose a bus over WebSockets.
-
-#### Vinculum Websockets Client
-
-Vinculum can speak the same protocol as a client, eg to another Vinculum instance.
+See [trigger.md](trigger.md) for the full reference covering all trigger types.
 
 ## Configuration Language
 
-See [config.md](config.md) for the full configuration language reference, including
-HCL syntax, built-in variables, and all block types.
+See [config.md](config.md) for the full configuration language reference, including HCL syntax, built-in variables, block types, and dependency ordering.
 
 ## Built-in Functions
 
-See [functions.md](functions.md) for the full function reference.
+Vinculum ships with a large standard library of functions for working with HTTP requests and responses, files, templates, time and dates, randomness, sequential IDs, JSON, JQ, LLMs, and more.
 
-## Protocols and Transports
+See [functions.md](functions.md) for the full reference.
 
-### WebSocket Protocol
+## Message Transforms
 
-#### Connection Management
-- Automatic reconnection handling
-- Connection lifecycle events
-- Heartbeat and keepalive mechanisms
+Subscriptions can declare a pipeline of transforms that run on each message before delivery — JQ expressions, topic prefixing/stripping, conditional transforms based on topic patterns, and composition operators.
 
-#### Message Format
-- JSON-based message framing
-- Binary payload support
-- Protocol negotiation
+See [transforms.md](transforms.md) for the full reference.
 
-#### Client Libraries
-- Go client library
-- JavaScript/TypeScript clients
-- Protocol specifications
+## Procedures
 
-### HTTP Protocol
+A `procedure` block defines a callable function with a small imperative body — locals, conditionals (`if`/`elif`), loops (`while`, `for`), and `return`. Procedures are compiled at config load time and can be called from any expression. They're useful when a piece of logic is awkward to express as a single HCL expression but doesn't warrant building a Go plugin.
 
-#### RESTful Endpoints
-- Standard HTTP methods (GET, POST, PUT, DELETE)
-- Custom route handlers
-- Middleware support
+See [procedure.md](procedure.md) for syntax, scoping rules, and examples.
 
-#### Server-sent Events (SSE)
-- Real-time event streaming
-- Browser-compatible format
-- Connection management
+## Editors
 
-#### File Serving
-- Static file hosting
-- Directory browsing
-- MIME type detection
+An `editor` block defines a callable function for structured text editing. The current implementation, `editor "line"`, performs regex match-and-replace on a file or string with persistent state, before/after blocks, optional file locking, and a notion of "incidental" edits that don't, on their own, count as a real change.
 
-### Protocol Extensions
+See [editor.md](editor.md) for the full reference.
 
-#### Custom Protocols
-- Plugin architecture for new protocols
-- Protocol-specific configuration
-- Message format adaptation
+## Metrics
 
-#### Multi-protocol Support
-- Protocol bridging
-- Message format conversion
-- Unified client experience
+A `metric` block declares a Prometheus-style metric (gauge, counter, or histogram), optionally with labels and a computed expression. Metrics can be exposed via the Prometheus/OpenMetrics endpoint (see [Servers](#servers) below) or pushed via OTLP (see [Clients](#clients) below).
 
-## Advanced Topics
+See [metric.md](metric.md) for metric declaration syntax.
 
-### Performance and Scaling
+## Servers
 
-#### Queue Management
-- Backpressure handling
-- Queue size optimization
-- Memory management
+A `server` block accepts inbound connections or requests over a particular protocol. Each server type has its own dedicated reference page:
 
-#### Connection Pooling
-- Client connection management
-- Resource optimization
-- Load balancing
+| Server | Description |
+| ------ | ----------- |
+| [`server "http"`](server-http.md) | HTTP(S) server with route handlers, static-file serving, TLS, cookies, and pluggable authentication |
+| [`server "vws"`](server-vws.md) | Vinculum WebSocket Protocol — exposes a bus over WebSockets with pub/sub semantics |
+| [`server "websocket"`](server-websocket.md) | Plain (raw) WebSocket server with bus integration and inbound/outbound transforms |
+| [`server "mcp"`](server-mcp.md) | Model Context Protocol server exposing resources, tools, and prompts to LLM clients |
+| [`server "metrics"`](server-metrics.md) | Prometheus / OpenMetrics exposition endpoint, standalone or mounted into an existing HTTP server |
+| [`server "auth"`](server-auth.md) | Authentication providers (basic, OIDC, OAuth2, custom) used as middleware by other servers |
 
-### Observability
+## Clients
 
-#### Metrics
-- Built-in performance metrics
-- Custom metric collection
-- Integration with monitoring systems
+A `client` block makes outbound connections to a remote service. Each client type has its own dedicated reference page:
 
-#### Logging
-- Structured logging
-- Log level configuration
-- Audit trails
-
-#### Tracing
-- Distributed tracing support
-- Request correlation
-- Performance profiling
-
-### Security
-
-#### Authentication
-- Client authentication mechanisms
-- Token-based authentication
-- Integration with identity providers
-
-#### Authorization
-- Role-based access control
-- Topic-level permissions
-- Action authorization
-
-#### Transport Security
-- TLS/SSL support
-- Certificate management
-- Secure WebSocket connections
-
-### High Availability
-
-#### Clustering
-- Multi-node deployment
-- Leader election
-- State synchronization
-
-#### Fault Tolerance
-- Automatic failover
-- Circuit breaker patterns
-- Graceful degradation
+| Client | Description |
+| ------ | ----------- |
+| [`client "kafka"`](client-kafka.md) | Kafka producer and consumer adapters with SASL/TLS, commit modes, and dead-letter queue support |
+| [`client "mqtt"`](client-mqtt.md) | MQTT 5.0 publisher and subscriber, including last-will and shared subscriptions |
+| [`client "vws"`](server-vws.md) | Vinculum WebSocket client — connects to another Vinculum instance over the VWS protocol (documented alongside the VWS server) |
+| [`client "openai"`](client-llm.md) | OpenAI and OpenAI-compatible LLM API client (used via the `call()` function) |
+| [`client "otlp"`](client-otlp.md) | OpenTelemetry Protocol exporter for traces and metrics (push-based) |
 
 ## Examples
+
+The [examples/](../examples/) directory contains complete working configurations. The snippets below illustrate common patterns; see [examples/README.md](../examples/README.md) for the index of full examples.
 
 ### Basic Event Routing
 
 ```hcl
-# Basic configuration example
 bus "main" {
     queue_size = 1000
 }
@@ -244,11 +161,11 @@ subscription "logger" {
     action = log_info("Received message", ctx.msg)
 }
 
-cron "heartbeat" {
+trigger "cron" "heartbeat" {
     at "*/30 * * * * *" "ping" {
         action = send(ctx, bus.main, "system/heartbeat", {
-            timestamp = timestamp()
-            status = "alive"
+            timestamp = formattime("@rfc3339", now("UTC"))
+            status    = "alive"
         })
     }
 }
@@ -274,26 +191,26 @@ subscription "data_processor" {
 ```hcl
 server "http" "api" {
     listen = ":8080"
-    
+
     handle "POST /events" {
         action = [
             send(ctx, bus.main, "api/event", ctx.body),
             http_response(http_status.Accepted, {status = "received"})
         ]
     }
-    
+
     files "/dashboard" {
         directory = "./web/dashboard"
     }
 }
 ```
 
-### Complex Data Processing
+### Conditional Transforms by Topic
 
 ```hcl
 const {
     processors = {
-        user_events = jq("select(.type == \"user\") | {user_id: .user.id, action: .action}")
+        user_events   = jq("select(.type == \"user\") | {user_id: .user.id, action: .action}")
         system_events = jq("select(.type == \"system\") | {component: .component, status: .status}")
     }
 }
@@ -312,101 +229,22 @@ subscription "event_router" {
 }
 ```
 
-## API Reference
+## Observability
 
-### Configuration Schema
+Vinculum propagates a context through the system as messages flow from sources through buses, transforms, and subscribers, so events received via one protocol retain their originating context as they're processed and forwarded. OpenTelemetry traces and metrics are emitted throughout, and can be exposed in Prometheus/OpenMetrics format via [`server "metrics"`](server-metrics.md) or pushed to an OTel collector via [`client "otlp"`](client-otlp.md). Application-defined metrics are declared with [`metric`](metric.md) blocks.
 
-#### Block Types
-- `bus`: Event bus configuration
-- `subscription`: Message subscription and processing
-- `server`: HTTP/WebSocket server configuration
-- `cron`: Scheduled task configuration
-- `const`: Constant value definitions
-- `assert`: Configuration validation
-- `jq`: JQ function definitions
-- `editor`: Structured text editing functions (see [editor.md](editor.md))
-- `procedure`: Imperative function definitions (see [procedure.md](procedure.md))
+## Block Type Reference
 
-#### Attribute Types
-- String literals and interpolated strings
-- Numbers (integers and floats)
-- Booleans
-- Lists and maps
-- Function calls and expressions
+Top-level block types:
 
-### Function Reference
-
-See [functions.md](functions.md) and [transforms.md](transforms.md).
-
-### Error Codes
-
-<!-- TODO: Error code reference -->
-
-## Troubleshooting
-
-### Common Issues
-
-#### Configuration Errors
-- HCL syntax errors
-- Missing required attributes
-- Type mismatches
-- Function call errors
-
-#### Runtime Issues
-- Connection failures
-- Message delivery problems
-- Performance bottlenecks
-- Memory leaks
-
-#### Protocol-specific Issues
-- WebSocket connection drops
-- HTTP timeout errors
-- Message format problems
-
-### Debugging Tools
-
-#### Logging Configuration
-```hcl
-# Enable debug logging
-const {
-    log_level = "debug"
-}
-```
-
-#### Health Checks
-- Built-in health endpoints
-- System status monitoring
-- Performance metrics
-
-#### Diagnostic Commands
-- Configuration validation
-- Connection testing
-- Message tracing
-
-### Performance Tuning
-
-#### Queue Optimization
-- Queue size tuning
-- Memory allocation
-- Garbage collection
-
-#### Network Optimization
-- Connection pooling
-- Message batching
-- Compression settings
-
-### Migration Guides
-
-#### Version Upgrades
-- Breaking changes
-- Configuration migration
-- Feature deprecations
-
-#### Protocol Changes
-- Client library updates
-- Message format changes
-- Backward compatibility
-
----
-
-*This documentation is a work in progress. Please contribute improvements and report issues.*
+- `bus` — event bus declaration
+- `subscription` — subscribes a target to one or more topic patterns on a bus, with optional transforms and an action
+- `server` — server protocol instance (see [Servers](#servers))
+- `client` — client protocol instance (see [Clients](#clients))
+- `trigger` — time, lifecycle, or event-driven action (see [trigger.md](trigger.md))
+- `metric` — metric declaration for Prometheus/OTLP exposition (see [metric.md](metric.md))
+- `procedure` — imperative function definition (see [procedure.md](procedure.md))
+- `editor` — structured text editing function (see [editor.md](editor.md))
+- `jq` — named JQ function definition
+- `const` — named constants
+- `assert` — configuration validation assertions

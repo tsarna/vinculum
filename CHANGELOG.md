@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-04-10
+
 ### Added
 
 - **`procedure` blocks**: A limited imperative language for defining callable functions with variable assignments, conditionals (`if`/`elif`/`else`), loops (`while`, `range`), `switch`/`case`/`default`, and `break`/`continue`. Procedures compile to `cty/function.Function` values callable from any expression. See [doc/procedure.md](doc/procedure.md) for details.

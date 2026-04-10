@@ -12,12 +12,14 @@ MacGyver together a solution with a few lines of configuration.
 
 ## Key Features
 
-- **HCL Configuration** — Declarative configuration in HashiCorp Config Language (similar to Terraform)
-- **Publish/Subscribe Messaging** — MQTT-style topic routing with wildcards and parameter extraction
-- **Protocol Support** — HTTP server, Vinculum WebSocket server and client, and more
-- **Cron Scheduling** — Built-in cron-style scheduler for time-driven actions
-- **JQ Transformations** — Data transformations using the JQ language
-- **Observability** — Context propagation, tracing, and metrics throughout
+- **HCL Configuration** — Declarative configuration in HashiCorp Config Language (similar to Terraform), with constants, expressions, and assertions
+- **Publish/Subscribe Messaging** — One or more event buses with MQTT-style topic routing, wildcards, and parameter extraction
+- **Server Protocols** — HTTP(S), Vinculum WebSocket (VWS), plain WebSocket, Model Context Protocol (MCP), and Prometheus/OpenMetrics, with pluggable authentication (basic, OIDC, OAuth2)
+- **Client Protocols** — Kafka, MQTT, VWS (to other Vinculum instances), OpenAI / LLM, and OpenTelemetry (OTLP) export
+- **Triggers** — A range of trigger types for time-, event-, and lifecycle-driven actions: cron, dynamic intervals with optional jitter, absolute / dynamic times, file-system events, OS signals, startup/shutdown, watchdogs, and watches over reactive values
+- **Transformations and Procedures** — JQ-based message transforms, structured-text `editor` blocks, and `procedure` blocks for small imperative helpers
+- **Built-in Functions** — A large standard library covering HTTP, files, templates, time, randomness, IDs, LLMs, and more
+- **Observability** — Context propagation, OpenTelemetry tracing and metrics, and Prometheus exposition throughout
 
 ## Documentation
 
@@ -27,14 +29,25 @@ See [doc/overview.md](doc/overview.md) for full documentation including:
 - Protocol details
 - Examples
 
+## Examples
+
+The [examples/](examples/) directory contains complete working configurations.
+See [examples/README.md](examples/README.md) for the index, including a dynamic
+DNS zone updater that combines an HTTP server, basic authentication, a
+procedure, and a line-editor block to safely rewrite BIND zone files.
+
 ## Related Projects
 
-Vinculum is built on top of two standalone Go libraries that can be used independently:
+Vinculum is built on top of several standalone Go libraries that can be used independently:
 
 | Project | Description |
-|---------|-------------|
+| ------- | ----------- |
 | [vinculum-bus](https://github.com/tsarna/vinculum-bus) | High-performance in-process EventBus with MQTT-style topic patterns and optional OpenTelemetry observability |
 | [vinculum-vws](https://github.com/tsarna/vinculum-vws) | Vinculum WebSocket Protocol — client and server for exposing an EventBus over WebSockets |
+| [vinculum-kafka](https://github.com/tsarna/vinculum-kafka) | Kafka producer/consumer adapters that plug into a vinculum-bus EventBus |
+| [vinculum-mqtt](https://github.com/tsarna/vinculum-mqtt) | MQTT publisher/subscriber adapters that plug into a vinculum-bus EventBus |
+
+Vinculum also relies on several smaller standalone HCL/cty helper libraries: [go2cty2go](https://github.com/tsarna/go2cty2go), [hcl-jqfunc](https://github.com/tsarna/hcl-jqfunc), [go-structdiff](https://github.com/tsarna/go-structdiff), [time-cty-funcs](https://github.com/tsarna/time-cty-funcs), [rand-cty-funcs](https://github.com/tsarna/rand-cty-funcs), and [sqid-cty-funcs](https://github.com/tsarna/sqid-cty-funcs).
 
 ## License
 
