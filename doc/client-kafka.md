@@ -471,7 +471,7 @@ subscription "to_kafka" {
 subscription "debug" {
   target = bus.main
   topics = ["#"]
-  action = loginfo("event", {topic = ctx.topic, msg = ctx.msg})
+  action = log_info("event", {topic = ctx.topic, msg = ctx.msg})
 }
 ```
 
@@ -483,7 +483,7 @@ client "kafka" "events" {
 
   receiver "logger" {
     group_id = "vinculum-logger"
-    action   = loginfo("kafka", {topic = ctx.topic, msg = ctx.msg})
+    action   = log_info("kafka", {topic = ctx.topic, msg = ctx.msg})
 
     subscription "sensor.readings" {
       vinculum_topic = "sensor/readings"

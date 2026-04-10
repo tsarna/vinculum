@@ -37,11 +37,11 @@ subscription "test1" {
 
 # diff(a, b)
 #    return a map for patching a to match b
-# logdebug("message", [any...])
-# logerror("message", [any...])
-# loginfo("message", [any...])
-# logmsg("level", "message", [any...])
-# logwarn("message", [any...])
+# log_debug("message", [any...])
+# log_error("message", [any...])
+# log_info("message", [any...])
+# log_msg("level", "message", [any...])
+# log_warn("message", [any...])
 # patch(target, patch)
 #     apply the patch to the target and return the result
 # send(context, bus_or_subscriber, "topic", anything, [fields])

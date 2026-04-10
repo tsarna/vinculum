@@ -1,3 +1,3 @@
 trigger "signals" "main" {
-    SIGUSR1 = loginfo("got signal", {signal = ctx.signal})
+    SIGUSR1 = log_info("got signal", {signal = ctx.signal})
 }

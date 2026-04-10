@@ -439,7 +439,7 @@ Log every message on `events/#`:
 subscription "logger" {
     target = bus.main
     topics = ["events/#"]
-    action = loginfo("received", {topic = ctx.topic, msg = ctx.msg})
+    action = log_info("received", {topic = ctx.topic, msg = ctx.msg})
 }
 ```
 
@@ -518,7 +518,7 @@ subscription "counter" {
     topics = ["#"]
     action = [
         increment(var.message_count, 1),
-        get(var.message_count) % 100 == 0 ? logwarn("milestone", {count = get(var.message_count)}) : true,
+        get(var.message_count) % 100 == 0 ? log_warn("milestone", {count = get(var.message_count)}) : true,
     ]
 }
 ```

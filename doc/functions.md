@@ -18,11 +18,11 @@ If a single map or object is passed as the fields argument, its keys become log 
 names. If multiple positional arguments are passed, they are logged as `$1`, `$2`, etc.
 All logging functions return `true`.
 
-- `logdebug(message, fields?)`: Log at DEBUG level.
-- `loginfo(message, fields?)`: Log at INFO level.
-- `logwarn(message, fields?)`: Log at WARN level.
-- `logerror(message, fields?)`: Log at ERROR level.
-- `logmsg(level, message, fields?)`: Log at the given level string (`"debug"`, `"info"`, `"warn"` / `"warning"`, `"error"`).
+- `log_debug(message, fields?)`: Log at DEBUG level.
+- `log_info(message, fields?)`: Log at INFO level.
+- `log_warn(message, fields?)`: Log at WARN level.
+- `log_error(message, fields?)`: Log at ERROR level.
+- `log_msg(level, message, fields?)`: Log at the given level string (`"debug"`, `"info"`, `"warn"` / `"warning"`, `"error"`).
 
 ### Data Manipulation
 

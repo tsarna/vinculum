@@ -10,9 +10,9 @@ bus "ws" {
 }
 
 const {
-    logged = logwarn("@@@ warn", 1, 2.5, "string", [1,2,3])
-    logged1 = loginfo("@@@ info", {foo="hello", bar=42, baz=7.3, qux=[1,2,3]})
-    logged2 = logmsg("error", "@@@ error", {foo="hello", bar=42, baz=7.3, qux=[1,2,3]})
+    logged = log_warn("@@@ warn", 1, 2.5, "string", [1,2,3])
+    logged1 = log_info("@@@ info", {foo="hello", bar=42, baz=7.3, qux=[1,2,3]})
+    logged2 = log_msg("error", "@@@ error", {foo="hello", bar=42, baz=7.3, qux=[1,2,3]})
 }
 
 assert "ws bus" {
