@@ -12,9 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/hcl/v2"
 	clientshttp "github.com/tsarna/vinculum/clients/http"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/ctyutil"
+	"github.com/tsarna/vinculum/hclutil"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
@@ -22,22 +24,25 @@ import (
 )
 
 func init() {
-	cfg.RegisterFunctionPlugin("http", func(_ *cfg.Config) map[string]function.Function {
-		return GetHTTPClientFunctions()
+	cfg.RegisterFunctionPlugin("http", func(c *cfg.Config) map[string]function.Function {
+		return GetHTTPClientFunctions(c)
 	})
 }
 
-// GetHTTPClientFunctions returns the eight http_* verb functions.
-func GetHTTPClientFunctions() map[string]function.Function {
+// GetHTTPClientFunctions returns the eight http_* verb functions, capturing
+// the supplied config so verb functions can evaluate lazy expressions like
+// retry.on_response against the same eval context the rest of vinculum uses.
+// config may be nil in tests that do not exercise hooks.
+func GetHTTPClientFunctions(config *cfg.Config) map[string]function.Function {
 	return map[string]function.Function{
-		"http_get":     makeVerbFunc("GET", false),
-		"http_head":    makeVerbFunc("HEAD", false),
-		"http_options": makeVerbFunc("OPTIONS", false),
-		"http_delete":  makeVerbFunc("DELETE", false),
-		"http_post":    makeVerbFunc("POST", true),
-		"http_put":     makeVerbFunc("PUT", true),
-		"http_patch":   makeVerbFunc("PATCH", true),
-		"http_request": makeGenericVerbFunc(),
+		"http_get":     makeVerbFunc(config, "GET", false),
+		"http_head":    makeVerbFunc(config, "HEAD", false),
+		"http_options": makeVerbFunc(config, "OPTIONS", false),
+		"http_delete":  makeVerbFunc(config, "DELETE", false),
+		"http_post":    makeVerbFunc(config, "POST", true),
+		"http_put":     makeVerbFunc(config, "PUT", true),
+		"http_patch":   makeVerbFunc(config, "PATCH", true),
+		"http_request": makeGenericVerbFunc(config),
 	}
 }
 
@@ -47,7 +52,7 @@ func GetHTTPClientFunctions() map[string]function.Function {
 // verbs accept (ctx, client, url, body?, opts?); body-less verbs accept
 // (ctx, client, url, opts?). The trailing optional slots are resolved by
 // argument count at call time.
-func makeVerbFunc(method string, bodyAllowed bool) function.Function {
+func makeVerbFunc(config *cfg.Config, method string, bodyAllowed bool) function.Function {
 	return function.New(&function.Spec{
 		Description: fmt.Sprintf("Performs an HTTP %s request and returns the response object", method),
 		Params: []function.Parameter{
@@ -62,14 +67,14 @@ func makeVerbFunc(method string, bodyAllowed bool) function.Function {
 			if err != nil {
 				return cty.NilVal, err
 			}
-			return doHTTPRequest(ctx, client, method, rawURL, body, opts)
+			return doHTTPRequest(config, ctx, client, method, rawURL, body, opts)
 		},
 	})
 }
 
 // makeGenericVerbFunc builds the generic http_request(ctx, client, method,
 // url, body?, opts?) function.
-func makeGenericVerbFunc() function.Function {
+func makeGenericVerbFunc(config *cfg.Config) function.Function {
 	return function.New(&function.Spec{
 		Description: "Performs a generic HTTP request with an explicit method and returns the response object",
 		Params: []function.Parameter{
@@ -92,7 +97,7 @@ func makeGenericVerbFunc() function.Function {
 			if err != nil {
 				return cty.NilVal, err
 			}
-			return doHTTPRequest(ctx, client, method, rawURL, body, opts)
+			return doHTTPRequest(config, ctx, client, method, rawURL, body, opts)
 		},
 	})
 }
@@ -156,10 +161,11 @@ func parseVerbArgs(args []cty.Value, method string, bodyAllowed bool) (
 
 // ─── Core request dispatch ───────────────────────────────────────────────────
 
-// doHTTPRequest builds, sends, and materializes a single HTTP request. It
-// handles URL resolution, header precedence, body coercion, query params,
-// per-call redirect and timeout overrides, body_limit, and opts.as pre-decoding.
+// doHTTPRequest is the top-level dispatcher for a verb function call. It
+// resolves the URL, coerces the body, parses opts, picks the effective
+// retry policy, and then drives the retry loop.
 func doHTTPRequest(
+	config *cfg.Config,
 	ctx context.Context,
 	client clientshttp.HTTPCallable,
 	method string,
@@ -194,7 +200,7 @@ func doHTTPRequest(
 	}
 
 	// ── Options ──
-	parsedOpts, err := parseOpts(opts)
+	parsedOpts, err := parseOpts(config, opts)
 	if err != nil {
 		return cty.NilVal, fmt.Errorf("%s: opts: %w", verbName, err)
 	}
@@ -202,7 +208,6 @@ func doHTTPRequest(
 	// ── Query parameters from opts.query ──
 	if len(parsedOpts.query) > 0 {
 		q := reqURL.Query()
-		// Sort keys for deterministic ordering in tests.
 		keys := make([]string, 0, len(parsedOpts.query))
 		for k := range parsedOpts.query {
 			keys = append(keys, k)
@@ -219,16 +224,179 @@ func doHTTPRequest(
 	// ── Build headers per precedence chain ──
 	hdrs := buildRequestHeaders(client, bodyContentType, isBytesBody, parsedOpts.headers)
 
-	// ── Build the *http.Request ──
+	// ── Per-call timeout override (applied via context derivation) ──
+	callCtx := ctx
+	if parsedOpts.hasTimeout {
+		var cancel context.CancelFunc
+		callCtx, cancel = context.WithTimeout(ctx, parsedOpts.timeout)
+		defer cancel()
+	}
+
+	// ── Resolve effective retry policy ──
+	// Priority: opts.retry { ... } > opts.retry = false > client default.
+	effectiveRetry := client.DefaultRetryPolicy()
+	if parsedOpts.retryDisabled {
+		effectiveRetry = noRetryFromBase(effectiveRetry)
+	} else if parsedOpts.retryOverride != nil {
+		effectiveRetry = *parsedOpts.retryOverride
+	}
+
+	// ── Drive the retry loop ──
+	return runRetryLoop(
+		config,
+		client,
+		callCtx,
+		method,
+		verbName,
+		reqURL,
+		hdrs,
+		bodyBytes,
+		parsedOpts,
+		effectiveRetry,
+	)
+}
+
+// noRetryFromBase returns a copy of base with MaxAttempts forced to 1. It
+// preserves the rest of the policy (e.g. RetryOn, jitter settings) for
+// debug visibility, even though they have no effect when MaxAttempts == 1.
+func noRetryFromBase(base clientshttp.RetryPolicy) clientshttp.RetryPolicy {
+	base.MaxAttempts = 1
+	return base
+}
+
+// runRetryLoop executes the request up to MaxAttempts times, computing the
+// inter-attempt delay from the retry policy and consulting the on_response
+// hook (if any) after each attempt that produced a response. Transport
+// errors are retryable when the method is retryable under the policy.
+func runRetryLoop(
+	config *cfg.Config,
+	client clientshttp.HTTPCallable,
+	callCtx context.Context,
+	method string,
+	verbName string,
+	reqURL *url.URL,
+	hdrs nethttp.Header,
+	bodyBytes []byte,
+	parsedOpts parsedHTTPOpts,
+	pol clientshttp.RetryPolicy,
+) (cty.Value, error) {
+	maxAttempts := pol.MaxAttempts
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	methodRetryable := pol.MethodRetryable(method)
+
+	var (
+		lastWrapper *types.HTTPClientResponseWrapper
+		lastTxErr   error
+	)
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// Wait the configured delay before all attempts after the first.
+		if attempt > 1 {
+			delay := pol.Delay(attempt)
+			// If the previous response carried a Retry-After header on a
+			// status the spec covers, honor it instead of the computed
+			// delay.
+			if pol.RespectRetryAfter && lastWrapper != nil &&
+				clientshttp.RetryAfterApplies(lastWrapper.R.StatusCode) {
+				if ra := clientshttp.ParseRetryAfter(lastWrapper.R.Header.Get("Retry-After")); ra > 0 {
+					delay = ra
+				}
+			}
+			if delay > 0 {
+				select {
+				case <-time.After(delay):
+				case <-callCtx.Done():
+					return cty.NilVal, fmt.Errorf("%s: %w", verbName, callCtx.Err())
+				}
+			}
+		}
+
+		wrapper, txErr := sendOnce(callCtx, client, method, reqURL, hdrs, bodyBytes, parsedOpts)
+		lastWrapper = wrapper
+		lastTxErr = txErr
+
+		// ── Decide whether to retry ──
+		if attempt == maxAttempts {
+			break
+		}
+		if !methodRetryable {
+			break
+		}
+
+		retry := false
+		if txErr != nil {
+			// Network/transport error: retry if the method allows it.
+			retry = true
+		} else if pol.ShouldRetryStatus(wrapper.R.StatusCode) {
+			retry = true
+		}
+
+		// on_response hook can override the default decision when the
+		// attempt produced a response.
+		if pol.OnResponse != nil && wrapper != nil && txErr == nil {
+			decision, hookErr := evalOnResponse(config, client, pol.OnResponse, wrapper, attempt)
+			if hookErr != nil {
+				return cty.NilVal, fmt.Errorf("%s: retry.on_response: %w", verbName, hookErr)
+			}
+			switch d := decision.(type) {
+			case onResponseRetry:
+				retry = true
+				if d.delay > 0 {
+					// Hook-supplied delay overrides backoff for this hop.
+					select {
+					case <-time.After(d.delay):
+					case <-callCtx.Done():
+						return cty.NilVal, fmt.Errorf("%s: %w", verbName, callCtx.Err())
+					}
+					// Already slept; advance attempt directly without
+					// computing backoff again.
+					nextWrapper, nextErr := sendOnce(callCtx, client, method, reqURL, hdrs, bodyBytes, parsedOpts)
+					lastWrapper = nextWrapper
+					lastTxErr = nextErr
+					attempt++
+					continue
+				}
+			case onResponseStop:
+				retry = false
+			}
+		}
+
+		if !retry {
+			break
+		}
+	}
+
+	if lastTxErr != nil {
+		return cty.NilVal, fmt.Errorf("%s: %w", verbName, lastTxErr)
+	}
+	return finalizeResponse(lastWrapper, parsedOpts, verbName)
+}
+
+// sendOnce executes a single attempt: builds an *http.Request from the
+// captured pieces, sends it through the client (with per-call redirect
+// override if requested), buffers the response body, and returns a wrapper.
+// A non-nil error means the request never produced a usable response —
+// the caller decides whether to retry or surface the error.
+func sendOnce(
+	ctx context.Context,
+	client clientshttp.HTTPCallable,
+	method string,
+	reqURL *url.URL,
+	hdrs nethttp.Header,
+	bodyBytes []byte,
+	parsedOpts parsedHTTPOpts,
+) (*types.HTTPClientResponseWrapper, error) {
 	var bodyReader io.Reader
 	if len(bodyBytes) > 0 {
 		bodyReader = bytes.NewReader(bodyBytes)
 	}
 	req, err := nethttp.NewRequestWithContext(ctx, method, reqURL.String(), bodyReader)
 	if err != nil {
-		return cty.NilVal, fmt.Errorf("%s: build request: %w", verbName, err)
+		return nil, fmt.Errorf("build request: %w", err)
 	}
-	req.Header = hdrs
+	req.Header = hdrs.Clone()
 	if len(bodyBytes) > 0 {
 		req.ContentLength = int64(len(bodyBytes))
 		req.GetBody = func() (io.ReadCloser, error) {
@@ -236,24 +404,8 @@ func doHTTPRequest(
 		}
 	}
 
-	// ── Per-call timeout override ──
-	// Enforced via context deadline; Go's http.Client honors whichever of
-	// its own Timeout and the request context fires first.
-	if parsedOpts.hasTimeout {
-		timedCtx, cancel := context.WithTimeout(req.Context(), parsedOpts.timeout)
-		defer cancel()
-		req = req.WithContext(timedCtx)
-	}
-
-	// Record the originally-sent URL for redirect detection.
 	origURL := *reqURL
 
-	// ── Send ──
-	// Per-call redirect overrides go through DoWithRedirectPolicy, which
-	// builds a fresh *http.Client with a different CheckRedirect closure but
-	// reuses the same underlying Transport (and connection pool). When no
-	// override is set, the common Do path uses the client's installed
-	// CheckRedirect directly.
 	var resp *nethttp.Response
 	if parsedOpts.hasRedirectOverride {
 		pol := client.DefaultRedirectPolicy()
@@ -264,40 +416,46 @@ func doHTTPRequest(
 		resp, err = client.Do(req)
 	}
 	if err != nil {
-		return cty.NilVal, fmt.Errorf("%s: %w", verbName, err)
+		return nil, err
 	}
 
 	// Always buffer the response body up-front and close the live stream.
-	// The spec's Phase 2 design explicitly buffers every response body into
-	// memory; streaming is future work. Buffering here lets later get()
-	// calls re-read the body arbitrarily, and avoids lifetime issues with
-	// the caller holding the wrapper after this function returns.
 	data, readErr := readResponseBody(resp.Body, parsedOpts.bodyLimit)
 	closeErr := resp.Body.Close()
 	if readErr != nil {
-		return cty.NilVal, fmt.Errorf("%s: read body: %w", verbName, readErr)
+		return nil, fmt.Errorf("read body: %w", readErr)
 	}
 	if closeErr != nil {
-		return cty.NilVal, fmt.Errorf("%s: close body: %w", verbName, closeErr)
+		return nil, fmt.Errorf("close body: %w", closeErr)
 	}
-	// Replace the live stream with a re-readable buffer so get(r, "body")
-	// still works and returns the buffered bytes.
 	resp.Body = io.NopCloser(bytes.NewReader(data))
 
-	wrapper := &types.HTTPClientResponseWrapper{
+	return &types.HTTPClientResponseWrapper{
 		R:            resp,
 		Redirected:   resp.Request != nil && resp.Request.URL != nil && !sameURL(&origURL, resp.Request.URL),
 		BufferedBody: data,
-	}
+	}, nil
+}
 
-	// ── opts.as pre-decode ──
+// finalizeResponse applies opts.as pre-decoding to the wrapper produced by
+// the final attempt and builds the cty result object.
+func finalizeResponse(
+	wrapper *types.HTTPClientResponseWrapper,
+	parsedOpts parsedHTTPOpts,
+	verbName string,
+) (cty.Value, error) {
+	if wrapper == nil {
+		return cty.NilVal, fmt.Errorf("%s: no response", verbName)
+	}
+	data := wrapper.BufferedBody
+
 	switch parsedOpts.as {
 	case "none":
 		// No pre-decode; the buffered body is still available via get().
 	case "string":
 		wrapper.PreDecodedBody = cty.StringVal(string(data))
 	case "bytes":
-		wrapper.PreDecodedBody = types.BuildBytesObject(data, stripMIMEParams(resp.Header.Get("Content-Type")))
+		wrapper.PreDecodedBody = types.BuildBytesObject(data, stripMIMEParams(wrapper.R.Header.Get("Content-Type")))
 	case "json":
 		ty, jErr := ctyjson.ImpliedType(data)
 		if jErr != nil {
@@ -337,6 +495,111 @@ func stripMIMEParams(ct string) string {
 		return strings.TrimSpace(ct[:i])
 	}
 	return strings.TrimSpace(ct)
+}
+
+// ─── Retry option and on_response hook ──────────────────────────────────────
+
+// parseRetryOpt decodes opts.retry. The value is one of:
+//   - bool false: disable retries for this call
+//   - object: an inline retry override (max_attempts, initial_delay, etc.)
+//
+// Returns (disabled, override, err) where exactly one of disabled or
+// override is set when err is nil.
+func parseRetryOpt(_ *cfg.Config, val cty.Value) (bool, *clientshttp.RetryPolicy, error) {
+	if val.Type() == cty.Bool {
+		if val.True() {
+			return false, nil, fmt.Errorf("opts.retry = true is not supported (use a retry block or omit the option)")
+		}
+		return true, nil, nil
+	}
+	pol, err := clientshttp.ParseRetryPolicyFromValue(val)
+	if err != nil {
+		return false, nil, err
+	}
+	return false, &pol, nil
+}
+
+// onResponseDecision is the result of evaluating retry.on_response. It is
+// either onResponseRetry (with an optional explicit delay) or
+// onResponseStop. The hook may also return an error value, in which case
+// runRetryLoop surfaces it directly.
+type onResponseDecision interface {
+	onResponseDecision()
+}
+
+type onResponseRetry struct {
+	delay time.Duration
+}
+
+func (onResponseRetry) onResponseDecision() {}
+
+type onResponseStop struct{}
+
+func (onResponseStop) onResponseDecision() {}
+
+// evalOnResponse evaluates the retry.on_response HCL expression against an
+// eval context populated with ctx.response (the in-flight response wrapper)
+// and ctx.attempt (1-indexed attempt number that just completed).
+//
+// Return value mapping per HTTP-CLIENT-SPEC.md:
+//
+//	number / duration → wait this long, then retry
+//	true              → retry using normal backoff
+//	false / null      → do not retry, return the response
+func evalOnResponse(
+	config *cfg.Config,
+	client clientshttp.HTTPCallable,
+	expr hcl.Expression,
+	wrapper *types.HTTPClientResponseWrapper,
+	attempt int,
+) (onResponseDecision, error) {
+	parent := client.ParentEvalCtx()
+	if parent == nil && config != nil {
+		parent = config.EvalCtx()
+	}
+	if parent == nil {
+		return nil, fmt.Errorf("no eval context available for on_response hook")
+	}
+
+	respObj := types.BuildHTTPClientResponseObject(wrapper)
+	evalCtx, err := hclutil.NewEvalContext(context.Background()).
+		WithAttribute("response", respObj).
+		WithInt64Attribute("attempt", int64(attempt)).
+		BuildEvalContext(parent)
+	if err != nil {
+		return nil, fmt.Errorf("build eval context: %w", err)
+	}
+
+	val, diags := expr.Value(evalCtx)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	if val.IsNull() {
+		return onResponseStop{}, nil
+	}
+	switch {
+	case val.Type() == cty.Bool:
+		if val.True() {
+			return onResponseRetry{}, nil
+		}
+		return onResponseStop{}, nil
+	case val.Type() == cty.Number:
+		// Treat numbers as a delay in seconds (matches the rest of the
+		// codebase's duration handling).
+		secs, _ := val.AsBigFloat().Float64()
+		if secs < 0 {
+			return nil, fmt.Errorf("on_response delay must be >= 0, got %v", secs)
+		}
+		return onResponseRetry{delay: time.Duration(secs * float64(time.Second))}, nil
+	default:
+		// Try parsing as a duration value (string or duration capsule).
+		d, err := cfg.ParseDurationFromValue(val)
+		if err != nil {
+			return nil, fmt.Errorf("on_response must return null, bool, number, or duration; got %s: %w", val.Type().FriendlyName(), err)
+		}
+		return onResponseRetry{delay: d}, nil
+	}
 }
 
 // ─── URL resolution ──────────────────────────────────────────────────────────
@@ -465,11 +728,17 @@ type parsedHTTPOpts struct {
 	followRedirects     bool
 	maxRedirects        int
 
+	// Retry overrides. retryDisabled is set when opts.retry == false.
+	// retryOverride is non-nil when opts.retry is a block. The two are
+	// mutually exclusive.
+	retryDisabled bool
+	retryOverride *clientshttp.RetryPolicy
+
 	as        string // "none", "string", "bytes", "json"
 	bodyLimit int64
 }
 
-func parseOpts(opts cty.Value) (parsedHTTPOpts, error) {
+func parseOpts(config *cfg.Config, opts cty.Value) (parsedHTTPOpts, error) {
 	out := parsedHTTPOpts{as: "none"}
 	if opts.IsNull() {
 		return out, nil
@@ -479,6 +748,15 @@ func parseOpts(opts cty.Value) (parsedHTTPOpts, error) {
 	}
 
 	attrs := opts.AsValueMap()
+
+	if v, ok := attrs["retry"]; ok && !v.IsNull() {
+		disabled, override, err := parseRetryOpt(config, v)
+		if err != nil {
+			return out, fmt.Errorf("opts.retry: %w", err)
+		}
+		out.retryDisabled = disabled
+		out.retryOverride = override
+	}
 
 	if v, ok := attrs["headers"]; ok && !v.IsNull() {
 		h, err := parsePerCallHeaders(v)

@@ -61,7 +61,18 @@ var bgCtx = ctxVal(context.Background())
 // registration.
 func callVerb(t *testing.T, name string, args ...cty.Value) (cty.Value, error) {
 	t.Helper()
-	fns := GetHTTPClientFunctions()
+	fns := GetHTTPClientFunctions(nil)
+	fn, ok := fns[name]
+	require.True(t, ok, "unknown verb function %q", name)
+	return fn.Call(args)
+}
+
+// callVerbWithConfig is like callVerb but uses the function set built from
+// the supplied config, so that retry.on_response and other lazy expressions
+// have an eval context to resolve against.
+func callVerbWithConfig(t *testing.T, config *cfg.Config, name string, args ...cty.Value) (cty.Value, error) {
+	t.Helper()
+	fns := GetHTTPClientFunctions(config)
 	fn, ok := fns[name]
 	require.True(t, ok, "unknown verb function %q", name)
 	return fn.Call(args)
@@ -779,6 +790,332 @@ func TestHTTPGet_CrossOriginRedirect_StripsAuth(t *testing.T) {
 	_, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(redirectSrv.URL+"/start"), opts)
 	require.NoError(t, err)
 	assert.Empty(t, targetAuth, "Authorization must be stripped on cross-origin redirect")
+}
+
+// ── Retry: end-to-end against httptest ──────────────────────────────────────
+
+// flakyHandler returns a handler that responds with `failStatus` for the
+// first `failures` requests and then `200 OK` afterward. The total request
+// count is recorded via the returned counter pointer.
+func flakyHandler(failures int, failStatus int) (nethttp.Handler, *int32) {
+	var count int32
+	h := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		n := atomic.AddInt32(&count, 1)
+		if n <= int32(failures) {
+			w.WriteHeader(failStatus)
+			return
+		}
+		w.WriteHeader(200)
+	})
+	return h, &count
+}
+
+func TestHTTPGet_RetryOn503_Succeeds(t *testing.T) {
+	h, count := flakyHandler(2, 503)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    retry {
+        max_attempts  = 3
+        initial_delay = "1ms"
+        jitter        = false
+    }
+}
+`, srv.URL))
+
+	resp, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	require.NoError(t, err)
+	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
+	assert.Equal(t, int32(3), atomic.LoadInt32(count), "should hit server 3 times")
+}
+
+func TestHTTPGet_RetryExhausted_ReturnsLastResponse(t *testing.T) {
+	h, count := flakyHandler(99, 503) // never succeeds
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    retry {
+        max_attempts  = 3
+        initial_delay = "1ms"
+        jitter        = false
+    }
+}
+`, srv.URL))
+
+	resp, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	require.NoError(t, err, "exhausted retries on a status code returns the last response, not an error")
+	assert.Equal(t, cty.NumberIntVal(503), resp.GetAttr("status"))
+	assert.Equal(t, int32(3), atomic.LoadInt32(count))
+}
+
+func TestHTTPPost_NotRetriedByDefault(t *testing.T) {
+	h, count := flakyHandler(1, 503)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    retry {
+        max_attempts  = 3
+        initial_delay = "1ms"
+        jitter        = false
+    }
+}
+`, srv.URL))
+
+	resp, err := callVerb(t, "http_post", bgCtx, clientVal, cty.StringVal("/"), cty.StringVal("data"))
+	require.NoError(t, err)
+	assert.Equal(t, cty.NumberIntVal(503), resp.GetAttr("status"))
+	assert.Equal(t, int32(1), atomic.LoadInt32(count), "POST should not retry without allow_non_idempotent")
+}
+
+func TestHTTPPost_RetriedWithAllowNonIdempotent(t *testing.T) {
+	h, count := flakyHandler(1, 503)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    retry {
+        max_attempts          = 3
+        initial_delay         = "1ms"
+        jitter                = false
+        allow_non_idempotent  = true
+    }
+}
+`, srv.URL))
+
+	resp, err := callVerb(t, "http_post", bgCtx, clientVal, cty.StringVal("/"), cty.StringVal("data"))
+	require.NoError(t, err)
+	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
+	assert.Equal(t, int32(2), atomic.LoadInt32(count))
+}
+
+func TestHTTPGet_RetryNotAppliedToNonRetryableStatus(t *testing.T) {
+	h, count := flakyHandler(99, 500) // 500 is not in default retry_on
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    retry {
+        max_attempts  = 3
+        initial_delay = "1ms"
+        jitter        = false
+    }
+}
+`, srv.URL))
+
+	resp, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	require.NoError(t, err)
+	assert.Equal(t, cty.NumberIntVal(500), resp.GetAttr("status"))
+	assert.Equal(t, int32(1), atomic.LoadInt32(count), "500 should not be retried under default policy")
+}
+
+func TestHTTPGet_RetryOnTransportError(t *testing.T) {
+	// Stand up a server, immediately close it, and use that URL. The first
+	// attempt fails with connection refused; with retry enabled, the
+	// function should keep trying and eventually return the transport
+	// error after exhausting attempts.
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {}))
+	addr := srv.URL
+	srv.Close()
+
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    retry {
+        max_attempts  = 3
+        initial_delay = "1ms"
+        jitter        = false
+    }
+}
+`, addr))
+
+	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	require.Error(t, err)
+}
+
+func TestHTTPGet_RespectRetryAfter_Seconds(t *testing.T) {
+	var attempts int32
+	var firstAttemptAt, secondAttemptAt time.Time
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		n := atomic.AddInt32(&attempts, 1)
+		switch n {
+		case 1:
+			firstAttemptAt = time.Now()
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(503)
+		default:
+			secondAttemptAt = time.Now()
+			w.WriteHeader(200)
+		}
+	}))
+	defer srv.Close()
+
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    retry {
+        max_attempts  = 2
+        initial_delay = "1ms"
+        jitter        = false
+    }
+}
+`, srv.URL))
+
+	resp, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	require.NoError(t, err)
+	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
+	gap := secondAttemptAt.Sub(firstAttemptAt)
+	assert.GreaterOrEqual(t, gap, 1*time.Second, "Retry-After: 1 should delay >= 1s, got %v", gap)
+	assert.Less(t, gap, 3*time.Second, "should not delay much beyond 1s")
+}
+
+func TestHTTPGet_OptsRetryFalse_DisablesClientRetry(t *testing.T) {
+	h, count := flakyHandler(2, 503)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    retry {
+        max_attempts  = 5
+        initial_delay = "1ms"
+        jitter        = false
+    }
+}
+`, srv.URL))
+
+	opts := cty.ObjectVal(map[string]cty.Value{
+		"retry": cty.BoolVal(false),
+	})
+	resp, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"), opts)
+	require.NoError(t, err)
+	assert.Equal(t, cty.NumberIntVal(503), resp.GetAttr("status"))
+	assert.Equal(t, int32(1), atomic.LoadInt32(count), "opts.retry = false should disable client's retry policy")
+}
+
+func TestHTTPGet_OptsRetry_OverrideClientPolicy(t *testing.T) {
+	h, count := flakyHandler(4, 503)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	// Client has no retry block (so default = 1 attempt). Per-call retry
+	// override should still take effect.
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+}
+`, srv.URL))
+
+	opts := cty.ObjectVal(map[string]cty.Value{
+		"retry": cty.ObjectVal(map[string]cty.Value{
+			"max_attempts":  cty.NumberIntVal(5),
+			"initial_delay": cty.StringVal("1ms"),
+			"jitter":        cty.BoolVal(false),
+		}),
+	})
+	resp, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"), opts)
+	require.NoError(t, err)
+	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
+	assert.Equal(t, int32(5), atomic.LoadInt32(count))
+}
+
+// ── retry.on_response hook ──────────────────────────────────────────────────
+
+func TestHTTPGet_OnResponse_StopsRetrying(t *testing.T) {
+	// Hook returns false on every retry decision → should not retry.
+	h, count := flakyHandler(2, 503)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	vcl := fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    retry {
+        max_attempts  = 5
+        initial_delay = "1ms"
+        jitter        = false
+        on_response   = false
+    }
+}
+`, srv.URL)
+	config, diags := cfg.NewConfig().WithSources([]byte(vcl)).WithLogger(newTestLogger(t)).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	clientVal := config.CtyClientMap["api"]
+
+	resp, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	require.NoError(t, err)
+	assert.Equal(t, cty.NumberIntVal(503), resp.GetAttr("status"))
+	assert.Equal(t, int32(1), atomic.LoadInt32(count), "on_response = false stops after first attempt")
+}
+
+func TestHTTPGet_OnResponse_True_ForcesRetry(t *testing.T) {
+	// 500 is not in default retry_on, but the hook returns true for it,
+	// which should force retries.
+	h, count := flakyHandler(2, 500)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	vcl := fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    retry {
+        max_attempts  = 5
+        initial_delay = "1ms"
+        jitter        = false
+        on_response   = ctx.response.status == 500
+    }
+}
+`, srv.URL)
+	config, diags := cfg.NewConfig().WithSources([]byte(vcl)).WithLogger(newTestLogger(t)).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	clientVal := config.CtyClientMap["api"]
+
+	resp, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	require.NoError(t, err)
+	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
+	assert.Equal(t, int32(3), atomic.LoadInt32(count))
+}
+
+func TestHTTPGet_OnResponse_HasAttemptVar(t *testing.T) {
+	// Hook checks that ctx.attempt is populated correctly. Bail out after
+	// the second attempt by returning false on attempt >= 2.
+	h, count := flakyHandler(99, 503)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	vcl := fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    retry {
+        max_attempts  = 10
+        initial_delay = "1ms"
+        jitter        = false
+        on_response   = ctx.attempt < 2
+    }
+}
+`, srv.URL)
+	config, diags := cfg.NewConfig().WithSources([]byte(vcl)).WithLogger(newTestLogger(t)).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	clientVal := config.CtyClientMap["api"]
+
+	_, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	require.NoError(t, err)
+	// Attempt 1: hook sees attempt=1 → true → retry
+	// Attempt 2: hook sees attempt=2 → false → stop
+	assert.Equal(t, int32(2), atomic.LoadInt32(count))
 }
 
 // ── Interface sanity ────────────────────────────────────────────────────────

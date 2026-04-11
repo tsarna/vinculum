@@ -58,13 +58,13 @@ type httpClientDefinition struct {
 	// ignored. Declaring them here keeps gohcl from rejecting spec-conformant
 	// configs as unknown attributes while Phase 2 is the current landing zone.
 
-	Auth             hcl.Expression  `hcl:"auth,optional"`
-	AuthMaxLifetime  hcl.Expression  `hcl:"auth_max_lifetime,optional"`
-	AuthMaxFailures  *int            `hcl:"auth_max_failures,optional"`
-	AuthRetryBackoff *deferredBlock  `hcl:"auth_retry_backoff,block"`
-	Retry            *deferredBlock  `hcl:"retry,block"`
-	Cookies          *deferredBlock  `hcl:"cookies,block"`
-	OTel             *deferredBlock  `hcl:"otel,block"`
+	Auth             hcl.Expression `hcl:"auth,optional"`
+	AuthMaxLifetime  hcl.Expression `hcl:"auth_max_lifetime,optional"`
+	AuthMaxFailures  *int           `hcl:"auth_max_failures,optional"`
+	AuthRetryBackoff *deferredBlock `hcl:"auth_retry_backoff,block"`
+	Retry            *retryBlock    `hcl:"retry,block"`
+	Cookies          *deferredBlock `hcl:"cookies,block"`
+	OTel             *deferredBlock `hcl:"otel,block"`
 
 	DefRange hcl.Range `hcl:",def_range"`
 }
@@ -99,8 +99,15 @@ type HTTPClient struct {
 	maxRedirects   int
 	followRedirect bool
 	keepAuthOnRdir bool
+	retryPolicy    RetryPolicy
 
 	httpClient *http.Client
+
+	// parentEvalCtx is the HCL evaluation context the client was registered
+	// against. The verb functions use it as the parent when evaluating
+	// lazy expressions like retry.on_response. nil for the shared null
+	// client (which has no expressions to evaluate).
+	parentEvalCtx *hcl.EvalContext
 }
 
 // Compile-time checks.
@@ -141,6 +148,20 @@ func (c *HTTPClient) DefaultRedirectPolicy() RedirectPolicy {
 		Max:      c.maxRedirects,
 		KeepAuth: c.keepAuthOnRdir,
 	}
+}
+
+// DefaultRetryPolicy returns the retry policy this client was configured
+// with. Clients without a `retry { ... }` block return a no-retry policy
+// (MaxAttempts == 1).
+func (c *HTTPClient) DefaultRetryPolicy() RetryPolicy {
+	return c.retryPolicy
+}
+
+// ParentEvalCtx returns the HCL evaluation context the client was
+// registered against, or nil for synthetic clients (e.g. NullClient). Used
+// by verb functions to evaluate lazy expressions like retry.on_response.
+func (c *HTTPClient) ParentEvalCtx() *hcl.EvalContext {
+	return c.parentEvalCtx
 }
 
 // Do sends a request through this client's transport stack using the client's
@@ -280,6 +301,12 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		transport.MaxIdleConns = *def.MaxIdleConnections
 	}
 
+	// ── Retry policy ──
+	retryPolicy, retryDiags := parseRetryBlock(config, def.Retry)
+	if retryDiags.HasErrors() {
+		return nil, retryDiags
+	}
+
 	// ── *http.Client ──
 	defaultPolicy := RedirectPolicy{
 		Follow:   followRedirect,
@@ -303,7 +330,9 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		maxRedirects:   maxRedirects,
 		followRedirect: followRedirect,
 		keepAuthOnRdir: keepAuth,
+		retryPolicy:    retryPolicy,
 		httpClient:     goClient,
+		parentEvalCtx:  config.EvalCtx(),
 	}
 
 	// Warn (once) that deferred sub-blocks are parsed but not yet implemented.
@@ -312,9 +341,6 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		var deferred []string
 		if cfg.IsExpressionProvided(def.Auth) {
 			deferred = append(deferred, "auth")
-		}
-		if def.Retry != nil {
-			deferred = append(deferred, "retry")
 		}
 		if def.Cookies != nil {
 			deferred = append(deferred, "cookies")
@@ -366,6 +392,7 @@ var nullClient = func() *HTTPClient {
 		maxRedirects:   10,
 		followRedirect: true,
 		keepAuthOnRdir: false,
+		retryPolicy:    noRetryPolicy(),
 		httpClient: &http.Client{
 			Transport:     transport,
 			Timeout:       30 * time.Second,
@@ -505,6 +532,13 @@ type HTTPCallable interface {
 	DefaultHeaders() http.Header
 	DefaultRequestTimeout() time.Duration
 	DefaultRedirectPolicy() RedirectPolicy
+	DefaultRetryPolicy() RetryPolicy
+
+	// ParentEvalCtx returns the HCL evaluation context the client was
+	// registered against, or nil for synthetic clients (e.g. mocks, the
+	// shared null client). Verb functions need it to evaluate lazy
+	// expressions like retry.on_response that were stored at config time.
+	ParentEvalCtx() *hcl.EvalContext
 
 	// Do sends a request using the implementation's default redirect policy.
 	Do(req *http.Request) (*http.Response, error)
