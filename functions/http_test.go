@@ -20,6 +20,11 @@ import (
 	"github.com/tsarna/vinculum/ctyutil"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -1677,6 +1682,186 @@ client "http" "api" {
 	require.NoError(t, err)
 	assert.Equal(t, "fromjar", seenSession)
 	assert.Equal(t, "frompercall", seenExtra)
+}
+
+// ── OpenTelemetry: propagation ──────────────────────────────────────────────
+
+// withGlobalTracerProvider installs an in-memory tracer + W3C
+// propagator for the duration of the test, then restores them.
+func withGlobalTracerProvider(t *testing.T) (*tracetest.InMemoryExporter, *sdktrace.TracerProvider) {
+	t.Helper()
+	prevTP := otel.GetTracerProvider()
+	prevPropagator := otel.GetTextMapPropagator()
+
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
+	t.Cleanup(func() {
+		tp.Shutdown(context.Background()) //nolint:errcheck
+		otel.SetTracerProvider(prevTP)
+		otel.SetTextMapPropagator(prevPropagator)
+	})
+	return exporter, tp
+}
+
+// ctxWithSpan starts a real span and returns a ctx cty value wrapping
+// the resulting Go context. The span is ended by the test cleanup. The
+// returned span context is what the conditional propagator should
+// serialize into the outbound traceparent header.
+func ctxWithSpan(t *testing.T, tp trace.TracerProvider) (cty.Value, trace.SpanContext) {
+	t.Helper()
+	tracer := tp.Tracer("test")
+	goCtx, span := tracer.Start(context.Background(), "test-parent")
+	t.Cleanup(func() { span.End() })
+	return ctxVal(goCtx), span.SpanContext()
+}
+
+func TestHTTPGet_OTelPropagation_DefaultOn(t *testing.T) {
+	_, tp := withGlobalTracerProvider(t)
+
+	var sawTraceparent string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		sawTraceparent = r.Header.Get("traceparent")
+	}))
+	defer srv.Close()
+
+	ctx, sc := ctxWithSpan(t, tp)
+	_, err := callVerb(t, "http_get", ctx, nullClientVal, cty.StringVal(srv.URL+"/"))
+	require.NoError(t, err)
+	assert.NotEmpty(t, sawTraceparent, "default-on propagation should inject traceparent")
+	assert.Contains(t, sawTraceparent, sc.TraceID().String(),
+		"injected traceparent should carry the parent span's trace ID")
+}
+
+func TestHTTPGet_OTelPropagation_PerClientOff(t *testing.T) {
+	_, tp := withGlobalTracerProvider(t)
+
+	var sawTraceparent string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		sawTraceparent = r.Header.Get("traceparent")
+	}))
+	defer srv.Close()
+
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    otel {
+        propagate = false
+    }
+}
+`, srv.URL))
+
+	ctx, _ := ctxWithSpan(t, tp)
+	_, err := callVerb(t, "http_get", ctx, clientVal, cty.StringVal("/"))
+	require.NoError(t, err)
+	assert.Empty(t, sawTraceparent, "per-client propagate=false should suppress traceparent")
+}
+
+func TestHTTPGet_OTelPropagation_PerCallOff(t *testing.T) {
+	_, tp := withGlobalTracerProvider(t)
+
+	var sawTraceparent string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		sawTraceparent = r.Header.Get("traceparent")
+	}))
+	defer srv.Close()
+
+	// Client has default-on propagation; per-call override should win.
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+}
+`, srv.URL))
+
+	ctx, _ := ctxWithSpan(t, tp)
+	opts := cty.ObjectVal(map[string]cty.Value{
+		"otel": cty.ObjectVal(map[string]cty.Value{
+			"propagate": cty.BoolVal(false),
+		}),
+	})
+	_, err := callVerb(t, "http_get", ctx, clientVal, cty.StringVal("/"), opts)
+	require.NoError(t, err)
+	assert.Empty(t, sawTraceparent, "per-call opts.otel.propagate=false should suppress traceparent")
+}
+
+func TestHTTPGet_OTelPropagation_PerCallOn_OverridesClientOff(t *testing.T) {
+	_, tp := withGlobalTracerProvider(t)
+
+	var sawTraceparent string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		sawTraceparent = r.Header.Get("traceparent")
+	}))
+	defer srv.Close()
+
+	// Client default OFF, per-call ON should re-enable.
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    otel {
+        propagate = false
+    }
+}
+`, srv.URL))
+
+	ctx, _ := ctxWithSpan(t, tp)
+	opts := cty.ObjectVal(map[string]cty.Value{
+		"otel": cty.ObjectVal(map[string]cty.Value{
+			"propagate": cty.BoolVal(true),
+		}),
+	})
+	_, err := callVerb(t, "http_get", ctx, clientVal, cty.StringVal("/"), opts)
+	require.NoError(t, err)
+	assert.NotEmpty(t, sawTraceparent, "per-call propagate=true should override client default off")
+}
+
+// ── OpenTelemetry: span recording ──────────────────────────────────────────
+
+func TestHTTPGet_OTelSpan_Recorded(t *testing.T) {
+	exporter, tp := withGlobalTracerProvider(t)
+
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	// Configure the client to use our test tracer provider explicitly.
+	// (otelhttp falls back to the global if WithTracerProvider is not
+	// set, but being explicit makes the test independent of global
+	// state for the recorder.)
+	_ = tp
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+}
+`, srv.URL))
+
+	// Force a parent span so otelhttp creates a child.
+	ctx, _ := ctxWithSpan(t, tp)
+	_, err := callVerb(t, "http_get", ctx, clientVal, cty.StringVal("/"))
+	require.NoError(t, err)
+
+	// Flush by ending parent span via cleanup, then read.
+	// otelhttp's child span ends synchronously when the response body
+	// is closed, so it should be in the recorder already.
+	spans := exporter.GetSpans()
+	require.NotEmpty(t, spans, "otelhttp should have recorded an HTTP client span")
+
+	// Find the HTTP span — it has a method attribute matching "GET".
+	var found bool
+	for _, s := range spans {
+		for _, attr := range s.Attributes {
+			if attr.Key == "http.request.method" && attr.Value.AsString() == "GET" {
+				found = true
+				break
+			}
+		}
+	}
+	assert.True(t, found, "expected a span with http.request.method=GET")
 }
 
 // ── Interface sanity ────────────────────────────────────────────────────────

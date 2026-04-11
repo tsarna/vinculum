@@ -54,19 +54,36 @@ type httpClientDefinition struct {
 	MaxIdleConnections    *int  `hcl:"max_idle_connections,optional"`
 	DisableKeepAlives     *bool `hcl:"disable_keep_alives,optional"`
 
-	// ── Deferred to later phases: parsed, validated minimally, otherwise
-	// ignored. Declaring them here keeps gohcl from rejecting spec-conformant
-	// configs as unknown attributes while Phase 2 is the current landing zone.
-
 	Auth             hcl.Expression    `hcl:"auth,optional"`
 	AuthMaxLifetime  hcl.Expression    `hcl:"auth_max_lifetime,optional"`
 	AuthMaxFailures  *int              `hcl:"auth_max_failures,optional"`
 	AuthRetryBackoff *authBackoffBlock `hcl:"auth_retry_backoff,block"`
 	Retry            *retryBlock       `hcl:"retry,block"`
 	Cookies          *cookiesBlock     `hcl:"cookies,block"`
-	OTel             *deferredBlock    `hcl:"otel,block"`
+
+	// OTel propagation toggle. Spans and metrics are wired in
+	// automatically when a tracer/meter provider is configured at the
+	// global or block level — see Tracing and Metrics below.
+	OTel *otelBlock `hcl:"otel,block"`
+
+	// Tracing and Metrics each take an expression that resolves to a
+	// specific tracer/meter provider, mirroring the convention used by
+	// other vinculum clients. When omitted, the global default
+	// provider is used (or a no-op if none is configured).
+	Tracing hcl.Expression `hcl:"tracing,optional"`
+	Metrics hcl.Expression `hcl:"metrics,optional"`
 
 	DefRange hcl.Range `hcl:",def_range"`
+}
+
+// otelBlock is the `otel { ... }` sub-block.
+type otelBlock struct {
+	// Propagate controls whether W3C trace propagation headers
+	// (traceparent, tracestate, baggage) are injected into outbound
+	// requests. Defaults to true. A per-call override sits in
+	// opts.otel.propagate.
+	Propagate *bool     `hcl:"propagate,optional"`
+	DefRange  hcl.Range `hcl:",def_range"`
 }
 
 // redirectsBlock is the `redirects { ... }` sub-block.
@@ -365,6 +382,32 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}}
 	}
 
+	// ── OpenTelemetry providers and propagation toggle ──
+	tracerProvider, traceDiags := config.ResolveTracerProvider(def.Tracing)
+	if traceDiags.HasErrors() {
+		return nil, traceDiags
+	}
+	meterProvider, metricsDiags := cfg.ResolveMeterProvider(config, def.Metrics)
+	if metricsDiags.HasErrors() {
+		return nil, metricsDiags
+	}
+	otelPropagate := true
+	if def.OTel != nil && def.OTel.Propagate != nil {
+		otelPropagate = *def.OTel.Propagate
+	}
+
+	// Wrap the base transport with otelhttp for spans, propagation,
+	// and the standard http.client.* metrics. This must sit just above
+	// the *http.Transport so that retries and per-call redirect
+	// overrides (which build their own *http.Client wrappers around the
+	// shared RoundTripper) all benefit from instrumentation.
+	instrumentedTransport := wrapTransportWithOTel(
+		transport,
+		tracerProvider,
+		meterProvider,
+		otelPropagate,
+	)
+
 	// ── *http.Client ──
 	defaultPolicy := RedirectPolicy{
 		Follow:   followRedirect,
@@ -372,7 +415,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		KeepAuth: keepAuth,
 	}
 	goClient := &http.Client{
-		Transport:     transport,
+		Transport:     instrumentedTransport,
 		Timeout:       requestTimeout,
 		CheckRedirect: buildCheckRedirect(defaultPolicy),
 	}
@@ -404,9 +447,6 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	// Silently ignoring would be worse than a log line here.
 	if config.Logger != nil {
 		var deferred []string
-		if def.OTel != nil {
-			deferred = append(deferred, "otel")
-		}
 		if len(deferred) > 0 {
 			config.Logger.Warn(
 				"http client: configuration for attributes deferred to a later implementation phase is parsed but not yet active",
@@ -444,6 +484,11 @@ var nullClient = func() *HTTPClient {
 		ForceAttemptHTTP2: true,
 	}
 	defaultPolicy := RedirectPolicy{Follow: true, Max: 10, KeepAuth: false}
+	// Wrap with otelhttp using the global tracer/meter providers (or
+	// the no-op providers if none are installed). Propagation defaults
+	// to true per spec — the null client gets propagation just like a
+	// configured client would.
+	instrumented := wrapTransportWithOTel(transport, nil, nil, true)
 	return &HTTPClient{
 		BaseClient:     cfg.BaseClient{Name: ""},
 		defaultHeaders: make(http.Header),
@@ -453,7 +498,7 @@ var nullClient = func() *HTTPClient {
 		keepAuthOnRdir: false,
 		retryPolicy:    noRetryPolicy(),
 		httpClient: &http.Client{
-			Transport:     transport,
+			Transport:     instrumented,
 			Timeout:       30 * time.Second,
 			CheckRedirect: buildCheckRedirect(defaultPolicy),
 		},
@@ -614,4 +659,3 @@ type HTTPCallable interface {
 }
 
 var _ HTTPCallable = (*HTTPClient)(nil)
-

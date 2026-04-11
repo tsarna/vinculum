@@ -232,6 +232,15 @@ func doHTTPRequest(
 		defer cancel()
 	}
 
+	// ── Per-call OTel propagation override ──
+	// The conditional propagator on the client's transport reads this
+	// context value at injection time and skips emitting trace headers
+	// when set to false. When the override is absent, the client's
+	// configured default applies.
+	if parsedOpts.hasOTelPropagateOverride {
+		callCtx = clientshttp.WithOTelPropagate(callCtx, parsedOpts.otelPropagate)
+	}
+
 	// ── Resolve effective retry policy ──
 	// Priority: opts.retry { ... } > opts.retry = false > client default.
 	effectiveRetry := client.DefaultRetryPolicy()
@@ -969,6 +978,13 @@ type parsedHTTPOpts struct {
 	// would supply. These do not modify the jar.
 	cookies []*nethttp.Cookie
 
+	// Per-call OTel propagation override. hasOTelPropagateOverride is
+	// true when opts.otel.propagate was supplied; otelPropagate is the
+	// value to apply (taking precedence over the client's `otel {
+	// propagate = ... }` default).
+	hasOTelPropagateOverride bool
+	otelPropagate            bool
+
 	as        string // "none", "string", "bytes", "json"
 	bodyLimit int64
 }
@@ -1012,6 +1028,20 @@ func parseOpts(config *cfg.Config, opts cty.Value) (parsedHTTPOpts, error) {
 			return out, fmt.Errorf("opts.cookies: %w", err)
 		}
 		out.cookies = cs
+	}
+
+	if v, ok := attrs["otel"]; ok && !v.IsNull() {
+		if !v.Type().IsObjectType() && !v.Type().IsMapType() {
+			return out, fmt.Errorf("opts.otel must be an object, got %s", v.Type().FriendlyName())
+		}
+		otelAttrs := v.AsValueMap()
+		if pv, pok := otelAttrs["propagate"]; pok && !pv.IsNull() {
+			if pv.Type() != cty.Bool {
+				return out, fmt.Errorf("opts.otel.propagate must be a bool, got %s", pv.Type().FriendlyName())
+			}
+			out.hasOTelPropagateOverride = true
+			out.otelPropagate = pv.True()
+		}
 	}
 
 	if v, ok := attrs["headers"]; ok && !v.IsNull() {
