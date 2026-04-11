@@ -206,10 +206,13 @@ func TestParseRetryAfter_Seconds(t *testing.T) {
 }
 
 func TestParseRetryAfter_HTTPDate_Future(t *testing.T) {
-	future := time.Now().Add(2 * time.Second).UTC().Format(http.TimeFormat)
+	// http.TimeFormat is RFC 1123 with second precision, so a 5-second
+	// offset formatted and parsed back lands somewhere in the 4–5 second
+	// range depending on the sub-second slack. Allow a wide tolerance.
+	future := time.Now().Add(5 * time.Second).UTC().Format(http.TimeFormat)
 	d := ParseRetryAfter(future)
-	// Allow some slack for clock skew between Now() calls.
-	assert.InDelta(t, float64(2*time.Second), float64(d), float64(500*time.Millisecond))
+	assert.Greater(t, d, 3*time.Second)
+	assert.LessOrEqual(t, d, 6*time.Second)
 }
 
 func TestParseRetryAfter_HTTPDate_Past(t *testing.T) {

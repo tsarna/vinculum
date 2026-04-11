@@ -58,13 +58,13 @@ type httpClientDefinition struct {
 	// ignored. Declaring them here keeps gohcl from rejecting spec-conformant
 	// configs as unknown attributes while Phase 2 is the current landing zone.
 
-	Auth             hcl.Expression `hcl:"auth,optional"`
-	AuthMaxLifetime  hcl.Expression `hcl:"auth_max_lifetime,optional"`
-	AuthMaxFailures  *int           `hcl:"auth_max_failures,optional"`
-	AuthRetryBackoff *deferredBlock `hcl:"auth_retry_backoff,block"`
-	Retry            *retryBlock    `hcl:"retry,block"`
-	Cookies          *deferredBlock `hcl:"cookies,block"`
-	OTel             *deferredBlock `hcl:"otel,block"`
+	Auth             hcl.Expression    `hcl:"auth,optional"`
+	AuthMaxLifetime  hcl.Expression    `hcl:"auth_max_lifetime,optional"`
+	AuthMaxFailures  *int              `hcl:"auth_max_failures,optional"`
+	AuthRetryBackoff *authBackoffBlock `hcl:"auth_retry_backoff,block"`
+	Retry            *retryBlock       `hcl:"retry,block"`
+	Cookies          *deferredBlock    `hcl:"cookies,block"`
+	OTel             *deferredBlock    `hcl:"otel,block"`
 
 	DefRange hcl.Range `hcl:",def_range"`
 }
@@ -101,12 +101,16 @@ type HTTPClient struct {
 	keepAuthOnRdir bool
 	retryPolicy    RetryPolicy
 
+	// authHandler holds the auth cache and configuration. nil if the
+	// client did not define an `auth` expression.
+	authHandler AuthHandler
+
 	httpClient *http.Client
 
 	// parentEvalCtx is the HCL evaluation context the client was registered
 	// against. The verb functions use it as the parent when evaluating
-	// lazy expressions like retry.on_response. nil for the shared null
-	// client (which has no expressions to evaluate).
+	// lazy expressions like retry.on_response and the auth hook. nil for
+	// the shared null client (which has no expressions to evaluate).
 	parentEvalCtx *hcl.EvalContext
 }
 
@@ -155,6 +159,14 @@ func (c *HTTPClient) DefaultRedirectPolicy() RedirectPolicy {
 // (MaxAttempts == 1).
 func (c *HTTPClient) DefaultRetryPolicy() RetryPolicy {
 	return c.retryPolicy
+}
+
+// AuthHandler returns the auth cache for this client, or nil if no
+// `auth` expression was configured. Verb functions use it to fetch the
+// Authorization header for outbound requests and to record per-request
+// status for failure tracking.
+func (c *HTTPClient) AuthHandler() AuthHandler {
+	return c.authHandler
 }
 
 // ParentEvalCtx returns the HCL evaluation context the client was
@@ -307,6 +319,35 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		return nil, retryDiags
 	}
 
+	// ── Auth ──
+	var authHandler AuthHandler
+	if cfg.IsExpressionProvided(def.Auth) {
+		var maxLifetime time.Duration
+		if cfg.IsExpressionProvided(def.AuthMaxLifetime) {
+			d, mlDiags := config.ParseDuration(def.AuthMaxLifetime)
+			if mlDiags.HasErrors() {
+				return nil, mlDiags
+			}
+			maxLifetime = d
+		}
+		maxFailures := 5
+		if def.AuthMaxFailures != nil {
+			if *def.AuthMaxFailures < 0 {
+				return nil, hcl.Diagnostics{{
+					Severity: hcl.DiagError,
+					Summary:  "auth_max_failures must be >= 0",
+					Subject:  &def.DefRange,
+				}}
+			}
+			maxFailures = *def.AuthMaxFailures
+		}
+		backoff, backoffDiags := parseAuthBackoffBlock(config, def.AuthRetryBackoff)
+		if backoffDiags.HasErrors() {
+			return nil, backoffDiags
+		}
+		authHandler = newAuthCache(clientName, def.Auth, maxLifetime, maxFailures, backoff)
+	}
+
 	// ── *http.Client ──
 	defaultPolicy := RedirectPolicy{
 		Follow:   followRedirect,
@@ -331,6 +372,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		followRedirect: followRedirect,
 		keepAuthOnRdir: keepAuth,
 		retryPolicy:    retryPolicy,
+		authHandler:    authHandler,
 		httpClient:     goClient,
 		parentEvalCtx:  config.EvalCtx(),
 	}
@@ -339,9 +381,6 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	// Silently ignoring would be worse than a log line here.
 	if config.Logger != nil {
 		var deferred []string
-		if cfg.IsExpressionProvided(def.Auth) {
-			deferred = append(deferred, "auth")
-		}
 		if def.Cookies != nil {
 			deferred = append(deferred, "cookies")
 		}
@@ -533,6 +572,11 @@ type HTTPCallable interface {
 	DefaultRequestTimeout() time.Duration
 	DefaultRedirectPolicy() RedirectPolicy
 	DefaultRetryPolicy() RetryPolicy
+
+	// AuthHandler returns the auth cache and configuration for this
+	// client, or nil if no `auth` expression was configured. Mock
+	// implementations may return nil to opt out of auth entirely.
+	AuthHandler() AuthHandler
 
 	// ParentEvalCtx returns the HCL evaluation context the client was
 	// registered against, or nil for synthetic clients (e.g. mocks, the

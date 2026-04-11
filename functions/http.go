@@ -313,7 +313,7 @@ func runRetryLoop(
 			}
 		}
 
-		wrapper, txErr := sendOnce(callCtx, client, method, reqURL, hdrs, bodyBytes, parsedOpts)
+		wrapper, txErr := sendOnceWithAuth(config, callCtx, client, method, reqURL, hdrs, bodyBytes, parsedOpts)
 		lastWrapper = wrapper
 		lastTxErr = txErr
 
@@ -352,7 +352,7 @@ func runRetryLoop(
 					}
 					// Already slept; advance attempt directly without
 					// computing backoff again.
-					nextWrapper, nextErr := sendOnce(callCtx, client, method, reqURL, hdrs, bodyBytes, parsedOpts)
+					nextWrapper, nextErr := sendOnceWithAuth(config, callCtx, client, method, reqURL, hdrs, bodyBytes, parsedOpts)
 					lastWrapper = nextWrapper
 					lastTxErr = nextErr
 					attempt++
@@ -435,6 +435,221 @@ func sendOnce(
 		Redirected:   resp.Request != nil && resp.Request.URL != nil && !sameURL(&origURL, resp.Request.URL),
 		BufferedBody: data,
 	}, nil
+}
+
+// sendOnceWithAuth wraps sendOnce with the auth-injection layer described
+// in HTTP-CLIENT-SPEC.md "Authentication". The flow per attempt:
+//
+//  1. Compute the effective Authorization header for this attempt:
+//     - If opts.headers["Authorization"] is already set (level 5 of the
+//       header precedence chain), use it — and skip the hook entirely.
+//     - Else if opts.auth was set on this call, use that literal value
+//       (or no Authorization header if opts.auth was null) — skip the
+//       hook entirely.
+//     - Else if the client has an AuthHandler and the reentrancy marker
+//       is not set for this client, call AuthHandler.Get to fetch a
+//       cached or freshly-evaluated value.
+//     - Else send no Authorization header.
+//
+//  2. Send the request via sendOnce.
+//
+//  3. If the response was 401 AND the auth hook is in scope (i.e. the
+//     AuthHandler is non-nil and we are not suppressing it for this call):
+//     invalidate the cache, call Get with reason="unauthorized", and
+//     re-send the request *once* with the new value. A 401 on that
+//     re-attempt is returned to the caller as-is.
+//
+//  4. Record the final response status against the AuthHandler so it
+//     can update its consecutive-failure counter.
+func sendOnceWithAuth(
+	config *cfg.Config,
+	ctx context.Context,
+	client clientshttp.HTTPCallable,
+	method string,
+	reqURL *url.URL,
+	hdrs nethttp.Header,
+	bodyBytes []byte,
+	parsedOpts parsedHTTPOpts,
+) (*types.HTTPClientResponseWrapper, error) {
+	handler := client.AuthHandler()
+	clientName := client.GetName()
+
+	// hdrsHasAuth = the per-call header set already contains
+	// Authorization (e.g. from opts.headers). Treat that as a hard
+	// override that bypasses both the hook and opts.auth — the
+	// strongest-wins rule from the header precedence chain.
+	hdrsHasAuth := hdrs.Get("Authorization") != ""
+
+	// Decide the source of the Authorization header for the FIRST send.
+	authValue, useHook, err := resolveAuthForSend(
+		ctx, client, handler, clientName, parsedOpts, hdrsHasAuth,
+		"initial", 0,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply the resolved Authorization unless an explicit per-call header
+	// already supplied one.
+	sendHdrs := hdrs
+	if !hdrsHasAuth {
+		sendHdrs = hdrs.Clone()
+		if authValue != "" {
+			sendHdrs.Set("Authorization", authValue)
+		} else {
+			sendHdrs.Del("Authorization")
+		}
+	}
+
+	wrapper, txErr := sendOnce(ctx, client, method, reqURL, sendHdrs, bodyBytes, parsedOpts)
+	if txErr != nil {
+		// Transport error: the hook never got a wire-level result, so
+		// nothing to record. Surface as-is.
+		return nil, txErr
+	}
+
+	// 401 re-auth and retry, but only if the hook is actually in scope
+	// for this call. opts.auth and opts.headers.Authorization both
+	// disable hook-driven re-auth, and reentrancy suppression also
+	// disables it (the outer caller already holds the cache mutex).
+	if wrapper.R.StatusCode == 401 && useHook && handler != nil && !clientshttp.IsAuthSuppressed(ctx, clientName) {
+		// Tell the cache that the value it just handed out failed; this
+		// also invalidates the cached value.
+		handler.RecordResult(401)
+
+		// Re-fetch with reason="unauthorized". We pass previousStatus=401
+		// so the hook expression's ctx.auth_attempt reflects the trigger.
+		newAuth, _, reauthErr := resolveAuthForSend(
+			ctx, client, handler, clientName, parsedOpts, false,
+			"unauthorized", 401,
+		)
+		if reauthErr != nil {
+			return nil, reauthErr
+		}
+
+		retryHdrs := hdrs.Clone()
+		if newAuth != "" {
+			retryHdrs.Set("Authorization", newAuth)
+		} else {
+			retryHdrs.Del("Authorization")
+		}
+
+		retryWrapper, retryTxErr := sendOnce(ctx, client, method, reqURL, retryHdrs, bodyBytes, parsedOpts)
+		if retryTxErr != nil {
+			return nil, retryTxErr
+		}
+		wrapper = retryWrapper
+	}
+
+	// Record the final outcome against the cache (only if the hook is
+	// what produced the value — opts.auth and opts.headers paths bypass
+	// the cache entirely). Also skip recording when the request was
+	// sent under reentrancy suppression: in that case we are running
+	// on a goroutine that already holds the outer Get → eval → http_get
+	// stack with the cache mutex held above us, so reacquiring it here
+	// would deadlock — and there is no cached value to update anyway.
+	if useHook && handler != nil && !clientshttp.IsAuthSuppressed(ctx, clientName) {
+		handler.RecordResult(wrapper.R.StatusCode)
+	}
+
+	_ = config // currently unused; reserved for future hooks that need it
+	return wrapper, nil
+}
+
+// resolveAuthForSend computes the Authorization header value for one
+// attempt according to the precedence rules in sendOnceWithAuth.
+//
+// Returns (value, useHook, err) where:
+//   - value is the Authorization header to send ("" means none)
+//   - useHook is true if the value came from the AuthHandler (and so the
+//     401 re-auth path and RecordResult both apply); false if the value
+//     came from opts.auth, opts.headers, or there is no auth at all
+func resolveAuthForSend(
+	ctx context.Context,
+	client clientshttp.HTTPCallable,
+	handler clientshttp.AuthHandler,
+	clientName string,
+	parsedOpts parsedHTTPOpts,
+	hdrsHasAuth bool,
+	reason string,
+	previousStatus int,
+) (string, bool, error) {
+	// Strongest: explicit per-call header. The verb function should not
+	// touch it; this branch is signalled by the caller already having set
+	// it on hdrs.
+	if hdrsHasAuth {
+		return "", false, nil
+	}
+
+	// Per-call opts.auth: literal string or null bypass.
+	if parsedOpts.hasAuthOverride {
+		if parsedOpts.authValueSet {
+			return parsedOpts.authValue, false, nil
+		}
+		// opts.auth = null → send no Authorization, bypass hook.
+		return "", false, nil
+	}
+
+	// Hook path. Reentrancy suppression handled inside Get.
+	if handler == nil {
+		return "", false, nil
+	}
+	eval := func(attempt clientshttp.AuthAttempt) (clientshttp.AuthResult, error) {
+		return evalAuthExpression(ctx, client, handler, clientName, attempt)
+	}
+	val, err := handler.Get(ctx, reason, previousStatus, eval)
+	if err != nil {
+		return "", true, err
+	}
+	return val, true, nil
+}
+
+// evalAuthExpression evaluates the auth HCL expression for the given
+// client. The eval context contains the standard ctx attributes plus
+// ctx.auth_attempt with the structured AuthAttempt fields. The Go
+// context passed into the eval has the reentrancy marker for clientName
+// added, so any http_*() call from inside the hook against the same
+// client sees IsAuthSuppressed.
+func evalAuthExpression(
+	ctx context.Context,
+	client clientshttp.HTTPCallable,
+	handler clientshttp.AuthHandler,
+	clientName string,
+	attempt clientshttp.AuthAttempt,
+) (clientshttp.AuthResult, error) {
+	expr := handler.Expression()
+	if expr == nil {
+		return clientshttp.AuthResult{}, fmt.Errorf("auth handler has no expression")
+	}
+
+	parent := client.ParentEvalCtx()
+	if parent == nil {
+		return clientshttp.AuthResult{}, fmt.Errorf("auth: no eval context available for client %q", clientName)
+	}
+
+	// Mark this client as in-flight for the duration of the hook.
+	hookCtx := clientshttp.WithAuthMarker(ctx, clientName)
+
+	// Build the auth_attempt object exposed via ctx.auth_attempt.
+	attemptObj := cty.ObjectVal(map[string]cty.Value{
+		"reason":          cty.StringVal(attempt.Reason),
+		"failures":        cty.NumberIntVal(int64(attempt.Failures)),
+		"previous_status": cty.NumberIntVal(int64(attempt.PreviousStatus)),
+	})
+
+	evalCtx, err := hclutil.NewEvalContext(hookCtx).
+		WithAttribute("auth_attempt", attemptObj).
+		BuildEvalContext(parent)
+	if err != nil {
+		return clientshttp.AuthResult{}, fmt.Errorf("auth: build eval context: %w", err)
+	}
+
+	val, diags := expr.Value(evalCtx)
+	if diags.HasErrors() {
+		return clientshttp.AuthResult{}, fmt.Errorf("auth: evaluate expression: %w", diags)
+	}
+
+	return clientshttp.ParseAuthResult(val)
 }
 
 // finalizeResponse applies opts.as pre-decoding to the wrapper produced by
@@ -734,6 +949,14 @@ type parsedHTTPOpts struct {
 	retryDisabled bool
 	retryOverride *clientshttp.RetryPolicy
 
+	// Per-call auth override. hasAuthOverride is true when opts.auth was
+	// supplied (even with a null value, which means "send no Authorization
+	// for this call and bypass the hook"). authValue is the literal header
+	// to send when authValueSet is true.
+	hasAuthOverride bool
+	authValueSet    bool
+	authValue       string
+
 	as        string // "none", "string", "bytes", "json"
 	bodyLimit int64
 }
@@ -756,6 +979,19 @@ func parseOpts(config *cfg.Config, opts cty.Value) (parsedHTTPOpts, error) {
 		}
 		out.retryDisabled = disabled
 		out.retryOverride = override
+	}
+
+	if v, ok := attrs["auth"]; ok {
+		// Even a null value here is meaningful: it means "do not send
+		// Authorization for this call, and do not run the auth hook".
+		out.hasAuthOverride = true
+		if !v.IsNull() {
+			if v.Type() != cty.String {
+				return out, fmt.Errorf("opts.auth must be a string or null, got %s", v.Type().FriendlyName())
+			}
+			out.authValueSet = true
+			out.authValue = v.AsString()
+		}
 	}
 
 	if v, ok := attrs["headers"]; ok && !v.IsNull() {

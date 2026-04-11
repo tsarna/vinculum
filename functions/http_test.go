@@ -1118,6 +1118,312 @@ client "http" "api" {
 	assert.Equal(t, int32(2), atomic.LoadInt32(count))
 }
 
+// ── Authentication ──────────────────────────────────────────────────────────
+
+// authServer returns an httptest server that requires the supplied
+// Authorization header to return 200; any other Authorization (or none)
+// returns 401. The returned counter records how many requests reached
+// the server (including 401s).
+func authServer(t *testing.T, expected string) (*httptest.Server, *int32) {
+	t.Helper()
+	var count int32
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		atomic.AddInt32(&count, 1)
+		if r.Header.Get("Authorization") == expected {
+			w.WriteHeader(200)
+			return
+		}
+		w.WriteHeader(401)
+	}))
+	return srv, &count
+}
+
+func TestHTTPGet_StaticAuthHeader_SentOnFirstRequest(t *testing.T) {
+	srv, _ := authServer(t, "Bearer secret")
+	defer srv.Close()
+
+	vcl := fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    auth     = "Bearer secret"
+}
+`, srv.URL)
+	config, diags := cfg.NewConfig().WithSources([]byte(vcl)).WithLogger(newTestLogger(t)).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	clientVal := config.CtyClientMap["api"]
+
+	resp, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	require.NoError(t, err)
+	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
+}
+
+func TestHTTPGet_AuthCachedAcrossCalls(t *testing.T) {
+	// The auth expression here is a literal string, but it should still
+	// only be evaluated once. We can't directly count evaluations of an
+	// HCL string literal, but we can verify the cache returns the same
+	// value across multiple calls and the snapshot HasCachedValue stays
+	// true.
+	srv, count := authServer(t, "Bearer secret")
+	defer srv.Close()
+
+	vcl := fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    auth     = "Bearer secret"
+}
+`, srv.URL)
+	config, diags := cfg.NewConfig().WithSources([]byte(vcl)).WithLogger(newTestLogger(t)).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	clientVal := config.CtyClientMap["api"]
+
+	for i := 0; i < 3; i++ {
+		_, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+		require.NoError(t, err)
+	}
+	assert.Equal(t, int32(3), atomic.LoadInt32(count))
+	c := config.Clients["http"]["api"].(*clientshttp.HTTPClient)
+	require.NotNil(t, c.AuthHandler())
+	snap := c.AuthHandler().Snapshot()
+	assert.True(t, snap.HasCachedValue)
+	assert.Equal(t, 0, snap.ConsecutiveFailures)
+}
+
+func TestHTTPGet_401_TriggersReAuthAndRetry(t *testing.T) {
+	// The auth hook is a literal "Bearer wrong"; the server expects
+	// "Bearer good". On the first attempt the server returns 401, the
+	// cache is invalidated, the hook is re-evaluated (still "Bearer
+	// wrong"), the request is retried *once*, and the second 401 is
+	// surfaced as the response. This verifies that the verb hits the
+	// server exactly twice — once initial, once re-auth — never three
+	// times.
+	var requestCount int32
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		atomic.AddInt32(&requestCount, 1)
+		if r.Header.Get("Authorization") == "Bearer good" {
+			w.WriteHeader(200)
+			return
+		}
+		w.WriteHeader(401)
+	}))
+	defer srv.Close()
+
+	vcl := fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    auth     = "Bearer wrong"
+}
+`, srv.URL)
+	config, diags := cfg.NewConfig().WithSources([]byte(vcl)).WithLogger(newTestLogger(t)).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	clientVal := config.CtyClientMap["api"]
+
+	resp, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	require.NoError(t, err)
+	assert.Equal(t, cty.NumberIntVal(401), resp.GetAttr("status"))
+	assert.Equal(t, int32(2), atomic.LoadInt32(&requestCount), "401 should trigger exactly one re-auth retry")
+}
+
+func TestHTTPGet_401_NoRetry_WithOptsAuth(t *testing.T) {
+	// opts.auth should bypass the hook entirely; a 401 must NOT trigger
+	// re-auth-and-retry because there is no cache to invalidate.
+	srv, count := authServer(t, "Bearer good")
+	defer srv.Close()
+
+	vcl := fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    auth     = "Bearer good"
+}
+`, srv.URL)
+	config, diags := cfg.NewConfig().WithSources([]byte(vcl)).WithLogger(newTestLogger(t)).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	clientVal := config.CtyClientMap["api"]
+
+	opts := cty.ObjectVal(map[string]cty.Value{
+		"auth": cty.StringVal("Bearer wrong"),
+	})
+	resp, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"), opts)
+	require.NoError(t, err)
+	assert.Equal(t, cty.NumberIntVal(401), resp.GetAttr("status"))
+	assert.Equal(t, int32(1), atomic.LoadInt32(count), "opts.auth must not trigger re-auth retry on 401")
+}
+
+func TestHTTPGet_OptsAuth_BypassesHook(t *testing.T) {
+	// Even when the client has an auth hook configured, opts.auth wins.
+	var sawAuth string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		sawAuth = r.Header.Get("Authorization")
+	}))
+	defer srv.Close()
+
+	vcl := fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    auth     = "Bearer client-default"
+}
+`, srv.URL)
+	config, diags := cfg.NewConfig().WithSources([]byte(vcl)).WithLogger(newTestLogger(t)).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	clientVal := config.CtyClientMap["api"]
+
+	opts := cty.ObjectVal(map[string]cty.Value{
+		"auth": cty.StringVal("Bearer per-call"),
+	})
+	_, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"), opts)
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer per-call", sawAuth)
+}
+
+func TestHTTPGet_OptsAuthNull_SuppressesHookAndAuthorization(t *testing.T) {
+	var sawAuth string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		sawAuth = r.Header.Get("Authorization")
+	}))
+	defer srv.Close()
+
+	vcl := fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    auth     = "Bearer client-default"
+}
+`, srv.URL)
+	config, diags := cfg.NewConfig().WithSources([]byte(vcl)).WithLogger(newTestLogger(t)).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	clientVal := config.CtyClientMap["api"]
+
+	opts := cty.ObjectVal(map[string]cty.Value{
+		"auth": cty.NullVal(cty.String),
+	})
+	_, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"), opts)
+	require.NoError(t, err)
+	assert.Empty(t, sawAuth, "opts.auth = null must send no Authorization")
+}
+
+func TestHTTPGet_OptsHeadersAuthorization_TakesPrecedence(t *testing.T) {
+	var sawAuth string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		sawAuth = r.Header.Get("Authorization")
+	}))
+	defer srv.Close()
+
+	vcl := fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    auth     = "Bearer client-default"
+}
+`, srv.URL)
+	config, diags := cfg.NewConfig().WithSources([]byte(vcl)).WithLogger(newTestLogger(t)).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	clientVal := config.CtyClientMap["api"]
+
+	opts := cty.ObjectVal(map[string]cty.Value{
+		"headers": cty.ObjectVal(map[string]cty.Value{
+			"Authorization": cty.StringVal("Bearer header-wins"),
+		}),
+	})
+	_, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"), opts)
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer header-wins", sawAuth)
+}
+
+func TestHTTPGet_AuthMaxFailures_FailFast(t *testing.T) {
+	// Static auth hook with a value the server always rejects. Each
+	// verb call sends initial + one re-auth = 2 requests, both
+	// recorded as 401 failures against the cache. With
+	// auth_max_failures = 2, the first call already trips the failed
+	// state — the *second* call from the verb function fails fast
+	// before reaching the network.
+	srv, count := authServer(t, "Bearer good")
+	defer srv.Close()
+
+	vcl := fmt.Sprintf(`
+client "http" "api" {
+    base_url          = %q
+    auth              = "Bearer wrong"
+    auth_max_failures = 2
+
+    auth_retry_backoff {
+        initial_delay = "10s"
+    }
+}
+`, srv.URL)
+	config, diags := cfg.NewConfig().WithSources([]byte(vcl)).WithLogger(newTestLogger(t)).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	clientVal := config.CtyClientMap["api"]
+
+	// First call: 401 + re-auth + 401 → 2 wire requests, cache enters
+	// failed state.
+	resp, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	require.NoError(t, err)
+	assert.Equal(t, cty.NumberIntVal(401), resp.GetAttr("status"))
+	assert.Equal(t, int32(2), atomic.LoadInt32(count))
+
+	// Second call: client is now in failed state and should error
+	// before hitting the network.
+	_, err = callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed state")
+	assert.Equal(t, int32(2), atomic.LoadInt32(count), "fail-fast call must not hit the server")
+}
+
+func TestHTTPGet_AuthHook_ReentrancySuppressed(t *testing.T) {
+	// The auth hook for client "api" makes its own http_get against the
+	// SAME client. Without reentrancy suppression that would loop
+	// forever (or stack-overflow). With suppression, the inner call
+	// sends no Authorization header and the marker prevents re-entering
+	// the hook.
+	//
+	// We verify by serving two paths:
+	//   /token  → returns "tok-123" plain text
+	//   /data   → requires "Bearer tok-123", else 401
+	// The /token path should be reachable from inside the hook with no
+	// Authorization header (so it returns 200), and the /data path should
+	// then succeed using the value the hook constructed.
+	var tokenHits, dataHits, dataAuthSeen int32
+	var lastDataAuth atomic.Value // string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		switch r.URL.Path {
+		case "/token":
+			atomic.AddInt32(&tokenHits, 1)
+			// Inside the hook reentrancy must suppress Authorization.
+			// If the test sees Authorization here, the marker logic
+			// is broken.
+			if r.Header.Get("Authorization") != "" {
+				w.WriteHeader(500)
+				return
+			}
+			fmt.Fprint(w, "tok-123")
+		case "/data":
+			atomic.AddInt32(&dataHits, 1)
+			lastDataAuth.Store(r.Header.Get("Authorization"))
+			if r.Header.Get("Authorization") == "Bearer tok-123" {
+				atomic.AddInt32(&dataAuthSeen, 1)
+				w.WriteHeader(200)
+				return
+			}
+			w.WriteHeader(401)
+		}
+	}))
+	defer srv.Close()
+
+	vcl := fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    auth     = "Bearer ${tostring(http_get(ctx, client.api, "/token"))}"
+}
+`, srv.URL)
+	config, diags := cfg.NewConfig().WithSources([]byte(vcl)).WithLogger(newTestLogger(t)).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	clientVal := config.CtyClientMap["api"]
+
+	resp, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/data"))
+	require.NoError(t, err)
+	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
+	assert.Equal(t, int32(1), atomic.LoadInt32(&tokenHits), "token endpoint should be hit exactly once")
+	assert.Equal(t, int32(1), atomic.LoadInt32(&dataHits), "data endpoint should be hit exactly once")
+	assert.Equal(t, "Bearer tok-123", lastDataAuth.Load())
+}
+
 // ── Interface sanity ────────────────────────────────────────────────────────
 
 func TestHTTPCallable_NullClientPath(t *testing.T) {
