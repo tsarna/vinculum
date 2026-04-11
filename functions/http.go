@@ -9,6 +9,7 @@ import (
 	"net/textproto"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +44,7 @@ func GetHTTPClientFunctions(config *cfg.Config) map[string]function.Function {
 		"http_put":     makeVerbFunc(config, "PUT", true),
 		"http_patch":   makeVerbFunc(config, "PATCH", true),
 		"http_request": makeGenericVerbFunc(config),
+		"http_must":    HTTPMustFunc,
 	}
 }
 
@@ -1300,4 +1302,229 @@ func parsePerCallQuery(val cty.Value) (url.Values, error) {
 		}
 	}
 	return out, nil
+}
+
+// ─── http_must status assertion wrapper ─────────────────────────────────────
+
+// httpMustErrorBodyExcerpt is the maximum number of bytes of response body
+// included in an http_must error message. Per spec this is fixed, not
+// configurable: tunability can be added later if a real use case appears.
+const httpMustErrorBodyExcerpt = 512
+
+// HTTPMustFunc implements http_must(response[, expected]) → response.
+//
+// Returns the response unchanged when its status is acceptable;
+// otherwise raises an HCL error containing the method, final URL,
+// actual status, expected set, and a body excerpt. See the
+// "Status Assertions" section of HTTP-CLIENT-SPEC.md.
+//
+// expected may be:
+//   - omitted (or null) — any 2xx is acceptable
+//   - a single number — exact match
+//   - a list of numbers — any one matches
+//   - a list of [lo, hi] tuples — inclusive ranges
+//   - a mix of numbers and [lo, hi] tuples in the same list
+var HTTPMustFunc = function.New(&function.Spec{
+	Description: "Returns response unchanged if its status matches expected (default any 2xx); otherwise raises an HCL error",
+	Params: []function.Parameter{
+		{Name: "response", Type: cty.DynamicPseudoType, AllowDynamicType: true},
+	},
+	VarParam: &function.Parameter{Name: "expected", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true},
+	Type:     function.StaticReturnType(types.HTTPClientResponseObjectType),
+	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+		respVal := args[0]
+		wrapper, ok := types.GetHTTPClientResponseFromValue(respVal)
+		if !ok {
+			return cty.NilVal, fmt.Errorf("http_must: first argument must be an httpclientresponse value")
+		}
+
+		// Default: any 2xx.
+		check := func(status int) bool { return status >= 200 && status < 300 }
+		var expectedDesc string
+
+		if len(args) > 1 && !args[1].IsNull() {
+			c, desc, err := parseHTTPMustExpected(args[1])
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("http_must: %w", err)
+			}
+			check = c
+			expectedDesc = desc
+		} else {
+			expectedDesc = "any 2xx"
+		}
+
+		if check(wrapper.R.StatusCode) {
+			return respVal, nil
+		}
+
+		// Build the error.
+		method := "<unknown>"
+		urlStr := "<unknown>"
+		if wrapper.R.Request != nil {
+			if wrapper.R.Request.Method != "" {
+				method = wrapper.R.Request.Method
+			}
+			if wrapper.R.Request.URL != nil {
+				urlStr = wrapper.R.Request.URL.String()
+			}
+		}
+
+		bodyExcerpt := buildHTTPMustBodyExcerpt(wrapper)
+
+		return cty.NilVal, fmt.Errorf(
+			"http_must: %s %s returned %d %s\n  expected: %s\n  body: %s",
+			method,
+			urlStr,
+			wrapper.R.StatusCode,
+			nethttp.StatusText(wrapper.R.StatusCode),
+			expectedDesc,
+			bodyExcerpt,
+		)
+	},
+})
+
+// parseHTTPMustExpected interprets the second argument to http_must.
+// Returns a status-acceptance predicate and a human-readable description
+// of the expected set for inclusion in error messages.
+func parseHTTPMustExpected(val cty.Value) (func(int) bool, string, error) {
+	// Single number: exact match.
+	if val.Type() == cty.Number {
+		n, _ := val.AsBigFloat().Int64()
+		want := int(n)
+		return func(s int) bool { return s == want }, fmt.Sprintf("[%d]", want), nil
+	}
+
+	// List or tuple: each element is either a number (exact) or a
+	// 2-element list/tuple [lo, hi] (inclusive range).
+	if !val.Type().IsListType() && !val.Type().IsTupleType() && !val.Type().IsSetType() {
+		return nil, "", fmt.Errorf("expected must be a number, a list of numbers, or a list of [lo, hi] tuples; got %s", val.Type().FriendlyName())
+	}
+
+	type rangeSpec struct{ lo, hi int }
+	var exact []int
+	var ranges []rangeSpec
+
+	for it := val.ElementIterator(); it.Next(); {
+		_, elem := it.Element()
+		if elem.IsNull() {
+			return nil, "", fmt.Errorf("expected list elements must not be null")
+		}
+		switch {
+		case elem.Type() == cty.Number:
+			n, _ := elem.AsBigFloat().Int64()
+			exact = append(exact, int(n))
+		case elem.Type().IsListType() || elem.Type().IsTupleType():
+			lo, hi, err := parseRangeTuple(elem)
+			if err != nil {
+				return nil, "", err
+			}
+			ranges = append(ranges, rangeSpec{lo, hi})
+		default:
+			return nil, "", fmt.Errorf("expected list element must be a number or [lo, hi] tuple, got %s", elem.Type().FriendlyName())
+		}
+	}
+
+	if len(exact) == 0 && len(ranges) == 0 {
+		return nil, "", fmt.Errorf("expected list must not be empty")
+	}
+
+	check := func(s int) bool {
+		for _, e := range exact {
+			if s == e {
+				return true
+			}
+		}
+		for _, r := range ranges {
+			if s >= r.lo && s <= r.hi {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Build a stable description for the error message: numbers in
+	// declaration order, then ranges as [lo-hi].
+	parts := make([]string, 0, len(exact)+len(ranges))
+	for _, e := range exact {
+		parts = append(parts, strconv.Itoa(e))
+	}
+	for _, r := range ranges {
+		parts = append(parts, fmt.Sprintf("%d-%d", r.lo, r.hi))
+	}
+	return check, "[" + strings.Join(parts, ", ") + "]", nil
+}
+
+// parseRangeTuple decodes a 2-element list/tuple of numbers as a [lo, hi]
+// inclusive range.
+func parseRangeTuple(val cty.Value) (int, int, error) {
+	elems := val.AsValueSlice()
+	if len(elems) != 2 {
+		return 0, 0, fmt.Errorf("range must be a 2-element [lo, hi] list, got %d elements", len(elems))
+	}
+	if elems[0].IsNull() || elems[0].Type() != cty.Number {
+		return 0, 0, fmt.Errorf("range lo must be a number")
+	}
+	if elems[1].IsNull() || elems[1].Type() != cty.Number {
+		return 0, 0, fmt.Errorf("range hi must be a number")
+	}
+	loN, _ := elems[0].AsBigFloat().Int64()
+	hiN, _ := elems[1].AsBigFloat().Int64()
+	lo, hi := int(loN), int(hiN)
+	if lo > hi {
+		return 0, 0, fmt.Errorf("range lo (%d) must be <= hi (%d)", lo, hi)
+	}
+	return lo, hi, nil
+}
+
+// buildHTTPMustBodyExcerpt produces the body summary for an http_must
+// error message. For text bodies, returns up to httpMustErrorBodyExcerpt
+// bytes followed by "..." if truncated. For binary bodies (any
+// Content-Type that doesn't look text-ish), returns a count summary.
+func buildHTTPMustBodyExcerpt(wrapper *types.HTTPClientResponseWrapper) string {
+	body := wrapper.BufferedBody
+	ct := ""
+	if wrapper.R != nil {
+		ct = wrapper.R.Header.Get("Content-Type")
+	}
+	if !looksLikeTextContentType(ct) {
+		return fmt.Sprintf("<%d bytes of %s>", len(body), defaultMediaType(ct))
+	}
+	if len(body) <= httpMustErrorBodyExcerpt {
+		return string(body)
+	}
+	return string(body[:httpMustErrorBodyExcerpt]) + "..."
+}
+
+// looksLikeTextContentType returns true for content types whose body is
+// human-readable text. JSON, XML, form-encoded, and anything starting
+// with "text/" are treated as text. Empty string is treated as text on
+// the assumption that the upstream forgot to set a Content-Type and the
+// excerpt-as-string heuristic is more useful than a binary summary.
+func looksLikeTextContentType(ct string) bool {
+	if ct == "" {
+		return true
+	}
+	mt := strings.ToLower(strings.TrimSpace(strings.SplitN(ct, ";", 2)[0]))
+	if strings.HasPrefix(mt, "text/") {
+		return true
+	}
+	switch mt {
+	case "application/json", "application/xml",
+		"application/x-www-form-urlencoded",
+		"application/javascript", "application/yaml", "application/x-yaml":
+		return true
+	}
+	if strings.HasSuffix(mt, "+json") || strings.HasSuffix(mt, "+xml") {
+		return true
+	}
+	return false
+}
+
+// defaultMediaType returns the bare media type from a Content-Type
+// header value, or "application/octet-stream" if none was set.
+func defaultMediaType(ct string) string {
+	if ct == "" {
+		return "application/octet-stream"
+	}
+	return strings.TrimSpace(strings.SplitN(ct, ";", 2)[0])
 }

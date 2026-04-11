@@ -1864,6 +1864,267 @@ client "http" "api" {
 	assert.True(t, found, "expected a span with http.request.method=GET")
 }
 
+// ── http_must ───────────────────────────────────────────────────────────────
+
+// fetchOnce calls http_get against srv and returns the response cty value.
+// Helper for the http_must tests so each one isn't fifteen lines of setup.
+func fetchOnce(t *testing.T, srv *httptest.Server, path string) cty.Value {
+	t.Helper()
+	resp, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL+path))
+	require.NoError(t, err)
+	return resp
+}
+
+// callMust invokes http_must directly via the function registry.
+func callMust(t *testing.T, args ...cty.Value) (cty.Value, error) {
+	t.Helper()
+	return callVerb(t, "http_must", args...)
+}
+
+func TestHTTPMust_Default2xx_PassesThrough(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.WriteHeader(204)
+		fmt.Fprint(w, "")
+	}))
+	defer srv.Close()
+
+	resp := fetchOnce(t, srv, "/")
+	got, err := callMust(t, resp)
+	require.NoError(t, err)
+	// http_must returns the response unchanged.
+	assert.Equal(t, cty.NumberIntVal(204), got.GetAttr("status"))
+}
+
+func TestHTTPMust_Default2xx_RejectsNon2xx(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.WriteHeader(404)
+		fmt.Fprint(w, "not found")
+	}))
+	defer srv.Close()
+
+	resp := fetchOnce(t, srv, "/")
+	_, err := callMust(t, resp)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "404")
+	assert.Contains(t, err.Error(), "any 2xx")
+	assert.Contains(t, err.Error(), "not found", "body excerpt should be in the error")
+}
+
+func TestHTTPMust_SingleStatus_Match(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.WriteHeader(201)
+	}))
+	defer srv.Close()
+
+	resp := fetchOnce(t, srv, "/")
+	_, err := callMust(t, resp, cty.NumberIntVal(201))
+	require.NoError(t, err)
+}
+
+func TestHTTPMust_SingleStatus_Mismatch(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	resp := fetchOnce(t, srv, "/")
+	_, err := callMust(t, resp, cty.NumberIntVal(201))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "[201]")
+	assert.Contains(t, err.Error(), "200")
+}
+
+func TestHTTPMust_StatusList_Match(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+
+	resp := fetchOnce(t, srv, "/")
+	_, err := callMust(t, resp, cty.TupleVal([]cty.Value{
+		cty.NumberIntVal(200),
+		cty.NumberIntVal(204),
+		cty.NumberIntVal(404),
+	}))
+	require.NoError(t, err)
+}
+
+func TestHTTPMust_StatusList_Mismatch(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.WriteHeader(500)
+	}))
+	defer srv.Close()
+
+	resp := fetchOnce(t, srv, "/")
+	_, err := callMust(t, resp, cty.TupleVal([]cty.Value{
+		cty.NumberIntVal(200),
+		cty.NumberIntVal(204),
+	}))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "[200, 204]")
+}
+
+func TestHTTPMust_Range_Match(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.WriteHeader(207)
+	}))
+	defer srv.Close()
+
+	resp := fetchOnce(t, srv, "/")
+	_, err := callMust(t, resp, cty.TupleVal([]cty.Value{
+		cty.TupleVal([]cty.Value{cty.NumberIntVal(200), cty.NumberIntVal(299)}),
+	}))
+	require.NoError(t, err)
+}
+
+func TestHTTPMust_Range_BoundariesInclusive(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		// Hit the lower bound exactly.
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	resp := fetchOnce(t, srv, "/")
+	_, err := callMust(t, resp, cty.TupleVal([]cty.Value{
+		cty.TupleVal([]cty.Value{cty.NumberIntVal(200), cty.NumberIntVal(299)}),
+	}))
+	require.NoError(t, err)
+}
+
+func TestHTTPMust_MixedNumbersAndRanges(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	resp := fetchOnce(t, srv, "/")
+	// Accept any 2xx OR a literal 404.
+	_, err := callMust(t, resp,
+		cty.TupleVal([]cty.Value{
+			cty.NumberIntVal(404),
+			cty.TupleVal([]cty.Value{cty.NumberIntVal(200), cty.NumberIntVal(299)}),
+		}),
+	)
+	require.NoError(t, err)
+}
+
+func TestHTTPMust_Range_InvalidLoGreaterThanHi(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	resp := fetchOnce(t, srv, "/")
+	_, err := callMust(t, resp, cty.TupleVal([]cty.Value{
+		cty.TupleVal([]cty.Value{cty.NumberIntVal(500), cty.NumberIntVal(400)}),
+	}))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "lo")
+}
+
+func TestHTTPMust_ErrorMessage_IncludesMethodAndURL(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.WriteHeader(422)
+		fmt.Fprint(w, `{"error":"validation failed"}`)
+	}))
+	defer srv.Close()
+
+	resp, err := callVerb(t, "http_post", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/widgets"), cty.StringVal("payload"))
+	require.NoError(t, err)
+	_, err = callMust(t, resp, cty.NumberIntVal(201))
+	require.Error(t, err)
+	msg := err.Error()
+	assert.Contains(t, msg, "POST")
+	assert.Contains(t, msg, "/widgets")
+	assert.Contains(t, msg, "422")
+	assert.Contains(t, msg, "Unprocessable Entity")
+	assert.Contains(t, msg, "[201]")
+	assert.Contains(t, msg, `validation failed`)
+}
+
+func TestHTTPMust_BodyExcerpt_TruncatedAt512Bytes(t *testing.T) {
+	// Build a 1KB body of a distinctive character (one that won't
+	// appear in the surrounding error template) and verify exactly
+	// 512 bytes appear in the error, terminated by "...".
+	bigBody := strings.Repeat("Q", 1024)
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.WriteHeader(500)
+		fmt.Fprint(w, bigBody)
+	}))
+	defer srv.Close()
+
+	resp := fetchOnce(t, srv, "/")
+	_, err := callMust(t, resp)
+	require.Error(t, err)
+	msg := err.Error()
+	assert.Contains(t, msg, "...")
+	qCount := strings.Count(msg, "Q")
+	assert.Equal(t, 512, qCount, "exactly 512 bytes of body should appear in the error")
+}
+
+func TestHTTPMust_BinaryBody_Summarized(t *testing.T) {
+	// PNG content type with binary bytes — should produce a count
+	// summary, not the raw bytes.
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.WriteHeader(500)
+		w.Write([]byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00})
+	}))
+	defer srv.Close()
+
+	resp := fetchOnce(t, srv, "/")
+	_, err := callMust(t, resp)
+	require.Error(t, err)
+	msg := err.Error()
+	assert.Contains(t, msg, "image/png")
+	assert.Contains(t, msg, "10 bytes")
+}
+
+func TestHTTPMust_BinaryBody_NoContentType_DefaultsToText(t *testing.T) {
+	// No Content-Type at all — the heuristic treats this as text and
+	// includes the body inline.
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.WriteHeader(500)
+		fmt.Fprint(w, "boom")
+	}))
+	defer srv.Close()
+
+	resp := fetchOnce(t, srv, "/")
+	_, err := callMust(t, resp)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "boom")
+}
+
+func TestHTTPMust_NotAResponse(t *testing.T) {
+	// Passing something that isn't an httpclientresponse should fail.
+	_, err := callMust(t, cty.StringVal("not a response"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "httpclientresponse")
+}
+
+func TestHTTPMust_NullExpected_DefaultsTo2xx(t *testing.T) {
+	// Explicit null is the same as omitting expected.
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	resp := fetchOnce(t, srv, "/")
+	_, err := callMust(t, resp, cty.NullVal(cty.DynamicPseudoType))
+	require.NoError(t, err)
+}
+
+func TestHTTPMust_EmptyList_IsAnError(t *testing.T) {
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	resp := fetchOnce(t, srv, "/")
+	_, err := callMust(t, resp, cty.EmptyTupleVal)
+	require.Error(t, err)
+}
+
 // ── Interface sanity ────────────────────────────────────────────────────────
 
 func TestHTTPCallable_NullClientPath(t *testing.T) {
