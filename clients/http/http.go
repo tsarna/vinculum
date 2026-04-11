@@ -1,18 +1,6 @@
-// Package http implements the `client "http"` block: a reusable HTTP client
-// configuration that the http_* verb functions in package functions use to
-// make outbound HTTP requests from action expressions.
-//
-// This is the Phase 2 implementation of HTTP-CLIENT-SPEC.md. It supports:
-//
-//   - base_url, user_agent, headers, tls, redirects, http2, connection pool
-//     knobs, and a shorthand timeout = "30s"
-//   - URL resolution of relative URLs against base_url
-//   - header precedence layering (built-ins, client defaults, per-call)
-//   - redirect following with cross-origin Authorization stripping
-//
-// Deferred to later phases (but parsed and silently ignored so spec-conformant
-// configs load unchanged): auth, auth_max_lifetime, auth_max_failures,
-// auth_retry_backoff, retry, cookies, otel.
+// Package http implements the `client "http"` block: a reusable HTTP
+// client configuration that the http_* verb functions in package
+// functions use to make outbound HTTP requests from action expressions.
 package http
 
 import (
@@ -21,14 +9,12 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
-	"go.uber.org/zap"
 )
 
 func init() {
@@ -38,10 +24,7 @@ func init() {
 // ─── HCL schema ──────────────────────────────────────────────────────────────
 
 // httpClientDefinition is the decoded form of a `client "http"` block body.
-// Phase 2 fields are active; later-phase fields are parsed and ignored so
-// spec-conformant configs load today without waiting for full implementation.
 type httpClientDefinition struct {
-	// ── Phase 2: active ──
 	BaseURL   string          `hcl:"base_url,optional"`
 	UserAgent string          `hcl:"user_agent,optional"`
 	Headers   hcl.Expression  `hcl:"headers,optional"`
@@ -92,14 +75,6 @@ type redirectsBlock struct {
 	Max                *int      `hcl:"max,optional"`
 	KeepAuthOnRedirect *bool     `hcl:"keep_auth_on_redirect,optional"`
 	DefRange           hcl.Range `hcl:",def_range"`
-}
-
-// deferredBlock absorbs the body of a sub-block whose full schema is deferred
-// to a later implementation phase. It accepts any attributes without
-// validation.
-type deferredBlock struct {
-	Remain   hcl.Body  `hcl:",remain"`
-	DefRange hcl.Range `hcl:",def_range"`
 }
 
 // ─── Runtime types ───────────────────────────────────────────────────────────
@@ -200,13 +175,12 @@ func (c *HTTPClient) Do(req *http.Request) (*http.Response, error) {
 	return c.httpClient.Do(req)
 }
 
-// DoWithRedirectPolicy sends a request using a per-call redirect policy in
-// place of the client's default. It constructs a fresh *http.Client that
-// reuses the underlying Transport (and thus the connection pool) and the
-// shared cookie jar, but installs a CheckRedirect closure built from pol.
-// This is the only Phase 2 mechanism for per-call overrides because
-// *http.Client exposes a single CheckRedirect hook that closes over its
-// values at construction time.
+// DoWithRedirectPolicy sends a request using a per-call redirect policy
+// in place of the client's default. It constructs a fresh *http.Client
+// that reuses the underlying Transport (and thus the connection pool)
+// and the shared cookie jar, but installs a CheckRedirect closure built
+// from pol. This is necessary because *http.Client exposes a single
+// CheckRedirect hook that closes over its values at construction time.
 func (c *HTTPClient) DoWithRedirectPolicy(req *http.Request, pol RedirectPolicy) (*http.Response, error) {
 	perCall := &http.Client{
 		Transport:     c.httpClient.Transport,
@@ -303,7 +277,9 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}
 	}
 
-	// ── Timeout (Phase 2: shorthand only) ──
+	// ── Timeout ──
+	// Only the duration shorthand is supported (`timeout = "30s"`); the
+	// per-stage long-form block is left for a future extension.
 	var requestTimeout time.Duration
 	if cfg.IsExpressionProvided(def.Timeout) {
 		d, dDiags := config.ParseDuration(def.Timeout)
@@ -443,33 +419,20 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		parentEvalCtx:  config.EvalCtx(),
 	}
 
-	// Warn (once) that deferred sub-blocks are parsed but not yet implemented.
-	// Silently ignoring would be worse than a log line here.
-	if config.Logger != nil {
-		var deferred []string
-		if len(deferred) > 0 {
-			config.Logger.Warn(
-				"http client: configuration for attributes deferred to a later implementation phase is parsed but not yet active",
-				zap.String("client", clientName),
-				zap.String("deferred", strings.Join(deferred, ",")),
-			)
-		}
-	}
-
 	return client, nil
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// NullClient returns a zero-configured HTTPClient equivalent to passing `null`
-// as the client argument to an http_* verb function. Per spec:
+// NullClient returns a zero-configured HTTPClient equivalent to passing
+// `null` as the client argument to an http_* verb function:
 //
 //   - no default headers
 //   - no auth, no cookies, no retries
 //   - follow redirects (up to 10)
 //   - TLS with system roots, full verification
 //   - 30-second whole-request timeout
-//   - OTel propagation on (Phase 6)
+//   - OTel propagation on
 //
 // The returned client is safe for concurrent use and may be shared.
 func NullClient() *HTTPClient {
@@ -485,9 +448,8 @@ var nullClient = func() *HTTPClient {
 	}
 	defaultPolicy := RedirectPolicy{Follow: true, Max: 10, KeepAuth: false}
 	// Wrap with otelhttp using the global tracer/meter providers (or
-	// the no-op providers if none are installed). Propagation defaults
-	// to true per spec — the null client gets propagation just like a
-	// configured client would.
+	// the no-op providers if none are installed). The null client gets
+	// default-on propagation just like a configured client would.
 	instrumented := wrapTransportWithOTel(transport, nil, nil, true)
 	return &HTTPClient{
 		BaseClient:     cfg.BaseClient{Name: ""},
@@ -593,9 +555,10 @@ func GetHTTPCallableFromValue(val cty.Value) (HTTPCallable, error) {
 	if val.IsNull() {
 		return nil, nil
 	}
-	// The cty capsule pattern: extract the encapsulated interface{} and then
-	// type-assert to HTTPCallable. We never type-assert to *HTTPClient here,
-	// which is what preserves the Phase 8 mock-client seam.
+	// The cty capsule pattern: extract the encapsulated interface{} and
+	// then type-assert to HTTPCallable. We never type-assert to
+	// *HTTPClient here, which preserves the seam for mock client
+	// implementations.
 	enc, err := getEncapsulated(val)
 	if err != nil {
 		return nil, err
@@ -622,14 +585,11 @@ func getEncapsulated(val cty.Value) (interface{}, error) {
 }
 
 // HTTPCallable is the interface the verb functions require of any value
-// passed as the client argument. Both the real HTTPClient and (in Phase 8) a
-// mock client will implement it. The verb functions never type-assert to a
-// concrete type — they go through this interface exclusively.
-//
-// Defined here (rather than in package functions) because package functions
-// does not yet exist as a consumer of this interface at Phase 2 tooling time;
-// placing it here makes the contract visible alongside the reference
-// implementation.
+// passed as the client argument. The real HTTPClient implements it; mock
+// client types may also implement it to participate in the same call
+// path. The verb functions never type-assert to a concrete type — they
+// go through this interface exclusively, which keeps mock clients
+// transparent to the verb function code path.
 type HTTPCallable interface {
 	GetName() string
 	BaseURL() *url.URL

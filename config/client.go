@@ -59,12 +59,28 @@ func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	}
 
 	if _, ok := config.CtyClientMap[block.Labels[1]]; ok {
-		existingDef := clients[block.Labels[1]]
+		// The existing entry may live under a different type bucket,
+		// e.g. when `client "http" "foo"` and `client "httpmock" "foo"`
+		// are both enabled. Walk all type buckets to find it so the
+		// error message can point at the right def range.
+		var existingDef Client
+		for _, byName := range config.Clients {
+			if c, exists := byName[block.Labels[1]]; exists {
+				existingDef = c
+				break
+			}
+		}
+		var detail string
+		if existingDef != nil {
+			detail = fmt.Sprintf("Client %s already defined at %s", block.Labels[1], existingDef.GetDefRange())
+		} else {
+			detail = fmt.Sprintf("Client %s already defined", block.Labels[1])
+		}
 		return hcl.Diagnostics{
 			&hcl.Diagnostic{
 				Severity: hcl.DiagError,
 				Summary:  "Client already defined",
-				Detail:   fmt.Sprintf("Client %s already defined at %s", block.Labels[1], existingDef.GetDefRange()),
+				Detail:   detail,
 				Subject:  &clientDef.DefRange,
 			},
 		}

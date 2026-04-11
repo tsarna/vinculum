@@ -389,7 +389,7 @@ func pow(x float64, n int) float64 {
 // ─── parseAuthResult ─────────────────────────────────────────────────────────
 
 // ParseAuthResult interprets the value returned by the auth expression.
-// Accepted forms (per HTTP-CLIENT-SPEC.md):
+// Accepted forms:
 //
 //   - string → AuthResult{Value: s}
 //   - object {value, expires_in?, expires_at?, refresh_early?} → parsed

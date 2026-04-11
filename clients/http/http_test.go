@@ -179,9 +179,10 @@ client "http" "api" {
 	assert.NotNil(t, c.httpClient.Transport)
 }
 
-func TestHTTPClient_DeferredBlocksAccepted(t *testing.T) {
-	// Spec-conformant blocks from later phases should parse without error,
-	// even though their behavior is not yet implemented.
+func TestHTTPClient_AllBlocksCompose(t *testing.T) {
+	// Smoke test that every sub-block parses cleanly when set on a
+	// single client. Each block's behavior is exercised in isolation
+	// by other tests; this one just verifies they coexist.
 	config := loadConfig(t, `
 client "http" "api" {
     base_url = "https://api.example.com"
@@ -232,6 +233,140 @@ client "http" "api" {}
 		WithLogger(newTestLogger(t)).
 		Build()
 	require.True(t, diags.HasErrors())
+}
+
+// ── Duplicate-name coexistence with disabled gating ─────────────────────────
+//
+// Two client blocks sharing a name (e.g. `client "http" "github"` and
+// `client "httpmock" "github"`) must be allowed to coexist when at most
+// one has disabled = false. The standard idiom is:
+//
+//     client "http" "github" {
+//         disabled = env.TEST_MODE == "true"
+//         ...
+//     }
+//     client "httpmock" "github" {
+//         disabled = env.TEST_MODE != "true"
+//         ...
+//     }
+//
+// These tests lock in the ClientBlockHandler.Process behavior: the
+// early return on disabled gates the duplicate check by name. The
+// cross-type case is exercised via a stub client type registered from
+// a _test.go file (see fakeclient_test.go).
+
+func TestHTTPClient_Coexist_FirstEnabledSecondDisabled(t *testing.T) {
+	config := loadConfig(t, `
+client "http" "api" {
+    base_url = "https://real.example.com"
+}
+client "http" "api" {
+    disabled = true
+    base_url = "https://other.example.com"
+}
+`)
+	c := getHTTPClient(t, config, "api")
+	assert.Equal(t, "real.example.com", c.BaseURL().Host, "the enabled block must be the one registered")
+}
+
+func TestHTTPClient_Coexist_FirstDisabledSecondEnabled(t *testing.T) {
+	config := loadConfig(t, `
+client "http" "api" {
+    disabled = true
+    base_url = "https://other.example.com"
+}
+client "http" "api" {
+    base_url = "https://real.example.com"
+}
+`)
+	c := getHTTPClient(t, config, "api")
+	assert.Equal(t, "real.example.com", c.BaseURL().Host)
+}
+
+func TestHTTPClient_Coexist_BothDisabled(t *testing.T) {
+	config := loadConfig(t, `
+client "http" "api" {
+    disabled = true
+}
+client "http" "api" {
+    disabled = true
+}
+`)
+	// Neither block registers; the entire "http" client type bucket
+	// stays empty.
+	_, ok := config.Clients["http"]
+	assert.False(t, ok, "both-disabled should leave no http clients registered")
+}
+
+func TestHTTPClient_Coexist_BothEnabled_Errors(t *testing.T) {
+	// Sanity check: this *should* still be an error. The
+	// disabled-gating relaxation does not turn off duplicate detection
+	// when both blocks are live.
+	_, diags := cfg.NewConfig().
+		WithSources([]byte(`
+client "http" "api" {}
+client "http" "api" {}
+`)).
+		WithLogger(newTestLogger(t)).
+		Build()
+	require.True(t, diags.HasErrors())
+}
+
+// ── Cross-type coexistence using a stub second client type ─────────────────
+
+func TestHTTPClient_Coexist_CrossType_HTTPEnabled_FakeDisabled(t *testing.T) {
+	// `client "http" "api"` is enabled; `client "httpfake" "api"` is
+	// disabled. The http client is the one that ends up under
+	// client.api.
+	config := loadConfig(t, `
+client "http" "api" {
+    base_url = "https://real.example.com"
+}
+client "httpfake" "api" {
+    disabled = true
+    label    = "fake"
+}
+`)
+	c := getHTTPClient(t, config, "api")
+	assert.Equal(t, "real.example.com", c.BaseURL().Host)
+}
+
+func TestHTTPClient_Coexist_CrossType_HTTPDisabled_FakeEnabled(t *testing.T) {
+	// Reverse: the fake is enabled, the http is disabled. client.api
+	// in the eval context resolves to the fake's capsule.
+	config := loadConfig(t, `
+client "http" "api" {
+    disabled = true
+    base_url = "https://real.example.com"
+}
+client "httpfake" "api" {
+    label = "fake"
+}
+`)
+	// The "http" bucket should be empty.
+	_, httpOk := config.Clients["http"]
+	assert.False(t, httpOk, "disabled http client should not register")
+
+	// The "httpfake" bucket should hold the registered fake.
+	fakes, ok := config.Clients["httpfake"]
+	require.True(t, ok)
+	require.Contains(t, fakes, "api")
+	assert.Equal(t, "api", fakes["api"].GetName())
+}
+
+func TestHTTPClient_Coexist_CrossType_BothEnabled_Errors(t *testing.T) {
+	_, diags := cfg.NewConfig().
+		WithSources([]byte(`
+client "http" "api" {
+    base_url = "https://real.example.com"
+}
+client "httpfake" "api" {
+    label = "fake"
+}
+`)).
+		WithLogger(newTestLogger(t)).
+		Build()
+	require.True(t, diags.HasErrors(), "two enabled blocks under the same name must error regardless of type")
 }
 
 // ── NullClient ───────────────────────────────────────────────────────────────

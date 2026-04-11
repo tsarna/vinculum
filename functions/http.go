@@ -456,8 +456,8 @@ func sendOnce(
 	}, nil
 }
 
-// sendOnceWithAuth wraps sendOnce with the auth-injection layer described
-// in HTTP-CLIENT-SPEC.md "Authentication". The flow per attempt:
+// sendOnceWithAuth wraps sendOnce with the auth-injection layer. The
+// flow per attempt:
 //
 //  1. Compute the effective Authorization header for this attempt:
 //     - If opts.headers["Authorization"] is already set (level 5 of the
@@ -771,11 +771,12 @@ type onResponseStop struct{}
 
 func (onResponseStop) onResponseDecision() {}
 
-// evalOnResponse evaluates the retry.on_response HCL expression against an
-// eval context populated with ctx.response (the in-flight response wrapper)
-// and ctx.attempt (1-indexed attempt number that just completed).
+// evalOnResponse evaluates the retry.on_response HCL expression against
+// an eval context populated with ctx.response (the in-flight response
+// wrapper) and ctx.attempt (1-indexed attempt number that just
+// completed).
 //
-// Return value mapping per HTTP-CLIENT-SPEC.md:
+// Return value mapping:
 //
 //	number / duration → wait this long, then retry
 //	true              → retry using normal backoff
@@ -897,13 +898,17 @@ func mergeBaseQuery(resolved, base *url.URL) {
 
 // ─── Header precedence assembly ──────────────────────────────────────────────
 
-// buildRequestHeaders assembles the final request headers by walking the
+// buildRequestHeaders assembles the request headers by walking the
 // precedence chain (from weakest to strongest):
 //
 //  1. Built-in defaults (User-Agent, Accept). For non-bytes bodies, the
 //     body's derived Content-Type is also a level-1 default.
 //  2. Client default headers.
-//  3. (Reserved for Phase 4 auth and Phase 6 OTel propagation.)
+//  3. Reserved for special-handling headers added later in the request
+//     pipeline: the Authorization header injected by sendOnceWithAuth and
+//     the W3C trace propagation headers injected by the otelhttp
+//     transport. They sit between client defaults and bytes-body
+//     Content-Type / per-call headers in effective precedence.
 //  4. Content-Type from a bytes body — stronger than client defaults.
 //  5. Per-call opts.headers — highest; a nil slice at this level deletes.
 func buildRequestHeaders(
@@ -926,7 +931,10 @@ func buildRequestHeaders(
 		h[name] = append([]string(nil), vals...)
 	}
 
-	// Level 3: reserved for Phase 4 (auth) and Phase 6 (OTel).
+	// Level 3: special-handling headers (Authorization from the auth
+	// hook, W3C trace propagation from otelhttp) are layered onto the
+	// request later in the pipeline by sendOnceWithAuth and the
+	// instrumented transport, not here.
 
 	// Level 4: bytes body Content-Type. Strictly stronger than client config.
 	if isBytesBody && bodyContentType != "" {
@@ -1162,7 +1170,7 @@ func parsePerCallHeaders(val cty.Value) (nethttp.Header, error) {
 }
 
 // parsePerCallCookies converts an opts.cookies cty value into a list of
-// *http.Cookie. Two shapes are accepted (per HTTP-CLIENT-SPEC.md):
+// *http.Cookie. Two shapes are accepted:
 //
 //   - map(string) — name → value pairs (most common case for simple
 //     session cookies)
@@ -1306,17 +1314,16 @@ func parsePerCallQuery(val cty.Value) (url.Values, error) {
 
 // ─── http_must status assertion wrapper ─────────────────────────────────────
 
-// httpMustErrorBodyExcerpt is the maximum number of bytes of response body
-// included in an http_must error message. Per spec this is fixed, not
-// configurable: tunability can be added later if a real use case appears.
+// httpMustErrorBodyExcerpt is the maximum number of bytes of response
+// body included in an http_must error message. Fixed, not configurable:
+// tunability can be added later if a real use case appears.
 const httpMustErrorBodyExcerpt = 512
 
 // HTTPMustFunc implements http_must(response[, expected]) → response.
 //
 // Returns the response unchanged when its status is acceptable;
 // otherwise raises an HCL error containing the method, final URL,
-// actual status, expected set, and a body excerpt. See the
-// "Status Assertions" section of HTTP-CLIENT-SPEC.md.
+// actual status, expected set, and a body excerpt.
 //
 // expected may be:
 //   - omitted (or null) — any 2xx is acceptable

@@ -1,11 +1,11 @@
 // Retry policy for the HTTP client.
 //
-// Phase 3 of HTTP-CLIENT-SPEC.md. Retries are computed and executed by the
-// verb functions in package functions, not as a *http.RoundTripper layer:
-// the on_response hook needs access to the package's HCL eval context, which
-// is awkward to thread through a transport stack but trivial at the verb
-// function level. The math, defaults, and per-attempt decision logic live
-// here so they're testable in isolation and reusable by mock clients.
+// Retries are computed and executed by the verb functions in package
+// functions, not as a *http.RoundTripper layer: the on_response hook
+// needs access to the package's HCL eval context, which is awkward to
+// thread through a transport stack but trivial at the verb function
+// level. The math, defaults, and per-attempt decision logic live here
+// so they're testable in isolation and reusable by mock clients.
 
 package http
 
@@ -37,9 +37,12 @@ type RetryPolicy struct {
 	RespectRetryAfter  bool
 	AllowNonIdempotent bool
 
-	// OnResponse is an HCL expression evaluated by the verb function after
-	// each attempt that returned a response. nil means "no hook configured".
-	// See HTTP-CLIENT-SPEC.md, "Custom on_response hook".
+	// OnResponse is an HCL expression evaluated by the verb function
+	// after each attempt that returned a response. nil means no hook
+	// is configured. The expression has access to ctx.response (the
+	// in-flight response) and ctx.attempt (1-indexed) and may return
+	// null/false (stop), true (retry with normal backoff), or a
+	// number/duration (wait that long, then retry).
 	OnResponse hcl.Expression
 }
 
