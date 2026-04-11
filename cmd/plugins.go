@@ -5,6 +5,7 @@ package cmd
 import (
 	_ "github.com/tsarna/vinculum/ambient"
 	_ "github.com/tsarna/vinculum/editors/line"
+	_ "github.com/tsarna/vinculum/clients/http"
 	_ "github.com/tsarna/vinculum/clients/kafka"
 	_ "github.com/tsarna/vinculum/clients/mqtt"
 	_ "github.com/tsarna/vinculum/clients/openai"

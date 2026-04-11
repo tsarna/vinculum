@@ -1,0 +1,519 @@
+// Package http implements the `client "http"` block: a reusable HTTP client
+// configuration that the http_* verb functions in package functions use to
+// make outbound HTTP requests from action expressions.
+//
+// This is the Phase 2 implementation of HTTP-CLIENT-SPEC.md. It supports:
+//
+//   - base_url, user_agent, headers, tls, redirects, http2, connection pool
+//     knobs, and a shorthand timeout = "30s"
+//   - URL resolution of relative URLs against base_url
+//   - header precedence layering (built-ins, client defaults, per-call)
+//   - redirect following with cross-origin Authorization stripping
+//
+// Deferred to later phases (but parsed and silently ignored so spec-conformant
+// configs load unchanged): auth, auth_max_lifetime, auth_max_failures,
+// auth_retry_backoff, retry, cookies, otel.
+package http
+
+import (
+	"crypto/tls"
+	"fmt"
+	"net/http"
+	"net/textproto"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
+	cfg "github.com/tsarna/vinculum/config"
+	"github.com/zclconf/go-cty/cty"
+	"go.uber.org/zap"
+)
+
+func init() {
+	cfg.RegisterClientType("http", process)
+}
+
+// ─── HCL schema ──────────────────────────────────────────────────────────────
+
+// httpClientDefinition is the decoded form of a `client "http"` block body.
+// Phase 2 fields are active; later-phase fields are parsed and ignored so
+// spec-conformant configs load today without waiting for full implementation.
+type httpClientDefinition struct {
+	// ── Phase 2: active ──
+	BaseURL   string          `hcl:"base_url,optional"`
+	UserAgent string          `hcl:"user_agent,optional"`
+	Headers   hcl.Expression  `hcl:"headers,optional"`
+	TLS       *cfg.TLSConfig  `hcl:"tls,block"`
+	Redirects *redirectsBlock `hcl:"redirects,block"`
+	Timeout   hcl.Expression  `hcl:"timeout,optional"`
+
+	HTTP2                 *bool `hcl:"http2,optional"`
+	MaxConnectionsPerHost *int  `hcl:"max_connections_per_host,optional"`
+	MaxIdleConnections    *int  `hcl:"max_idle_connections,optional"`
+	DisableKeepAlives     *bool `hcl:"disable_keep_alives,optional"`
+
+	// ── Deferred to later phases: parsed, validated minimally, otherwise
+	// ignored. Declaring them here keeps gohcl from rejecting spec-conformant
+	// configs as unknown attributes while Phase 2 is the current landing zone.
+
+	Auth             hcl.Expression  `hcl:"auth,optional"`
+	AuthMaxLifetime  hcl.Expression  `hcl:"auth_max_lifetime,optional"`
+	AuthMaxFailures  *int            `hcl:"auth_max_failures,optional"`
+	AuthRetryBackoff *deferredBlock  `hcl:"auth_retry_backoff,block"`
+	Retry            *deferredBlock  `hcl:"retry,block"`
+	Cookies          *deferredBlock  `hcl:"cookies,block"`
+	OTel             *deferredBlock  `hcl:"otel,block"`
+
+	DefRange hcl.Range `hcl:",def_range"`
+}
+
+// redirectsBlock is the `redirects { ... }` sub-block.
+type redirectsBlock struct {
+	Follow             *bool     `hcl:"follow,optional"`
+	Max                *int      `hcl:"max,optional"`
+	KeepAuthOnRedirect *bool     `hcl:"keep_auth_on_redirect,optional"`
+	DefRange           hcl.Range `hcl:",def_range"`
+}
+
+// deferredBlock absorbs the body of a sub-block whose full schema is deferred
+// to a later implementation phase. It accepts any attributes without
+// validation.
+type deferredBlock struct {
+	Remain   hcl.Body  `hcl:",remain"`
+	DefRange hcl.Range `hcl:",def_range"`
+}
+
+// ─── Runtime types ───────────────────────────────────────────────────────────
+
+// HTTPClient is the runtime representation of a `client "http"` block. It
+// implements config.Client, config.CtyValuer, and HTTPCallable (the interface
+// the verb functions consume).
+type HTTPClient struct {
+	cfg.BaseClient
+
+	baseURL        *url.URL
+	defaultHeaders http.Header
+	requestTimeout time.Duration
+	maxRedirects   int
+	followRedirect bool
+	keepAuthOnRdir bool
+
+	httpClient *http.Client
+}
+
+// Compile-time checks.
+var (
+	_ cfg.Client    = (*HTTPClient)(nil)
+	_ cfg.CtyValuer = (*HTTPClient)(nil)
+)
+
+// CtyValue exposes the client as a generic client capsule. There is no nested
+// object structure for HTTP clients, unlike bus-backed clients.
+func (c *HTTPClient) CtyValue() cty.Value {
+	return cfg.NewClientCapsule(c)
+}
+
+// BaseURL returns the client's configured base URL, or nil if none.
+func (c *HTTPClient) BaseURL() *url.URL {
+	return c.baseURL
+}
+
+// DefaultHeaders returns the default headers configured on the client. The
+// returned http.Header should be treated as read-only by callers — they must
+// clone it before mutating.
+func (c *HTTPClient) DefaultHeaders() http.Header {
+	return c.defaultHeaders
+}
+
+// DefaultRequestTimeout returns the client's whole-request timeout, or 0 if
+// none was configured.
+func (c *HTTPClient) DefaultRequestTimeout() time.Duration {
+	return c.requestTimeout
+}
+
+// DefaultRedirectPolicy returns the redirect policy this client was
+// configured with. Verb functions use it as the base for per-call overrides.
+func (c *HTTPClient) DefaultRedirectPolicy() RedirectPolicy {
+	return RedirectPolicy{
+		Follow:   c.followRedirect,
+		Max:      c.maxRedirects,
+		KeepAuth: c.keepAuthOnRdir,
+	}
+}
+
+// Do sends a request through this client's transport stack using the client's
+// configured redirect policy. The returned response's Body must be closed by
+// the caller.
+func (c *HTTPClient) Do(req *http.Request) (*http.Response, error) {
+	return c.httpClient.Do(req)
+}
+
+// DoWithRedirectPolicy sends a request using a per-call redirect policy in
+// place of the client's default. It constructs a fresh *http.Client that
+// reuses the underlying Transport (and thus the connection pool) but installs
+// a CheckRedirect closure built from pol. This is the only Phase 2 mechanism
+// for per-call overrides because *http.Client exposes a single CheckRedirect
+// hook that closes over its values at construction time.
+func (c *HTTPClient) DoWithRedirectPolicy(req *http.Request, pol RedirectPolicy) (*http.Response, error) {
+	perCall := &http.Client{
+		Transport:     c.httpClient.Transport,
+		Timeout:       c.httpClient.Timeout,
+		CheckRedirect: buildCheckRedirect(pol),
+	}
+	return perCall.Do(req)
+}
+
+// ─── Config processing ──────────────────────────────────────────────────────
+
+func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Client, hcl.Diagnostics) {
+	def := httpClientDefinition{}
+	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &def)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	clientName := block.Labels[1]
+
+	// ── base_url ──
+	var baseURL *url.URL
+	if def.BaseURL != "" {
+		u, err := url.Parse(def.BaseURL)
+		if err != nil {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "http client: invalid base_url",
+				Detail:   fmt.Sprintf("%q: %v", def.BaseURL, err),
+				Subject:  &def.DefRange,
+			}}
+		}
+		baseURL = u
+	}
+
+	// ── default headers ──
+	headers := make(http.Header)
+	if cfg.IsExpressionProvided(def.Headers) {
+		val, hdrDiags := def.Headers.Value(config.EvalCtx())
+		if hdrDiags.HasErrors() {
+			return nil, hdrDiags
+		}
+		if err := applyHeadersToHeader(headers, val); err != nil {
+			r := def.Headers.Range()
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "http client: invalid headers",
+				Detail:   err.Error(),
+				Subject:  &r,
+			}}
+		}
+	}
+	// user_agent shorthand — loses to an explicit User-Agent in headers.
+	if def.UserAgent != "" && headers.Get("User-Agent") == "" {
+		headers.Set("User-Agent", def.UserAgent)
+	}
+
+	// ── TLS ──
+	var tlsCfg *tls.Config
+	if def.TLS != nil && def.TLS.Enabled {
+		c, err := def.TLS.BuildTLSClientConfig(config.BaseDir)
+		if err != nil {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "http client: invalid TLS config",
+				Detail:   err.Error(),
+				Subject:  &def.TLS.DefRange,
+			}}
+		}
+		tlsCfg = c
+	}
+
+	// ── Redirects ──
+	followRedirect := true
+	maxRedirects := 10
+	keepAuth := false
+	if def.Redirects != nil {
+		if def.Redirects.Follow != nil {
+			followRedirect = *def.Redirects.Follow
+		}
+		if def.Redirects.Max != nil {
+			if *def.Redirects.Max < 0 {
+				return nil, hcl.Diagnostics{{
+					Severity: hcl.DiagError,
+					Summary:  "http client: redirects.max must be >= 0",
+					Subject:  &def.Redirects.DefRange,
+				}}
+			}
+			maxRedirects = *def.Redirects.Max
+		}
+		if def.Redirects.KeepAuthOnRedirect != nil {
+			keepAuth = *def.Redirects.KeepAuthOnRedirect
+		}
+	}
+
+	// ── Timeout (Phase 2: shorthand only) ──
+	var requestTimeout time.Duration
+	if cfg.IsExpressionProvided(def.Timeout) {
+		d, dDiags := config.ParseDuration(def.Timeout)
+		if dDiags.HasErrors() {
+			return nil, dDiags
+		}
+		requestTimeout = d
+	}
+
+	// ── Transport ──
+	transport := &http.Transport{
+		TLSClientConfig:   tlsCfg,
+		ForceAttemptHTTP2: true,
+		DisableKeepAlives: false,
+	}
+	if def.HTTP2 != nil {
+		transport.ForceAttemptHTTP2 = *def.HTTP2
+	}
+	if def.DisableKeepAlives != nil {
+		transport.DisableKeepAlives = *def.DisableKeepAlives
+	}
+	if def.MaxConnectionsPerHost != nil {
+		transport.MaxConnsPerHost = *def.MaxConnectionsPerHost
+	}
+	if def.MaxIdleConnections != nil {
+		transport.MaxIdleConns = *def.MaxIdleConnections
+	}
+
+	// ── *http.Client ──
+	defaultPolicy := RedirectPolicy{
+		Follow:   followRedirect,
+		Max:      maxRedirects,
+		KeepAuth: keepAuth,
+	}
+	goClient := &http.Client{
+		Transport:     transport,
+		Timeout:       requestTimeout,
+		CheckRedirect: buildCheckRedirect(defaultPolicy),
+	}
+
+	client := &HTTPClient{
+		BaseClient: cfg.BaseClient{
+			Name:     clientName,
+			DefRange: def.DefRange,
+		},
+		baseURL:        baseURL,
+		defaultHeaders: headers,
+		requestTimeout: requestTimeout,
+		maxRedirects:   maxRedirects,
+		followRedirect: followRedirect,
+		keepAuthOnRdir: keepAuth,
+		httpClient:     goClient,
+	}
+
+	// Warn (once) that deferred sub-blocks are parsed but not yet implemented.
+	// Silently ignoring would be worse than a log line here.
+	if config.Logger != nil {
+		var deferred []string
+		if cfg.IsExpressionProvided(def.Auth) {
+			deferred = append(deferred, "auth")
+		}
+		if def.Retry != nil {
+			deferred = append(deferred, "retry")
+		}
+		if def.Cookies != nil {
+			deferred = append(deferred, "cookies")
+		}
+		if def.OTel != nil {
+			deferred = append(deferred, "otel")
+		}
+		if len(deferred) > 0 {
+			config.Logger.Warn(
+				"http client: configuration for attributes deferred to a later implementation phase is parsed but not yet active",
+				zap.String("client", clientName),
+				zap.String("deferred", strings.Join(deferred, ",")),
+			)
+		}
+	}
+
+	return client, nil
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+// NullClient returns a zero-configured HTTPClient equivalent to passing `null`
+// as the client argument to an http_* verb function. Per spec:
+//
+//   - no default headers
+//   - no auth, no cookies, no retries
+//   - follow redirects (up to 10)
+//   - TLS with system roots, full verification
+//   - 30-second whole-request timeout
+//   - OTel propagation on (Phase 6)
+//
+// The returned client is safe for concurrent use and may be shared.
+func NullClient() *HTTPClient {
+	return nullClient
+}
+
+// nullClient is the shared default used when the caller passes null as the
+// client argument. Constructed lazily at first use would also work, but the
+// cost of eager construction is a single *http.Client and is negligible.
+var nullClient = func() *HTTPClient {
+	transport := &http.Transport{
+		ForceAttemptHTTP2: true,
+	}
+	defaultPolicy := RedirectPolicy{Follow: true, Max: 10, KeepAuth: false}
+	return &HTTPClient{
+		BaseClient:     cfg.BaseClient{Name: ""},
+		defaultHeaders: make(http.Header),
+		requestTimeout: 30 * time.Second,
+		maxRedirects:   10,
+		followRedirect: true,
+		keepAuthOnRdir: false,
+		httpClient: &http.Client{
+			Transport:     transport,
+			Timeout:       30 * time.Second,
+			CheckRedirect: buildCheckRedirect(defaultPolicy),
+		},
+	}
+}()
+
+// RedirectPolicy controls redirect-following behavior. It is normally taken
+// from the HTTPClient's configuration; verb functions may construct a
+// modified policy and pass it to DoWithRedirectPolicy for a single call.
+type RedirectPolicy struct {
+	Follow   bool
+	Max      int
+	KeepAuth bool
+}
+
+// buildCheckRedirect returns a CheckRedirect function that enforces a fixed
+// RedirectPolicy: maximum hop count, optional non-following, and cross-origin
+// Authorization stripping.
+func buildCheckRedirect(pol RedirectPolicy) func(req *http.Request, via []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if !pol.Follow {
+			return http.ErrUseLastResponse
+		}
+		if len(via) >= pol.Max {
+			return fmt.Errorf("stopped after %d redirects", pol.Max)
+		}
+		if !pol.KeepAuth && len(via) > 0 {
+			// Strip Authorization on cross-origin redirect. "Cross-origin" =
+			// different scheme, host, or port.
+			orig := via[0].URL
+			if !sameOrigin(orig, req.URL) {
+				req.Header.Del("Authorization")
+			}
+		}
+		return nil
+	}
+}
+
+// sameOrigin returns true if two URLs share scheme, hostname, and port.
+func sameOrigin(a, b *url.URL) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Scheme == b.Scheme && a.Host == b.Host
+}
+
+// applyHeadersToHeader copies header values from a cty map or object into h.
+// Each value may be a string (single value) or a list/tuple of strings
+// (multi-value). A null map or null value is a no-op.
+func applyHeadersToHeader(h http.Header, val cty.Value) error {
+	if val.IsNull() {
+		return nil
+	}
+	if !val.Type().IsMapType() && !val.Type().IsObjectType() {
+		return fmt.Errorf("headers must be a map or object, got %s", val.Type().FriendlyName())
+	}
+	for name, elem := range val.AsValueMap() {
+		canonical := textproto.CanonicalMIMEHeaderKey(name)
+		if elem.IsNull() {
+			h.Del(canonical)
+			continue
+		}
+		switch {
+		case elem.Type() == cty.String:
+			h.Add(canonical, elem.AsString())
+		case elem.Type().IsListType() || elem.Type().IsTupleType():
+			for it := elem.ElementIterator(); it.Next(); {
+				_, v := it.Element()
+				if v.IsNull() || v.Type() != cty.String {
+					return fmt.Errorf("header %q list values must be strings", name)
+				}
+				h.Add(canonical, v.AsString())
+			}
+		default:
+			return fmt.Errorf("header %q value must be a string or list of strings, got %s", name, elem.Type().FriendlyName())
+		}
+	}
+	return nil
+}
+
+// GetHTTPClientFromCapsule extracts an *HTTPClient (or anything implementing
+// the HTTPCallable interface, since this is structural) from a cty value. It
+// accepts:
+//
+//   - a plain client capsule wrapping an *HTTPClient (via CtyValue())
+//   - any other capsule whose encapsulated value satisfies HTTPCallable
+//   - an object with a _capsule attribute containing either of the above
+//
+// Returns a nil HTTPCallable if the value is null; callers should treat that
+// as the default-client path.
+func GetHTTPCallableFromValue(val cty.Value) (HTTPCallable, error) {
+	if val.IsNull() {
+		return nil, nil
+	}
+	// The cty capsule pattern: extract the encapsulated interface{} and then
+	// type-assert to HTTPCallable. We never type-assert to *HTTPClient here,
+	// which is what preserves the Phase 8 mock-client seam.
+	enc, err := getEncapsulated(val)
+	if err != nil {
+		return nil, err
+	}
+	c, ok := enc.(HTTPCallable)
+	if !ok {
+		return nil, fmt.Errorf("value is not an http client, got %T", enc)
+	}
+	return c, nil
+}
+
+// getEncapsulated walks through object/_capsule layers to get the raw value.
+func getEncapsulated(val cty.Value) (interface{}, error) {
+	if val.Type().IsObjectType() {
+		if !val.Type().HasAttribute("_capsule") {
+			return nil, fmt.Errorf("object has no _capsule attribute")
+		}
+		val = val.GetAttr("_capsule")
+	}
+	if !val.Type().IsCapsuleType() {
+		return nil, fmt.Errorf("expected capsule, got %s", val.Type().FriendlyName())
+	}
+	return val.EncapsulatedValue(), nil
+}
+
+// HTTPCallable is the interface the verb functions require of any value
+// passed as the client argument. Both the real HTTPClient and (in Phase 8) a
+// mock client will implement it. The verb functions never type-assert to a
+// concrete type — they go through this interface exclusively.
+//
+// Defined here (rather than in package functions) because package functions
+// does not yet exist as a consumer of this interface at Phase 2 tooling time;
+// placing it here makes the contract visible alongside the reference
+// implementation.
+type HTTPCallable interface {
+	GetName() string
+	BaseURL() *url.URL
+	DefaultHeaders() http.Header
+	DefaultRequestTimeout() time.Duration
+	DefaultRedirectPolicy() RedirectPolicy
+
+	// Do sends a request using the implementation's default redirect policy.
+	Do(req *http.Request) (*http.Response, error)
+
+	// DoWithRedirectPolicy sends a request using the supplied per-call
+	// redirect policy in place of the default. Mock implementations that do
+	// not actually follow redirects may delegate to Do(req).
+	DoWithRedirectPolicy(req *http.Request, pol RedirectPolicy) (*http.Response, error)
+}
+
+var _ HTTPCallable = (*HTTPClient)(nil)
+
