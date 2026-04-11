@@ -1424,6 +1424,261 @@ client "http" "api" {
 	assert.Equal(t, "Bearer tok-123", lastDataAuth.Load())
 }
 
+// ── Cookie jar ──────────────────────────────────────────────────────────────
+
+func TestHTTPGet_NoCookieJar_DoesNotResendSetCookie(t *testing.T) {
+	// Without a cookies block the client has no jar; Set-Cookie from the
+	// first response should NOT be echoed back on the second request.
+	var seenCookie string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path == "/login" {
+			nethttp.SetCookie(w, &nethttp.Cookie{Name: "session", Value: "abc123", Path: "/"})
+			w.WriteHeader(200)
+			return
+		}
+		if c, err := r.Cookie("session"); err == nil {
+			seenCookie = c.Value
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+}
+`, srv.URL))
+
+	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/login"))
+	require.NoError(t, err)
+	_, err = callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/whoami"))
+	require.NoError(t, err)
+	assert.Empty(t, seenCookie, "no jar means no automatic Set-Cookie persistence")
+}
+
+func TestHTTPGet_CookieJar_PersistsAcrossCalls(t *testing.T) {
+	// With cookies enabled, a Set-Cookie from /login should be sent
+	// back automatically on subsequent matching requests.
+	var seenCookie string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path == "/login" {
+			nethttp.SetCookie(w, &nethttp.Cookie{Name: "session", Value: "abc123", Path: "/"})
+			w.WriteHeader(200)
+			return
+		}
+		if c, err := r.Cookie("session"); err == nil {
+			seenCookie = c.Value
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    cookies {
+        enabled = true
+    }
+}
+`, srv.URL))
+
+	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/login"))
+	require.NoError(t, err)
+	_, err = callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/whoami"))
+	require.NoError(t, err)
+	assert.Equal(t, "abc123", seenCookie)
+}
+
+func TestHTTPGet_CookiesBlockEmpty_EnablesJar(t *testing.T) {
+	// `cookies {}` should default to enabled = true.
+	var seenCookie string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path == "/login" {
+			nethttp.SetCookie(w, &nethttp.Cookie{Name: "session", Value: "abc", Path: "/"})
+			w.WriteHeader(200)
+			return
+		}
+		if c, err := r.Cookie("session"); err == nil {
+			seenCookie = c.Value
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    cookies {}
+}
+`, srv.URL))
+
+	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/login"))
+	require.NoError(t, err)
+	_, err = callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/whoami"))
+	require.NoError(t, err)
+	assert.Equal(t, "abc", seenCookie)
+}
+
+func TestHTTPGet_CookiesEnabledFalse_NoJar(t *testing.T) {
+	// `cookies { enabled = false }` should be a no-op, equivalent to
+	// omitting the block entirely.
+	var seenCookie string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path == "/login" {
+			nethttp.SetCookie(w, &nethttp.Cookie{Name: "session", Value: "abc", Path: "/"})
+			w.WriteHeader(200)
+			return
+		}
+		if c, err := r.Cookie("session"); err == nil {
+			seenCookie = c.Value
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    cookies {
+        enabled = false
+    }
+}
+`, srv.URL))
+
+	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/login"))
+	require.NoError(t, err)
+	_, err = callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/whoami"))
+	require.NoError(t, err)
+	assert.Empty(t, seenCookie)
+}
+
+func TestHTTPGet_PerCallCookies_Map(t *testing.T) {
+	// opts.cookies as a name → value map should be sent on the
+	// request, in addition to the (empty) jar.
+	var seenSession, seenTracking string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if c, err := r.Cookie("session"); err == nil {
+			seenSession = c.Value
+		}
+		if c, err := r.Cookie("tracking"); err == nil {
+			seenTracking = c.Value
+		}
+	}))
+	defer srv.Close()
+
+	opts := cty.ObjectVal(map[string]cty.Value{
+		"cookies": cty.ObjectVal(map[string]cty.Value{
+			"session":  cty.StringVal("abc123"),
+			"tracking": cty.StringVal("xyz789"),
+		}),
+	})
+	_, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/"), opts)
+	require.NoError(t, err)
+	assert.Equal(t, "abc123", seenSession)
+	assert.Equal(t, "xyz789", seenTracking)
+}
+
+func TestHTTPGet_PerCallCookies_List(t *testing.T) {
+	// opts.cookies as a list of cookie objects should also work, with
+	// the rich attribute set (path, secure, etc.) parsed.
+	var seenSession string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if c, err := r.Cookie("session"); err == nil {
+			seenSession = c.Value
+		}
+	}))
+	defer srv.Close()
+
+	opts := cty.ObjectVal(map[string]cty.Value{
+		"cookies": cty.TupleVal([]cty.Value{
+			cty.ObjectVal(map[string]cty.Value{
+				"name":      cty.StringVal("session"),
+				"value":     cty.StringVal("abc123"),
+				"path":      cty.StringVal("/"),
+				"secure":    cty.BoolVal(false),
+				"http_only": cty.BoolVal(true),
+			}),
+		}),
+	})
+	_, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/"), opts)
+	require.NoError(t, err)
+	assert.Equal(t, "abc123", seenSession)
+}
+
+func TestHTTPGet_PerCallCookies_DoNotModifyJar(t *testing.T) {
+	// Per-call cookies should not enter the jar — a follow-up call
+	// with no opts.cookies should not see them.
+	var seenOnSecond string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path == "/second" {
+			if c, err := r.Cookie("ephemeral"); err == nil {
+				seenOnSecond = c.Value
+			}
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    cookies {}
+}
+`, srv.URL))
+
+	opts := cty.ObjectVal(map[string]cty.Value{
+		"cookies": cty.ObjectVal(map[string]cty.Value{
+			"ephemeral": cty.StringVal("once"),
+		}),
+	})
+	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/first"), opts)
+	require.NoError(t, err)
+	_, err = callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/second"))
+	require.NoError(t, err)
+	assert.Empty(t, seenOnSecond, "per-call cookies must not enter the jar")
+}
+
+func TestHTTPGet_PerCallCookies_AddedAlongsideJarCookies(t *testing.T) {
+	// When the jar already holds a cookie from a prior response and
+	// the call also supplies opts.cookies, both should be sent.
+	var seenSession, seenExtra string
+	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path == "/login" {
+			nethttp.SetCookie(w, &nethttp.Cookie{Name: "session", Value: "fromjar", Path: "/"})
+			w.WriteHeader(200)
+			return
+		}
+		if c, err := r.Cookie("session"); err == nil {
+			seenSession = c.Value
+		}
+		if c, err := r.Cookie("extra"); err == nil {
+			seenExtra = c.Value
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	clientVal := loadClient(t, fmt.Sprintf(`
+client "http" "api" {
+    base_url = %q
+    cookies {}
+}
+`, srv.URL))
+
+	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/login"))
+	require.NoError(t, err)
+
+	opts := cty.ObjectVal(map[string]cty.Value{
+		"cookies": cty.ObjectVal(map[string]cty.Value{
+			"extra": cty.StringVal("frompercall"),
+		}),
+	})
+	_, err = callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/data"), opts)
+	require.NoError(t, err)
+	assert.Equal(t, "fromjar", seenSession)
+	assert.Equal(t, "frompercall", seenExtra)
+}
+
 // ── Interface sanity ────────────────────────────────────────────────────────
 
 func TestHTTPCallable_NullClientPath(t *testing.T) {

@@ -63,7 +63,7 @@ type httpClientDefinition struct {
 	AuthMaxFailures  *int              `hcl:"auth_max_failures,optional"`
 	AuthRetryBackoff *authBackoffBlock `hcl:"auth_retry_backoff,block"`
 	Retry            *retryBlock       `hcl:"retry,block"`
-	Cookies          *deferredBlock    `hcl:"cookies,block"`
+	Cookies          *cookiesBlock     `hcl:"cookies,block"`
 	OTel             *deferredBlock    `hcl:"otel,block"`
 
 	DefRange hcl.Range `hcl:",def_range"`
@@ -185,15 +185,17 @@ func (c *HTTPClient) Do(req *http.Request) (*http.Response, error) {
 
 // DoWithRedirectPolicy sends a request using a per-call redirect policy in
 // place of the client's default. It constructs a fresh *http.Client that
-// reuses the underlying Transport (and thus the connection pool) but installs
-// a CheckRedirect closure built from pol. This is the only Phase 2 mechanism
-// for per-call overrides because *http.Client exposes a single CheckRedirect
-// hook that closes over its values at construction time.
+// reuses the underlying Transport (and thus the connection pool) and the
+// shared cookie jar, but installs a CheckRedirect closure built from pol.
+// This is the only Phase 2 mechanism for per-call overrides because
+// *http.Client exposes a single CheckRedirect hook that closes over its
+// values at construction time.
 func (c *HTTPClient) DoWithRedirectPolicy(req *http.Request, pol RedirectPolicy) (*http.Response, error) {
 	perCall := &http.Client{
 		Transport:     c.httpClient.Transport,
 		Timeout:       c.httpClient.Timeout,
 		CheckRedirect: buildCheckRedirect(pol),
+		Jar:           c.httpClient.Jar,
 	}
 	return perCall.Do(req)
 }
@@ -348,6 +350,21 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		authHandler = newAuthCache(clientName, def.Auth, maxLifetime, maxFailures, backoff)
 	}
 
+	// ── Cookie jar ──
+	jar, jarErr := buildCookieJar(def.Cookies)
+	if jarErr != nil {
+		subj := def.DefRange
+		if def.Cookies != nil {
+			subj = def.Cookies.DefRange
+		}
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "http client: invalid cookies block",
+			Detail:   jarErr.Error(),
+			Subject:  &subj,
+		}}
+	}
+
 	// ── *http.Client ──
 	defaultPolicy := RedirectPolicy{
 		Follow:   followRedirect,
@@ -358,6 +375,12 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		Transport:     transport,
 		Timeout:       requestTimeout,
 		CheckRedirect: buildCheckRedirect(defaultPolicy),
+	}
+	// Avoid storing a typed-nil into the http.CookieJar interface field:
+	// http.Client checks Jar != nil before calling methods, but a typed
+	// nil *cookiejar.Jar passes that check and then panics on Cookies().
+	if jar != nil {
+		goClient.Jar = jar
 	}
 
 	client := &HTTPClient{
@@ -381,9 +404,6 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	// Silently ignoring would be worse than a log line here.
 	if config.Logger != nil {
 		var deferred []string
-		if def.Cookies != nil {
-			deferred = append(deferred, "cookies")
-		}
 		if def.OTel != nil {
 			deferred = append(deferred, "otel")
 		}

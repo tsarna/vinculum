@@ -404,6 +404,14 @@ func sendOnce(
 		}
 	}
 
+	// Per-call cookies are sent in addition to whatever the client jar
+	// supplies. http.Request.AddCookie appends to the Cookie header
+	// without consulting the jar; the jar's own cookies are added by
+	// the http.Client during Do().
+	for _, c := range parsedOpts.cookies {
+		req.AddCookie(c)
+	}
+
 	origURL := *reqURL
 
 	var resp *nethttp.Response
@@ -957,6 +965,10 @@ type parsedHTTPOpts struct {
 	authValueSet    bool
 	authValue       string
 
+	// Per-call cookies sent in addition to whatever the client's jar
+	// would supply. These do not modify the jar.
+	cookies []*nethttp.Cookie
+
 	as        string // "none", "string", "bytes", "json"
 	bodyLimit int64
 }
@@ -992,6 +1004,14 @@ func parseOpts(config *cfg.Config, opts cty.Value) (parsedHTTPOpts, error) {
 			out.authValueSet = true
 			out.authValue = v.AsString()
 		}
+	}
+
+	if v, ok := attrs["cookies"]; ok && !v.IsNull() {
+		cs, err := parsePerCallCookies(v)
+		if err != nil {
+			return out, fmt.Errorf("opts.cookies: %w", err)
+		}
+		out.cookies = cs
 	}
 
 	if v, ok := attrs["headers"]; ok && !v.IsNull() {
@@ -1107,6 +1127,100 @@ func parsePerCallHeaders(val cty.Value) (nethttp.Header, error) {
 		}
 	}
 	return out, nil
+}
+
+// parsePerCallCookies converts an opts.cookies cty value into a list of
+// *http.Cookie. Two shapes are accepted (per HTTP-CLIENT-SPEC.md):
+//
+//   - map(string) — name → value pairs (most common case for simple
+//     session cookies)
+//   - list(cookie object) — full cookie objects with optional path,
+//     domain, secure, etc., as produced by setcookie() / convertCookieObject
+func parsePerCallCookies(val cty.Value) ([]*nethttp.Cookie, error) {
+	switch {
+	case val.Type().IsMapType() || val.Type().IsObjectType():
+		// name → value map. Object with cookie-like attributes is
+		// indistinguishable from a single-cookie object literal at this
+		// type level, so we treat the map case first and let
+		// list-of-cookies users wrap their single cookie in a 1-element
+		// list if they want the rich form.
+		var out []*nethttp.Cookie
+		for name, elem := range val.AsValueMap() {
+			if elem.IsNull() {
+				continue
+			}
+			if elem.Type() != cty.String {
+				return nil, fmt.Errorf("cookie %q value must be a string, got %s", name, elem.Type().FriendlyName())
+			}
+			out = append(out, &nethttp.Cookie{Name: name, Value: elem.AsString()})
+		}
+		return out, nil
+	case val.Type().IsListType() || val.Type().IsTupleType() || val.Type().IsSetType():
+		var out []*nethttp.Cookie
+		for it := val.ElementIterator(); it.Next(); {
+			_, elem := it.Element()
+			if elem.IsNull() {
+				continue
+			}
+			c, err := cookieFromObject(elem)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, c)
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("must be a map of strings or a list of cookie objects, got %s", val.Type().FriendlyName())
+	}
+}
+
+// cookieFromObject builds an *http.Cookie from a cty object with at
+// least name + value attributes. Other recognized attributes (path,
+// domain, secure, http_only) are applied if present.
+func cookieFromObject(val cty.Value) (*nethttp.Cookie, error) {
+	if !val.Type().IsObjectType() && !val.Type().IsMapType() {
+		return nil, fmt.Errorf("cookie list element must be an object, got %s", val.Type().FriendlyName())
+	}
+	if !val.Type().HasAttribute("name") || !val.Type().HasAttribute("value") {
+		return nil, fmt.Errorf("cookie object must have name and value attributes")
+	}
+	nameAttr := val.GetAttr("name")
+	valAttr := val.GetAttr("value")
+	if nameAttr.IsNull() || nameAttr.Type() != cty.String {
+		return nil, fmt.Errorf("cookie name must be a non-null string")
+	}
+	if valAttr.IsNull() || valAttr.Type() != cty.String {
+		return nil, fmt.Errorf("cookie value must be a non-null string")
+	}
+	c := &nethttp.Cookie{
+		Name:  nameAttr.AsString(),
+		Value: valAttr.AsString(),
+	}
+	if val.Type().HasAttribute("path") {
+		v := val.GetAttr("path")
+		if !v.IsNull() && v.Type() == cty.String {
+			c.Path = v.AsString()
+		}
+	}
+	if val.Type().HasAttribute("domain") {
+		v := val.GetAttr("domain")
+		if !v.IsNull() && v.Type() == cty.String {
+			c.Domain = v.AsString()
+		}
+	}
+	if val.Type().HasAttribute("secure") {
+		v := val.GetAttr("secure")
+		if !v.IsNull() && v.Type() == cty.Bool {
+			c.Secure = v.True()
+		}
+	}
+	if val.Type().HasAttribute("http_only") {
+		v := val.GetAttr("http_only")
+		if !v.IsNull() && v.Type() == cty.Bool {
+			c.HttpOnly = v.True()
+		}
+	}
+	return c, nil
 }
 
 // parsePerCallQuery converts an opts.query cty value into a url.Values.
