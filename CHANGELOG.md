@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`client "http"`**: A new HTTP(S) client capability. See [doc/client-http.md](doc/client-http.md) for details.
+
+### Fixed
+
+- consts can now reference ambients like env.* again without a dependency error.
+
 ## [0.25.0] - 2026-04-10
 
 ### Added

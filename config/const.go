@@ -40,7 +40,14 @@ func (b *ConstBlockHandler) Preprocess(block *hcl.Block) hcl.Diagnostics {
 }
 
 func (b *ConstBlockHandler) FinishPreprocessing(config *Config) hcl.Diagnostics {
-	attrs, diags := SortAttributesByDependencies(b.consts)
+	// Build set of already-known variable root names (ambients, etc.)
+	// so dependency sorting doesn't reject references to them.
+	known := make(map[string]bool, len(config.Constants))
+	for k := range config.Constants {
+		known[k] = true
+	}
+
+	attrs, diags := SortAttributesByDependencies(b.consts, known)
 	if diags.HasErrors() {
 		return diags
 	}

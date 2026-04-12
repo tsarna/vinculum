@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -78,8 +79,11 @@ func ExtractBlockDependencies(block *hcl.Block, excludeAttrs ...string) []string
 	return ExtractReferencesFromBody(block.Body, excludeSet)
 }
 
-// SortAttributesByDependencies returns attribute names sorted in dependency order
-func SortAttributesByDependencies(attrs hcl.Attributes) ([]*hcl.Attribute, hcl.Diagnostics) {
+// SortAttributesByDependencies returns attribute names sorted in dependency order.
+// known contains variable root names that are already available in the evaluation
+// context (e.g. ambient providers like "env", "sys") and should not be treated as
+// missing dependencies.
+func SortAttributesByDependencies(attrs hcl.Attributes, known map[string]bool) ([]*hcl.Attribute, hcl.Diagnostics) {
 	var diags hcl.Diagnostics
 
 	// Create DAG
@@ -112,6 +116,10 @@ func SortAttributesByDependencies(attrs hcl.Attributes) ([]*hcl.Attribute, hcl.D
 						Subject:  &attr.Range,
 					})
 				}
+			} else if root, _, _ := strings.Cut(ref, "."); known[root] {
+				// Reference is to an already-available variable (e.g. env.FOO);
+				// no dependency edge needed.
+				continue
 			} else {
 				diags = diags.Append(&hcl.Diagnostic{
 					Severity: hcl.DiagError,
