@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-04-12
+
 ### Added
 
 - **`client "http"`**: A new HTTP(S) client capability. See [doc/client-http.md](doc/client-http.md) for details.
