@@ -30,3 +30,11 @@ configuration.
 Required environment variables: `ZONES_DIR` (path to the directory containing
 BIND zone files) and one `PASS_<ZONE>_<HOST>` variable per credential, as
 referenced from the `auth "basic"` block in the example.
+
+### [voipms/](voipms/)
+
+A Prometheus exporter for the [VoIP.ms](https://voip.ms) REST API, split across
+multiple `.vcl` files. Demonstrates `client "http"` wrapping a third-party JSON
+API, labeled `metric` gauges and counters populated from `procedure` blocks,
+`trigger "interval"` scrapes with jitter, and a `server "metrics"` Prometheus
+endpoint. See [voipms/README.md](voipms/README.md) for details.
