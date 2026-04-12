@@ -224,6 +224,25 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		return nil, diags
 	}
 
+	// Collect metrics backend block IDs so metric blocks without an explicit
+	// server attribute are ordered after them in the dependency sort.
+	if mh, ok := blockHandlers["metric"].(*MetricBlockHandler); ok {
+		var backendIDs []string
+		for _, block := range blocks {
+			switch block.Type {
+			case "server":
+				if len(block.Labels) >= 1 && block.Labels[0] == "metrics" {
+					backendIDs = append(backendIDs, "server."+block.Labels[1])
+				}
+			case "client":
+				if len(block.Labels) >= 1 && block.Labels[0] == "otlp" {
+					backendIDs = append(backendIDs, "client."+block.Labels[1])
+				}
+			}
+		}
+		mh.SetImplicitBackendDeps(backendIDs)
+	}
+
 	blocks, sortDiags := cb.SortBlocksByDependencies(blocks, blockHandlers)
 	diags = diags.Extend(sortDiags)
 

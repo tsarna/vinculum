@@ -8,6 +8,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
@@ -214,8 +215,9 @@ func ResolveMeterProvider(config *Config, expr hcl.Expression) (metric.MeterProv
 
 type MetricBlockHandler struct {
 	BlockHandlerBase
-	names   []string             // declaration order for duplicate check
-	metrics map[string]cty.Value // name → capsule, populated during Process
+	names              []string             // declaration order for duplicate check
+	metrics            map[string]cty.Value // name → capsule, populated during Process
+	implicitBackendDeps []string            // server/client block IDs for implicit deps
 }
 
 func NewMetricBlockHandler() *MetricBlockHandler {
@@ -224,12 +226,34 @@ func NewMetricBlockHandler() *MetricBlockHandler {
 	}
 }
 
+// SetImplicitBackendDeps records the dependency IDs of server "metrics" and
+// client "otlp" blocks so that metric blocks without an explicit server
+// attribute are ordered after them.
+func (h *MetricBlockHandler) SetImplicitBackendDeps(ids []string) {
+	h.implicitBackendDeps = ids
+}
+
 func (h *MetricBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {
 	return "metric." + block.Labels[1], nil
 }
 
 func (h *MetricBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, hcl.Diagnostics) {
-	return ExtractBlockDependencies(block), nil
+	deps := ExtractBlockDependencies(block)
+
+	// If the metric block has no explicit "server" attribute, it will use the
+	// default metrics backend. Add implicit dependencies on all server "metrics"
+	// and client "otlp" blocks so they are processed first.
+	if len(h.implicitBackendDeps) > 0 {
+		hasServerAttr := false
+		if syntaxBody, ok := block.Body.(*hclsyntax.Body); ok {
+			_, hasServerAttr = syntaxBody.Attributes["server"]
+		}
+		if !hasServerAttr {
+			deps = append(deps, h.implicitBackendDeps...)
+		}
+	}
+
+	return deps, nil
 }
 
 func (h *MetricBlockHandler) Preprocess(block *hcl.Block) hcl.Diagnostics {

@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - consts can now reference ambients like env.* again without a dependency error.
+- Handle implicit metrics wiring by making metrics blocks without explicit wiring depend on all otlp client and metrics servers.
 
 ## [0.25.0] - 2026-04-10
 
