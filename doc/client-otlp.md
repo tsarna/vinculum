@@ -105,6 +105,7 @@ to select a specific OTLP client for tracing:
 | `server "http"`                 | yes                   | yes        |
 | `server "mcp"` (standalone)    | yes                   | yes        |
 | `server "metrics"` (standalone) | yes                   | yes        |
+| `client "http"`                 | yes                   | yes        |
 | `client "kafka"`                | yes                   | yes        |
 | `client "mqtt"`                 | yes                   | yes        |
 | `client "openai"`               | yes                   | yes        |
@@ -122,6 +123,7 @@ pointing to either a `server "metrics"` or `client "otlp"`:
 | `server "mcp"` (standalone)    | yes                   | yes        |
 | `bus`                           | yes                   | yes        |
 | `server "vws"`                  | yes                   | yes        |
+| `client "http"`                 | yes                   | yes        |
 | `client "kafka"`                | yes                   | yes        |
 | `client "mqtt"`                 | yes                   | yes        |
 | `metric` blocks                 | `server =`            | yes        |

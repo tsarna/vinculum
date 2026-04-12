@@ -35,7 +35,7 @@ block to safely rewrite BIND zone files in place.
 - **HCL Configuration** — Declarative configuration in HashiCorp Config Language (similar to Terraform), with constants, expressions, and assertions
 - **Publish/Subscribe Messaging** — One or more event buses with MQTT-style topic routing, wildcards, and parameter extraction
 - **Server Protocols** — HTTP(S), Vinculum WebSocket (VWS), plain WebSocket, Model Context Protocol (MCP), and Prometheus/OpenMetrics, with pluggable authentication (basic, OIDC, OAuth2)
-- **Client Protocols** — Kafka, MQTT, VWS (to other Vinculum instances), OpenAI / LLM, and OpenTelemetry (OTLP) export
+- **Client Protocols** — Kafka, MQTT, VWS (to other Vinculum instances), HTTP(S) (request/response), OpenAI / LLM, and OpenTelemetry (OTLP) export
 - **Triggers** — A range of trigger types for time-, event-, and lifecycle-driven actions: cron, dynamic intervals with optional jitter, absolute / dynamic times, file-system events, OS signals, startup/shutdown, watchdogs, and watches over reactive values
 - **Transformations and Procedures** — JQ-based message transforms, structured-text `editor` blocks, and `procedure` blocks for small imperative helpers
 - **Built-in Functions** — A large standard library covering HTTP, files, templates, time, randomness, IDs, LLMs, and more
@@ -130,7 +130,6 @@ A `server` block accepts inbound connections or requests over a particular proto
 | [`server "websocket"`](server-websocket.md) | Plain (raw) WebSocket server with bus integration and inbound/outbound transforms |
 | [`server "mcp"`](server-mcp.md) | Model Context Protocol server exposing resources, tools, and prompts to LLM clients |
 | [`server "metrics"`](server-metrics.md) | Prometheus / OpenMetrics exposition endpoint, standalone or mounted into an existing HTTP server |
-| [`server "auth"`](server-auth.md) | Authentication providers (basic, OIDC, OAuth2, custom) used as middleware by other servers |
 
 ## Clients
 
@@ -138,6 +137,7 @@ A `client` block makes outbound connections to a remote service. Each client typ
 
 | Client | Description |
 | ------ | ----------- |
+| [`client "http"`](client-http.md) | HTTP(S) request/response client with auth, retry, cookies, and OpenTelemetry (used via the `http_get()` / `http_post()` / etc. functions) |
 | [`client "kafka"`](client-kafka.md) | Kafka producer and consumer adapters with SASL/TLS, commit modes, and dead-letter queue support |
 | [`client "mqtt"`](client-mqtt.md) | MQTT 5.0 publisher and subscriber, including last-will and shared subscriptions |
 | [`client "vws"`](server-vws.md) | Vinculum WebSocket client — connects to another Vinculum instance over the VWS protocol (documented alongside the VWS server) |

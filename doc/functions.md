@@ -617,7 +617,7 @@ See [metric.md](metric.md) for the full reference on declaring and using metrics
 
 - `send(ctx, subscriber, topic, payload, fields?)`: Publish a message to a bus or other subscriber. `fields` is an optional map of string metadata attached to the event. Returns `true`.
 - `sendjson(ctx, subscriber, topic, payload, fields?)`: Same as `send`, but first serializes `payload` to JSON bytes before publishing.
-- `sendgo(ctx, subscriber, topic, payload, fields?)`: Same as `send`, but first converts `payload` from a cty value to a Go native value (map/slice/scalar) before publishing. Use this when the subscriber expects idiomatic Go types.
+- `sendgo(ctx, subscriber, topic, payload, fields?)`: Same as `send`, but first converts `payload` from a cty value to a Go native value (map/slice/scalar) before publishing. Use this when the subscriber expects native Go types.
 - `call(ctx, client, request)`: Make a synchronous request to a client and return the response. Currently supported for LLM clients (`client "openai"`). Always returns a response object — API errors are represented as `stop_reason = "error"` in the response rather than Go-level errors. See [client-llm.md](client-llm.md) for the full request/response schema.
 - `llm_wrap(content)`: Wrap a string in `<user_input>` XML-like delimiters as a prompt injection mitigation. Use in the `content` of user messages when the content comes from an untrusted source. The system prompt should reference the tags (e.g. `"Summarize the text in the <user_input> tags."`). Returns `"<user_input>\n{content}\n</user_input>"`.
 
@@ -643,6 +643,73 @@ These functions are always available and help construct HTTP request values.
 ```hcl
 set_header("Authorization", basicauth("alice", "s3cr3t"))
 ```
+
+### HTTP Client Verb Functions
+
+These functions make outbound HTTP requests from action expressions. They
+mirror the methods of `net/http` and are loosely modeled on the JavaScript
+`fetch()` API: a small set of verbs take a URL, an optional body, and an
+options object, and return a rich `httpclientresponse` object.
+
+The second argument is either a configured `client.<name>` (an
+[`client "http"`](client-http.md) capsule) or `null` to use built-in
+defaults. See [`client "http"`](client-http.md) for the full reference,
+including authentication, retry, cookies, OpenTelemetry, body coercion,
+header precedence, and the response object shape.
+
+| Function | Body? | Idempotent (per RFC) |
+|---|---|---|
+| `http_get(ctx, client, url[, opts])` | no | yes |
+| `http_head(ctx, client, url[, opts])` | no | yes |
+| `http_options(ctx, client, url[, opts])` | no | yes |
+| `http_delete(ctx, client, url[, opts])` | no | yes |
+| `http_post(ctx, client, url[, body[, opts]])` | yes | no |
+| `http_put(ctx, client, url[, body[, opts]])` | yes | yes |
+| `http_patch(ctx, client, url[, body[, opts]])` | yes | no |
+| `http_request(ctx, client, method, url[, body[, opts]])` | yes | depends on method |
+
+The return value is an `httpclientresponse` object with materialized
+attributes (`status`, `status_text`, `ok`, `redirected`, `final_url`,
+`proto`, `headers`, `content_length`, `content_type`, `body`) and `get()`
+keys for body access (`body`, `body_bytes`, `body_json`) and per-name
+header / cookie lookup (`header`, `header_all`, `cookie`, `cookies`).
+
+A non-2xx response is **not** a function error — it is just a response
+with `status = 404` (etc.), the same as `fetch()`'s behavior. Transport
+errors (DNS, connection refused, TLS, context canceled, retries
+exhausted) raise an HCL error. Use `http_must()` (below) when a non-2xx
+should fail loudly.
+
+```hcl
+# One-off probe with no client
+http_get(ctx, null, "https://example.com/ping").status
+
+# POST JSON, get JSON back, with as = "json" pre-decode
+http_post(ctx, client.api, "/widgets/search", { color = "blue" }, { as = "json" }).body.total
+
+# Generic verb for non-standard methods
+http_request(ctx, client.dav, "PROPFIND", "/dir/")
+```
+
+- `http_must(response[, expected])`: Returns `response` unchanged if its
+  status is acceptable; otherwise raises an HCL error with the method,
+  final URL, actual status, expected set, and a 512-byte body excerpt.
+  `expected` may be omitted (default: any 2xx), a single number, a list
+  of numbers, a list of `[lo, hi]` inclusive ranges, or any mix:
+
+  ```hcl
+  # Default: any 2xx
+  data = get(http_must(http_get(ctx, client.api, "/widgets")), "body_json")
+
+  # Explicit single status
+  http_must(http_post(ctx, client.api, "/widgets", w), 201)
+
+  # Multiple acceptable statuses
+  http_must(http_delete(ctx, client.api, "/widgets/${id}"), [200, 204, 404])
+
+  # A range
+  http_must(http_get(ctx, client.api, "/data"), [[200, 299]])
+  ```
 
 ### Path Functions
 

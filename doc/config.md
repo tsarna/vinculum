@@ -355,8 +355,11 @@ clients share a single name namespace.
 
 For details on each client type, see the dedicated pages:
 
+- [`client "http"`](client-http.md) — HTTP(S) request/response client (used via `http_get()`, `http_post()`, etc.)
 - [`client "kafka"`](client-kafka.md) — Apache Kafka producer and consumer
+- [`client "mqtt"`](client-mqtt.md) — MQTT 5.0 publisher and subscriber
 - [`client "openai"`](client-llm.md) — OpenAI and OpenAI-compatible LLM APIs
+- [`client "otlp"`](client-otlp.md) — OpenTelemetry Protocol exporter (push-based)
 - [`client "vws"`](server-vws.md#client-vws) — Vinculum WebSocket Protocol client
 
 ---

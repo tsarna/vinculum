@@ -15,7 +15,7 @@ MacGyver together a solution with a few lines of configuration.
 - **HCL Configuration** — Declarative configuration in HashiCorp Config Language (similar to Terraform), with constants, expressions, and assertions
 - **Publish/Subscribe Messaging** — One or more event buses with MQTT-style topic routing, wildcards, and parameter extraction
 - **Server Protocols** — HTTP(S), Vinculum WebSocket (VWS), plain WebSocket, Model Context Protocol (MCP), and Prometheus/OpenMetrics, with pluggable authentication (basic, OIDC, OAuth2)
-- **Client Protocols** — Kafka, MQTT, VWS (to other Vinculum instances), OpenAI / LLM, and OpenTelemetry (OTLP) export
+- **Client Protocols** — HTTP(S), Kafka, MQTT, VWS (to other Vinculum instances), OpenAI / LLM, and OpenTelemetry (OTLP) export
 - **Triggers** — A range of trigger types for time-, event-, and lifecycle-driven actions: cron, dynamic intervals with optional jitter, absolute / dynamic times, file-system events, OS signals, startup/shutdown, watchdogs, and watches over reactive values
 - **Transformations and Procedures** — JQ-based message transforms, structured-text `editor` blocks, and `procedure` blocks for small imperative helpers
 - **Built-in Functions** — A large standard library covering HTTP, files, templates, time, randomness, IDs, LLMs, and more
