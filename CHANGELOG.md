@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-04-13
+
+### Added
+
+- **`condition` blocks**: A new automation primitive producing a named, Watchable boolean from various input types and behavioral rules. Three subtypes — `condition "timer"` (temporal rules over a boolean signal), `condition "threshold"` (boolean derived from a numeric input via hysteresis), and `condition "counter"` (boolean from event counts via `increment()`/`decrement()`) — covering IEC 61131-3 timer and counter function-block behaviors and composable into pipelines via `input = get(condition.other)`. See [doc/condition.md](doc/condition.md) for details.
+- **`reset(trigger.<name>)` on `trigger "watchdog"`**: Returns a watchdog to its post-startup state, reviving it if it had auto-stopped via `max_misses` or `stop_when`.
+
 ## [0.26.0] - 2026-04-12
 
 ### Added
