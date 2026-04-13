@@ -46,6 +46,14 @@ type AtTrigger struct {
 	setCh  chan struct{} // buffered 1; signals goroutine to re-evaluate time
 }
 
+// Count returns the number of times the trigger has fired. Implements
+// types.Countable so count(trigger.<name>) is callable from any expression.
+func (t *AtTrigger) Count(_ context.Context) (int64, error) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.runCount, nil
+}
+
 // Get returns the currently scheduled fire time as a time capsule, or null if
 // the time expression has not been evaluated yet. Implements Gettable.
 func (t *AtTrigger) Get(_ context.Context, _ []cty.Value) (cty.Value, error) {

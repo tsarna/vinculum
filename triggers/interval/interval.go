@@ -45,6 +45,14 @@ type IntervalTrigger struct {
 	doneCh chan struct{}
 }
 
+// Count returns the number of completed action evaluations. Implements
+// types.Countable so count(trigger.<name>) is callable from any expression.
+func (t *IntervalTrigger) Count(_ context.Context) (int64, error) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.runCount, nil
+}
+
 // Get returns the most recent action result, null if the action has not yet
 // run, or an error if the most recent evaluation failed. Implements Gettable.
 func (t *IntervalTrigger) Get(_ context.Context, _ []cty.Value) (cty.Value, error) {

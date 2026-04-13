@@ -62,6 +62,13 @@ type FileTrigger struct {
 	wg     sync.WaitGroup
 }
 
+// Count returns the lifetime number of times the trigger has fired.
+// Implements types.Countable so count(trigger.<name>) is callable from any
+// expression.
+func (t *FileTrigger) Count(_ context.Context) (int64, error) {
+	return t.runCount.Load(), nil
+}
+
 // Get returns the most recently completed action result, null before the first
 // run, or an error if the most recent evaluation failed. Implements Gettable.
 func (t *FileTrigger) Get(_ context.Context, _ []cty.Value) (cty.Value, error) {
