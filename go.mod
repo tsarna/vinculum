@@ -23,7 +23,7 @@ require (
 	github.com/tsarna/hcl-jqfunc v0.1.3
 	github.com/tsarna/rand-cty-funcs v0.1.0
 	github.com/tsarna/sqid-cty-funcs v0.1.0
-	github.com/tsarna/time-cty-funcs v0.1.0
+	github.com/tsarna/time-cty-funcs v0.1.1
 	github.com/tsarna/vinculum-bus v0.11.0
 	github.com/tsarna/vinculum-kafka v0.8.0
 	github.com/tsarna/vinculum-mqtt v0.6.0
