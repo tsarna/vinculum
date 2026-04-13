@@ -72,6 +72,27 @@ func (t *WatchdogTrigger) Set(_ context.Context, args []cty.Value) (cty.Value, e
 	return val, nil
 }
 
+// Reset returns the watchdog to its post-startup state: the stored value
+// and last-set timestamp are cleared, missCount returns to 0, and the
+// countdown is re-armed (reviving the trigger if it was auto-stopped via
+// max_misses or stop_when). Implements types.Resettable so
+// reset(trigger.<name>) is callable from VCL.
+func (t *WatchdogTrigger) Reset(_ context.Context) error {
+	t.mu.Lock()
+	t.lastValue = cty.NilVal
+	t.lastSet = time.Time{}
+	t.missCount = 0
+	t.mu.Unlock()
+
+	if t.setCh != nil {
+		select {
+		case t.setCh <- struct{}{}:
+		default:
+		}
+	}
+	return nil
+}
+
 // Get returns the last value passed to set(), or null if set() has never been
 // called. Implements Gettable.
 func (t *WatchdogTrigger) Get(_ context.Context, _ []cty.Value) (cty.Value, error) {

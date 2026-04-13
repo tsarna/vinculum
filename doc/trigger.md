@@ -832,6 +832,14 @@ trigger "watchdog" "pipeline" {
 # resets miss_count to 0 and re-arms the watchdog.
 ```
 
+`reset(trigger.<name>)` returns the watchdog to its post-startup state:
+the stored value (`get()`) is cleared back to `null`, `miss_count` is
+zeroed, and the countdown is re-armed (reviving the trigger if it had
+auto-stopped via `max_misses` or `stop_when`). Use `reset()` when an
+operator wants to discard the existing heartbeat history rather than
+acknowledge it (which `set()` does); for the common ack-and-rearm flow
+`set()` is usually the right call.
+
 ---
 
 ## Watchables

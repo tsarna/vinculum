@@ -126,6 +126,26 @@ func TestTriggerWatchdogSetResetsMissCount(t *testing.T) {
 	assert.Equal(t, int64(0), count)
 }
 
+func TestTriggerWatchdogResetClearsState(t *testing.T) {
+	wdog := &WatchdogTrigger{}
+	_, err := wdog.Set(context.Background(), []cty.Value{cty.StringVal("alive")})
+	require.NoError(t, err)
+	wdog.mu.Lock()
+	wdog.missCount = 7
+	wdog.mu.Unlock()
+
+	require.NoError(t, wdog.Reset(context.Background()))
+
+	got, err := wdog.Get(context.Background(), nil)
+	require.NoError(t, err)
+	assert.True(t, got.IsNull(), "stored value cleared by reset")
+
+	wdog.mu.RLock()
+	defer wdog.mu.RUnlock()
+	assert.Equal(t, int64(0), wdog.missCount)
+	assert.True(t, wdog.lastSet.IsZero(), "last-set timestamp cleared")
+}
+
 func TestTriggerWatchdogStopBeforeFire(t *testing.T) {
 	c, diags := cfg.NewConfig().WithSources(triggerWatchdogVCL).WithLogger(testLogger(t)).Build()
 	require.False(t, diags.HasErrors())

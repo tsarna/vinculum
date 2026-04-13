@@ -691,6 +691,12 @@ clears any latch, and returns the condition to `inactive`. Complete reset.
 action = reset(condition.fault_count)
 ```
 
+`reset()` also works on `trigger "watchdog"` blocks: it clears the stored
+value back to `null`, zeroes `miss_count`, and re-arms the countdown
+(reviving the trigger if it had auto-stopped via `max_misses` or
+`stop_when`). See [trigger.md](trigger.md#trigger-watchdog) for the
+distinction between `set()` (ack-and-rearm) and `reset()` (full clear).
+
 #### `count(condition.name)` → number — counter only
 
 Returns the current numeric count value. Distinct from `get()`, which
