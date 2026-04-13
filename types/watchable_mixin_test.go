@@ -40,43 +40,43 @@ func (w *testWatcher) get(i int) testChange {
 }
 
 func TestWatchableMixin_WatchDedup(t *testing.T) {
-	var m watchableMixin
+	var m WatchableMixin
 	w := &testWatcher{}
 	m.Watch(w)
 	m.Watch(w) // second registration is a no-op
-	m.notifyAll(bg, cty.True, cty.False)
+	m.NotifyAll(bg, cty.True, cty.False)
 	assert.Equal(t, 1, w.count(), "duplicate Watch should not result in duplicate calls")
 }
 
 func TestWatchableMixin_UnwatchNotRegistered(t *testing.T) {
-	var m watchableMixin
+	var m WatchableMixin
 	w := &testWatcher{}
 	assert.NotPanics(t, func() { m.Unwatch(w) })
-	m.notifyAll(bg, cty.True, cty.False)
+	m.NotifyAll(bg, cty.True, cty.False)
 	assert.Equal(t, 0, w.count())
 }
 
 func TestWatchableMixin_UnwatchStopsNotifications(t *testing.T) {
-	var m watchableMixin
+	var m WatchableMixin
 	w := &testWatcher{}
 	m.Watch(w)
-	m.notifyAll(bg, cty.True, cty.False)
+	m.NotifyAll(bg, cty.True, cty.False)
 	assert.Equal(t, 1, w.count())
 
 	m.Unwatch(w)
-	m.notifyAll(bg, cty.True, cty.False)
+	m.NotifyAll(bg, cty.True, cty.False)
 	assert.Equal(t, 1, w.count(), "no new calls after Unwatch")
 }
 
 func TestWatchableMixin_NotifyAll_Values(t *testing.T) {
-	var m watchableMixin
+	var m WatchableMixin
 	w := &testWatcher{}
 	m.Watch(w)
 
 	old := cty.NumberIntVal(1)
 	new := cty.NumberIntVal(2)
 	ctx := context.WithValue(bg, "key", "val") //nolint:staticcheck
-	m.notifyAll(ctx, old, new)
+	m.NotifyAll(ctx, old, new)
 
 	assert.Equal(t, 1, w.count())
 	c := w.get(0)
@@ -86,7 +86,7 @@ func TestWatchableMixin_NotifyAll_Values(t *testing.T) {
 }
 
 func TestWatchableMixin_NotifyAll_MultipleWatchers_InOrder(t *testing.T) {
-	var m watchableMixin
+	var m WatchableMixin
 	var order []int
 	var mu sync.Mutex
 
@@ -100,7 +100,7 @@ func TestWatchableMixin_NotifyAll_MultipleWatchers_InOrder(t *testing.T) {
 	m.Watch(w1)
 	m.Watch(w2)
 	m.Watch(w3)
-	m.notifyAll(bg, cty.True, cty.False)
+	m.NotifyAll(bg, cty.True, cty.False)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -109,18 +109,18 @@ func TestWatchableMixin_NotifyAll_MultipleWatchers_InOrder(t *testing.T) {
 
 func TestWatchableMixin_NotifyAll_Snapshot(t *testing.T) {
 	// A Watcher added during a notifyAll call must not receive the current call.
-	var m watchableMixin
+	var m WatchableMixin
 	w2 := &testWatcher{}
 
 	var once sync.Once
 	adder := &adderWatcher{mixin: &m, toAdd: w2, once: &once}
 	m.Watch(adder)
 
-	m.notifyAll(bg, cty.True, cty.False)
+	m.NotifyAll(bg, cty.True, cty.False)
 
 	assert.Equal(t, 0, w2.count(), "watcher added during notifyAll should not receive that call")
 	// On the next call w2 is registered and should receive it.
-	m.notifyAll(bg, cty.True, cty.False)
+	m.NotifyAll(bg, cty.True, cty.False)
 	assert.Equal(t, 1, w2.count())
 }
 
@@ -139,7 +139,7 @@ func (w *orderWatcher) OnChange(_ context.Context, _, _ cty.Value) {
 
 // adderWatcher adds another Watcher to a mixin on its first call.
 type adderWatcher struct {
-	mixin *watchableMixin
+	mixin *WatchableMixin
 	toAdd Watcher
 	once  *sync.Once
 }

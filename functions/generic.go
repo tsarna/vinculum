@@ -83,9 +83,14 @@ func GetGenericFunctions() map[string]function.Function {
 		"get":       makeGetFunction(),
 		"set":       makeSetFunction(),
 		"increment": makeIncrementFunction(),
+		"decrement": makeDecrementFunction(),
 		"observe":   makeObserveFunction(),
 		"tostring":  makeToStringFunction(),
 		"length":    makeLengthFunction(),
+		"state":     makeStateFunction(),
+		"clear":     makeClearFunction(),
+		"reset":     makeResetFunction(),
+		"count":     makeCountFunction(),
 	}
 }
 
@@ -256,6 +261,133 @@ func extractIncrementable(val cty.Value) (types.Incrementable, error) {
 		return nil, fmt.Errorf("increment: %s does not support increment()", val.Type().FriendlyName())
 	}
 	return i, nil
+}
+
+// makeDecrementFunction returns a cty function for decrement([ctx,] thing [, delta]).
+// Delta defaults to 1. Implemented as increment(thing, -delta).
+func makeDecrementFunction() function.Function {
+	return function.New(&function.Spec{
+		Params: []function.Parameter{
+			{Name: "thing", Type: cty.DynamicPseudoType},
+		},
+		VarParam: &function.Parameter{Name: "args", Type: cty.DynamicPseudoType},
+		Type:     function.StaticReturnType(cty.DynamicPseudoType),
+		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+			ctx, thing, rest := contextAndThing(args)
+			i, err := extractIncrementable(thing)
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("decrement: %w", err)
+			}
+			delta := cty.NumberIntVal(1)
+			if len(rest) > 0 {
+				delta = rest[0]
+				rest = rest[1:]
+			}
+			neg, err := stdlib.NegateFunc.Call([]cty.Value{delta})
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("decrement: %w", err)
+			}
+			return i.Increment(ctx, append([]cty.Value{neg}, rest...))
+		},
+	})
+}
+
+// makeStateFunction returns a cty function for state([ctx,] thing) → string.
+func makeStateFunction() function.Function {
+	return function.New(&function.Spec{
+		Params: []function.Parameter{{Name: "thing", Type: cty.DynamicPseudoType}},
+		VarParam: &function.Parameter{Name: "args", Type: cty.DynamicPseudoType},
+		Type:     function.StaticReturnType(cty.String),
+		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+			ctx, thing, _ := contextAndThing(args)
+			enc, err := ctyutil.GetCapsuleFromValue(thing)
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("state: %w", err)
+			}
+			s, ok := enc.(types.Stateful)
+			if !ok {
+				return cty.NilVal, fmt.Errorf("state: %s does not support state()", thing.Type().FriendlyName())
+			}
+			str, err := s.State(ctx)
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("state: %w", err)
+			}
+			return cty.StringVal(str), nil
+		},
+	})
+}
+
+// makeClearFunction returns a cty function for clear([ctx,] thing).
+func makeClearFunction() function.Function {
+	return function.New(&function.Spec{
+		Params: []function.Parameter{{Name: "thing", Type: cty.DynamicPseudoType}},
+		VarParam: &function.Parameter{Name: "args", Type: cty.DynamicPseudoType},
+		Type:     function.StaticReturnType(cty.DynamicPseudoType),
+		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+			ctx, thing, _ := contextAndThing(args)
+			enc, err := ctyutil.GetCapsuleFromValue(thing)
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("clear: %w", err)
+			}
+			c, ok := enc.(types.Clearable)
+			if !ok {
+				return cty.NilVal, fmt.Errorf("clear: %s does not support clear()", thing.Type().FriendlyName())
+			}
+			if err := c.Clear(ctx); err != nil {
+				return cty.NilVal, fmt.Errorf("clear: %w", err)
+			}
+			return cty.NullVal(cty.DynamicPseudoType), nil
+		},
+	})
+}
+
+// makeResetFunction returns a cty function for reset([ctx,] thing).
+func makeResetFunction() function.Function {
+	return function.New(&function.Spec{
+		Params: []function.Parameter{{Name: "thing", Type: cty.DynamicPseudoType}},
+		VarParam: &function.Parameter{Name: "args", Type: cty.DynamicPseudoType},
+		Type:     function.StaticReturnType(cty.DynamicPseudoType),
+		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+			ctx, thing, _ := contextAndThing(args)
+			enc, err := ctyutil.GetCapsuleFromValue(thing)
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("reset: %w", err)
+			}
+			r, ok := enc.(types.Resettable)
+			if !ok {
+				return cty.NilVal, fmt.Errorf("reset: %s does not support reset()", thing.Type().FriendlyName())
+			}
+			if err := r.Reset(ctx); err != nil {
+				return cty.NilVal, fmt.Errorf("reset: %w", err)
+			}
+			return cty.NullVal(cty.DynamicPseudoType), nil
+		},
+	})
+}
+
+// makeCountFunction returns a cty function for count([ctx,] thing) → number.
+func makeCountFunction() function.Function {
+	return function.New(&function.Spec{
+		Params: []function.Parameter{{Name: "thing", Type: cty.DynamicPseudoType}},
+		VarParam: &function.Parameter{Name: "args", Type: cty.DynamicPseudoType},
+		Type:     function.StaticReturnType(cty.Number),
+		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+			ctx, thing, _ := contextAndThing(args)
+			enc, err := ctyutil.GetCapsuleFromValue(thing)
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("count: %w", err)
+			}
+			c, ok := enc.(types.Countable)
+			if !ok {
+				return cty.NilVal, fmt.Errorf("count: %s does not support count()", thing.Type().FriendlyName())
+			}
+			n, err := c.Count(ctx)
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("count: %w", err)
+			}
+			return cty.NumberIntVal(n), nil
+		},
+	})
 }
 
 func extractObservable(val cty.Value) (types.Observable, error) {

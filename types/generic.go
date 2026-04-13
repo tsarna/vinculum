@@ -55,6 +55,36 @@ type Observable interface {
 	Observe(ctx context.Context, args []cty.Value) (cty.Value, error)
 }
 
+// Countable is implemented by types that maintain a running count accessible
+// via count(). Distinct from Lengthable: Lengthable answers "how many elements
+// does this collection have?"; Countable answers "how many times has this
+// happened?" — it backs counters and run-count accumulators.
+type Countable interface {
+	Count(ctx context.Context) (int64, error)
+}
+
+// Resettable is implemented by types that can be reset to an initial state
+// via reset(). Used by counter conditions and watchdog triggers. Distinct from
+// the condition-specific clear() semantics on timer/threshold conditions.
+type Resettable interface {
+	Reset(ctx context.Context) error
+}
+
+// Stateful is implemented by types that expose a named internal state via
+// state(). Condition blocks implement this with the four-state vocabulary
+// ("inactive", "pending_activation", "active", "pending_deactivation").
+type Stateful interface {
+	State(ctx context.Context) (string, error)
+}
+
+// Clearable is implemented by types that support the clear() function. On
+// timer and threshold conditions this cancels any pending state, releases any
+// latch, and (for retentive timers) discards accumulated time. Semantically
+// distinct from Resettable.
+type Clearable interface {
+	Clear(ctx context.Context) error
+}
+
 // Watchable is implemented by types whose value can be observed for changes.
 // Implementations must be safe to call from multiple goroutines concurrently.
 type Watchable interface {

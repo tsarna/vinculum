@@ -7,17 +7,17 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// watchableMixin encapsulates watcher-list management for Watchable types.
+// WatchableMixin encapsulates watcher-list management for Watchable types.
 // Embedding types must use a separate mutex for their own value; watchMu is
 // used only for the watcher slice.
-type watchableMixin struct {
+type WatchableMixin struct {
 	watchMu  sync.RWMutex
 	watchers []Watcher
 }
 
 // Watch registers w to receive OnChange notifications. Registering the same
 // Watcher twice is a no-op.
-func (m *watchableMixin) Watch(w Watcher) {
+func (m *WatchableMixin) Watch(w Watcher) {
 	m.watchMu.Lock()
 	defer m.watchMu.Unlock()
 	for _, existing := range m.watchers {
@@ -30,7 +30,7 @@ func (m *watchableMixin) Watch(w Watcher) {
 
 // Unwatch removes a previously registered Watcher. Removing an unregistered
 // Watcher is a no-op.
-func (m *watchableMixin) Unwatch(w Watcher) {
+func (m *WatchableMixin) Unwatch(w Watcher) {
 	m.watchMu.Lock()
 	defer m.watchMu.Unlock()
 	for i, existing := range m.watchers {
@@ -41,9 +41,9 @@ func (m *watchableMixin) Unwatch(w Watcher) {
 	}
 }
 
-// notifyAll snapshots the watcher list and calls OnChange on each entry.
+// NotifyAll snapshots the watcher list and calls OnChange on each entry.
 // Must be called after the embedding type's value mutex has been released.
-func (m *watchableMixin) notifyAll(ctx context.Context, old, new cty.Value) {
+func (m *WatchableMixin) NotifyAll(ctx context.Context, old, new cty.Value) {
 	m.watchMu.RLock()
 	snapshot := append([]Watcher(nil), m.watchers...)
 	m.watchMu.RUnlock()

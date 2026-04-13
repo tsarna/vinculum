@@ -13,7 +13,7 @@ import (
 // Variable is a mutable, goroutine-safe value container.
 type Variable struct {
 	mu             sync.RWMutex
-	watchableMixin
+	WatchableMixin
 	value    cty.Value
 	typeName string // empty means untyped; if set, enforced on Set()
 	nullable bool   // if false, null values are rejected by Set()
@@ -66,7 +66,7 @@ func (v *Variable) Set(ctx context.Context, args []cty.Value) (cty.Value, error)
 	old := v.value
 	v.value = value
 	v.mu.Unlock()
-	v.notifyAll(ctx, old, value)
+	v.NotifyAll(ctx, old, value)
 	return value, nil
 }
 
@@ -88,7 +88,7 @@ func (v *Variable) Increment(ctx context.Context, args []cty.Value) (cty.Value, 
 	old := v.value
 	v.value = newVal
 	v.mu.Unlock()
-	v.notifyAll(ctx, old, newVal)
+	v.NotifyAll(ctx, old, newVal)
 	return newVal, nil
 }
 
