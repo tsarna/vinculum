@@ -560,10 +560,12 @@ Calling `set` on a counter or histogram is a runtime error.
 watchers (e.g. `trigger "watch"`, `trigger "watchdog"` with `watch =`) after the value is
 committed. The `ctx` argument is forwarded to all `OnChange` callbacks.
 
-#### `increment([ctx,] thing, delta, labels?)`
+#### `increment([ctx,] thing, delta?, labels?)`
 
 Adds `delta` to the current numeric value of `thing` and returns the new value.
-Delta must be a number; for counters it must be ≥ 0.
+Delta must be a number; for counters it must be ≥ 0. Delta defaults to `1`
+when omitted (used by `condition "counter"` conditions, where a single
+`increment(condition.name)` bumps the count by one).
 
 `increment()` also fires `OnChange` notifications on any registered Watchable watchers,
 with the same context-forwarding semantics as `set()`.
@@ -608,6 +610,114 @@ action = [
 ```
 
 See [metric.md](metric.md) for the full reference on declaring and using metrics.
+
+### Conditions
+
+These functions operate on `condition` blocks. The first argument is a
+`condition.<name>` reference. All accept an optional leading `ctx` argument;
+when omitted, `context.Background()` is used. See [condition.md](condition.md)
+for the full reference on declaring conditions and the four-state model
+behind these functions.
+
+#### `get(condition.name)` → bool
+
+Returns the current boolean output. Pending states report the stable output
+from before the pending transition began: `pending_activation` returns
+`false`, `pending_deactivation` returns `true`. `get()` is shared with
+variables and metrics — see [above](#variables-and-metrics) for those
+behaviors.
+
+#### `state(condition.name)` → string
+
+Returns the current internal state name: `"inactive"`,
+`"pending_activation"`, `"active"`, or `"pending_deactivation"`. Useful for
+dashboards and diagnostics that want to visualize in-flight transitions.
+
+```hcl
+action = log_info("fault state", {s = state(condition.fault)})
+```
+
+#### `set(condition.name, value)` — timer only
+
+Provides the boolean input to a `condition "timer"` that does not have a
+declared `input =` attribute. `value` must be a boolean. Calling `set()` on
+a timer with a declared `input`, or on any threshold or counter condition,
+is a runtime error.
+
+```hcl
+action = set(condition.door_open, ctx.payload.open)
+```
+
+#### `clear(condition.name)` — timer and threshold
+
+Resets the condition to `inactive`, cancelling any pending state and
+releasing any latch. For retentive timers, also discards the accumulated
+time. Safe to call in any state (no-op if already inactive and unlatched).
+
+Not applicable to counter conditions — use `reset()` instead.
+
+```hcl
+action = clear(condition.fault)
+```
+
+#### `increment(condition.name[, n])` — counter only
+
+Adds `n` (default `1`) to the counter's current count. The count is clamped
+at `0` on the low side when `rollover = false`. See [`increment()`
+above](#incrementctx-thing-delta-labels) for the shared implementation
+across metrics and variables.
+
+```hcl
+action = increment(condition.fault_count)        # add 1
+action = increment(condition.fault_count, 3)     # add 3
+```
+
+#### `decrement(condition.name[, n])` — counter only
+
+Subtracts `n` (default `1`) from the counter's current count. Implemented
+internally as `increment(x, -n)`; exposed as a separate spelling for
+clarity in CTUD patterns.
+
+```hcl
+action = decrement(condition.fault_count)        # subtract 1
+```
+
+#### `reset(condition.name)` — counter only
+
+Resets the count to `initial` (default `0`), cancels any pending state,
+clears any latch, and returns the condition to `inactive`. Complete reset.
+
+```hcl
+action = reset(condition.fault_count)
+```
+
+#### `count(condition.name)` → number — counter only
+
+Returns the current numeric count value. Distinct from `get()`, which
+returns the boolean preset-reached output.
+
+```hcl
+action = log_info("fault count", {n = count(condition.fault_count)})
+```
+
+`count()` also works on trigger types that maintain a run count
+(`trigger "at"`, `trigger "interval"`, `trigger "file"`), returning the
+lifetime number of times the trigger has fired — equivalent to
+`ctx.run_count` inside that trigger's own action, but accessible externally
+from any expression.
+
+```hcl
+trigger "interval" "heartbeat" {
+    every  = "1m"
+    action = send(ctx, bus.main, "system/heartbeat", null)
+}
+
+trigger "cron" "daily_report" {
+    at "0 9 * * *" "report" {
+        action = log_info("heartbeat count", {n = count(trigger.heartbeat)})
+    }
+}
+```
 
 ### Control Flow
 

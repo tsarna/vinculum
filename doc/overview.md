@@ -5,17 +5,18 @@
 1. [Introduction](#introduction)
 2. [Core Concepts](#core-concepts)
 3. [Triggers](#triggers)
-4. [Configuration Language](#configuration-language)
-5. [Built-in Functions](#built-in-functions)
-6. [Message Transforms](#message-transforms)
-7. [Procedures](#procedures)
-8. [Editors](#editors)
-9. [Metrics](#metrics)
-10. [Servers](#servers)
-11. [Clients](#clients)
-12. [Examples](#examples)
-13. [Observability](#observability)
-14. [Block Type Reference](#block-type-reference)
+4. [Conditions](#conditions)
+5. [Configuration Language](#configuration-language)
+6. [Built-in Functions](#built-in-functions)
+7. [Message Transforms](#message-transforms)
+8. [Procedures](#procedures)
+9. [Editors](#editors)
+10. [Metrics](#metrics)
+11. [Servers](#servers)
+12. [Clients](#clients)
+13. [Examples](#examples)
+14. [Observability](#observability)
+15. [Block Type Reference](#block-type-reference)
 
 ## Introduction
 
@@ -37,6 +38,7 @@ block to safely rewrite BIND zone files in place.
 - **Server Protocols** — HTTP(S), Vinculum WebSocket (VWS), plain WebSocket, Model Context Protocol (MCP), and Prometheus/OpenMetrics, with pluggable authentication (basic, OIDC, OAuth2)
 - **Client Protocols** — Kafka, MQTT, VWS (to other Vinculum instances), HTTP(S) (request/response), OpenAI / LLM, and OpenTelemetry (OTLP) export
 - **Triggers** — A range of trigger types for time-, event-, and lifecycle-driven actions: cron, dynamic intervals with optional jitter, absolute / dynamic times, file-system events, OS signals, startup/shutdown, watchdogs, and watches over reactive values
+- **Conditions** — Named boolean primitives with temporal rules (activate/deactivate delays, hysteresis, retentive timing, latches, cooldown, inhibit), covering IEC 61131-3 timer and counter function-block behaviors and composable into pipelines
 - **Transformations and Procedures** — JQ-based message transforms, structured-text `editor` blocks, and `procedure` blocks for small imperative helpers
 - **Built-in Functions** — A large standard library covering HTTP, files, templates, time, randomness, IDs, LLMs, and more
 - **Observability** — Context propagation, OpenTelemetry tracing and metrics, and Prometheus exposition throughout
@@ -84,6 +86,31 @@ Subscriptions may declare some transformations to be performed on messages befor
 Triggers cause an action to be evaluated in response to time, lifecycle, or external events. Vinculum supports many trigger types: classic cron schedules, fixed and dynamically computed intervals, absolute / dynamically computed wall-clock times (e.g. sunrise/sunset), file-system events, OS signals, application startup and shutdown, watchdogs (fire when expected work *stops*), and watches over reactive values.
 
 See [trigger.md](trigger.md) for the full reference covering all trigger types.
+
+## Conditions
+
+A `condition` block produces a named, Watchable boolean output governed by
+temporal rules. Conditions are the automation primitive for encoding *when*
+something should be considered true — "has the temperature been above 80°
+for at least 30 seconds?", "have we seen three faults without an
+acknowledgement?", "is the battery below 20%?" — and they compose cleanly:
+any condition's output can feed another condition's `input =` expression or
+be observed with `trigger "watch"`.
+
+Three subtypes cover the common uses:
+
+- `condition "timer"` — apply temporal semantics (activate_after,
+  deactivate_after, timeout, latch, debounce, retentive) to a boolean
+  signal supplied imperatively via `set()` or declared as a reactive
+  expression. Covers IEC 61131-3 TON/TOF/TP/TONR and SR behaviors.
+- `condition "threshold"` — derive a boolean from a numeric input with
+  separate on/off thresholds (hysteresis). Prevents rapid toggling when a
+  value hovers near a single threshold.
+- `condition "counter"` — track a running integer count via
+  `increment()` / `decrement()` and fire when the count reaches a preset.
+  Covers CTU, CTD, and CTUD patterns with optional auto-reset (rollover).
+
+See [condition.md](condition.md) for the full reference.
 
 ## Configuration Language
 
@@ -242,6 +269,7 @@ Top-level block types:
 - `server` — server protocol instance (see [Servers](#servers))
 - `client` — client protocol instance (see [Clients](#clients))
 - `trigger` — time, lifecycle, or event-driven action (see [trigger.md](trigger.md))
+- `condition` — named boolean with temporal rules, composable via `input = …` and observable via `trigger "watch"` (see [condition.md](condition.md))
 - `metric` — metric declaration for Prometheus/OTLP exposition (see [metric.md](metric.md))
 - `procedure` — imperative function definition (see [procedure.md](procedure.md))
 - `editor` — structured text editing function (see [editor.md](editor.md))
