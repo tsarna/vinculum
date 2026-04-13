@@ -369,6 +369,110 @@ func TestFullAlarmExample(t *testing.T) {
 	assert.Equal(t, "inactive", stateOf(t, sm))
 }
 
+func TestRetentiveAccumulatesAcrossIntervals(t *testing.T) {
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{
+		ActivateAfter: 10 * time.Minute,
+		Retentive:     true,
+	}, clock)
+
+	// Accumulate 4 minutes.
+	sm.SetRawInput(context.Background(), true)
+	clock.Advance(4 * time.Minute)
+	sm.SetRawInput(context.Background(), false)
+	assert.Equal(t, "pending_activation", stateOf(t, sm), "paused, not reset")
+
+	// No progress while input is low.
+	clock.Advance(10 * time.Minute)
+	assert.Equal(t, "pending_activation", stateOf(t, sm))
+
+	// Accumulate another 4 minutes — still not enough.
+	sm.SetRawInput(context.Background(), true)
+	clock.Advance(4 * time.Minute)
+	assert.Equal(t, "pending_activation", stateOf(t, sm))
+
+	// Pause again, then the final 2 minutes.
+	sm.SetRawInput(context.Background(), false)
+	sm.SetRawInput(context.Background(), true)
+	clock.Advance(2 * time.Minute)
+	assert.Equal(t, "active", stateOf(t, sm))
+}
+
+func TestRetentiveClearDiscardsAccumulator(t *testing.T) {
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{
+		ActivateAfter: 10 * time.Minute,
+		Retentive:     true,
+	}, clock)
+	sm.SetRawInput(context.Background(), true)
+	clock.Advance(8 * time.Minute)
+	require.NoError(t, sm.Clear(context.Background()))
+
+	sm.SetRawInput(context.Background(), true)
+	clock.Advance(5 * time.Minute)
+	assert.Equal(t, "pending_activation", stateOf(t, sm), "accumulator was discarded")
+
+	clock.Advance(5 * time.Minute)
+	assert.Equal(t, "active", stateOf(t, sm))
+}
+
+func TestInhibitGatesActivationFromInactive(t *testing.T) {
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{}, clock)
+	sm.SetInhibited(context.Background(), true)
+	sm.SetRawInput(context.Background(), true)
+	assert.Equal(t, "inactive", stateOf(t, sm), "inhibit suppresses activation")
+
+	sm.SetInhibited(context.Background(), false)
+	assert.Equal(t, "active", stateOf(t, sm), "clearing inhibit with asserted input activates")
+}
+
+func TestInhibitCancelsPendingActivation(t *testing.T) {
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{ActivateAfter: 30 * time.Second}, clock)
+	sm.SetRawInput(context.Background(), true)
+	require.Equal(t, "pending_activation", stateOf(t, sm))
+
+	clock.Advance(10 * time.Second)
+	sm.SetInhibited(context.Background(), true)
+	assert.Equal(t, "inactive", stateOf(t, sm), "inhibit cancels pending_activation")
+
+	sm.SetInhibited(context.Background(), false)
+	assert.Equal(t, "pending_activation", stateOf(t, sm), "activation resumes")
+
+	clock.Advance(30 * time.Second)
+	assert.Equal(t, "active", stateOf(t, sm), "new activate_after clock, not a partial one")
+}
+
+func TestInhibitDiscardsRetentiveAccumulator(t *testing.T) {
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{
+		ActivateAfter: 10 * time.Minute,
+		Retentive:     true,
+	}, clock)
+	sm.SetRawInput(context.Background(), true)
+	clock.Advance(8 * time.Minute)
+
+	sm.SetInhibited(context.Background(), true)
+	sm.SetInhibited(context.Background(), false)
+
+	clock.Advance(5 * time.Minute)
+	assert.Equal(t, "pending_activation", stateOf(t, sm), "accumulator discarded by inhibit")
+
+	clock.Advance(5 * time.Minute)
+	assert.Equal(t, "active", stateOf(t, sm))
+}
+
+func TestInhibitDoesNotAffectActive(t *testing.T) {
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{}, clock)
+	sm.SetRawInput(context.Background(), true)
+	require.Equal(t, "active", stateOf(t, sm))
+
+	sm.SetInhibited(context.Background(), true)
+	assert.Equal(t, "active", stateOf(t, sm), "inhibit does not deactivate an active condition")
+}
+
 func stateOf(t *testing.T, sm *StateMachine) string {
 	t.Helper()
 	s, err := sm.State(context.Background())

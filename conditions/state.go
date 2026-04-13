@@ -77,10 +77,18 @@ type StateMachine struct {
 	state         State
 	rawInput      bool
 	latched       bool
+	inhibited     bool
 	cooldownUntil time.Time
 	pendingTimer  ClockTimer // activate_after / deactivate_after
 	timeoutTimer  ClockTimer // active-state timeout
 	cooldownTimer ClockTimer
+
+	// Retentive accumulator. retAccumulated holds the cumulative time the
+	// pending-activation timer has been running; retStartedAt is the
+	// wall-clock instant the current tick-in-progress began, or zero when
+	// paused.
+	retAccumulated time.Duration
+	retStartedAt   time.Time
 }
 
 // NewStateMachine creates a StateMachine with the given behavior. If clock is
@@ -120,8 +128,20 @@ func (sm *StateMachine) onInputChangeLocked(value bool) {
 		}
 	case StatePendingActivation:
 		if !value {
-			sm.cancelPendingLocked()
-			sm.state = StateInactive
+			if sm.behavior.Retentive {
+				// Pause accumulator; stay in pending_activation waiting
+				// for the input to re-assert.
+				sm.pauseRetentiveLocked()
+			} else {
+				sm.cancelPendingLocked()
+				sm.state = StateInactive
+			}
+		} else {
+			// Possible under retentive when a previously-paused accumulator
+			// sees its input re-assert. Resume ticking from where we left off.
+			if sm.behavior.Retentive && sm.pendingTimer == nil {
+				sm.resumeRetentiveLocked()
+			}
 		}
 	case StateActive:
 		if value {
@@ -148,24 +168,61 @@ func (sm *StateMachine) onInputChangeLocked(value bool) {
 }
 
 // tryActivateLocked attempts to move from Inactive toward Active. Gated by
-// cooldown: while cooldownUntil is in the future the transition is silently
-// deferred (re-evaluated when cooldown expires).
+// cooldown and inhibit: while cooldown is in its quiet period or inhibit is
+// asserted, the transition is silently suppressed (re-evaluated when the
+// gate clears).
 func (sm *StateMachine) tryActivateLocked() {
-	if sm.cooldownActiveLocked() {
+	if sm.cooldownActiveLocked() || sm.inhibited {
 		return
 	}
-	if sm.behavior.ActivateAfter > 0 {
-		sm.state = StatePendingActivation
-		sm.pendingTimer = sm.clock.AfterFunc(sm.behavior.ActivateAfter, sm.onActivateTimer)
+	if sm.behavior.ActivateAfter <= 0 {
+		sm.becomeActiveLocked()
 		return
 	}
-	sm.becomeActiveLocked()
+	remaining := sm.behavior.ActivateAfter - sm.retAccumulated
+	if remaining <= 0 {
+		// Retentive accumulator is already full.
+		sm.becomeActiveLocked()
+		return
+	}
+	sm.state = StatePendingActivation
+	sm.retStartedAt = sm.clock.Now()
+	sm.pendingTimer = sm.clock.AfterFunc(remaining, sm.onActivateTimer)
+}
+
+// pauseRetentiveLocked stops the pending-activation timer and adds the
+// elapsed tick to the retentive accumulator. State stays in
+// StatePendingActivation; only the timer is paused.
+func (sm *StateMachine) pauseRetentiveLocked() {
+	if sm.pendingTimer != nil {
+		sm.pendingTimer.Stop()
+		sm.pendingTimer = nil
+	}
+	if !sm.retStartedAt.IsZero() {
+		sm.retAccumulated += sm.clock.Now().Sub(sm.retStartedAt)
+		sm.retStartedAt = time.Time{}
+	}
+}
+
+// resumeRetentiveLocked restarts the pending-activation timer for the
+// remaining slice of activate_after. If the accumulator has already filled,
+// we activate immediately.
+func (sm *StateMachine) resumeRetentiveLocked() {
+	remaining := sm.behavior.ActivateAfter - sm.retAccumulated
+	if remaining <= 0 {
+		sm.becomeActiveLocked()
+		return
+	}
+	sm.retStartedAt = sm.clock.Now()
+	sm.pendingTimer = sm.clock.AfterFunc(remaining, sm.onActivateTimer)
 }
 
 // becomeActiveLocked transitions to Active and arms timeout/latch as
-// configured.
+// configured. Retentive accumulator is discarded on activation.
 func (sm *StateMachine) becomeActiveLocked() {
 	sm.state = StateActive
+	sm.retAccumulated = 0
+	sm.retStartedAt = time.Time{}
 	if sm.behavior.Latch {
 		sm.latched = true
 	}
@@ -327,6 +384,40 @@ func (sm *StateMachine) State(_ context.Context) (string, error) {
 	return sm.state.String(), nil
 }
 
+// SetInhibited updates the inhibit gate. When inhibit is asserted and the
+// machine is currently in pending_activation, the pending transition is
+// cancelled and (for retentive timers) the accumulator is discarded. Active
+// and pending_deactivation states are unaffected per spec: inhibit prevents
+// new activations, it does not force deactivation. When inhibit clears while
+// the underlying input is still asserted, activation resumes from scratch
+// (activate_after restarts; retentive accumulator is already zeroed).
+func (sm *StateMachine) SetInhibited(ctx context.Context, inhibited bool) {
+	sm.mu.Lock()
+	if sm.inhibited == inhibited {
+		sm.mu.Unlock()
+		return
+	}
+	sm.inhibited = inhibited
+	before := sm.outputLocked()
+	if inhibited {
+		if sm.state == StatePendingActivation {
+			sm.cancelPendingLocked()
+			sm.retAccumulated = 0
+			sm.retStartedAt = time.Time{}
+			sm.state = StateInactive
+		}
+	} else {
+		if sm.state == StateInactive && sm.rawInput {
+			sm.tryActivateLocked()
+		}
+	}
+	after := sm.outputLocked()
+	sm.mu.Unlock()
+	if before != after {
+		sm.notifyAll(ctx, cty.BoolVal(before), cty.BoolVal(after))
+	}
+}
+
 // Clear implements types.Clearable. Resets the state machine to Inactive,
 // cancels any pending state, releases any latch, and (for subtypes backing
 // them onto this machine) stops timers. Safe to call in any state.
@@ -336,10 +427,15 @@ func (sm *StateMachine) Clear(ctx context.Context) error {
 	sm.cancelPendingLocked()
 	sm.cancelTimeoutLocked()
 	sm.latched = false
+	sm.retAccumulated = 0
+	sm.retStartedAt = time.Time{}
+	// Clear() is a complete reset: pending state cancelled, latch released,
+	// accumulator discarded, and the tracked raw input reset to false so a
+	// subsequent rising edge re-arms the state machine. It does NOT start a
+	// cooldown window (cooldown is a post-deactivate quiet period for the
+	// natural state flow, not an externally-forced reset).
+	sm.rawInput = false
 	sm.state = StateInactive
-	// Clear() explicitly releases latch and cancels pending state; it does
-	// NOT start a cooldown window (cooldown is a post-deactivate quiet
-	// period for the natural state flow, not an externally-forced reset).
 	after := sm.outputLocked()
 	sm.mu.Unlock()
 	if before != after {

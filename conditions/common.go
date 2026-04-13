@@ -25,5 +25,6 @@ type Behavior struct {
 	Cooldown        time.Duration
 	Latch           bool
 	Invert          bool
+	Retentive       bool
 	Inhibit         hcl.Expression
 }
