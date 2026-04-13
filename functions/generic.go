@@ -145,9 +145,6 @@ func makeIncrementFunction() function.Function {
 		Type:     function.StaticReturnType(cty.DynamicPseudoType),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 			ctx, thing, rest := contextAndThing(args)
-			if len(rest) == 0 {
-				return cty.NilVal, fmt.Errorf("increment: missing delta argument")
-			}
 			i, err := extractIncrementable(thing)
 			if err != nil {
 				return cty.NilVal, err
