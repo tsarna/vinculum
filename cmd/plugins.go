@@ -9,6 +9,7 @@ import (
 	_ "github.com/tsarna/vinculum/clients/mqtt"
 	_ "github.com/tsarna/vinculum/clients/openai"
 	_ "github.com/tsarna/vinculum/clients/otlp"
+	_ "github.com/tsarna/vinculum/clients/redis"
 	_ "github.com/tsarna/vinculum/clients/vws"
 	_ "github.com/tsarna/vinculum/conditions"
 	_ "github.com/tsarna/vinculum/editors/line"
