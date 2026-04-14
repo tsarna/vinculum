@@ -11,6 +11,7 @@ import (
 	_ "github.com/tsarna/vinculum/clients/otlp"
 	_ "github.com/tsarna/vinculum/clients/redis"
 	_ "github.com/tsarna/vinculum/clients/rediskv"
+	_ "github.com/tsarna/vinculum/clients/redispubsub"
 	_ "github.com/tsarna/vinculum/clients/vws"
 	_ "github.com/tsarna/vinculum/conditions"
 	_ "github.com/tsarna/vinculum/editors/line"
