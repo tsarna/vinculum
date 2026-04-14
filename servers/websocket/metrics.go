@@ -13,15 +13,15 @@ import (
 // important connection and message metrics.
 type WebSocketMetrics struct {
 	// Connection metrics
-	activeConnections  metric.Float64Gauge    // websocket.active_connections
-	totalConnections   metric.Int64Counter    // websocket.connections
+	activeConnections  metric.Float64Gauge     // websocket.active_connections
+	totalConnections   metric.Int64Counter     // websocket.connections
 	connectionDuration metric.Float64Histogram // websocket.connection.duration
-	connectionErrors   metric.Int64Counter    // websocket.connection.errors
+	connectionErrors   metric.Int64Counter     // websocket.connection.errors
 
 	// Message metrics
-	messagesReceived metric.Int64Counter    // websocket.received.messages
-	messagesSent     metric.Int64Counter    // websocket.sent.messages
-	messageErrors    metric.Int64Counter    // websocket.message.errors
+	messagesReceived metric.Int64Counter     // websocket.received.messages
+	messagesSent     metric.Int64Counter     // websocket.sent.messages
+	messageErrors    metric.Int64Counter     // websocket.message.errors
 	messageSize      metric.Float64Histogram // websocket.message.size
 }
 

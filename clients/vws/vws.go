@@ -36,13 +36,13 @@ func (c *VinculumWebsocketClient) Build() (bus.Client, error) {
 }
 
 type VinculumWebsocketsClientDefinition struct {
-	Url            string                `hcl:"url"`
-	DialTimeout    hcl.Expression        `hcl:"dial_timeout,optional"`
-	WriteQueueSize *int                  `hcl:"write_queue_size,optional"`
-	AuthExpression hcl.Expression        `hcl:"auth,optional"`
-	Headers        map[string]string     `hcl:"headers,optional"`
+	Url            string                   `hcl:"url"`
+	DialTimeout    hcl.Expression           `hcl:"dial_timeout,optional"`
+	WriteQueueSize *int                     `hcl:"write_queue_size,optional"`
+	AuthExpression hcl.Expression           `hcl:"auth,optional"`
+	Headers        map[string]string        `hcl:"headers,optional"`
 	Reconnect      *cfg.ReconnectDefinition `hcl:"reconnect,optional"`
-	DefRange       hcl.Range             `hcl:",def_range"`
+	DefRange       hcl.Range                `hcl:",def_range"`
 }
 
 func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Client, hcl.Diagnostics) {

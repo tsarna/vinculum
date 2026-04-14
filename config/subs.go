@@ -8,9 +8,9 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
+	richcty "github.com/tsarna/rich-cty-types"
 	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum-bus/subutils"
-	"github.com/tsarna/vinculum/ctyutil"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
@@ -359,7 +359,7 @@ func createSendFunction(config *Config, converter MessageConverter) function.Fun
 		},
 		Type: function.StaticReturnType(cty.Bool),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
-			ctx, err := ctyutil.GetContextFromValue(args[0])
+			ctx, err := richcty.GetContextFromValue(args[0])
 			if err != nil {
 				return cty.False, fmt.Errorf("context error: %w", err)
 			}

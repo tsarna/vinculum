@@ -83,7 +83,7 @@ func TestTraceE2E_WithTracerProvider(t *testing.T) {
 		propagation.Baggage{},
 	))
 	t.Cleanup(func() {
-		tp.Shutdown(context.Background()) //nolint:errcheck
+		tp.Shutdown(context.Background())                //nolint:errcheck
 		otel.SetTracerProvider(otel.GetTracerProvider()) // reset to NOOP
 	})
 

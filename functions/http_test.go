@@ -15,9 +15,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	richcty "github.com/tsarna/rich-cty-types"
 	clientshttp "github.com/tsarna/vinculum/clients/http"
 	cfg "github.com/tsarna/vinculum/config"
-	"github.com/tsarna/vinculum/ctyutil"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/otel"
@@ -51,7 +51,7 @@ func loadClient(t *testing.T, vcl string) cty.Value {
 
 // ctxVal builds a ctx cty value wrapping the given context.Context.
 func ctxVal(ctx context.Context) cty.Value {
-	return ctyutil.NewContextCapsule(ctx)
+	return richcty.NewContextCapsule(ctx)
 }
 
 // nullClientVal is a cty null of dynamic type, which the verb functions

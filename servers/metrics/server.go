@@ -27,9 +27,9 @@ type MetricsServer struct {
 	registry      *prometheus.Registry
 	meterProvider *sdkmetric.MeterProvider
 	handler       http.Handler
-	listen        string         // empty = mounted mode only
-	path          string         // default "/metrics"
-	tlsConfig     *tls.Config    // nil = plain HTTP
+	listen        string      // empty = mounted mode only
+	path          string      // default "/metrics"
+	tlsConfig     *tls.Config // nil = plain HTTP
 	isDefault     bool
 	otlpClient    cfg.OtlpClient // nil = no explicit tracing
 }

@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	timecty "github.com/tsarna/time-cty-funcs"
-	cfg "github.com/tsarna/vinculum/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	timecty "github.com/tsarna/time-cty-funcs"
+	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )

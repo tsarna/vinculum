@@ -7,10 +7,11 @@ import (
 	"sync"
 	"time"
 
+	richcty "github.com/tsarna/rich-cty-types"
+
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
-	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -37,15 +38,15 @@ type TimerCondition struct {
 	debTimer    ClockTimer
 }
 
-// Get implements types.Gettable.
+// Get implements richcty.Gettable.
 func (t *TimerCondition) Get(ctx context.Context, args []cty.Value) (cty.Value, error) {
 	return t.sm.Get(ctx, args)
 }
 
-// State implements types.Stateful.
+// State implements richcty.Stateful.
 func (t *TimerCondition) State(ctx context.Context) (string, error) { return t.sm.State(ctx) }
 
-// Clear implements types.Clearable. In addition to resetting the state
+// Clear implements richcty.Clearable. In addition to resetting the state
 // machine (cancelling pending state, releasing latch, discarding retentive
 // accumulation), it cancels any in-flight debounce.
 func (t *TimerCondition) Clear(ctx context.Context) error {
@@ -60,13 +61,13 @@ func (t *TimerCondition) Clear(ctx context.Context) error {
 	return t.sm.Clear(ctx)
 }
 
-// Watch implements types.Watchable by forwarding to the state machine, whose
+// Watch implements richcty.Watchable by forwarding to the state machine, whose
 // watcher notifications already respect pending-state suppression and
 // invert.
-func (t *TimerCondition) Watch(w types.Watcher)   { t.sm.Watch(w) }
-func (t *TimerCondition) Unwatch(w types.Watcher) { t.sm.Unwatch(w) }
+func (t *TimerCondition) Watch(w richcty.Watcher)   { t.sm.Watch(w) }
+func (t *TimerCondition) Unwatch(w richcty.Watcher) { t.sm.Unwatch(w) }
 
-// Set implements types.Settable. Rejects calls when a declarative input= was
+// Set implements richcty.Settable. Rejects calls when a declarative input= was
 // configured (per spec §Functions).
 func (t *TimerCondition) Set(ctx context.Context, args []cty.Value) (cty.Value, error) {
 	if t.hasInputExpr {

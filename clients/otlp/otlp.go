@@ -40,10 +40,10 @@ type otlpClientDefinition struct {
 	TLS            *cfg.TLSConfig `hcl:"tls,block"`
 	DefRange       hcl.Range      `hcl:",def_range"`
 
-	MetricEndpoint  *string `hcl:"metric_endpoint,optional"`
-	MetricInterval  *string `hcl:"metric_interval,optional"`
-	IncludeGoMetrics *bool  `hcl:"include_go_metrics,optional"`
-	DefaultMetrics  bool    `hcl:"default_metrics,optional"`
+	MetricEndpoint   *string `hcl:"metric_endpoint,optional"`
+	MetricInterval   *string `hcl:"metric_interval,optional"`
+	IncludeGoMetrics *bool   `hcl:"include_go_metrics,optional"`
+	DefaultMetrics   bool    `hcl:"default_metrics,optional"`
 }
 
 // ─── Client struct ────────────────────────────────────────────────────────────

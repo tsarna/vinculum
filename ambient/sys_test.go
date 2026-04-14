@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	timecty "github.com/tsarna/time-cty-funcs"
 	"github.com/tsarna/vinculum/ambient"
 	"github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/platform"
-	timecty "github.com/tsarna/time-cty-funcs"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )

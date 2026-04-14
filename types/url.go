@@ -131,12 +131,12 @@ func BuildURLObject(u *url.URL) cty.Value {
 	})
 }
 
-// ToString implements Stringable, returning the canonical URL string.
+// ToString implements richcty.Stringable, returning the canonical URL string.
 func (w *URLWrapper) ToString(_ context.Context) (string, error) {
 	return w.U.String(), nil
 }
 
-// Get implements Gettable, supporting dynamic field access on URL values.
+// Get implements richcty.Gettable, supporting dynamic field access on URL values.
 //
 // get(u, "query_param", key): returns list(string) for the named query parameter.
 func (w *URLWrapper) Get(_ context.Context, args []cty.Value) (cty.Value, error) {

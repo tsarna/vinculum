@@ -144,8 +144,8 @@ type KafkaClient struct {
 	prodSpecs       []builtProducerSpec
 	consSpecs       []builtConsumerSpec
 	producerProxies map[string]*KafkaProducerProxy
-	meterProvider  metric.MeterProvider
-	tracerProvider trace.TracerProvider
+	meterProvider   metric.MeterProvider
+	tracerProvider  trace.TracerProvider
 	logger          *zap.Logger
 
 	mu         sync.RWMutex

@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	richcty "github.com/tsarna/rich-cty-types"
+
 	"github.com/hashicorp/hcl/v2"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/otel/attribute"
@@ -127,13 +129,13 @@ func LabelNamesToAttrKeys(names []string) []attribute.Key {
 
 // --- GaugeMetric ---
 
-// GaugeMetric implements Gettable, Settable, Incrementable, Watchable.
+// GaugeMetric implements richcty.Gettable, richcty.Settable, richcty.Incrementable, richcty.Watchable.
 // Uses OTel Float64UpDownCounter with delta tracking to support absolute Set().
 type GaugeMetric struct {
 	inst     metric.Float64UpDownCounter
 	attrKeys []attribute.Key
 	mu       sync.RWMutex
-	WatchableMixin
+	richcty.WatchableMixin
 	noLabelVal float64            // cached value for unlabeled get
 	labelVals  map[string]float64 // key = attrSetKey, cached for labeled get
 }
@@ -144,7 +146,7 @@ func NewGaugeMetric(inst metric.Float64UpDownCounter, attrKeys []attribute.Key) 
 
 func (m *GaugeMetric) metricValue() {}
 
-// --- Gettable ---
+// --- richcty.Gettable ---
 func (m *GaugeMetric) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
 	if len(args) > 0 {
 		kvs, err := attributesFromCtyObject(args[0], m.attrKeys)
@@ -161,7 +163,7 @@ func (m *GaugeMetric) Get(_ context.Context, args []cty.Value) (cty.Value, error
 	return cty.NumberFloatVal(m.noLabelVal), nil
 }
 
-// --- Settable ---
+// --- richcty.Settable ---
 func (m *GaugeMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, error) {
 	if len(args) == 0 {
 		return cty.NilVal, fmt.Errorf("set: gauge metric requires a numeric value")
@@ -203,7 +205,7 @@ func (m *GaugeMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, err
 	return value, nil
 }
 
-// --- Incrementable ---
+// --- richcty.Incrementable ---
 func (m *GaugeMetric) Increment(ctx context.Context, args []cty.Value) (cty.Value, error) {
 	delta := args[0]
 	f, err := valueToFloat64(delta)
@@ -240,7 +242,7 @@ func (m *GaugeMetric) Increment(ctx context.Context, args []cty.Value) (cty.Valu
 
 // --- CounterMetric ---
 
-// CounterMetric implements Gettable, Settable, Incrementable, Watchable.
+// CounterMetric implements richcty.Gettable, richcty.Settable, richcty.Incrementable, richcty.Watchable.
 // set() uses delta semantics: only positive differences are applied to the
 // underlying counter. If the supplied value is less than the last set value
 // (e.g. an external reset), the call is a no-op and the counter holds its
@@ -249,7 +251,7 @@ type CounterMetric struct {
 	inst     metric.Float64Counter
 	attrKeys []attribute.Key
 	mu       sync.Mutex
-	WatchableMixin
+	richcty.WatchableMixin
 	noLabelVal float64            // cached for unlabeled get/set
 	labelVals  map[string]float64 // key = attrSetKey, cached for labeled set
 }
@@ -260,7 +262,7 @@ func NewCounterMetric(inst metric.Float64Counter, attrKeys []attribute.Key) *Cou
 
 func (m *CounterMetric) metricValue() {}
 
-// --- Gettable ---
+// --- richcty.Gettable ---
 func (m *CounterMetric) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
 	if len(args) > 0 {
 		_, err := attributesFromCtyObject(args[0], m.attrKeys)
@@ -274,7 +276,7 @@ func (m *CounterMetric) Get(_ context.Context, args []cty.Value) (cty.Value, err
 	return cty.NumberFloatVal(m.noLabelVal), nil
 }
 
-// --- Settable ---
+// --- richcty.Settable ---
 func (m *CounterMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, error) {
 	if len(args) == 0 {
 		return cty.NilVal, fmt.Errorf("set: counter metric requires a numeric value")
@@ -324,7 +326,7 @@ func (m *CounterMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, e
 	return value, nil
 }
 
-// --- Incrementable ---
+// --- richcty.Incrementable ---
 func (m *CounterMetric) Increment(ctx context.Context, args []cty.Value) (cty.Value, error) {
 	delta := args[0]
 	f, err := valueToFloat64(delta)
@@ -364,7 +366,7 @@ func (m *CounterMetric) Increment(ctx context.Context, args []cty.Value) (cty.Va
 
 // --- HistogramMetric ---
 
-// HistogramMetric implements Observable.
+// HistogramMetric implements richcty.Observable.
 type HistogramMetric struct {
 	inst     metric.Float64Histogram
 	attrKeys []attribute.Key
@@ -376,7 +378,7 @@ func NewHistogramMetric(inst metric.Float64Histogram, attrKeys []attribute.Key) 
 
 func (m *HistogramMetric) metricValue() {}
 
-// --- Observable ---
+// --- richcty.Observable ---
 func (m *HistogramMetric) Observe(ctx context.Context, args []cty.Value) (cty.Value, error) {
 	value := args[0]
 	f, err := valueToFloat64(value)
@@ -406,7 +408,7 @@ type computedMetric interface {
 
 // --- ComputedGaugeMetric ---
 
-// ComputedGaugeMetric implements Gettable and Startable.
+// ComputedGaugeMetric implements richcty.Gettable and Startable.
 // Its value is derived by evaluating a stored hcl.Expression on a polling
 // interval. set() and increment() are not supported.
 type ComputedGaugeMetric struct {
@@ -471,7 +473,7 @@ func (m *ComputedGaugeMetric) Get(_ context.Context, args []cty.Value) (cty.Valu
 
 // --- ComputedCounterMetric ---
 
-// ComputedCounterMetric implements Gettable and Startable.
+// ComputedCounterMetric implements richcty.Gettable and Startable.
 // Its value is derived by evaluating a stored hcl.Expression on a polling
 // interval. Only positive deltas are forwarded to the OTel counter.
 type ComputedCounterMetric struct {
@@ -535,7 +537,7 @@ func (m *ComputedCounterMetric) Get(_ context.Context, args []cty.Value) (cty.Va
 
 // --- ComputedHistogramMetric ---
 
-// ComputedHistogramMetric implements Observable and Startable.
+// ComputedHistogramMetric implements richcty.Observable and Startable.
 // At each polling interval it evaluates the stored expression and records one
 // observation. Manual Observe() calls are also supported.
 type ComputedHistogramMetric struct {

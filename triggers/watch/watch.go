@@ -7,11 +7,12 @@ import (
 	"sync"
 	"sync/atomic"
 
+	richcty "github.com/tsarna/rich-cty-types"
+
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
-	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -22,7 +23,7 @@ import (
 type WatchTrigger struct {
 	name           string
 	config         *cfg.Config
-	watchable      types.Watchable
+	watchable      richcty.Watchable
 	actionExpr     hcl.Expression
 	skipWhenExpr   hcl.Expression // nil if not provided
 	tracerProvider trace.TracerProvider
@@ -176,7 +177,7 @@ func processWatchTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.T
 		return diags
 	}
 
-	watchable, err := types.WatchableFromCtyValue(watchVal)
+	watchable, err := richcty.WatchableFromCtyValue(watchVal)
 	if err != nil {
 		return append(diags, &hcl.Diagnostic{
 			Severity: hcl.DiagError,
@@ -208,4 +209,3 @@ func processWatchTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.T
 
 	return diags
 }
-

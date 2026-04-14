@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/tsarna/vinculum/ctyutil"
+	richcty "github.com/tsarna/rich-cty-types"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -28,7 +28,7 @@ var BytesCapsuleType = cty.CapsuleWithOps("bytes", reflect.TypeOf(Bytes{}), &cty
 
 // BytesObjectType is the cty object type returned by bytes-producing functions.
 // It exposes content_type as a direct attribute and carries the underlying capsule
-// in the _capsule attribute for interface dispatch (Stringable, Lengthable, etc.).
+// in the _capsule attribute for interface dispatch (richcty.Stringable, richcty.Lengthable, etc.).
 var BytesObjectType = cty.Object(map[string]cty.Type{
 	"content_type": cty.String,
 	"_capsule":     BytesCapsuleType,
@@ -62,7 +62,7 @@ func GetBytesFromCapsule(val cty.Value) (*Bytes, error) {
 // GetBytesFromValue extracts a *Bytes from a bytes object, capsule, or anything
 // accepted by GetCapsuleFromValue.
 func GetBytesFromValue(val cty.Value) (*Bytes, error) {
-	enc, err := ctyutil.GetCapsuleFromValue(val)
+	enc, err := richcty.GetCapsuleFromValue(val)
 	if err != nil {
 		return nil, fmt.Errorf("expected bytes value: %w", err)
 	}
@@ -73,12 +73,12 @@ func GetBytesFromValue(val cty.Value) (*Bytes, error) {
 	return b, nil
 }
 
-// ToString implements Stringable, returning the bytes data as a UTF-8 string.
+// ToString implements richcty.Stringable, returning the bytes data as a UTF-8 string.
 func (b *Bytes) ToString(_ context.Context) (string, error) {
 	return string(b.Data), nil
 }
 
-// Length implements Lengthable, returning the byte length.
+// Length implements richcty.Lengthable, returning the byte length.
 func (b *Bytes) Length(_ context.Context) (int64, error) {
 	return int64(len(b.Data)), nil
 }

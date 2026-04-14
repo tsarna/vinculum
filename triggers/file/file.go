@@ -11,12 +11,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	richcty "github.com/tsarna/rich-cty-types"
+
 	"github.com/fsnotify/fsnotify"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
-	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -63,7 +64,7 @@ type FileTrigger struct {
 }
 
 // Count returns the lifetime number of times the trigger has fired.
-// Implements types.Countable so count(trigger.<name>) is callable from any
+// Implements richcty.Countable so count(trigger.<name>) is callable from any
 // expression.
 func (t *FileTrigger) Count(_ context.Context) (int64, error) {
 	return t.runCount.Load(), nil
@@ -383,8 +384,8 @@ func GetFileTriggerFromCapsule(val cty.Value) (*FileTrigger, error) {
 	return t, nil
 }
 
-// Ensure FileTrigger implements types.Gettable at compile time.
-var _ types.Gettable = (*FileTrigger)(nil)
+// Ensure FileTrigger implements richcty.Gettable at compile time.
+var _ richcty.Gettable = (*FileTrigger)(nil)
 
 // --- Block processing ---
 

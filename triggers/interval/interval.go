@@ -17,7 +17,7 @@ import (
 	"go.uber.org/zap"
 )
 
-//IntervalTrigger repeatedly evaluates its action expression, sleeping for a
+// IntervalTrigger repeatedly evaluates its action expression, sleeping for a
 // dynamically computed delay between each run. Both the delay and the action
 // are re-evaluated each iteration against a context that exposes ctx.run_count,
 // ctx.last_result, and ctx.last_error, enabling adaptive schedules (e.g. "poll
@@ -46,7 +46,7 @@ type IntervalTrigger struct {
 }
 
 // Count returns the number of completed action evaluations. Implements
-// types.Countable so count(trigger.<name>) is callable from any expression.
+// richcty.Countable so count(trigger.<name>) is callable from any expression.
 func (t *IntervalTrigger) Count(_ context.Context) (int64, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()

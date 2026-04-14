@@ -13,8 +13,8 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
+	richcty "github.com/tsarna/rich-cty-types"
 	cfg "github.com/tsarna/vinculum/config"
-	"github.com/tsarna/vinculum/ctyutil"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 )
@@ -66,21 +66,21 @@ type compiledRule struct {
 
 // lineEditor holds everything needed at runtime for one editor "line" block.
 type lineEditor struct {
-	config         *cfg.Config
-	evalCtxFn      func() *hcl.EvalContext
-	name           string
-	mode           string // "file" or "string"
-	params         []string
-	variadicParam  string
-	backup         string
-	createIfAbsent bool
-	lock           bool
-	initialState       hcl.Expression // nil if no state block
-	before             hcl.Expression // nil if absent
-	beforeIncidental   bool
-	after              hcl.Expression // nil if absent
-	afterIncidental    bool
-	rules              []compiledRule
+	config           *cfg.Config
+	evalCtxFn        func() *hcl.EvalContext
+	name             string
+	mode             string // "file" or "string"
+	params           []string
+	variadicParam    string
+	backup           string
+	createIfAbsent   bool
+	lock             bool
+	initialState     hcl.Expression // nil if no state block
+	before           hcl.Expression // nil if absent
+	beforeIncidental bool
+	after            hcl.Expression // nil if absent
+	afterIncidental  bool
+	rules            []compiledRule
 }
 
 // processLineEditor is called at config time to compile an editor "line" block.
@@ -457,7 +457,7 @@ func (ed *lineEditor) runRules(
 
 // impl is the runtime implementation for mode = "file".
 func (ed *lineEditor) impl(args []cty.Value, _ cty.Type) (cty.Value, error) {
-	goCtx, err := ctyutil.GetContextFromValue(args[0])
+	goCtx, err := richcty.GetContextFromValue(args[0])
 	if err != nil {
 		return cty.False, fmt.Errorf("editor %s: %w", ed.name, err)
 	}
@@ -637,7 +637,7 @@ func (ed *lineEditor) impl(args []cty.Value, _ cty.Type) (cty.Value, error) {
 
 // implString is the runtime implementation for mode = "string".
 func (ed *lineEditor) implString(args []cty.Value, _ cty.Type) (cty.Value, error) {
-	goCtx, err := ctyutil.GetContextFromValue(args[0])
+	goCtx, err := richcty.GetContextFromValue(args[0])
 	if err != nil {
 		return cty.NullVal(cty.String), fmt.Errorf("editor %s: %w", ed.name, err)
 	}
@@ -682,7 +682,7 @@ func (ed *lineEditor) implString(args []cty.Value, _ cty.Type) (cty.Value, error
 
 // buildBeforeCtx builds an eval context for before blocks (no line context, final state in scope).
 func (ed *lineEditor) buildBeforeCtx(goCtx context.Context, filename string, userParams map[string]cty.Value, state map[string]cty.Value) *hcl.EvalContext {
-	ctxObj := ctyutil.NewContextObject(goCtx)
+	ctxObj := richcty.NewContextObject(goCtx)
 	ctxObj.WithStringAttribute("filename", filename)
 	ctxObjVal, _ := ctxObj.Build()
 
@@ -696,7 +696,7 @@ func (ed *lineEditor) buildBeforeCtx(goCtx context.Context, filename string, use
 
 // buildAfterCtx builds an eval context for after blocks (no line context, final state in scope).
 func (ed *lineEditor) buildAfterCtx(goCtx context.Context, filename string, userParams map[string]cty.Value, state map[string]cty.Value) *hcl.EvalContext {
-	ctxObj := ctyutil.NewContextObject(goCtx)
+	ctxObj := richcty.NewContextObject(goCtx)
 	ctxObj.WithStringAttribute("filename", filename)
 	ctxObjVal, _ := ctxObj.Build()
 
@@ -710,7 +710,7 @@ func (ed *lineEditor) buildAfterCtx(goCtx context.Context, filename string, user
 
 // buildMatchCtx builds an eval context for replace/abort/update_state expressions (post-regex match, state in scope).
 func (ed *lineEditor) buildMatchCtx(goCtx context.Context, filename string, lineno int, line string, groups []string, re *regexp.Regexp, count int, userParams map[string]cty.Value, state map[string]cty.Value) *hcl.EvalContext {
-	ctxObj := ctyutil.NewContextObject(goCtx)
+	ctxObj := richcty.NewContextObject(goCtx)
 	ctxObj.WithStringAttribute("filename", filename)
 	ctxObj.WithInt64Attribute("lineno", int64(lineno))
 	ctxObj.WithStringAttribute("line", line)

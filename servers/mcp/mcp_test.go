@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tsarna/vinculum/config"
-	mcpsrv "github.com/tsarna/vinculum/servers/mcp"
 	httpserver "github.com/tsarna/vinculum/servers/http"
+	mcpsrv "github.com/tsarna/vinculum/servers/mcp"
 	"go.uber.org/zap"
 )
 

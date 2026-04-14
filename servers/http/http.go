@@ -22,7 +22,6 @@ import (
 	"go.uber.org/zap"
 )
 
-
 type HttpServer struct {
 	cfg.BaseServer
 	Logger    *zap.Logger

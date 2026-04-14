@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"reflect"
 
-	"github.com/tsarna/vinculum/ctyutil"
+	richcty "github.com/tsarna/rich-cty-types"
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
 )
@@ -70,7 +70,7 @@ func BuildHTTPResponseObject(r *HTTPResponseWrapper) cty.Value {
 // GetHTTPResponseFromValue extracts an *HTTPResponseWrapper from an httpresponse capsule
 // or an object with a _capsule attribute.
 func GetHTTPResponseFromValue(val cty.Value) (*HTTPResponseWrapper, bool) {
-	enc, err := ctyutil.GetCapsuleFromValue(val)
+	enc, err := richcty.GetCapsuleFromValue(val)
 	if err != nil {
 		return nil, false
 	}

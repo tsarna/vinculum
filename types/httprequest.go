@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"reflect"
 
-	"github.com/tsarna/vinculum/ctyutil"
+	richcty "github.com/tsarna/rich-cty-types"
 	timecty "github.com/tsarna/time-cty-funcs"
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
@@ -71,7 +71,7 @@ func NewHTTPRequestCapsule(r *http.Request) cty.Value {
 // GetHTTPRequestFromValue extracts a *http.Request from an httprequest capsule or
 // an object with a _capsule attribute.
 func GetHTTPRequestFromValue(val cty.Value) (*http.Request, error) {
-	enc, err := ctyutil.GetCapsuleFromValue(val)
+	enc, err := richcty.GetCapsuleFromValue(val)
 	if err != nil {
 		return nil, fmt.Errorf("expected httprequest value: %w", err)
 	}
@@ -163,7 +163,7 @@ func convertCookieObject(cookie *http.Cookie) cty.Value {
 	})
 }
 
-// Get implements Gettable, supporting dynamic field access on httprequest values.
+// Get implements richcty.Gettable, supporting dynamic field access on httprequest values.
 func (w *HTTPRequestWrapper) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
 	if len(args) == 0 {
 		return cty.NilVal, fmt.Errorf("httprequest get: field argument required")

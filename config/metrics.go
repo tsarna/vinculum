@@ -215,9 +215,9 @@ func ResolveMeterProvider(config *Config, expr hcl.Expression) (metric.MeterProv
 
 type MetricBlockHandler struct {
 	BlockHandlerBase
-	names              []string             // declaration order for duplicate check
-	metrics            map[string]cty.Value // name → capsule, populated during Process
-	implicitBackendDeps []string            // server/client block IDs for implicit deps
+	names               []string             // declaration order for duplicate check
+	metrics             map[string]cty.Value // name → capsule, populated during Process
+	implicitBackendDeps []string             // server/client block IDs for implicit deps
 }
 
 func NewMetricBlockHandler() *MetricBlockHandler {

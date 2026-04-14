@@ -85,10 +85,10 @@ func retryEnabledDefaults() RetryPolicy {
 
 func defaultRetryOnSet() map[int]struct{} {
 	return map[int]struct{}{
-		nethttp.StatusTooManyRequests:     {}, // 429
-		nethttp.StatusBadGateway:          {}, // 502
-		nethttp.StatusServiceUnavailable:  {}, // 503
-		nethttp.StatusGatewayTimeout:      {}, // 504
+		nethttp.StatusTooManyRequests:    {}, // 429
+		nethttp.StatusBadGateway:         {}, // 502
+		nethttp.StatusServiceUnavailable: {}, // 503
+		nethttp.StatusGatewayTimeout:     {}, // 504
 	}
 }
 

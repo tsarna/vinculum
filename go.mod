@@ -22,6 +22,7 @@ require (
 	github.com/tsarna/go2cty2go v0.1.2
 	github.com/tsarna/hcl-jqfunc v0.1.3
 	github.com/tsarna/rand-cty-funcs v0.1.0
+	github.com/tsarna/rich-cty-types v0.1.0
 	github.com/tsarna/sqid-cty-funcs v0.1.0
 	github.com/tsarna/time-cty-funcs v0.1.1
 	github.com/tsarna/vinculum-bus v0.11.0
@@ -41,6 +42,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.43.0
 	go.opentelemetry.io/otel/sdk/metric v1.43.0
 	go.opentelemetry.io/otel/trace v1.43.0
+	golang.org/x/net v0.52.0
 	golang.org/x/sys v0.43.0
 )
 
@@ -87,7 +89,6 @@ require (
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	golang.org/x/crypto v0.49.0 // indirect
-	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 // indirect

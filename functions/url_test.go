@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	richcty "github.com/tsarna/rich-cty-types"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -93,7 +94,7 @@ func TestURLJoinPath_EscapesSegments(t *testing.T) {
 	// path holds the decoded form (space as space)
 	assert.Equal(t, cty.StringVal("/hello world"), result.GetAttr("path"))
 	// Verify encoding via tostring — space should appear as %20 in the URL string
-	tsFn := makeToStringFunction()
+	tsFn := richcty.GetGenericFunctions()["tostring"]
 	str, err := tsFn.Call([]cty.Value{result})
 	require.NoError(t, err)
 	assert.Equal(t, cty.StringVal("https://example.com/hello%20world"), str)

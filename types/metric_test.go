@@ -48,7 +48,7 @@ func TestGaugeMetric_Set_Notifies(t *testing.T) {
 
 	assert.Equal(t, 1, w.count())
 	c := w.get(0)
-	assert.True(t, c.old.RawEquals(cty.NumberFloatVal(0)))   // initial cache is 0
+	assert.True(t, c.old.RawEquals(cty.NumberFloatVal(0))) // initial cache is 0
 	assert.True(t, c.new.RawEquals(cty.NumberFloatVal(3.14)))
 }
 
@@ -141,7 +141,7 @@ func TestCounterMetric_Increment_Notifies(t *testing.T) {
 	w := &testWatcher{}
 	m.Watch(w)
 
-	_, _ = m.Set(bg, []cty.Value{cty.NumberIntVal(10)})   // baseline
+	_, _ = m.Set(bg, []cty.Value{cty.NumberIntVal(10)}) // baseline
 	_, err := m.Increment(bg, []cty.Value{cty.NumberIntVal(5)})
 	require.NoError(t, err)
 

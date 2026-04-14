@@ -7,12 +7,13 @@ import (
 	"sync"
 	"time"
 
+	richcty "github.com/tsarna/rich-cty-types"
+
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	timecty "github.com/tsarna/time-cty-funcs"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
-	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -43,7 +44,7 @@ type WatchdogTrigger struct {
 	lastSet   time.Time // zero until first set()
 	missCount int64     // consecutive fires since last set(); resets to 0 on set()
 
-	watchable types.Watchable // nil if watch attribute not configured
+	watchable richcty.Watchable // nil if watch attribute not configured
 
 	setCh  chan struct{} // signals the goroutine to reset the timer (buffered 1)
 	stopCh chan struct{}
@@ -75,7 +76,7 @@ func (t *WatchdogTrigger) Set(_ context.Context, args []cty.Value) (cty.Value, e
 // Reset returns the watchdog to its post-startup state: the stored value
 // and last-set timestamp are cleared, missCount returns to 0, and the
 // countdown is re-armed (reviving the trigger if it was auto-stopped via
-// max_misses or stop_when). Implements types.Resettable so
+// max_misses or stop_when). Implements richcty.Resettable so
 // reset(trigger.<name>) is callable from VCL.
 func (t *WatchdogTrigger) Reset(_ context.Context) error {
 	t.mu.Lock()
@@ -419,7 +420,7 @@ func processWatchdogTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cf
 		if diags.HasErrors() {
 			return diags
 		}
-		watchable, err := types.WatchableFromCtyValue(watchVal)
+		watchable, err := richcty.WatchableFromCtyValue(watchVal)
 		if err != nil {
 			return append(diags, &hcl.Diagnostic{
 				Severity: hcl.DiagError,

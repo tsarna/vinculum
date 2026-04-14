@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	richcty "github.com/tsarna/rich-cty-types"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zclconf/go-cty/cty"
@@ -185,7 +187,7 @@ func TestGetHTTPClientResponseFromValue_WrongType(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// --- Get (Gettable) ---
+// --- Get (richcty.Gettable) ---
 
 func TestHTTPClientResponse_Get_Body(t *testing.T) {
 	r := newTestResponse(200, "200 OK", "hello world")
@@ -372,7 +374,7 @@ func TestHTTPClientResponse_Get_MissingKey(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// --- Stringable / Lengthable ---
+// --- richcty.Stringable / richcty.Lengthable ---
 
 func TestHTTPClientResponse_ToString(t *testing.T) {
 	r := newTestResponse(200, "200 OK", "hello")
@@ -416,7 +418,7 @@ func TestHTTPClientResponse_Length_Unknown(t *testing.T) {
 // --- Interface satisfaction (compile-time) ---
 
 var (
-	_ Stringable = (*HTTPClientResponseWrapper)(nil)
-	_ Lengthable = (*HTTPClientResponseWrapper)(nil)
-	_ Gettable   = (*HTTPClientResponseWrapper)(nil)
+	_ richcty.Stringable = (*HTTPClientResponseWrapper)(nil)
+	_ richcty.Lengthable = (*HTTPClientResponseWrapper)(nil)
+	_ richcty.Gettable   = (*HTTPClientResponseWrapper)(nil)
 )

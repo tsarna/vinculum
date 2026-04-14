@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"reflect"
 
-	"github.com/tsarna/vinculum/ctyutil"
+	richcty "github.com/tsarna/rich-cty-types"
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
 )
@@ -83,7 +83,7 @@ func NewHTTPClientResponseCapsule(w *HTTPClientResponseWrapper) cty.Value {
 
 // BuildHTTPClientResponseObject builds a cty object value with the
 // materialized static attributes of a response, plus a _capsule attribute
-// holding the wrapper for interface dispatch (Gettable, Stringable, Lengthable).
+// holding the wrapper for interface dispatch (richcty.Gettable, richcty.Stringable, richcty.Lengthable).
 func BuildHTTPClientResponseObject(w *HTTPClientResponseWrapper) cty.Value {
 	r := w.R
 
@@ -148,7 +148,7 @@ func BuildHTTPClientResponseObject(w *HTTPClientResponseWrapper) cty.Value {
 // GetHTTPClientResponseFromValue extracts an *HTTPClientResponseWrapper from
 // an httpclientresponse capsule or an object with a _capsule attribute.
 func GetHTTPClientResponseFromValue(val cty.Value) (*HTTPClientResponseWrapper, bool) {
-	enc, err := ctyutil.GetCapsuleFromValue(val)
+	enc, err := richcty.GetCapsuleFromValue(val)
 	if err != nil {
 		return nil, false
 	}
@@ -193,7 +193,7 @@ func (w *HTTPClientResponseWrapper) responseContentType() string {
 	return ct
 }
 
-// Get implements Gettable, supporting dynamic field access on
+// Get implements richcty.Gettable, supporting dynamic field access on
 // httpclientresponse values.
 func (w *HTTPClientResponseWrapper) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
 	if len(args) == 0 {
@@ -310,7 +310,7 @@ func (w *HTTPClientResponseWrapper) Get(_ context.Context, args []cty.Value) (ct
 	}
 }
 
-// ToString implements Stringable, returning the response body as a string.
+// ToString implements richcty.Stringable, returning the response body as a string.
 // Convenience for small responses; for large or binary responses prefer
 // get(r, "body_bytes").
 func (w *HTTPClientResponseWrapper) ToString(_ context.Context) (string, error) {
@@ -321,7 +321,7 @@ func (w *HTTPClientResponseWrapper) ToString(_ context.Context) (string, error) 
 	return string(data), nil
 }
 
-// Length implements Lengthable. Returns the buffered body length if the body
+// Length implements richcty.Lengthable. Returns the buffered body length if the body
 // has been read (e.g. via opts.as), otherwise falls back to R.ContentLength
 // (which may be -1 if unknown).
 func (w *HTTPClientResponseWrapper) Length(_ context.Context) (int64, error) {

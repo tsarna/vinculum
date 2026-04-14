@@ -152,7 +152,9 @@ func TestTimerDebouncePlusActivateAfter(t *testing.T) {
 	assert.Equal(t, "active", stateMust(t, tc))
 }
 
-func stateMust(t *testing.T, tc interface{ State(context.Context) (string, error) }) string {
+func stateMust(t *testing.T, tc interface {
+	State(context.Context) (string, error)
+}) string {
 	t.Helper()
 	s, err := tc.State(context.Background())
 	require.NoError(t, err)

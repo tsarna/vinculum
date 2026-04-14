@@ -58,7 +58,7 @@ func otelPropagateFromContext(ctx context.Context) (bool, bool) {
 // The default field is the client-level setting. The per-call ctx value
 // (if set) overrides it for that one request.
 type conditionalPropagator struct {
-	inner   propagation.TextMapPropagator
+	inner    propagation.TextMapPropagator
 	default_ bool
 }
 

@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"time"
 
+	timecty "github.com/tsarna/time-cty-funcs"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/platform"
-	timecty "github.com/tsarna/time-cty-funcs"
 	"github.com/zclconf/go-cty/cty"
 )
 

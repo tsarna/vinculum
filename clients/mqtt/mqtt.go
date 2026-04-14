@@ -32,22 +32,22 @@ func init() {
 // ─── HCL definition structs ──────────────────────────────────────────────────
 
 type MQTTClientDefinition struct {
-	Brokers               []string               `hcl:"brokers"`
-	ClientID              hcl.Expression         `hcl:"client_id,optional"`
-	KeepAlive             hcl.Expression         `hcl:"keep_alive,optional"`
-	CleanStart            *bool                  `hcl:"clean_start,optional"`
-	SessionExpiryInterval hcl.Expression         `hcl:"session_expiry_interval,optional"`
-	TLS                   *cfg.TLSConfig         `hcl:"tls,block"`
-	Auth                  *MQTTAuthDefinition    `hcl:"auth,block"`
+	Brokers               []string                 `hcl:"brokers"`
+	ClientID              hcl.Expression           `hcl:"client_id,optional"`
+	KeepAlive             hcl.Expression           `hcl:"keep_alive,optional"`
+	CleanStart            *bool                    `hcl:"clean_start,optional"`
+	SessionExpiryInterval hcl.Expression           `hcl:"session_expiry_interval,optional"`
+	TLS                   *cfg.TLSConfig           `hcl:"tls,block"`
+	Auth                  *MQTTAuthDefinition      `hcl:"auth,block"`
 	Reconnect             *cfg.ReconnectDefinition `hcl:"reconnect,block"`
-	Will                  *MQTTWillDefinition    `hcl:"will,block"`
-	OnConnect             hcl.Expression         `hcl:"on_connect,optional"`
-	OnDisconnect          hcl.Expression         `hcl:"on_disconnect,optional"`
-	Publishers            []MQTTPublisherDef     `hcl:"sender,block"`
-	Subscribers           []MQTTSubscriberDef    `hcl:"receiver,block"`
-	Metrics               hcl.Expression         `hcl:"metrics,optional"`
-	Tracing               hcl.Expression         `hcl:"tracing,optional"`
-	DefRange              hcl.Range              `hcl:",def_range"`
+	Will                  *MQTTWillDefinition      `hcl:"will,block"`
+	OnConnect             hcl.Expression           `hcl:"on_connect,optional"`
+	OnDisconnect          hcl.Expression           `hcl:"on_disconnect,optional"`
+	Publishers            []MQTTPublisherDef       `hcl:"sender,block"`
+	Subscribers           []MQTTSubscriberDef      `hcl:"receiver,block"`
+	Metrics               hcl.Expression           `hcl:"metrics,optional"`
+	Tracing               hcl.Expression           `hcl:"tracing,optional"`
+	DefRange              hcl.Range                `hcl:",def_range"`
 }
 
 type MQTTAuthDefinition struct {
@@ -153,8 +153,8 @@ type MQTTClientWrapper struct {
 	pubSpecs         []builtMQTTPublisherSpec
 	subSpecs         []builtMQTTSubscriberSpec
 	publisherProxies map[string]*MQTTPublisherProxy
-	meterProvider  metric.MeterProvider
-	tracerProvider trace.TracerProvider
+	meterProvider    metric.MeterProvider
+	tracerProvider   trace.TracerProvider
 	logger           *zap.Logger
 
 	mu         sync.RWMutex
@@ -524,8 +524,8 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		pubSpecs:         pubSpecs,
 		subSpecs:         subSpecs,
 		publisherProxies: publisherProxies,
-		meterProvider:  mp,
-		tracerProvider: tracerProvider,
+		meterProvider:    mp,
+		tracerProvider:   tracerProvider,
 		logger:           config.Logger,
 	}
 

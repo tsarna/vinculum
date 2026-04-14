@@ -167,7 +167,7 @@ func (cb *ConfigBuilder) SortBlocksByDependencies(blocks hcl.Blocks, handlers ma
 		block  *hcl.Block
 	}
 
-	var dagEntries []entry   // blocks that participate in ordering
+	var dagEntries []entry // blocks that participate in ordering
 	var otherBlocks hcl.Blocks
 	idToIdx := map[string]int{} // block ID → index in dagEntries
 

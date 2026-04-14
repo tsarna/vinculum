@@ -54,7 +54,7 @@ func GetStandardLibraryFunctions() map[string]function.Function {
 		// Collection functions
 		// Note: "length" is registered via the generic plugin with an enhanced
 		// implementation that supports Lengthable capsule types.
-		"element": stdlib.ElementFunc,
+		"element":      stdlib.ElementFunc,
 		"coalesce":     stdlib.CoalesceFunc,
 		"coalescelist": stdlib.CoalesceListFunc,
 		"compact":      stdlib.CompactFunc,

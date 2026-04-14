@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
+	richcty "github.com/tsarna/rich-cty-types"
 	clientshttp "github.com/tsarna/vinculum/clients/http"
 	cfg "github.com/tsarna/vinculum/config"
-	"github.com/tsarna/vinculum/ctyutil"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
@@ -115,7 +115,7 @@ func parseVerbArgs(args []cty.Value, method string, bodyAllowed bool) (
 		return nil, nil, cty.NilVal, cty.NilVal, cty.NilVal,
 			fmt.Errorf("http_%s: at least 3 arguments required (ctx, client, url)", strings.ToLower(method))
 	}
-	ctx, err := ctyutil.GetContextFromValue(args[0])
+	ctx, err := richcty.GetContextFromValue(args[0])
 	if err != nil {
 		return nil, nil, cty.NilVal, cty.NilVal, cty.NilVal,
 			fmt.Errorf("http_%s: invalid ctx: %w", strings.ToLower(method), err)
@@ -461,13 +461,13 @@ func sendOnce(
 //
 //  1. Compute the effective Authorization header for this attempt:
 //     - If opts.headers["Authorization"] is already set (level 5 of the
-//       header precedence chain), use it — and skip the hook entirely.
+//     header precedence chain), use it — and skip the hook entirely.
 //     - Else if opts.auth was set on this call, use that literal value
-//       (or no Authorization header if opts.auth was null) — skip the
-//       hook entirely.
+//     (or no Authorization header if opts.auth was null) — skip the
+//     hook entirely.
 //     - Else if the client has an AuthHandler and the reentrancy marker
-//       is not set for this client, call AuthHandler.Get to fetch a
-//       cached or freshly-evaluated value.
+//     is not set for this client, call AuthHandler.Get to fetch a
+//     cached or freshly-evaluated value.
 //     - Else send no Authorization header.
 //
 //  2. Send the request via sendOnce.

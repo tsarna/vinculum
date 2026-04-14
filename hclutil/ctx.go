@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/tsarna/vinculum/ctyutil"
+	richcty "github.com/tsarna/rich-cty-types"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	"go.opentelemetry.io/otel/trace"
@@ -13,13 +13,13 @@ import (
 // EvalContextBuilder builds an HCL eval context with a "ctx" variable containing
 // a cty object that wraps a Go context and any additional attributes or functions.
 type EvalContextBuilder struct {
-	b         *ctyutil.ContextObjectBuilder
+	b         *richcty.ContextObjectBuilder
 	Functions map[string]function.Function
 }
 
 // NewEvalContext creates a new EvalContextBuilder wrapping the given context.
 func NewEvalContext(ctx context.Context) *EvalContextBuilder {
-	return &EvalContextBuilder{b: ctyutil.NewContextObject(ctx)}
+	return &EvalContextBuilder{b: richcty.NewContextObject(ctx)}
 }
 
 func (e *EvalContextBuilder) WithAttribute(name string, value cty.Value) *EvalContextBuilder {

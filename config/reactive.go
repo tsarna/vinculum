@@ -4,8 +4,9 @@ import (
 	"context"
 	"sync"
 
+	richcty "github.com/tsarna/rich-cty-types"
+
 	"github.com/hashicorp/hcl/v2"
-	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -26,7 +27,7 @@ import (
 type ReactiveExpr struct {
 	expr     hcl.Expression
 	evalCtx  *hcl.EvalContext
-	sources  []types.Watchable
+	sources  []richcty.Watchable
 	callback func(ctx context.Context, value cty.Value)
 
 	mu      sync.Mutex
@@ -43,9 +44,9 @@ type ReactiveExpr struct {
 // at all, a diagnostic is returned; the returned ReactiveExpr is still usable
 // (it just won't fire for that branch).
 func NewReactiveExpr(expr hcl.Expression, evalCtx *hcl.EvalContext, callback func(ctx context.Context, value cty.Value)) (*ReactiveExpr, hcl.Diagnostics) {
-	var sources []types.Watchable
+	var sources []richcty.Watchable
 	var diags hcl.Diagnostics
-	seen := map[types.Watchable]bool{}
+	seen := map[richcty.Watchable]bool{}
 	for _, tr := range expr.Variables() {
 		val, d := tr.TraverseAbs(evalCtx)
 		diags = diags.Extend(d)
@@ -55,7 +56,7 @@ func NewReactiveExpr(expr hcl.Expression, evalCtx *hcl.EvalContext, callback fun
 		if !val.Type().IsCapsuleType() {
 			continue
 		}
-		w, ok := val.EncapsulatedValue().(types.Watchable)
+		w, ok := val.EncapsulatedValue().(richcty.Watchable)
 		if !ok {
 			continue
 		}
@@ -75,7 +76,7 @@ func NewReactiveExpr(expr hcl.Expression, evalCtx *hcl.EvalContext, callback fun
 
 // Sources returns the list of Watchables this expression depends on. Useful
 // for tests and introspection.
-func (r *ReactiveExpr) Sources() []types.Watchable {
+func (r *ReactiveExpr) Sources() []richcty.Watchable {
 	return r.sources
 }
 
@@ -121,7 +122,7 @@ func (r *ReactiveExpr) Stop() {
 	}
 }
 
-// OnChange implements types.Watcher. When any source Watchable changes, the
+// OnChange implements richcty.Watcher. When any source Watchable changes, the
 // expression is re-evaluated and the callback is invoked with the new value.
 // Evaluation errors are swallowed here (the previous value remains in effect
 // from the caller's perspective); config-time errors surface at Start().

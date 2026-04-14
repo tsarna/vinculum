@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	cfg "github.com/tsarna/vinculum/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )

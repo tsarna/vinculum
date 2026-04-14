@@ -7,11 +7,12 @@ import (
 	"sync"
 	"testing"
 
+	richcty "github.com/tsarna/rich-cty-types"
+
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 )
@@ -21,7 +22,7 @@ import (
 // via the public WatchableMixin; behavior matches the real Variable/Metric
 // types closely enough for reactive-expression tests.
 type mockWatchable struct {
-	types.WatchableMixin
+	richcty.WatchableMixin
 	mu    sync.Mutex
 	value cty.Value
 }

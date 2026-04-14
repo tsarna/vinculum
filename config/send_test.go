@@ -9,8 +9,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	richcty "github.com/tsarna/rich-cty-types"
 	bus "github.com/tsarna/vinculum-bus"
-	"github.com/tsarna/vinculum/ctyutil"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -83,7 +83,7 @@ func TestSendFunctions(t *testing.T) {
 
 	// Create context object
 	ctx := context.Background()
-	ctxValue, err := ctyutil.NewContextObject(ctx).Build()
+	ctxValue, err := richcty.NewContextObject(ctx).Build()
 	require.NoError(t, err, "Context build should not have errors")
 	busValue := config.CtyBusMap["test"]
 	topicValue := cty.StringVal("test/topic")
@@ -236,7 +236,7 @@ func TestSendFunctions(t *testing.T) {
 
 		// Create a structure containing a capsule (context)
 		capsuleValue := cty.ObjectVal(map[string]cty.Value{
-			"context": ctyutil.NewContextCapsule(context.Background()),
+			"context": richcty.NewContextCapsule(context.Background()),
 			"message": cty.StringVal("test with capsule"),
 		})
 

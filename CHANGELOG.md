@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Extracted the generic capability interfaces (`Stringable`, `Gettable`, `Watchable`, …), the generic dispatcher functions (`get`, `set`, `tostring`, `length`, …), and the `_ctx` / `_capsule` rich-object helpers into a new standalone module: [rich-cty-types](https://github.com/tsarna/rich-cty-types) (`v0.1.0`). Internal-only refactor with no VCL-visible changes; vinculum now depends on the external module for these symbols.
+
 ## [0.27.0] - 2026-04-13
 
 ### Added

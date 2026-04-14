@@ -8,8 +8,8 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/sosodev/duration"
-	bus "github.com/tsarna/vinculum-bus"
 	timecty "github.com/tsarna/time-cty-funcs"
+	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
 )

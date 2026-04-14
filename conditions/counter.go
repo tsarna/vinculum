@@ -6,10 +6,11 @@ import (
 	"reflect"
 	"sync"
 
+	richcty "github.com/tsarna/rich-cty-types"
+
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
-	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/gocty"
 	"go.uber.org/zap"
@@ -42,10 +43,10 @@ func (c *CounterCondition) Get(ctx context.Context, args []cty.Value) (cty.Value
 	return c.sm.Get(ctx, args)
 }
 func (c *CounterCondition) State(ctx context.Context) (string, error) { return c.sm.State(ctx) }
-func (c *CounterCondition) Watch(w types.Watcher)                     { c.sm.Watch(w) }
-func (c *CounterCondition) Unwatch(w types.Watcher)                   { c.sm.Unwatch(w) }
+func (c *CounterCondition) Watch(w richcty.Watcher)                   { c.sm.Watch(w) }
+func (c *CounterCondition) Unwatch(w richcty.Watcher)                 { c.sm.Unwatch(w) }
 
-// Count implements types.Countable: returns the current numeric count value.
+// Count implements richcty.Countable: returns the current numeric count value.
 // Distinct from Get(), which returns the boolean preset-reached output.
 func (c *CounterCondition) Count(_ context.Context) (int64, error) {
 	c.mu.Lock()
@@ -53,7 +54,7 @@ func (c *CounterCondition) Count(_ context.Context) (int64, error) {
 	return c.count, nil
 }
 
-// Reset implements types.Resettable: count → initial, latch released, pending
+// Reset implements richcty.Resettable: count → initial, latch released, pending
 // state cancelled, output → inactive. Spec §Functions.
 func (c *CounterCondition) Reset(ctx context.Context) error {
 	c.mu.Lock()
@@ -62,7 +63,7 @@ func (c *CounterCondition) Reset(ctx context.Context) error {
 	return c.sm.Clear(ctx)
 }
 
-// Increment implements types.Incrementable. Adds args[0] (default 1) to the
+// Increment implements richcty.Incrementable. Adds args[0] (default 1) to the
 // count, applies low-side clamp at 0 (per spec — applies to decrement under
 // rollover=false; we apply uniformly since a bare increment with negative
 // delta is decrement), then re-evaluates the preset comparison and drives

@@ -141,6 +141,8 @@ github.com/tsarna/hcl-jqfunc v0.1.3 h1:+5RQOArsc+KymBu2QYKWHVBGGw38ZLPvCyTzp4VGn
 github.com/tsarna/hcl-jqfunc v0.1.3/go.mod h1:GO/aVwAl5iPG/bYK8BFXwD4W/qw6WGhkxmE3m3I2K50=
 github.com/tsarna/rand-cty-funcs v0.1.0 h1:yM0iQpXTkpvwAvVwah/ED+VM3lZ9vUybyGGlFoj+utU=
 github.com/tsarna/rand-cty-funcs v0.1.0/go.mod h1:Xsw9Z69Xsowq/HWqE319t/7FvyjSJnFKnDOCPNDMjV8=
+github.com/tsarna/rich-cty-types v0.1.0 h1:kB5UImttQIUEwwaarYD2z9Iy2gxlHknCPunjNlXgRGI=
+github.com/tsarna/rich-cty-types v0.1.0/go.mod h1:ExfNIaAeqEo19WLcrFAGPfsLmIQ4GCEvhu8MRbZeV4k=
 github.com/tsarna/sqid-cty-funcs v0.1.0 h1:q8Dt1l8u8t1hVIs40Iz7sgeaTPrxwX07q9IaEYjaBhs=
 github.com/tsarna/sqid-cty-funcs v0.1.0/go.mod h1:QDOjQrrV85hpg2dMVZk7VYw1YL0RZ+26uurRCZAtqWc=
 github.com/tsarna/time-cty-funcs v0.1.1 h1:8owOCxbId+6PZU0HnkKTHrqJ7+U7RF3H1CAkR2fQFJw=

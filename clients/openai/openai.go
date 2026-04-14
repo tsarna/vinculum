@@ -10,9 +10,9 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	openailib "github.com/sashabaranov/go-openai"
+	richcty "github.com/tsarna/rich-cty-types"
 	"github.com/tsarna/vinculum/clients/llm"
 	cfg "github.com/tsarna/vinculum/config"
-	"github.com/tsarna/vinculum/ctyutil"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/trace"
@@ -150,15 +150,15 @@ func (c *OpenAIClient) Call(ctx context.Context, args []cty.Value) (cty.Value, e
 		Messages: messages,
 	}
 
-	if model, ok := ctyutil.GetStringAttr(request, "model"); ok {
+	if model, ok := richcty.GetStringAttr(request, "model"); ok {
 		req.Model = model
 	}
-	if mt, ok := ctyutil.GetIntAttr(request, "max_tokens"); ok {
+	if mt, ok := richcty.GetIntAttr(request, "max_tokens"); ok {
 		req.MaxTokens = mt
 	} else if c.MaxTokens != nil {
 		req.MaxTokens = *c.MaxTokens
 	}
-	if temp, ok := ctyutil.GetFloat32Attr(request, "temperature"); ok {
+	if temp, ok := richcty.GetFloat32Attr(request, "temperature"); ok {
 		req.Temperature = temp
 	} else if c.Temperature != nil {
 		req.Temperature = *c.Temperature
@@ -188,7 +188,7 @@ func (c *OpenAIClient) Call(ctx context.Context, args []cty.Value) (cty.Value, e
 func (c *OpenAIClient) buildMessages(request cty.Value) ([]openailib.ChatCompletionMessage, error) {
 	var messages []openailib.ChatCompletionMessage
 
-	if system, ok := ctyutil.GetStringAttr(request, "system"); ok && system != "" {
+	if system, ok := richcty.GetStringAttr(request, "system"); ok && system != "" {
 		messages = append(messages, openailib.ChatCompletionMessage{
 			Role:    openailib.ChatMessageRoleSystem,
 			Content: system,
@@ -211,11 +211,11 @@ func (c *OpenAIClient) buildMessages(request cty.Value) ([]openailib.ChatComplet
 		if !elem.Type().IsObjectType() {
 			return nil, fmt.Errorf("each message must be an object with role and content fields")
 		}
-		role, ok := ctyutil.GetStringAttr(elem, "role")
+		role, ok := richcty.GetStringAttr(elem, "role")
 		if !ok {
 			return nil, fmt.Errorf("each message must have a role field")
 		}
-		content, ok := ctyutil.GetStringAttr(elem, "content")
+		content, ok := richcty.GetStringAttr(elem, "content")
 		if !ok {
 			return nil, fmt.Errorf("each message must have a content field")
 		}

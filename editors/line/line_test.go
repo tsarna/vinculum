@@ -10,8 +10,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	richcty "github.com/tsarna/rich-cty-types"
 	cfg "github.com/tsarna/vinculum/config"
-	"github.com/tsarna/vinculum/ctyutil"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	"github.com/zclconf/go-cty/cty/function/stdlib"
@@ -74,7 +74,7 @@ func buildEditorExpectError(t *testing.T, writeDir, hclSrc string) hcl.Diagnosti
 // ctxVal creates a cty value suitable for the ctx parameter.
 func ctxVal(t *testing.T) cty.Value {
 	t.Helper()
-	val, err := ctyutil.NewContextObject(context.Background()).Build()
+	val, err := richcty.NewContextObject(context.Background()).Build()
 	require.NoError(t, err)
 	return val
 }

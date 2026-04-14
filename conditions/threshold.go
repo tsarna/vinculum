@@ -7,10 +7,11 @@ import (
 	"sync"
 	"time"
 
+	richcty "github.com/tsarna/rich-cty-types"
+
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
-	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/gocty"
 	"go.uber.org/zap"
@@ -51,8 +52,8 @@ func (c *ThresholdCondition) Get(ctx context.Context, args []cty.Value) (cty.Val
 	return c.sm.Get(ctx, args)
 }
 func (c *ThresholdCondition) State(ctx context.Context) (string, error) { return c.sm.State(ctx) }
-func (c *ThresholdCondition) Watch(w types.Watcher)                     { c.sm.Watch(w) }
-func (c *ThresholdCondition) Unwatch(w types.Watcher)                   { c.sm.Unwatch(w) }
+func (c *ThresholdCondition) Watch(w richcty.Watcher)                   { c.sm.Watch(w) }
+func (c *ThresholdCondition) Unwatch(w richcty.Watcher)                 { c.sm.Unwatch(w) }
 
 // Clear resets the hysteresis state machine and cancels any in-flight
 // debounce. The initial-value rule applies anew: until the next numeric

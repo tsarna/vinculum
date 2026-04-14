@@ -124,7 +124,7 @@ func TestVariableIncrementErrors(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// --- Watchable tests ---
+// --- richcty.Watchable tests ---
 
 func TestVariableWatch_SetNotifiesOldAndNew(t *testing.T) {
 	v := NewVariable(cty.NumberIntVal(1))

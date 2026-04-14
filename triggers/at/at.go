@@ -47,7 +47,7 @@ type AtTrigger struct {
 }
 
 // Count returns the number of times the trigger has fired. Implements
-// types.Countable so count(trigger.<name>) is callable from any expression.
+// richcty.Countable so count(trigger.<name>) is callable from any expression.
 func (t *AtTrigger) Count(_ context.Context) (int64, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()

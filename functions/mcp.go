@@ -156,8 +156,8 @@ var MCPAssistantMessageFunc = function.New(&function.Spec{
 // for async handlers.
 func GetMcpFunctions() map[string]function.Function {
 	return map[string]function.Function{
-		"mcp_image":             MCPImageFunc,
-		"mcp_error":             MCPErrorFunc,
+		"mcp_image":            MCPImageFunc,
+		"mcp_error":            MCPErrorFunc,
 		"mcp_usermessage":      MCPUserMessageFunc,
 		"mcp_assistantmessage": MCPAssistantMessageFunc,
 	}

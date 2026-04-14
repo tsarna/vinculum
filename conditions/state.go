@@ -5,7 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tsarna/vinculum/types"
+	richcty "github.com/tsarna/rich-cty-types"
+
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -69,7 +70,7 @@ func (RealClock) AfterFunc(d time.Duration, f func()) ClockTimer {
 // StateMachine with a fully-zeroed Behavior simply tracks the raw input
 // one-to-one.
 type StateMachine struct {
-	types.WatchableMixin
+	richcty.WatchableMixin
 	behavior Behavior
 	clock    Clock
 
@@ -371,13 +372,13 @@ func (sm *StateMachine) Output() bool {
 	return out
 }
 
-// Get implements types.Gettable. The optional default argument is ignored:
+// Get implements richcty.Gettable. The optional default argument is ignored:
 // a condition always has a defined output.
 func (sm *StateMachine) Get(_ context.Context, _ []cty.Value) (cty.Value, error) {
 	return cty.BoolVal(sm.Output()), nil
 }
 
-// State implements types.Stateful, returning the internal four-state name.
+// State implements richcty.Stateful, returning the internal four-state name.
 func (sm *StateMachine) State(_ context.Context) (string, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -418,7 +419,7 @@ func (sm *StateMachine) SetInhibited(ctx context.Context, inhibited bool) {
 	}
 }
 
-// Clear implements types.Clearable. Resets the state machine to Inactive,
+// Clear implements richcty.Clearable. Resets the state machine to Inactive,
 // cancels any pending state, releases any latch, and (for subtypes backing
 // them onto this machine) stops timers. Safe to call in any state.
 func (sm *StateMachine) Clear(ctx context.Context) error {

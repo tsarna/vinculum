@@ -7,13 +7,15 @@ import (
 	"reflect"
 	"sync"
 
+	richcty "github.com/tsarna/rich-cty-types"
+
 	"github.com/zclconf/go-cty/cty"
 )
 
 // Variable is a mutable, goroutine-safe value container.
 type Variable struct {
-	mu             sync.RWMutex
-	WatchableMixin
+	mu sync.RWMutex
+	richcty.WatchableMixin
 	value    cty.Value
 	typeName string // empty means untyped; if set, enforced on Set()
 	nullable bool   // if false, null values are rejected by Set()
@@ -29,10 +31,10 @@ func NewTypedVariable(initial cty.Value, typeName string) *Variable {
 	return &Variable{value: initial, typeName: typeName, nullable: true}
 }
 
-func (v *Variable) SetNullable(b bool) { v.nullable = b }
+func (v *Variable) SetNullable(b bool)   { v.nullable = b }
 func (v *Variable) SetTypeName(s string) { v.typeName = s }
 
-// Get returns the current value, or the default (args[0]) if null. Implements Gettable.
+// Get returns the current value, or the default (args[0]) if null. Implements richcty.Gettable.
 func (v *Variable) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
@@ -46,7 +48,7 @@ func (v *Variable) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
 }
 
 // Set updates the value (args[0]) and returns it. If called with no arguments,
-// sets the value to null. Implements Settable. If the variable has a type
+// sets the value to null. Implements richcty.Settable. If the variable has a type
 // constraint, non-null values must match it.
 func (v *Variable) Set(ctx context.Context, args []cty.Value) (cty.Value, error) {
 	value := cty.NullVal(cty.DynamicPseudoType)
@@ -71,7 +73,7 @@ func (v *Variable) Set(ctx context.Context, args []cty.Value) (cty.Value, error)
 }
 
 // Increment adds args[0] (delta) to the current numeric value and returns the new value.
-// Both the current value and delta must be cty.Number. Implements Incrementable.
+// Both the current value and delta must be cty.Number. Implements richcty.Incrementable.
 func (v *Variable) Increment(ctx context.Context, args []cty.Value) (cty.Value, error) {
 	delta := args[0]
 	v.mu.Lock()
