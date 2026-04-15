@@ -53,6 +53,10 @@ type ConsumerDef struct {
 	TopicField       *string        `hcl:"topic_field,optional"`
 	ContentTypeField *string        `hcl:"content_type_field,optional"`
 	FieldsMode       string         `hcl:"fields_mode,optional"`
+	ReclaimPending   *bool          `hcl:"reclaim_pending,optional"`
+	ReclaimMinIdle   hcl.Expression `hcl:"reclaim_min_idle,optional"`
+	DeadLetterStream string         `hcl:"dead_letter_stream,optional"`
+	DeadLetterAfter  *int64         `hcl:"dead_letter_after,optional"`
 	DefRange         hcl.Range      `hcl:",def_range"`
 }
 
@@ -78,10 +82,11 @@ type RedisStreamClient struct {
 	cfg.BaseClient
 	bus.BaseSubscriber
 
-	connector redisclient.RedisConnector
-	producers map[string]*stream.RedisStreamProducer
-	order     []string
-	consumers []*stream.RedisStreamConsumer
+	connector      redisclient.RedisConnector
+	producers      map[string]*stream.RedisStreamProducer
+	order          []string
+	consumers      []*stream.RedisStreamConsumer
+	consumersByKey map[string]*stream.RedisStreamConsumer
 }
 
 // Start brings up every configured consumer.
@@ -109,17 +114,26 @@ func (c *RedisStreamClient) Stop() error {
 }
 
 func (c *RedisStreamClient) CtyValue() cty.Value {
-	if len(c.producers) == 0 {
+	if len(c.producers) == 0 && len(c.consumersByKey) == 0 {
 		return cfg.NewClientCapsule(c)
 	}
-	pmap := make(map[string]cty.Value, len(c.producers))
-	for name, p := range c.producers {
-		pmap[name] = cfg.NewSubscriberCapsule(p)
+	fields := map[string]cty.Value{}
+	if len(c.producers) > 0 {
+		pmap := make(map[string]cty.Value, len(c.producers))
+		for name, p := range c.producers {
+			pmap[name] = cfg.NewSubscriberCapsule(p)
+		}
+		fields["producers"] = cfg.NewSubscriberCapsule(c)
+		fields["producer"] = cty.ObjectVal(pmap)
 	}
-	return cty.ObjectVal(map[string]cty.Value{
-		"producers": cfg.NewSubscriberCapsule(c),
-		"producer":  cty.ObjectVal(pmap),
-	})
+	if len(c.consumersByKey) > 0 {
+		cmap := make(map[string]cty.Value, len(c.consumersByKey))
+		for name, cc := range c.consumersByKey {
+			cmap[name] = stream.NewConsumerCapsule(cc)
+		}
+		fields["consumer"] = cty.ObjectVal(cmap)
+	}
+	return cty.ObjectVal(fields)
 }
 
 // OnEvent fans out to every producer.
@@ -205,6 +219,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 
 	seenC := make(map[string]struct{}, len(def.Consumers))
 	consumers := make([]*stream.RedisStreamConsumer, 0, len(def.Consumers))
+	consumersByKey := make(map[string]*stream.RedisStreamConsumer, len(def.Consumers))
 	for _, cdef := range def.Consumers {
 		if _, dup := seenC[cdef.Name]; dup {
 			return nil, hcl.Diagnostics{{
@@ -220,6 +235,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 			return nil, cDiags
 		}
 		consumers = append(consumers, cc)
+		consumersByKey[cdef.Name] = cc
 	}
 
 	wrapper := &RedisStreamClient{
@@ -227,10 +243,11 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 			Name:     clientName,
 			DefRange: def.DefRange,
 		},
-		connector: connector,
-		producers: producers,
-		order:     order,
-		consumers: consumers,
+		connector:      connector,
+		producers:      producers,
+		order:          order,
+		consumers:      consumers,
+		consumersByKey: consumersByKey,
 	}
 
 	if len(consumers) > 0 {
@@ -500,6 +517,34 @@ func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, cli
 
 	if cfg.IsExpressionProvided(def.VinculumTopic) {
 		b = b.WithTopicFunc(makeVinculumTopicFunc(config, def.VinculumTopic))
+	}
+
+	if def.ReclaimPending != nil {
+		b = b.WithReclaimPending(*def.ReclaimPending)
+	}
+	if cfg.IsExpressionProvided(def.ReclaimMinIdle) {
+		d, dDiags := config.ParseDuration(def.ReclaimMinIdle)
+		if dDiags.HasErrors() {
+			return nil, dDiags
+		}
+		b = b.WithReclaimMinIdle(d)
+	}
+	if def.DeadLetterStream != "" {
+		if def.DeadLetterAfter == nil || *def.DeadLetterAfter <= 0 {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis_stream: dead_letter_stream requires a positive dead_letter_after",
+				Subject:  &def.DefRange,
+			}}
+		}
+		b = b.WithDeadLetterStream(def.DeadLetterStream).
+			WithDeadLetterAfter(*def.DeadLetterAfter)
+	} else if def.DeadLetterAfter != nil {
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "redis_stream: dead_letter_after has no effect without dead_letter_stream",
+			Subject:  &def.DefRange,
+		}}
 	}
 
 	return b.Build(), nil

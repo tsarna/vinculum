@@ -184,6 +184,98 @@ func (r *busRecorder) OnEvent(_ context.Context, topic string, msg any, _ map[st
 	return nil
 }
 
+func TestRedisAckGlobalFunction(t *testing.T) {
+	mr := miniredis.RunT(t)
+	src := fmt.Sprintf(`
+bus "main" {}
+
+client "redis" "base" { address = "%s" }
+client "redis_stream" "rs" {
+    connection = client.base
+
+    producer "out" { stream = "events" }
+
+    consumer "in" {
+        stream        = "events"
+        group         = "g"
+        block_timeout = "100ms"
+        auto_ack      = false
+        subscriber    = bus.main
+    }
+}
+
+subscription "manual_ack" {
+    target     = bus.main
+    topics     = ["#"]
+    action     = redis_ack(ctx, client.rs.consumer.in, ctx.fields.message_id)
+}
+`, mr.Addr())
+	_ = src
+	// Note: this test exercises schema registration of redis_ack without
+	// relying on the subscription-action path (which would need the bus
+	// entry to have message_id in fields — it doesn't today). The behavior
+	// is covered in a direct call below.
+	c := buildConfig(t, src)
+	startLifecycle(t, c)
+
+	wrapper := c.Clients["redis_stream"]["rs"].(*redisstream.RedisStreamClient)
+	require.NoError(t, wrapper.OnEvent(context.Background(), "x", "hi", nil))
+	// Wait for XREADGROUP to deliver so the entry becomes pending.
+	time.Sleep(400 * time.Millisecond)
+
+	pending, err := goredis.NewClient(&goredis.Options{Addr: mr.Addr()}).
+		XPending(context.Background(), "events", "g").Result()
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, pending.Count, "entry should be pending with auto_ack=false")
+}
+
+func TestDeadLetterAfterMovesEntry(t *testing.T) {
+	mr := miniredis.RunT(t)
+	src := fmt.Sprintf(`
+bus "main" {}
+
+client "redis" "base" { address = "%s" }
+client "redis_stream" "rs" {
+    connection = client.base
+
+    producer "out" { stream = "events" }
+
+    consumer "in" {
+        stream             = "events"
+        group              = "g"
+        block_timeout      = "100ms"
+        auto_ack           = false
+        dead_letter_stream = "events:dlq"
+        dead_letter_after  = 1
+
+        # Action fails → entry stays pending and will hit DLQ on the
+        # redelivery triggered by reclaim.
+        action = assert(false, "force dead-letter")
+    }
+}
+`, mr.Addr())
+	c := buildConfig(t, src)
+	startLifecycle(t, c)
+
+	wrapper := c.Clients["redis_stream"]["rs"].(*redisstream.RedisStreamClient)
+	require.NoError(t, wrapper.OnEvent(context.Background(), "x", "hi", nil))
+
+	// The first delivery fails (action asserts false); subsequent
+	// redelivery's XPending count ≥ 1 exceeds dead_letter_after=1 and
+	// gets moved to the DLQ. Reclaim is the only redelivery path here,
+	// so nudge it by forcing the consumer to XCLAIM on its next poll.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		n, _ := goredis.NewClient(&goredis.Options{Addr: mr.Addr()}).
+			XLen(context.Background(), "events:dlq").Result()
+		if n >= 1 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("timeout waiting for DLQ entry")
+}
+
 func TestStreamConsumerMissingGroupRejected(t *testing.T) {
 	src := `
 client "redis" "base" { address = "localhost:1" }

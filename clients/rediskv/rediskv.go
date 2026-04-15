@@ -55,6 +55,7 @@ type RedisKVClient struct {
 	keyPrefix  string
 	defaultTTL time.Duration
 	encoding   valueEncoding
+	hashMode   bool
 }
 
 func (c *RedisKVClient) redis() goredis.UniversalClient {
@@ -75,6 +76,11 @@ func (c *RedisKVClient) Get(ctx context.Context, args []cty.Value) (cty.Value, e
 	if err != nil {
 		return cty.NilVal, err
 	}
+
+	if c.hashMode {
+		return c.hashGet(ctx, key, args[1:])
+	}
+
 	var defaultVal cty.Value = cty.NullVal(cty.DynamicPseudoType)
 	if len(args) >= 2 {
 		defaultVal = args[1]
@@ -90,6 +96,47 @@ func (c *RedisKVClient) Get(ctx context.Context, args []cty.Value) (cty.Value, e
 	return c.decode(raw)
 }
 
+// hashGet implements the hash-mode behavior of get():
+//   - get(c, key)         → HGETALL key as a cty object with decoded values
+//   - get(c, key, field)  → HGET key field, decoded per value_encoding
+//
+// The default-value form from string mode is not available in hash mode:
+// HGET on a missing field returns null, not a default. That asymmetry is
+// intentional — a default only makes sense when the shape of the result
+// is known (strings), and HGETALL returns an object.
+func (c *RedisKVClient) hashGet(ctx context.Context, key string, rest []cty.Value) (cty.Value, error) {
+	if len(rest) == 0 {
+		all, err := c.redis().HGetAll(ctx, c.key(key)).Result()
+		if err != nil {
+			return cty.NilVal, fmt.Errorf("redis_kv.get (hash): %w", err)
+		}
+		if len(all) == 0 {
+			return cty.NullVal(cty.DynamicPseudoType), nil
+		}
+		out := make(map[string]cty.Value, len(all))
+		for f, v := range all {
+			dv, err := c.decode(v)
+			if err != nil {
+				return cty.NilVal, fmt.Errorf("redis_kv.get (hash) field %q: %w", f, err)
+			}
+			out[f] = dv
+		}
+		return cty.ObjectVal(out), nil
+	}
+	field, err := asString(rest[0], "field")
+	if err != nil {
+		return cty.NilVal, err
+	}
+	raw, err := c.redis().HGet(ctx, c.key(key), field).Result()
+	if err != nil {
+		if err == goredis.Nil {
+			return cty.NullVal(cty.DynamicPseudoType), nil
+		}
+		return cty.NilVal, fmt.Errorf("redis_kv.get (hash): %w", err)
+	}
+	return c.decode(raw)
+}
+
 // --- richcty.Settable ---
 
 func (c *RedisKVClient) Set(ctx context.Context, args []cty.Value) (cty.Value, error) {
@@ -100,6 +147,25 @@ func (c *RedisKVClient) Set(ctx context.Context, args []cty.Value) (cty.Value, e
 	if err != nil {
 		return cty.NilVal, err
 	}
+
+	if c.hashMode {
+		if len(args) < 3 {
+			return cty.NilVal, fmt.Errorf("redis_kv.set (hash): set(c, key, field, value) — field argument required")
+		}
+		field, err := asString(args[1], "field")
+		if err != nil {
+			return cty.NilVal, err
+		}
+		encoded, err := c.encode(args[2])
+		if err != nil {
+			return cty.NilVal, err
+		}
+		if err := c.redis().HSet(ctx, c.key(key), field, encoded).Err(); err != nil {
+			return cty.NilVal, fmt.Errorf("redis_kv.set (hash): %w", err)
+		}
+		return cty.NullVal(cty.DynamicPseudoType), nil
+	}
+
 	encoded, err := c.encode(args[1])
 	if err != nil {
 		return cty.NilVal, err
@@ -271,6 +337,11 @@ func jsonDecode(raw string) (cty.Value, error) {
 	if err := dec.Decode(&any); err != nil {
 		return cty.NilVal, fmt.Errorf("redis_kv: json decode: %w", err)
 	}
+	// Reject trailing data — json.Decoder.Decode happily consumes just the
+	// first token, which would misread "2026-04-14" as the number 2026.
+	if _, err := dec.Token(); err == nil || err.Error() != "EOF" {
+		return cty.NilVal, fmt.Errorf("redis_kv: json decode: trailing data after value")
+	}
 	return anyToCty(any)
 }
 
@@ -365,14 +436,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		return nil, diags
 	}
 
-	if def.HashMode != nil && *def.HashMode {
-		return nil, hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  "redis_kv: hash_mode not yet supported",
-			Detail:   "hash_mode is planned for a future phase",
-			Subject:  &def.DefRange,
-		}}
-	}
+	hashMode := def.HashMode != nil && *def.HashMode
 
 	clientName := block.Labels[1]
 
@@ -426,6 +490,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		keyPrefix:  def.KeyPrefix,
 		defaultTTL: defaultTTL,
 		encoding:   enc,
+		hashMode:   hashMode,
 	}
 
 	return client, nil

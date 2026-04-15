@@ -205,17 +205,69 @@ client "redis_kv" "kv" {
 	assert.Equal(t, cty.StringVal("hi"), v)
 }
 
-func TestHashModeRejected(t *testing.T) {
-	src := `
-client "redis" "base" { address = "localhost:1" }
-client "redis_kv" "kv" {
+func TestHashModeSetAndHGet(t *testing.T) {
+	mr := miniredis.RunT(t)
+	src := fmt.Sprintf(`
+client "redis" "base" { address = "%s" }
+client "redis_kv" "devices" {
+    connection = client.base
+    key_prefix = "dev:"
+    hash_mode  = true
+}
+`, mr.Addr())
+	c := buildConfig(t, src)
+	kv := c.Clients["redis_kv"]["devices"].(*rediskv.RedisKVClient)
+	ctx := context.Background()
+
+	_, err := kv.Set(ctx, []cty.Value{cty.StringVal("abc"), cty.StringVal("last_seen"), cty.StringVal("2026-04-14")})
+	require.NoError(t, err)
+
+	v, err := kv.Get(ctx, []cty.Value{cty.StringVal("abc"), cty.StringVal("last_seen")})
+	require.NoError(t, err)
+	assert.Equal(t, cty.StringVal("2026-04-14"), v)
+
+	assert.Equal(t, "2026-04-14", mr.HGet("dev:abc", "last_seen"))
+}
+
+func TestHashModeHGetAll(t *testing.T) {
+	mr := miniredis.RunT(t)
+	src := fmt.Sprintf(`
+client "redis" "base" { address = "%s" }
+client "redis_kv" "devices" {
     connection = client.base
     hash_mode  = true
 }
-`
-	_, diags := cfg.NewConfig().WithSources([]byte(src)).WithLogger(zap.NewNop()).Build()
-	require.True(t, diags.HasErrors())
-	assert.Contains(t, diags.Error(), "hash_mode not yet supported")
+`, mr.Addr())
+	c := buildConfig(t, src)
+	kv := c.Clients["redis_kv"]["devices"].(*rediskv.RedisKVClient)
+	ctx := context.Background()
+
+	// Populate two fields via HSET directly.
+	mr.HSet("devA", "last_seen", "t1")
+	mr.HSet("devA", "region", "us-east")
+
+	got, err := kv.Get(ctx, []cty.Value{cty.StringVal("devA")})
+	require.NoError(t, err)
+	require.True(t, got.Type().IsObjectType())
+	assert.Equal(t, cty.StringVal("t1"), got.GetAttr("last_seen"))
+	assert.Equal(t, cty.StringVal("us-east"), got.GetAttr("region"))
+}
+
+func TestHashModeHGetMissingField(t *testing.T) {
+	mr := miniredis.RunT(t)
+	src := fmt.Sprintf(`
+client "redis" "base" { address = "%s" }
+client "redis_kv" "devices" {
+    connection = client.base
+    hash_mode  = true
+}
+`, mr.Addr())
+	c := buildConfig(t, src)
+	kv := c.Clients["redis_kv"]["devices"].(*rediskv.RedisKVClient)
+
+	v, err := kv.Get(context.Background(), []cty.Value{cty.StringVal("devA"), cty.StringVal("missing")})
+	require.NoError(t, err)
+	assert.True(t, v.IsNull())
 }
 
 func TestMultipleKVSharedConnection(t *testing.T) {
