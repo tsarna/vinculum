@@ -90,46 +90,10 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	if mode == "" {
 		mode = "standalone"
 	}
-	switch mode {
-	case "standalone":
-	case "cluster", "sentinel":
-		return nil, hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  "redis: mode not yet supported",
-			Detail:   fmt.Sprintf("mode = %q is planned for a future phase; only \"standalone\" is currently supported", mode),
-			Subject:  &def.DefRange,
-		}}
-	default:
-		return nil, hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  "redis: invalid mode",
-			Detail:   fmt.Sprintf("mode must be \"standalone\", \"cluster\", or \"sentinel\"; got %q", mode),
-			Subject:  &def.DefRange,
-		}}
-	}
 
-	if def.Address == "" {
-		return nil, hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  "redis: address is required",
-			Detail:   "standalone mode requires the `address` attribute (e.g. \"localhost:6379\")",
-			Subject:  &def.DefRange,
-		}}
-	}
-	if len(def.Addresses) > 0 {
-		return nil, hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  "redis: addresses not valid in standalone mode",
-			Detail:   "use `address` for standalone mode; `addresses` is for cluster/sentinel",
-			Subject:  &def.DefRange,
-		}}
-	}
-	if def.MasterName != "" {
-		return nil, hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  "redis: master_name only valid in sentinel mode",
-			Subject:  &def.DefRange,
-		}}
+	addrs, modeDiags := validateModeAndAddrs(mode, &def)
+	if modeDiags.HasErrors() {
+		return nil, modeDiags
 	}
 
 	var tlsCfg *tls.Config
@@ -150,31 +114,38 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	if pwDiags.HasErrors() {
 		return nil, pwDiags
 	}
-
-	opts := &goredis.Options{
-		Addr:      def.Address,
-		Username:  def.Username,
-		Password:  password,
-		TLSConfig: tlsCfg,
+	sentinelPassword, spDiags := evalOptionalString(config, def.SentinelPassword, "sentinel_password")
+	if spDiags.HasErrors() {
+		return nil, spDiags
 	}
-	if def.Database != nil {
-		opts.DB = *def.Database
+
+	uopts := &goredis.UniversalOptions{
+		Addrs:            addrs,
+		Username:         def.Username,
+		Password:         password,
+		TLSConfig:        tlsCfg,
+		MasterName:       def.MasterName,
+		SentinelUsername: def.SentinelUsername,
+		SentinelPassword: sentinelPassword,
+	}
+	if def.Database != nil && mode != "cluster" {
+		uopts.DB = *def.Database
 	}
 	if def.PoolSize != nil {
-		opts.PoolSize = *def.PoolSize
+		uopts.PoolSize = *def.PoolSize
 	}
 	if def.MinIdleConns != nil {
-		opts.MinIdleConns = *def.MinIdleConns
+		uopts.MinIdleConns = *def.MinIdleConns
 	}
 	if cfg.IsExpressionProvided(def.DialTimeout) {
 		d, dDiags := config.ParseDuration(def.DialTimeout)
 		if dDiags.HasErrors() {
 			return nil, dDiags
 		}
-		opts.DialTimeout = d
+		uopts.DialTimeout = d
 	}
 
-	client := goredis.NewClient(opts)
+	client := goredis.NewUniversalClient(uopts)
 
 	wrapper := &RedisClient{
 		BaseClient: cfg.BaseClient{
@@ -197,6 +168,105 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 // but the capsule form keeps it addressable for dep-graph resolution.
 func (c *RedisClient) CtyValue() cty.Value {
 	return cfg.NewClientCapsule(c)
+}
+
+// validateModeAndAddrs enforces the mode-specific attribute rules and
+// returns the address list to feed into UniversalOptions.
+func validateModeAndAddrs(mode string, def *RedisConnectionDefinition) ([]string, hcl.Diagnostics) {
+	switch mode {
+	case "standalone":
+		if def.Address == "" {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis: address is required",
+				Detail:   "standalone mode requires the `address` attribute (e.g. \"localhost:6379\")",
+				Subject:  &def.DefRange,
+			}}
+		}
+		if len(def.Addresses) > 0 {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis: addresses not valid in standalone mode",
+				Detail:   "use `address` for standalone mode; `addresses` is for cluster/sentinel",
+				Subject:  &def.DefRange,
+			}}
+		}
+		if def.MasterName != "" {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis: master_name only valid in sentinel mode",
+				Subject:  &def.DefRange,
+			}}
+		}
+		return []string{def.Address}, nil
+
+	case "cluster":
+		if def.Address != "" {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis: address not valid in cluster mode",
+				Detail:   "use `addresses = [...]` in cluster mode",
+				Subject:  &def.DefRange,
+			}}
+		}
+		if len(def.Addresses) == 0 {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis: cluster mode requires `addresses`",
+				Subject:  &def.DefRange,
+			}}
+		}
+		if def.MasterName != "" {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis: master_name only valid in sentinel mode",
+				Subject:  &def.DefRange,
+			}}
+		}
+		if def.Database != nil {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis: database not supported in cluster mode",
+				Detail:   "cluster mode uses database 0 on every node",
+				Subject:  &def.DefRange,
+			}}
+		}
+		return def.Addresses, nil
+
+	case "sentinel":
+		if def.Address != "" {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis: address not valid in sentinel mode",
+				Detail:   "use `addresses = [...]` in sentinel mode",
+				Subject:  &def.DefRange,
+			}}
+		}
+		if len(def.Addresses) == 0 {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis: sentinel mode requires `addresses`",
+				Detail:   "list the sentinel node addresses in `addresses = [...]`",
+				Subject:  &def.DefRange,
+			}}
+		}
+		if def.MasterName == "" {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis: sentinel mode requires `master_name`",
+				Subject:  &def.DefRange,
+			}}
+		}
+		return def.Addresses, nil
+
+	default:
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "redis: invalid mode",
+			Detail:   fmt.Sprintf("mode must be \"standalone\", \"cluster\", or \"sentinel\"; got %q", mode),
+			Subject:  &def.DefRange,
+		}}
+	}
 }
 
 func evalOptionalString(config *cfg.Config, expr hcl.Expression, name string) (string, hcl.Diagnostics) {
