@@ -27,12 +27,25 @@ func init() {
 // ─── HCL schema ───────────────────────────────────────────────────────────────
 
 type RedisPubSubDefinition struct {
-	Connection   hcl.Expression `hcl:"connection"`
-	OnConnect    hcl.Expression `hcl:"on_connect,optional"`
-	OnDisconnect hcl.Expression `hcl:"on_disconnect,optional"`
-	Metrics      hcl.Expression `hcl:"metrics,optional"`
-	Publishers   []PublisherDef `hcl:"publisher,block"`
-	DefRange     hcl.Range      `hcl:",def_range"`
+	Connection  hcl.Expression  `hcl:"connection"`
+	Metrics     hcl.Expression  `hcl:"metrics,optional"`
+	Publishers  []PublisherDef  `hcl:"publisher,block"`
+	Subscribers []SubscriberDef `hcl:"subscriber,block"`
+	DefRange    hcl.Range       `hcl:",def_range"`
+}
+
+type SubscriberDef struct {
+	Name          string                     `hcl:",label"`
+	Subscriber    hcl.Expression             `hcl:"subscriber,optional"`
+	Action        hcl.Expression             `hcl:"action,optional"`
+	Subscriptions []ChannelSubscriptionDef   `hcl:"channel_subscription,block"`
+	DefRange      hcl.Range                  `hcl:",def_range"`
+}
+
+type ChannelSubscriptionDef struct {
+	Channel       hcl.Expression `hcl:"channel"`
+	VinculumTopic hcl.Expression `hcl:"vinculum_topic,optional"`
+	DefRange      hcl.Range      `hcl:",def_range"`
 }
 
 type PublisherDef struct {
@@ -58,9 +71,37 @@ type RedisPubSubClient struct {
 	cfg.BaseClient
 	bus.BaseSubscriber
 
-	connector  redisclient.RedisConnector
-	publishers map[string]*pubsub.RedisPubSubPublisher
-	order      []string
+	connector   redisclient.RedisConnector
+	publishers  map[string]*pubsub.RedisPubSubPublisher
+	order       []string
+	subscribers []*pubsub.RedisPubSubSubscriber
+}
+
+// Start brings up every subscriber, blocking only until each has
+// confirmed its initial SUBSCRIBE/PSUBSCRIBE with the server.
+func (c *RedisPubSubClient) Start() error {
+	ctx := context.Background()
+	for _, s := range c.subscribers {
+		if err := s.Start(ctx); err != nil {
+			// Roll back anything we already started so Stop() doesn't
+			// reach dangling half-subscribed connections.
+			for _, prev := range c.subscribers {
+				if prev == s {
+					break
+				}
+				_ = prev.Stop()
+			}
+			return fmt.Errorf("redis_pubsub client %q: %w", c.Name, err)
+		}
+	}
+	return nil
+}
+
+func (c *RedisPubSubClient) Stop() error {
+	for _, s := range c.subscribers {
+		_ = s.Stop()
+	}
+	return nil
 }
 
 // CtyValue exposes the client as `{publisher: {<name>: capsule}, publishers: capsule}`
@@ -132,11 +173,10 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}}
 	}
 
-	if len(def.Publishers) == 0 {
+	if len(def.Publishers) == 0 && len(def.Subscribers) == 0 {
 		return nil, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  "redis_pubsub: at least one publisher block is required",
-			Detail:   "subscriber blocks land in a later phase; for now, configure at least one publisher",
+			Summary:  "redis_pubsub: at least one publisher or subscriber block is required",
 			Subject:  &def.DefRange,
 		}}
 	}
@@ -163,24 +203,142 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		order = append(order, pdef.Name)
 	}
 
-	// on_connect/on_disconnect are accepted in the schema but wired in
-	// Phase 5 alongside subscribers; PUBLISH is stateless and piggybacks on
-	// the base client's pool, so there is no connection event to fire here.
-	_ = def.OnConnect
-	_ = def.OnDisconnect
+	// Metrics resolution lands in Phase 10.
 	_ = def.Metrics
+
+	seenSubs := make(map[string]struct{}, len(def.Subscribers))
+	subscribers := make([]*pubsub.RedisPubSubSubscriber, 0, len(def.Subscribers))
+	for _, sdef := range def.Subscribers {
+		if _, dup := seenSubs[sdef.Name]; dup {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  fmt.Sprintf("redis_pubsub: duplicate subscriber name %q", sdef.Name),
+				Subject:  &sdef.DefRange,
+			}}
+		}
+		seenSubs[sdef.Name] = struct{}{}
+
+		s, sDiags := buildSubscriber(config, connector, clientName, sdef)
+		if sDiags.HasErrors() {
+			return nil, sDiags
+		}
+		subscribers = append(subscribers, s)
+	}
 
 	wrapper := &RedisPubSubClient{
 		BaseClient: cfg.BaseClient{
 			Name:     clientName,
 			DefRange: def.DefRange,
 		},
-		connector:  connector,
-		publishers: publishers,
-		order:      order,
+		connector:   connector,
+		publishers:  publishers,
+		order:       order,
+		subscribers: subscribers,
+	}
+
+	if len(subscribers) > 0 {
+		config.Startables = append(config.Startables, wrapper)
+		config.Stoppables = append(config.Stoppables, wrapper)
 	}
 
 	return wrapper, nil
+}
+
+func buildSubscriber(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def SubscriberDef) (*pubsub.RedisPubSubSubscriber, hcl.Diagnostics) {
+	hasSubscriber := cfg.IsExpressionProvided(def.Subscriber)
+	hasAction := cfg.IsExpressionProvided(def.Action)
+	if hasSubscriber == hasAction {
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  fmt.Sprintf("redis_pubsub client %q subscriber %q: exactly one of subscriber or action must be specified", clientName, def.Name),
+			Subject:  &def.DefRange,
+		}}
+	}
+
+	var target bus.Subscriber
+	if hasSubscriber {
+		sub, diags := cfg.GetSubscriberFromExpression(config, def.Subscriber)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		target = sub
+	} else {
+		target = cfg.NewActionSubscriber(config, def.Action)
+	}
+
+	if len(def.Subscriptions) == 0 {
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  fmt.Sprintf("redis_pubsub client %q subscriber %q: at least one channel_subscription block is required", clientName, def.Name),
+			Subject:  &def.DefRange,
+		}}
+	}
+
+	b := pubsub.NewSubscriber(def.Name, connector.UniversalClient()).
+		WithTarget(target).
+		WithLogger(config.Logger)
+
+	for _, csd := range def.Subscriptions {
+		channelVal, cDiags := csd.Channel.Value(config.EvalCtx())
+		if cDiags.HasErrors() {
+			return nil, cDiags
+		}
+		if channelVal.IsNull() || channelVal.Type() != cty.String {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis_pubsub: channel_subscription channel must be a string",
+				Subject:  &csd.DefRange,
+			}}
+		}
+		cs := pubsub.ChannelSubscription{Channel: channelVal.AsString()}
+		if cfg.IsExpressionProvided(csd.VinculumTopic) {
+			cs.VinculumTopicFunc = makeVinculumTopicFunc(config, csd.VinculumTopic)
+		}
+		b = b.WithSubscription(cs)
+	}
+
+	return b.Build(), nil
+}
+
+func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) pubsub.VinculumTopicFunc {
+	return func(channel string, msg any, fields map[string]string) (string, error) {
+		if b, ok := msg.([]byte); ok {
+			msg = string(b)
+		}
+		ctyMsg, err := go2cty2go.AnyToCty(msg)
+		if err != nil {
+			return "", fmt.Errorf("convert msg: %w", err)
+		}
+
+		ctxBuilder := hclutil.NewEvalContext(context.Background()).
+			WithStringAttribute("topic", channel).
+			WithAttribute("msg", ctyMsg)
+
+		if len(fields) > 0 {
+			ctyFields := make(map[string]cty.Value, len(fields))
+			for k, v := range fields {
+				ctyFields[k] = cty.StringVal(v)
+			}
+			ctxBuilder = ctxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
+		}
+
+		evalCtx, err := ctxBuilder.BuildEvalContext(config.EvalCtx())
+		if err != nil {
+			return "", err
+		}
+
+		val, diags := expr.Value(evalCtx)
+		if diags.HasErrors() {
+			return "", diags
+		}
+		if val.IsNull() {
+			return "", nil
+		}
+		if val.Type() != cty.String {
+			return "", fmt.Errorf("vinculum_topic must return a string, got %s", val.Type().FriendlyName())
+		}
+		return val.AsString(), nil
+	}
 }
 
 func buildPublisher(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def PublisherDef) (*pubsub.RedisPubSubPublisher, hcl.Diagnostics) {

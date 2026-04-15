@@ -162,3 +162,90 @@ subscription "to_redis" {
 
 // Compile-time check that the wrapper really is a bus.Subscriber.
 var _ bus.Subscriber = (*redispubsub.RedisPubSubClient)(nil)
+
+// ── Phase 5: subscribers ──────────────────────────────────────────────────────
+
+func startLifecycle(t *testing.T, c *cfg.Config) {
+	t.Helper()
+	for _, s := range c.Startables {
+		require.NoError(t, s.Start())
+	}
+	t.Cleanup(func() {
+		for i := len(c.Stoppables) - 1; i >= 0; i-- {
+			_ = c.Stoppables[i].Stop()
+		}
+	})
+}
+
+func TestSubscriberRedisToBus(t *testing.T) {
+	mr := miniredis.RunT(t)
+
+	// Topic transform remaps every `devices.*` channel to `device/<segment>/seen`.
+	src := fmt.Sprintf(`
+bus "main" {}
+
+client "redis" "base" { address = "%s" }
+client "redis_pubsub" "rps" {
+    connection = client.base
+
+    subscriber "in" {
+        subscriber = bus.main
+
+        channel_subscription {
+            channel = "alerts"
+        }
+        channel_subscription {
+            channel        = "devices.*"
+            vinculum_topic = "device/${ctx.topic}/seen"
+        }
+    }
+}
+`, mr.Addr())
+	c := buildConfig(t, src)
+	startLifecycle(t, c)
+
+	received := make(chan struct {
+		topic string
+		msg   any
+	}, 4)
+	err := c.Buses["main"].Subscribe(context.Background(), "#", busSubFunc(func(topic string, msg any) {
+		received <- struct {
+			topic string
+			msg   any
+		}{topic, msg}
+	}))
+	require.NoError(t, err)
+
+	// Publish two channels via a fresh goredis client.
+	pub := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	defer pub.Close()
+	require.NoError(t, pub.Publish(context.Background(), "alerts", `{"lvl":"high"}`).Err())
+	require.NoError(t, pub.Publish(context.Background(), "devices.abc", "up").Err())
+
+	got := map[string]any{}
+	for i := 0; i < 2; i++ {
+		select {
+		case ev := <-received:
+			got[ev.topic] = ev.msg
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timeout waiting for event %d (got so far: %v)", i+1, got)
+		}
+	}
+	assert.Equal(t, map[string]any{"lvl": "high"}, got["alerts"])
+	assert.Equal(t, []byte("up"), got["device/devices.abc/seen"])
+}
+
+// busSubFunc wraps a handler into a bus.Subscriber.
+type busSubFuncT struct {
+	bus.BaseSubscriber
+	fn func(topic string, msg any)
+}
+
+func (b *busSubFuncT) OnEvent(_ context.Context, topic string, msg any, _ map[string]string) error {
+	b.fn(topic, msg)
+	return nil
+}
+func busSubFunc(fn func(topic string, msg any)) bus.Subscriber {
+	return &busSubFuncT{fn: fn}
+}
+
