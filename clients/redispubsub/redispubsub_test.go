@@ -163,7 +163,7 @@ subscription "to_redis" {
 // Compile-time check that the wrapper really is a bus.Subscriber.
 var _ bus.Subscriber = (*redispubsub.RedisPubSubClient)(nil)
 
-// ── Phase 5: subscribers ──────────────────────────────────────────────────────
+// ── subscribers ───────────────────────────────────────────────────────────────
 
 func startLifecycle(t *testing.T, c *cfg.Config) {
 	t.Helper()

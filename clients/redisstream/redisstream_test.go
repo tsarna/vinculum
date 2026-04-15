@@ -118,7 +118,7 @@ client "redis_stream" "rs" {
 	assert.Contains(t, entries[0].Values, "fields")
 }
 
-// ── Phase 7: consumers ────────────────────────────────────────────────────────
+// ── consumers ─────────────────────────────────────────────────────────────────
 
 func startLifecycle(t *testing.T, c *cfg.Config) {
 	t.Helper()

@@ -1,6 +1,6 @@
 // Package redispubsub implements the `client "redis_pubsub"` block — a
 // child client that piggybacks on a `client "redis"` connection to publish
-// (and in Phase 5, subscribe to) Redis channels.
+// to and subscribe from Redis channels.
 
 package redispubsub
 

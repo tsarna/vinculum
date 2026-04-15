@@ -1,8 +1,6 @@
 // Package redisstream implements the `client "redis_stream"` block — a
-// child of `client "redis"` that produces (and, in a later phase, consumes)
-// Redis Streams.
-//
-// Phase 6: producers only. Consumer sub-blocks land in Phase 7.
+// child of `client "redis"` that produces to and consumes from Redis
+// Streams.
 package redisstream
 
 import (
