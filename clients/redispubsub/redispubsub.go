@@ -19,6 +19,7 @@ import (
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func init() {
@@ -30,6 +31,7 @@ func init() {
 type RedisPubSubDefinition struct {
 	Connection  hcl.Expression  `hcl:"connection"`
 	Metrics     hcl.Expression  `hcl:"metrics,optional"`
+	Tracing     hcl.Expression  `hcl:"tracing,optional"`
 	Publishers  []PublisherDef  `hcl:"publisher,block"`
 	Subscribers []SubscriberDef `hcl:"subscriber,block"`
 	DefRange    hcl.Range       `hcl:",def_range"`
@@ -186,6 +188,10 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	if mpDiags.HasErrors() {
 		return nil, mpDiags
 	}
+	tp, tpDiags := config.ResolveTracerProvider(def.Tracing)
+	if tpDiags.HasErrors() {
+		return nil, tpDiags
+	}
 
 	seen := make(map[string]struct{}, len(def.Publishers))
 	publishers := make(map[string]*pubsub.RedisPubSubPublisher, len(def.Publishers))
@@ -201,7 +207,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}
 		seen[pdef.Name] = struct{}{}
 
-		p, pDiags := buildPublisher(config, connector, clientName, pdef, mp)
+		p, pDiags := buildPublisher(config, connector, clientName, pdef, mp, tp)
 		if pDiags.HasErrors() {
 			return nil, pDiags
 		}
@@ -221,7 +227,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}
 		seenSubs[sdef.Name] = struct{}{}
 
-		s, sDiags := buildSubscriber(config, connector, clientName, sdef, mp)
+		s, sDiags := buildSubscriber(config, connector, clientName, sdef, mp, tp)
 		if sDiags.HasErrors() {
 			return nil, sDiags
 		}
@@ -247,7 +253,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	return wrapper, nil
 }
 
-func buildSubscriber(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def SubscriberDef, mp metric.MeterProvider) (*pubsub.RedisPubSubSubscriber, hcl.Diagnostics) {
+func buildSubscriber(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def SubscriberDef, mp metric.MeterProvider, tp trace.TracerProvider) (*pubsub.RedisPubSubSubscriber, hcl.Diagnostics) {
 	hasSubscriber := cfg.IsExpressionProvided(def.Subscriber)
 	hasAction := cfg.IsExpressionProvided(def.Action)
 	if hasSubscriber == hasAction {
@@ -281,7 +287,8 @@ func buildSubscriber(config *cfg.Config, connector redisclient.RedisConnector, c
 		WithClientName(clientName).
 		WithTarget(target).
 		WithLogger(config.Logger).
-		WithMeterProvider(mp)
+		WithMeterProvider(mp).
+		WithTracerProvider(tp)
 
 	for _, csd := range def.Subscriptions {
 		channelVal, cDiags := csd.Channel.Value(config.EvalCtx())
@@ -346,11 +353,12 @@ func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) pubsub.Vincu
 	}
 }
 
-func buildPublisher(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def PublisherDef, mp metric.MeterProvider) (*pubsub.RedisPubSubPublisher, hcl.Diagnostics) {
+func buildPublisher(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def PublisherDef, mp metric.MeterProvider, tp trace.TracerProvider) (*pubsub.RedisPubSubPublisher, hcl.Diagnostics) {
 	b := pubsub.NewPublisher(def.Name, connector.UniversalClient()).
 		WithClientName(clientName).
 		WithLogger(config.Logger).
-		WithMeterProvider(mp)
+		WithMeterProvider(mp).
+		WithTracerProvider(tp)
 
 	switch def.DefaultChannelTransform {
 	case "", "verbatim":
