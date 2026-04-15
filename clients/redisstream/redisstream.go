@@ -20,6 +20,8 @@ import (
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -32,6 +34,7 @@ func init() {
 type RedisStreamDefinition struct {
 	Connection hcl.Expression `hcl:"connection"`
 	Metrics    hcl.Expression `hcl:"metrics,optional"`
+	Tracing    hcl.Expression `hcl:"tracing,optional"`
 	Producers  []ProducerDef  `hcl:"producer,block"`
 	Consumers  []ConsumerDef  `hcl:"consumer,block"`
 	DefRange   hcl.Range      `hcl:",def_range"`
@@ -194,7 +197,14 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}}
 	}
 
-	_ = def.Metrics // Phase 10
+	mp, mpDiags := cfg.ResolveMeterProvider(config, def.Metrics)
+	if mpDiags.HasErrors() {
+		return nil, mpDiags
+	}
+	tp, tpDiags := config.ResolveTracerProvider(def.Tracing)
+	if tpDiags.HasErrors() {
+		return nil, tpDiags
+	}
 
 	seen := make(map[string]struct{}, len(def.Producers))
 	producers := make(map[string]*stream.RedisStreamProducer, len(def.Producers))
@@ -209,7 +219,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}
 		seen[pdef.Name] = struct{}{}
 
-		p, pDiags := buildProducer(config, connector, clientName, pdef)
+		p, pDiags := buildProducer(config, connector, clientName, pdef, mp, tp)
 		if pDiags.HasErrors() {
 			return nil, pDiags
 		}
@@ -230,7 +240,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}
 		seenC[cdef.Name] = struct{}{}
 
-		cc, cDiags := buildConsumer(config, connector, clientName, cdef)
+		cc, cDiags := buildConsumer(config, connector, clientName, cdef, mp, tp)
 		if cDiags.HasErrors() {
 			return nil, cDiags
 		}
@@ -258,9 +268,12 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	return wrapper, nil
 }
 
-func buildProducer(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def ProducerDef) (*stream.RedisStreamProducer, hcl.Diagnostics) {
+func buildProducer(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def ProducerDef, mp metric.MeterProvider, tp trace.TracerProvider) (*stream.RedisStreamProducer, hcl.Diagnostics) {
 	b := stream.NewProducer(def.Name, connector.UniversalClient()).
-		WithLogger(config.Logger)
+		WithClientName(clientName).
+		WithLogger(config.Logger).
+		WithMeterProvider(mp).
+		WithTracerProvider(tp)
 
 	switch def.DefaultStreamTransform {
 	case "", "error":
@@ -398,7 +411,7 @@ func makeStreamFunc(config *cfg.Config, expr hcl.Expression) stream.StreamFunc {
 	}
 }
 
-func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def ConsumerDef) (*stream.RedisStreamConsumer, hcl.Diagnostics) {
+func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def ConsumerDef, mp metric.MeterProvider, tp trace.TracerProvider) (*stream.RedisStreamConsumer, hcl.Diagnostics) {
 	hasSubscriber := cfg.IsExpressionProvided(def.Subscriber)
 	hasAction := cfg.IsExpressionProvided(def.Action)
 	if hasSubscriber == hasAction {
@@ -447,11 +460,14 @@ func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, cli
 	}
 
 	b := stream.NewConsumer(def.Name, connector.UniversalClient()).
+		WithClientName(clientName).
 		WithStream(streamName).
 		WithGroup(def.Group).
 		WithConsumerName(consumerName).
 		WithTarget(target).
-		WithLogger(config.Logger)
+		WithLogger(config.Logger).
+		WithMeterProvider(mp).
+		WithTracerProvider(tp)
 
 	if def.BatchSize != nil {
 		if *def.BatchSize <= 0 {

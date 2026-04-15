@@ -56,6 +56,7 @@ type RedisKVClient struct {
 	defaultTTL time.Duration
 	encoding   valueEncoding
 	hashMode   bool
+	metrics    *kvMetrics
 }
 
 func (c *RedisKVClient) redis() goredis.UniversalClient {
@@ -86,13 +87,17 @@ func (c *RedisKVClient) Get(ctx context.Context, args []cty.Value) (cty.Value, e
 		defaultVal = args[1]
 	}
 
+	c.metrics.RecordOp(ctx, "GET")
 	raw, err := c.redis().Get(ctx, c.key(key)).Result()
 	if err != nil {
 		if err == goredis.Nil {
+			c.metrics.RecordMiss(ctx)
 			return defaultVal, nil
 		}
+		c.metrics.RecordError(ctx, "GET", "get")
 		return cty.NilVal, fmt.Errorf("redis_kv.get: %w", err)
 	}
+	c.metrics.RecordHit(ctx)
 	return c.decode(raw)
 }
 
@@ -160,7 +165,9 @@ func (c *RedisKVClient) Set(ctx context.Context, args []cty.Value) (cty.Value, e
 		if err != nil {
 			return cty.NilVal, err
 		}
+		c.metrics.RecordOp(ctx, "HSET")
 		if err := c.redis().HSet(ctx, c.key(key), field, encoded).Err(); err != nil {
+			c.metrics.RecordError(ctx, "HSET", "hset")
 			return cty.NilVal, fmt.Errorf("redis_kv.set (hash): %w", err)
 		}
 		return cty.NullVal(cty.DynamicPseudoType), nil
@@ -176,7 +183,9 @@ func (c *RedisKVClient) Set(ctx context.Context, args []cty.Value) (cty.Value, e
 		return cty.NilVal, err
 	}
 
+	c.metrics.RecordOp(ctx, "SET")
 	if err := c.redis().Set(ctx, c.key(key), encoded, ttl).Err(); err != nil {
+		c.metrics.RecordError(ctx, "SET", "set")
 		return cty.NilVal, fmt.Errorf("redis_kv.set: %w", err)
 	}
 	if persist {
@@ -235,15 +244,19 @@ func (c *RedisKVClient) Increment(ctx context.Context, args []cty.Value) (cty.Va
 	delta := args[1].AsBigFloat()
 	if delta.IsInt() {
 		n, _ := delta.Int64()
+		c.metrics.RecordOp(ctx, "INCRBY")
 		v, err := c.redis().IncrBy(ctx, c.key(key), n).Result()
 		if err != nil {
+			c.metrics.RecordError(ctx, "INCRBY", "incrby")
 			return cty.NilVal, fmt.Errorf("redis_kv.increment: %w", err)
 		}
 		return cty.NumberIntVal(v), nil
 	}
 	f, _ := delta.Float64()
+	c.metrics.RecordOp(ctx, "INCRBYFLOAT")
 	v, err := c.redis().IncrByFloat(ctx, c.key(key), f).Result()
 	if err != nil {
+		c.metrics.RecordError(ctx, "INCRBYFLOAT", "incrbyfloat")
 		return cty.NilVal, fmt.Errorf("redis_kv.increment: %w", err)
 	}
 	return cty.NumberFloatVal(v), nil
@@ -481,6 +494,11 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		defaultTTL = d
 	}
 
+	mp, mpDiags := cfg.ResolveMeterProvider(config, def.Metrics)
+	if mpDiags.HasErrors() {
+		return nil, mpDiags
+	}
+
 	client := &RedisKVClient{
 		BaseClient: cfg.BaseClient{
 			Name:     clientName,
@@ -491,6 +509,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		defaultTTL: defaultTTL,
 		encoding:   enc,
 		hashMode:   hashMode,
+		metrics:    newKVMetrics(clientName, mp),
 	}
 
 	return client, nil
