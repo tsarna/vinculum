@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum/clients/redisstream"
 	cfg "github.com/tsarna/vinculum/config"
 	"go.uber.org/zap"
@@ -114,6 +116,87 @@ client "redis_stream" "rs" {
 	_, hasFlatA := entries[0].Values["a"]
 	assert.False(t, hasFlatA)
 	assert.Contains(t, entries[0].Values, "fields")
+}
+
+// ── Phase 7: consumers ────────────────────────────────────────────────────────
+
+func startLifecycle(t *testing.T, c *cfg.Config) {
+	t.Helper()
+	for _, s := range c.Startables {
+		require.NoError(t, s.Start())
+	}
+	t.Cleanup(func() {
+		for i := len(c.Stoppables) - 1; i >= 0; i-- {
+			_ = c.Stoppables[i].Stop()
+		}
+	})
+}
+
+func TestStreamConsumerRoundTrip(t *testing.T) {
+	mr := miniredis.RunT(t)
+	src := fmt.Sprintf(`
+bus "main" {}
+
+client "redis" "base" { address = "%s" }
+client "redis_stream" "rs" {
+    connection = client.base
+
+    producer "out" { stream = "events" }
+
+    consumer "in" {
+        stream         = "events"
+        group          = "g"
+        block_timeout  = "100ms"
+        subscriber     = bus.main
+        vinculum_topic = "stream/${ctx.topic}"
+    }
+}
+`, mr.Addr())
+	c := buildConfig(t, src)
+
+	// Record bus events.
+	received := make(chan string, 4)
+	err := c.Buses["main"].Subscribe(context.Background(), "#", &busRecorder{onEvent: func(topic string, _ any) {
+		received <- topic
+	}})
+	require.NoError(t, err)
+
+	startLifecycle(t, c)
+
+	wrapper := c.Clients["redis_stream"]["rs"].(*redisstream.RedisStreamClient)
+	require.NoError(t, wrapper.OnEvent(context.Background(), "whatever", map[string]any{"k": 1}, nil))
+
+	select {
+	case topic := <-received:
+		assert.Equal(t, "stream/events", topic)
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for stream consumer delivery")
+	}
+}
+
+type busRecorder struct {
+	bus.BaseSubscriber
+	onEvent func(topic string, msg any)
+}
+
+func (r *busRecorder) OnEvent(_ context.Context, topic string, msg any, _ map[string]string) error {
+	r.onEvent(topic, msg)
+	return nil
+}
+
+func TestStreamConsumerMissingGroupRejected(t *testing.T) {
+	src := `
+client "redis" "base" { address = "localhost:1" }
+client "redis_stream" "rs" {
+    connection = client.base
+    consumer "in" {
+        stream = "events"
+    }
+}
+`
+	_, diags := cfg.NewConfig().WithSources([]byte(src)).WithLogger(zap.NewNop()).Build()
+	require.True(t, diags.HasErrors())
+	assert.Contains(t, diags.Error(), "group")
 }
 
 func TestStreamProducerInvalidFieldsModeRejected(t *testing.T) {

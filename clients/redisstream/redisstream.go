@@ -8,6 +8,7 @@ package redisstream
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
@@ -32,7 +33,27 @@ type RedisStreamDefinition struct {
 	Connection hcl.Expression `hcl:"connection"`
 	Metrics    hcl.Expression `hcl:"metrics,optional"`
 	Producers  []ProducerDef  `hcl:"producer,block"`
+	Consumers  []ConsumerDef  `hcl:"consumer,block"`
 	DefRange   hcl.Range      `hcl:",def_range"`
+}
+
+type ConsumerDef struct {
+	Name             string         `hcl:",label"`
+	Stream           hcl.Expression `hcl:"stream"`
+	Group            string         `hcl:"group"`
+	ConsumerName     hcl.Expression `hcl:"consumer_name,optional"`
+	VinculumTopic    hcl.Expression `hcl:"vinculum_topic,optional"`
+	Subscriber       hcl.Expression `hcl:"subscriber,optional"`
+	Action           hcl.Expression `hcl:"action,optional"`
+	BatchSize        *int64         `hcl:"batch_size,optional"`
+	BlockTimeout     hcl.Expression `hcl:"block_timeout,optional"`
+	AutoAck          *bool          `hcl:"auto_ack,optional"`
+	GroupCreate      string         `hcl:"group_create,optional"`
+	PayloadField     *string        `hcl:"payload_field,optional"`
+	TopicField       *string        `hcl:"topic_field,optional"`
+	ContentTypeField *string        `hcl:"content_type_field,optional"`
+	FieldsMode       string         `hcl:"fields_mode,optional"`
+	DefRange         hcl.Range      `hcl:",def_range"`
 }
 
 type ProducerDef struct {
@@ -60,6 +81,31 @@ type RedisStreamClient struct {
 	connector redisclient.RedisConnector
 	producers map[string]*stream.RedisStreamProducer
 	order     []string
+	consumers []*stream.RedisStreamConsumer
+}
+
+// Start brings up every configured consumer.
+func (c *RedisStreamClient) Start() error {
+	ctx := context.Background()
+	for _, cc := range c.consumers {
+		if err := cc.Start(ctx); err != nil {
+			for _, prev := range c.consumers {
+				if prev == cc {
+					break
+				}
+				_ = prev.Stop()
+			}
+			return fmt.Errorf("redis_stream client %q: %w", c.Name, err)
+		}
+	}
+	return nil
+}
+
+func (c *RedisStreamClient) Stop() error {
+	for _, cc := range c.consumers {
+		_ = cc.Stop()
+	}
+	return nil
 }
 
 func (c *RedisStreamClient) CtyValue() cty.Value {
@@ -126,11 +172,10 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}}
 	}
 
-	if len(def.Producers) == 0 {
+	if len(def.Producers) == 0 && len(def.Consumers) == 0 {
 		return nil, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  "redis_stream: at least one producer block is required",
-			Detail:   "consumer blocks land in a later phase; for now, configure at least one producer",
+			Summary:  "redis_stream: at least one producer or consumer block is required",
 			Subject:  &def.DefRange,
 		}}
 	}
@@ -158,6 +203,25 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		order = append(order, pdef.Name)
 	}
 
+	seenC := make(map[string]struct{}, len(def.Consumers))
+	consumers := make([]*stream.RedisStreamConsumer, 0, len(def.Consumers))
+	for _, cdef := range def.Consumers {
+		if _, dup := seenC[cdef.Name]; dup {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  fmt.Sprintf("redis_stream: duplicate consumer name %q", cdef.Name),
+				Subject:  &cdef.DefRange,
+			}}
+		}
+		seenC[cdef.Name] = struct{}{}
+
+		cc, cDiags := buildConsumer(config, connector, clientName, cdef)
+		if cDiags.HasErrors() {
+			return nil, cDiags
+		}
+		consumers = append(consumers, cc)
+	}
+
 	wrapper := &RedisStreamClient{
 		BaseClient: cfg.BaseClient{
 			Name:     clientName,
@@ -166,6 +230,12 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		connector: connector,
 		producers: producers,
 		order:     order,
+		consumers: consumers,
+	}
+
+	if len(consumers) > 0 {
+		config.Startables = append(config.Startables, wrapper)
+		config.Stoppables = append(config.Stoppables, wrapper)
 	}
 
 	return wrapper, nil
@@ -306,6 +376,200 @@ func makeStreamFunc(config *cfg.Config, expr hcl.Expression) stream.StreamFunc {
 		}
 		if val.Type() != cty.String {
 			return "", fmt.Errorf("stream expression must return a string, got %s", val.Type().FriendlyName())
+		}
+		return val.AsString(), nil
+	}
+}
+
+func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def ConsumerDef) (*stream.RedisStreamConsumer, hcl.Diagnostics) {
+	hasSubscriber := cfg.IsExpressionProvided(def.Subscriber)
+	hasAction := cfg.IsExpressionProvided(def.Action)
+	if hasSubscriber == hasAction {
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  fmt.Sprintf("redis_stream client %q consumer %q: exactly one of subscriber or action must be specified", clientName, def.Name),
+			Subject:  &def.DefRange,
+		}}
+	}
+
+	var target bus.Subscriber
+	if hasSubscriber {
+		sub, diags := cfg.GetSubscriberFromExpression(config, def.Subscriber)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		target = sub
+	} else {
+		target = cfg.NewActionSubscriber(config, def.Action)
+	}
+
+	streamVal, sDiags := def.Stream.Value(config.EvalCtx())
+	if sDiags.HasErrors() {
+		return nil, sDiags
+	}
+	if streamVal.IsNull() || streamVal.Type() != cty.String || streamVal.AsString() == "" {
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "redis_stream: consumer stream must be a non-empty string",
+			Subject:  &def.DefRange,
+		}}
+	}
+	streamName := streamVal.AsString()
+
+	if def.Group == "" {
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "redis_stream: consumer group is required",
+			Subject:  &def.DefRange,
+		}}
+	}
+
+	consumerName, cnDiags := resolveConsumerName(config, def.ConsumerName, clientName, def.Name)
+	if cnDiags.HasErrors() {
+		return nil, cnDiags
+	}
+
+	b := stream.NewConsumer(def.Name, connector.UniversalClient()).
+		WithStream(streamName).
+		WithGroup(def.Group).
+		WithConsumerName(consumerName).
+		WithTarget(target).
+		WithLogger(config.Logger)
+
+	if def.BatchSize != nil {
+		if *def.BatchSize <= 0 {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis_stream: batch_size must be positive",
+				Subject:  &def.DefRange,
+			}}
+		}
+		b = b.WithBatchSize(*def.BatchSize)
+	}
+	if cfg.IsExpressionProvided(def.BlockTimeout) {
+		d, dDiags := config.ParseDuration(def.BlockTimeout)
+		if dDiags.HasErrors() {
+			return nil, dDiags
+		}
+		b = b.WithBlockTimeout(d)
+	}
+	if def.AutoAck != nil {
+		b = b.WithAutoAck(*def.AutoAck)
+	}
+
+	switch def.GroupCreate {
+	case "", "create_if_missing":
+		b = b.WithGroupCreatePolicy(stream.GroupCreateIfMissing)
+	case "require_existing":
+		b = b.WithGroupCreatePolicy(stream.GroupRequireExisting)
+	case "create_from_start":
+		b = b.WithGroupCreatePolicy(stream.GroupCreateFromStart)
+	default:
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  fmt.Sprintf("redis_stream client %q consumer %q: invalid group_create", clientName, def.Name),
+			Detail:   fmt.Sprintf("%q is not valid; use create_if_missing, require_existing, or create_from_start", def.GroupCreate),
+			Subject:  &def.DefRange,
+		}}
+	}
+
+	if def.PayloadField != nil {
+		b = b.WithPayloadField(*def.PayloadField)
+	}
+	if def.TopicField != nil {
+		b = b.WithTopicField(*def.TopicField)
+	}
+	if def.ContentTypeField != nil {
+		b = b.WithContentTypeField(*def.ContentTypeField)
+	}
+	switch def.FieldsMode {
+	case "", "flat":
+		b = b.WithFieldsMode(stream.FieldsFlat)
+	case "nested":
+		b = b.WithFieldsMode(stream.FieldsNested)
+	case "omit":
+		b = b.WithFieldsMode(stream.FieldsOmit)
+	default:
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  fmt.Sprintf("redis_stream client %q consumer %q: invalid fields_mode", clientName, def.Name),
+			Detail:   fmt.Sprintf("%q is not valid; use flat, nested, or omit", def.FieldsMode),
+			Subject:  &def.DefRange,
+		}}
+	}
+
+	if cfg.IsExpressionProvided(def.VinculumTopic) {
+		b = b.WithTopicFunc(makeVinculumTopicFunc(config, def.VinculumTopic))
+	}
+
+	return b.Build(), nil
+}
+
+// resolveConsumerName evaluates consumer_name or falls back to a hostname-
+// based default. The default is stable within a process so restart sees
+// the same pending messages under the same consumer.
+func resolveConsumerName(config *cfg.Config, expr hcl.Expression, clientName, consumerName string) (string, hcl.Diagnostics) {
+	if cfg.IsExpressionProvided(expr) {
+		val, diags := expr.Value(config.EvalCtx())
+		if diags.HasErrors() {
+			return "", diags
+		}
+		if val.IsNull() || val.Type() != cty.String || val.AsString() == "" {
+			r := expr.Range()
+			return "", hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis_stream: consumer_name must be a non-empty string",
+				Subject:  &r,
+			}}
+		}
+		return val.AsString(), nil
+	}
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "vinculum"
+	}
+	return fmt.Sprintf("%s-%s-%s", host, clientName, consumerName), nil
+}
+
+// makeVinculumTopicFunc builds a resolver that evaluates the HCL expression
+// per message with ctx.topic (stream name), ctx.message_id, ctx.msg, and
+// ctx.fields in scope.
+func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) stream.VinculumTopicFromStreamFunc {
+	return func(streamName, entryID string, msg any, fields map[string]string) (string, error) {
+		if b, ok := msg.([]byte); ok {
+			msg = string(b)
+		}
+		ctyMsg, err := go2cty2go.AnyToCty(msg)
+		if err != nil {
+			return "", fmt.Errorf("convert msg: %w", err)
+		}
+
+		ctxBuilder := hclutil.NewEvalContext(context.Background()).
+			WithStringAttribute("topic", streamName).
+			WithStringAttribute("message_id", entryID).
+			WithAttribute("msg", ctyMsg)
+
+		if len(fields) > 0 {
+			ctyFields := make(map[string]cty.Value, len(fields))
+			for k, v := range fields {
+				ctyFields[k] = cty.StringVal(v)
+			}
+			ctxBuilder = ctxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
+		}
+
+		evalCtx, err := ctxBuilder.BuildEvalContext(config.EvalCtx())
+		if err != nil {
+			return "", err
+		}
+		val, diags := expr.Value(evalCtx)
+		if diags.HasErrors() {
+			return "", diags
+		}
+		if val.IsNull() {
+			return "", nil
+		}
+		if val.Type() != cty.String {
+			return "", fmt.Errorf("vinculum_topic must return a string, got %s", val.Type().FriendlyName())
 		}
 		return val.AsString(), nil
 	}
