@@ -736,6 +736,7 @@ trigger "cron" "daily_report" {
 - `sendgo(ctx, subscriber, topic, payload, fields?)`: Same as `send`, but first converts `payload` from a cty value to a Go native value (map/slice/scalar) before publishing. Use this when the subscriber expects native Go types.
 - `call(ctx, client, request)`: Make a synchronous request to a client and return the response. Currently supported for LLM clients (`client "openai"`). Always returns a response object — API errors are represented as `stop_reason = "error"` in the response rather than Go-level errors. See [client-llm.md](client-llm.md) for the full request/response schema.
 - `llm_wrap(content)`: Wrap a string in `<user_input>` XML-like delimiters as a prompt injection mitigation. Use in the `content` of user messages when the content comes from an untrusted source. The system prompt should reference the tags (e.g. `"Summarize the text in the <user_input> tags."`). Returns `"<user_input>\n{content}\n</user_input>"`.
+- `redis_ack(ctx, consumer, message_id)`: `XACK` a Redis Streams entry on the given consumer's stream and group. Used with `client "redis_stream"` consumers configured with `auto_ack = false`; the consumer is addressed as `client.<name>.consumer.<c>` and the entry ID is exposed to the action as `ctx.message_id`. Returns `true` on success. See [client-redis.md](client-redis.md#manual-ack-redis_ack).
 
 ### HTTP Response Functions
 

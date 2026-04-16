@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-04-16
+
+### Added
+
+- **Redis/Valkey support**: Four new client blocks for Redis- and Valkey-compatible servers. `client "redis"` is a passive connection manager (standalone, cluster, or sentinel) referenced by three child clients: `client "redis_pubsub"` for `PUBLISH`/`SUBSCRIBE`/`PSUBSCRIBE` channel messaging, `client "redis_stream"` for persistent `XADD`/`XREADGROUP` logs with consumer groups, manual ack (`redis_ack()`), reclaim, and dead-letter, and `client "redis_kv"` exposing `GET`/`SET`/`INCR`/`HGET`/`HSET` through the generic `get()` / `set()` / `increment()` interface. See [doc/client-redis.md](doc/client-redis.md) for details.
+
 ### Changed
 
 - Extracted the generic capability interfaces (`Stringable`, `Gettable`, `Watchable`, …), the generic dispatcher functions (`get`, `set`, `tostring`, `length`, …), and the `_ctx` / `_capsule` rich-object helpers into a new standalone module: [rich-cty-types](https://github.com/tsarna/rich-cty-types) (`v0.1.0`). Internal-only refactor with no VCL-visible changes; vinculum now depends on the external module for these symbols.

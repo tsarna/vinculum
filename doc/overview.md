@@ -36,7 +36,7 @@ block to safely rewrite BIND zone files in place.
 - **HCL Configuration** — Declarative configuration in HashiCorp Config Language (similar to Terraform), with constants, expressions, and assertions
 - **Publish/Subscribe Messaging** — One or more event buses with MQTT-style topic routing, wildcards, and parameter extraction
 - **Server Protocols** — HTTP(S), Vinculum WebSocket (VWS), plain WebSocket, Model Context Protocol (MCP), and Prometheus/OpenMetrics, with pluggable authentication (basic, OIDC, OAuth2)
-- **Client Protocols** — Kafka, MQTT, VWS (to other Vinculum instances), HTTP(S) (request/response), OpenAI / LLM, and OpenTelemetry (OTLP) export
+- **Client Protocols** — Kafka, MQTT, Redis/Valkey (pub/sub, streams, key-value), VWS (to other Vinculum instances), HTTP(S) (request/response), OpenAI / LLM, and OpenTelemetry (OTLP) export
 - **Triggers** — A range of trigger types for time-, event-, and lifecycle-driven actions: cron, dynamic intervals with optional jitter, absolute / dynamic times, file-system events, OS signals, startup/shutdown, watchdogs, and watches over reactive values
 - **Conditions** — Named boolean primitives with temporal rules (activate/deactivate delays, hysteresis, retentive timing, latches, cooldown, inhibit), covering IEC 61131-3 timer and counter function-block behaviors and composable into pipelines
 - **Transformations and Procedures** — JQ-based message transforms, structured-text `editor` blocks, and `procedure` blocks for small imperative helpers
@@ -167,6 +167,10 @@ A `client` block makes outbound connections to a remote service. Each client typ
 | [`client "http"`](client-http.md) | HTTP(S) request/response client with auth, retry, cookies, and OpenTelemetry (used via the `http_get()` / `http_post()` / etc. functions) |
 | [`client "kafka"`](client-kafka.md) | Kafka producer and consumer adapters with SASL/TLS, commit modes, and dead-letter queue support |
 | [`client "mqtt"`](client-mqtt.md) | MQTT 5.0 publisher and subscriber, including last-will and shared subscriptions |
+| [`client "redis"`](client-redis.md) | Redis/Valkey connection manager shared by `redis_pubsub`, `redis_stream`, and `redis_kv` child clients; standalone, cluster, and sentinel modes |
+| [`client "redis_pubsub"`](client-redis.md#client-redis_pubsub) | Redis channel PUBLISH/SUBSCRIBE/PSUBSCRIBE — MQTT-style fire-and-forget |
+| [`client "redis_stream"`](client-redis.md#client-redis_stream) | Redis Streams XADD/XREADGROUP with consumer groups, manual ack, reclaim, and dead-letter |
+| [`client "redis_kv"`](client-redis.md#client-redis_kv) | Redis GET/SET/INCR/HGET/HSET behind the generic `get()`/`set()`/`increment()` interface |
 | [`client "vws"`](server-vws.md) | Vinculum WebSocket client — connects to another Vinculum instance over the VWS protocol (documented alongside the VWS server) |
 | [`client "openai"`](client-llm.md) | OpenAI and OpenAI-compatible LLM API client (used via the `call()` function) |
 | [`client "otlp"`](client-otlp.md) | OpenTelemetry Protocol exporter for traces and metrics (push-based) |
