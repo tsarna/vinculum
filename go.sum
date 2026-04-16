@@ -159,6 +159,8 @@ github.com/tsarna/sqid-cty-funcs v0.1.0 h1:q8Dt1l8u8t1hVIs40Iz7sgeaTPrxwX07q9IaE
 github.com/tsarna/sqid-cty-funcs v0.1.0/go.mod h1:QDOjQrrV85hpg2dMVZk7VYw1YL0RZ+26uurRCZAtqWc=
 github.com/tsarna/time-cty-funcs v0.1.1 h1:8owOCxbId+6PZU0HnkKTHrqJ7+U7RF3H1CAkR2fQFJw=
 github.com/tsarna/time-cty-funcs v0.1.1/go.mod h1:CU4GYI5MYmvFtgGaGoo1+8Y1ZKuPDH/yBTN0tSO5XE4=
+github.com/tsarna/time-cty-funcs v0.2.0 h1:IYrOKatN62mxMVYxu1qI66pBu+BzACy26+Zpw0HZhR4=
+github.com/tsarna/time-cty-funcs v0.2.0/go.mod h1:FGPcYpyUlZbC5yp9CV91Ruw9IK8TjJtoyxU/vNDxfzo=
 github.com/tsarna/url-cty-funcs v0.1.0 h1:oYn/S3AXYZCPV+5LHBUEFMPeTH5QusnwOxMyohuxskc=
 github.com/tsarna/url-cty-funcs v0.1.0/go.mod h1:L6HbW8wrXgcRp6ueeTYt0t20HBRfiFPDhuP5Y7v3Kns=
 github.com/tsarna/vinculum-bus v0.11.0 h1:vg2HbElFoh0s6vmPnTvcNwbccO2/qp7o5nYTTC8l5sw=

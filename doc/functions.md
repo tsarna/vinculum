@@ -339,7 +339,7 @@ The `<`/`>`/`<=`/`>=` operators do not work on `time` values (go-cty limitation)
 
 #### Timestamp — Decomposition
 
-- `timepart(t, part)`: Extract a component of `t` as a number. `part` is one of:
+- `get(t, part)`: Extract a component of `t` as a number. `part` is one of:
 
   | Part string | Description |
   |-------------|-------------|
@@ -354,6 +354,13 @@ The `<`/`>`/`<=`/`>=` operators do not work on `time` values (go-cty limitation)
   | `"yearday"` | Day of year 1–366 |
   | `"isoweek"` | ISO 8601 week number 1–53 |
   | `"isoyear"` | ISO 8601 week-year (may differ from calendar year at year boundaries) |
+
+  Components are read in the timezone stored in `t`; use `intimezone(t, tz)`
+  first to decompose in a different zone.
+
+- `tostring(t)`: Format `t` as RFC 3339 with nanosecond precision (equivalent
+  to `formattime("@rfc3339nano", t)`). Sub-second digits are included only
+  when `t` carries sub-second precision.
 
 #### Timestamp — Timezone
 
@@ -373,9 +380,9 @@ leap years — adding one month to January 31 yields February 28 (or 29 in a lea
 
 #### Duration — Decomposition
 
-- `durationpart(d, part)`: Return `d` expressed in the given unit. `part` is one of:
+- `get(d, unit)`: Return `d` expressed in the given unit. `unit` is one of:
 
-  | Part string | Description | Return type |
+  | Unit string | Description | Return type |
   |-------------|-------------|-------------|
   | `"h"` | Total duration in fractional hours | float |
   | `"m"` | Total duration in fractional minutes | float |
@@ -384,7 +391,10 @@ leap years — adding one month to January 31 yields February 28 (or 29 in a lea
   | `"us"` | Total duration in whole microseconds | integer |
   | `"ns"` | Total duration in whole nanoseconds | integer |
 
-  All units are *total* (not components). For example, `durationpart(duration("1h30m"), "m")` → `90.0`.
+  All units are *total* (not components). For example, `get(duration("1h30m"), "m")` → `90.0`.
+
+- `tostring(d)`: Format `d` in Go syntax (e.g. `"1h30m5s"`), equivalent to
+  `formatduration(d)`.
 
 #### Duration — Misc
 
@@ -424,9 +434,11 @@ fromunix(1705315800)                            # → 2024-01-15T10:30:00Z
 unix(now("UTC"))                                # → current epoch as float
 
 # Decomposition
-timepart(now("UTC"), "year")                    # → e.g. 2024
-timepart(now("UTC"), "weekday")                 # → 0 (Sunday) – 6 (Saturday)
-durationpart(since(ctx.start_time), "m")        # → total minutes as float
+get(now("UTC"), "year")                         # → e.g. 2024
+get(now("UTC"), "weekday")                      # → 0 (Sunday) – 6 (Saturday)
+get(since(ctx.start_time), "m")                 # → total minutes as float
+tostring(now("UTC"))                            # → "2024-01-15T10:30:00Z"
+tostring(since(ctx.start_time))                 # → "5m32s"
 
 # Timezone
 timezone()                                      # → local TZ name, e.g. "America/New_York"
@@ -533,6 +545,11 @@ reference. Dispatch is based on the type of the first argument at runtime.
 All four functions accept an optional leading `ctx` argument. When provided,
 the context is propagated into the underlying implementation (useful for tracing
 and observability). When omitted, `context.Background()` is used.
+
+> **Note:** `get()` and `tostring()` are generic functions that also dispatch
+> to other capsule types. See [URL Dynamic Field Access](#dynamic-field-access)
+> and [Timestamp / Duration — Decomposition](#timestamp--decomposition) for the
+> respective type-specific behaviors.
 
 #### `get([ctx,] thing, default_or_labels?)`
 

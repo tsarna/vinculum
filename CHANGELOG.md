@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Extracted the URL capsule/object types and `url*` cty functions (`urlparse`, `urljoin`, `urljoinpath`, `urlqueryencode`, `urlquerydecode`, `urldecode`) into a new standalone module: [url-cty-funcs](https://github.com/tsarna/url-cty-funcs) (`v0.1.0`). Internal-only refactor with no VCL-visible changes; vinculum now depends on the external module for these symbols.
+- Upgraded [time-cty-funcs](https://github.com/tsarna/time-cty-funcs) to `v0.2.0`. The `time` and `duration` capsule types now implement the rich-cty-types `Stringable` and `Gettable` interfaces, so `tostring(t)` / `tostring(d)` and `get(t, part)` / `get(d, unit)` work in VCL. See [doc/functions.md](doc/functions.md#timestamp--decomposition).
+
+### Removed
+
+- **VCL-visible:** `timepart(t, part)` and `durationpart(d, unit)` have been removed. Use the generic `get(t, part)` / `get(d, unit)` instead — same part/unit names, same return types.
 
 ## [0.28.0] - 2026-04-16
 
