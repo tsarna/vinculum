@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Extracted the URL capsule/object types and `url*` cty functions (`urlparse`, `urljoin`, `urljoinpath`, `urlqueryencode`, `urlquerydecode`, `urldecode`) into a new standalone module: [url-cty-funcs](https://github.com/tsarna/url-cty-funcs) (`v0.1.0`). Internal-only refactor with no VCL-visible changes; vinculum now depends on the external module for these symbols.
+
 ## [0.28.0] - 2026-04-16
 
 ### Added

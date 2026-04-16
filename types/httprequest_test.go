@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	timecty "github.com/tsarna/time-cty-funcs"
+	urlcty "github.com/tsarna/url-cty-funcs"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -51,7 +52,7 @@ func TestBuildHTTPRequestObject_URL(t *testing.T) {
 	obj := BuildHTTPRequestObject(r)
 	urlObj := obj.GetAttr("url")
 
-	assert.Equal(t, URLObjectType, urlObj.Type())
+	assert.Equal(t, urlcty.URLObjectType, urlObj.Type())
 	assert.Equal(t, cty.StringVal("https"), urlObj.GetAttr("scheme"))
 	assert.Equal(t, cty.StringVal("api.example.com"), urlObj.GetAttr("hostname"))
 	assert.Equal(t, cty.StringVal("8443"), urlObj.GetAttr("port"))

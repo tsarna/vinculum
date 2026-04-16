@@ -10,6 +10,7 @@ import (
 	"reflect"
 
 	richcty "github.com/tsarna/rich-cty-types"
+	urlcty "github.com/tsarna/url-cty-funcs"
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
 )
@@ -66,7 +67,7 @@ var HTTPClientResponseObjectType = cty.Object(map[string]cty.Type{
 	"status_text":    cty.String,
 	"ok":             cty.Bool,
 	"redirected":     cty.Bool,
-	"final_url":      URLObjectType,
+	"final_url":      urlcty.URLObjectType,
 	"proto":          cty.String,
 	"headers":        cty.Map(cty.List(cty.String)),
 	"content_length": cty.Number,
@@ -117,9 +118,9 @@ func BuildHTTPClientResponseObject(w *HTTPClientResponseWrapper) cty.Value {
 	// the request that produced this response (after CheckRedirect dance).
 	var finalURLVal cty.Value
 	if r.Request != nil && r.Request.URL != nil {
-		finalURLVal = BuildURLObject(r.Request.URL)
+		finalURLVal = urlcty.BuildURLObject(r.Request.URL)
 	} else {
-		finalURLVal = cty.NullVal(URLObjectType)
+		finalURLVal = cty.NullVal(urlcty.URLObjectType)
 	}
 
 	// body: null unless opts.as pre-decoded the body.

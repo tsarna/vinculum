@@ -279,7 +279,7 @@ for contexts.
 | VCL Type | Object type var | Capsule type var | Source |
 |---|---|---|---|
 | `bytes` | `types.BytesObjectType` | `types.BytesCapsuleType` | `types/bytes.go` |
-| URL object | `types.URLObjectType` | `types.URLCapsuleType` | `types/url.go` |
+| URL object | `urlcty.URLObjectType` | `urlcty.URLCapsuleType` | [github.com/tsarna/url-cty-funcs](https://github.com/tsarna/url-cty-funcs) |
 
 **How to implement a new rich object type:**
 

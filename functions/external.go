@@ -5,6 +5,7 @@ import (
 	richcty "github.com/tsarna/rich-cty-types"
 	sqidcty "github.com/tsarna/sqid-cty-funcs"
 	timecty "github.com/tsarna/time-cty-funcs"
+	urlcty "github.com/tsarna/url-cty-funcs"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty/function"
 )
@@ -21,5 +22,8 @@ func init() {
 	})
 	cfg.RegisterFunctionPlugin("time", func(_ *cfg.Config) map[string]function.Function {
 		return timecty.GetTimeFunctions()
+	})
+	cfg.RegisterFunctionPlugin("url", func(_ *cfg.Config) map[string]function.Function {
+		return urlcty.GetURLFunctions()
 	})
 }

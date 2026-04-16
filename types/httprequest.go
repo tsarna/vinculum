@@ -10,6 +10,7 @@ import (
 
 	richcty "github.com/tsarna/rich-cty-types"
 	timecty "github.com/tsarna/time-cty-funcs"
+	urlcty "github.com/tsarna/url-cty-funcs"
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
 )
@@ -50,7 +51,7 @@ var CookieObjectType = cty.Object(map[string]cty.Type{
 // HTTPRequestObjectType is the static cty object type returned by BuildHTTPRequestObject.
 var HTTPRequestObjectType = cty.Object(map[string]cty.Type{
 	"method":       cty.String,
-	"url":          URLObjectType,
+	"url":          urlcty.URLObjectType,
 	"proto":        cty.String,
 	"proto_major":  cty.Number,
 	"proto_minor":  cty.Number,
@@ -111,7 +112,7 @@ func BuildHTTPRequestObject(r *http.Request) cty.Value {
 
 	return cty.ObjectVal(map[string]cty.Value{
 		"method":       cty.StringVal(r.Method),
-		"url":          BuildURLObject(r.URL),
+		"url":          urlcty.BuildURLObject(r.URL),
 		"proto":        cty.StringVal(r.Proto),
 		"proto_major":  cty.NumberIntVal(int64(r.ProtoMajor)),
 		"proto_minor":  cty.NumberIntVal(int64(r.ProtoMinor)),

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	richcty "github.com/tsarna/rich-cty-types"
+	urlcty "github.com/tsarna/url-cty-funcs"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -88,7 +89,7 @@ func TestBuildHTTPClientResponseObject_FinalURL(t *testing.T) {
 	r := newTestResponse(200, "200 OK", "")
 	obj := BuildHTTPClientResponseObject(&HTTPClientResponseWrapper{R: r})
 	finalURL := obj.GetAttr("final_url")
-	assert.Equal(t, URLObjectType, finalURL.Type())
+	assert.Equal(t, urlcty.URLObjectType, finalURL.Type())
 	assert.Equal(t, cty.StringVal("https"), finalURL.GetAttr("scheme"))
 	assert.Equal(t, cty.StringVal("api.example.com"), finalURL.GetAttr("hostname"))
 	assert.Equal(t, cty.StringVal("/v1/things/42"), finalURL.GetAttr("path"))

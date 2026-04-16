@@ -15,6 +15,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	richcty "github.com/tsarna/rich-cty-types"
+	urlcty "github.com/tsarna/url-cty-funcs"
 	clientshttp "github.com/tsarna/vinculum/clients/http"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
@@ -851,7 +852,7 @@ func resolveURL(base *url.URL, rawURL cty.Value) (*url.URL, error) {
 	if rawURL.IsNull() {
 		return nil, fmt.Errorf("url: null not allowed")
 	}
-	u, err := types.GetURLFromValue(rawURL)
+	u, err := urlcty.GetURLFromValue(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("url: %w", err)
 	}
