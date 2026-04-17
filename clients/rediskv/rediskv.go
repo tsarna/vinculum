@@ -6,17 +6,14 @@ package rediskv
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"math/big"
-	"strings"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	goredis "github.com/redis/go-redis/v9"
-	"github.com/tsarna/go2cty2go"
 	richcty "github.com/tsarna/rich-cty-types"
+	wire "github.com/tsarna/vinculum-wire"
 	redisclient "github.com/tsarna/vinculum/clients/redis"
 	cfg "github.com/tsarna/vinculum/config"
 	vtypes "github.com/tsarna/vinculum/types"
@@ -28,22 +25,14 @@ func init() {
 }
 
 type RedisKVDefinition struct {
-	Connection    hcl.Expression `hcl:"connection"`
-	KeyPrefix     string         `hcl:"key_prefix,optional"`
-	DefaultTTL    hcl.Expression `hcl:"default_ttl,optional"`
-	ValueEncoding string         `hcl:"value_encoding,optional"`
-	HashMode      *bool          `hcl:"hash_mode,optional"`
-	Metrics       hcl.Expression `hcl:"metrics,optional"`
-	DefRange      hcl.Range      `hcl:",def_range"`
+	Connection hcl.Expression `hcl:"connection"`
+	KeyPrefix  string         `hcl:"key_prefix,optional"`
+	DefaultTTL hcl.Expression `hcl:"default_ttl,optional"`
+	WireFormat hcl.Expression `hcl:"wire_format,optional"`
+	HashMode   *bool          `hcl:"hash_mode,optional"`
+	Metrics    hcl.Expression `hcl:"metrics,optional"`
+	DefRange   hcl.Range      `hcl:",def_range"`
 }
-
-type valueEncoding int
-
-const (
-	encodingAuto valueEncoding = iota
-	encodingRaw
-	encodingJSON
-)
 
 // RedisKVClient is the runtime object exposed to HCL as a client capsule.
 // It implements richcty.Gettable/Settable/Incrementable so that the generic
@@ -54,7 +43,7 @@ type RedisKVClient struct {
 	connector  redisclient.RedisConnector
 	keyPrefix  string
 	defaultTTL time.Duration
-	encoding   valueEncoding
+	wireFormat *cfg.CtyWireFormat
 	hashMode   bool
 	metrics    *kvMetrics
 }
@@ -267,30 +256,12 @@ func (c *RedisKVClient) Increment(ctx context.Context, args []cty.Value) (cty.Va
 // --- encoding ---
 
 func (c *RedisKVClient) encode(v cty.Value) (string, error) {
-	// Bytes pass through verbatim in every mode — they are already an
-	// opaque binary payload with no meaningful JSON representation, and
-	// this matches MQTT/Kafka behavior.
+	// Bytes pass through verbatim — they are already an opaque binary
+	// payload with no meaningful JSON representation.
 	if b, ok := extractBytes(v); ok {
 		return string(b), nil
 	}
-
-	switch c.encoding {
-	case encodingRaw:
-		if v.IsNull() {
-			return "", nil
-		}
-		if v.Type() != cty.String {
-			return "", fmt.Errorf("redis_kv.set: value_encoding=raw only accepts strings or bytes, got %s", v.Type().FriendlyName())
-		}
-		return v.AsString(), nil
-	case encodingJSON:
-		return jsonEncode(v)
-	default: // auto
-		if !v.IsNull() && v.Type() == cty.String {
-			return v.AsString(), nil
-		}
-		return jsonEncode(v)
-	}
+	return c.wireFormat.SerializeString(v)
 }
 
 // extractBytes returns the underlying bytes for a bytes capsule or bytes
@@ -315,121 +286,15 @@ func extractBytes(v cty.Value) ([]byte, bool) {
 }
 
 func (c *RedisKVClient) decode(raw string) (cty.Value, error) {
-	switch c.encoding {
-	case encodingRaw:
-		return cty.StringVal(raw), nil
-	case encodingJSON:
-		return jsonDecode(raw)
-	default: // auto
-		if looksLikeJSON(raw) {
-			if v, err := jsonDecode(raw); err == nil {
-				return v, nil
-			}
-		}
-		return cty.StringVal(raw), nil
-	}
-}
-
-func jsonEncode(v cty.Value) (string, error) {
-	if v.IsNull() {
-		return "null", nil
-	}
-	any, err := go2cty2go.CtyToAny(v)
+	result, err := c.wireFormat.Deserialize([]byte(raw))
 	if err != nil {
-		return "", fmt.Errorf("redis_kv: cty->any: %w", err)
+		return cty.NilVal, fmt.Errorf("redis_kv: decode: %w", err)
 	}
-	b, err := json.Marshal(any)
-	if err != nil {
-		return "", fmt.Errorf("redis_kv: json encode: %w", err)
+	cv, ok := result.(cty.Value)
+	if !ok {
+		return cty.NilVal, fmt.Errorf("redis_kv: decode: expected cty.Value, got %T", result)
 	}
-	return string(b), nil
-}
-
-func jsonDecode(raw string) (cty.Value, error) {
-	var any interface{}
-	dec := json.NewDecoder(strings.NewReader(raw))
-	dec.UseNumber()
-	if err := dec.Decode(&any); err != nil {
-		return cty.NilVal, fmt.Errorf("redis_kv: json decode: %w", err)
-	}
-	// Reject trailing data — json.Decoder.Decode happily consumes just the
-	// first token, which would misread "2026-04-14" as the number 2026.
-	if _, err := dec.Token(); err == nil || err.Error() != "EOF" {
-		return cty.NilVal, fmt.Errorf("redis_kv: json decode: trailing data after value")
-	}
-	return anyToCty(any)
-}
-
-// anyToCty converts JSON-decoded values (with UseNumber) into cty values.
-// go2cty2go handles the main types but expects float64 for numbers; using
-// json.Number preserves precision for integer counters round-tripped through
-// Redis.
-func anyToCty(v interface{}) (cty.Value, error) {
-	switch x := v.(type) {
-	case nil:
-		return cty.NullVal(cty.DynamicPseudoType), nil
-	case json.Number:
-		if i, err := x.Int64(); err == nil {
-			return cty.NumberIntVal(i), nil
-		}
-		if f, err := x.Float64(); err == nil {
-			return cty.NumberFloatVal(f), nil
-		}
-		bf, _, err := big.ParseFloat(x.String(), 10, 512, big.ToNearestEven)
-		if err != nil {
-			return cty.NilVal, fmt.Errorf("redis_kv: bad number %q: %w", x.String(), err)
-		}
-		return cty.NumberVal(bf), nil
-	case string:
-		return cty.StringVal(x), nil
-	case bool:
-		return cty.BoolVal(x), nil
-	case []interface{}:
-		if len(x) == 0 {
-			return cty.EmptyTupleVal, nil
-		}
-		elems := make([]cty.Value, len(x))
-		for i, e := range x {
-			ev, err := anyToCty(e)
-			if err != nil {
-				return cty.NilVal, err
-			}
-			elems[i] = ev
-		}
-		return cty.TupleVal(elems), nil
-	case map[string]interface{}:
-		if len(x) == 0 {
-			return cty.EmptyObjectVal, nil
-		}
-		m := make(map[string]cty.Value, len(x))
-		for k, e := range x {
-			ev, err := anyToCty(e)
-			if err != nil {
-				return cty.NilVal, err
-			}
-			m[k] = ev
-		}
-		return cty.ObjectVal(m), nil
-	default:
-		return cty.NilVal, fmt.Errorf("redis_kv: unsupported JSON type %T", v)
-	}
-}
-
-func looksLikeJSON(s string) bool {
-	for _, r := range s {
-		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
-			continue
-		}
-		switch r {
-		case '{', '[', '"', '-', 't', 'f', 'n':
-			return true
-		}
-		if r >= '0' && r <= '9' {
-			return true
-		}
-		return false
-	}
-	return false
+	return cv, nil
 }
 
 func asString(v cty.Value, name string) (string, error) {
@@ -470,22 +335,24 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}}
 	}
 
-	enc := encodingAuto
-	switch def.ValueEncoding {
-	case "", "auto":
-		enc = encodingAuto
-	case "raw":
-		enc = encodingRaw
-	case "json":
-		enc = encodingJSON
-	default:
-		return nil, hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  "redis_kv: invalid value_encoding",
-			Detail:   fmt.Sprintf("value_encoding must be \"auto\", \"raw\", or \"json\"; got %q", def.ValueEncoding),
-			Subject:  &def.DefRange,
-		}}
+	var wf wire.WireFormat = wire.Auto
+	if cfg.IsExpressionProvided(def.WireFormat) {
+		wfVal, wfDiags := def.WireFormat.Value(config.EvalCtx())
+		if wfDiags.HasErrors() {
+			return nil, wfDiags
+		}
+		resolved, err := cfg.GetWireFormatFromValue(wfVal)
+		if err != nil {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis_kv: invalid wire_format",
+				Detail:   err.Error(),
+				Subject:  def.WireFormat.Range().Ptr(),
+			}}
+		}
+		wf = resolved
 	}
+	ctyWF := &cfg.CtyWireFormat{Inner: wf}
 
 	var defaultTTL time.Duration
 	if cfg.IsExpressionProvided(def.DefaultTTL) {
@@ -509,7 +376,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		connector:  connector,
 		keyPrefix:  def.KeyPrefix,
 		defaultTTL: defaultTTL,
-		encoding:   enc,
+		wireFormat: ctyWF,
 		hashMode:   hashMode,
 		metrics:    newKVMetrics(clientName, mp),
 	}

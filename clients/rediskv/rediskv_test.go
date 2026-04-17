@@ -16,6 +16,14 @@ import (
 	"go.uber.org/zap"
 )
 
+// ctyAttr extracts a named attribute from a cty object or map value.
+func ctyAttr(v cty.Value, name string) cty.Value {
+	if v.Type().IsObjectType() {
+		return v.GetAttr(name)
+	}
+	return v.Index(cty.StringVal(name))
+}
+
 func buildConfig(t *testing.T, src string) *cfg.Config {
 	t.Helper()
 	c, diags := cfg.NewConfig().WithSources([]byte(src)).WithLogger(zap.NewNop()).Build()
@@ -68,8 +76,12 @@ func TestSetGetAuto(t *testing.T) {
 
 	got, err := kv.Get(ctx, []cty.Value{cty.StringVal("obj")})
 	require.NoError(t, err)
-	assert.Equal(t, cty.NumberIntVal(1), got.GetAttr("a"))
-	assert.Equal(t, cty.StringVal("x"), got.GetAttr("b"))
+	// JSON round-trip produces float64 → cty number; compare numerically
+	a := ctyAttr(got, "a")
+	assert.True(t, a.AsBigFloat().IsInt())
+	ai, _ := a.AsBigFloat().Int64()
+	assert.Equal(t, int64(1), ai)
+	assert.Equal(t, "x", ctyAttr(got, "b").AsString())
 }
 
 func TestGetMissingReturnsDefault(t *testing.T) {
@@ -160,20 +172,23 @@ func TestBytesPassthrough(t *testing.T) {
 	assert.Equal(t, string(data), raw)
 }
 
-func TestRawEncoding(t *testing.T) {
+func TestStringWireFormat(t *testing.T) {
 	mr := miniredis.RunT(t)
 	src := fmt.Sprintf(`
 client "redis" "base" { address = "%s" }
 client "redis_kv" "kv" {
-    connection     = client.base
-    value_encoding = "raw"
+    connection  = client.base
+    wire_format = "string"
 }
 `, mr.Addr())
 	c := buildConfig(t, src)
 	kv := c.Clients["redis_kv"]["kv"].(*rediskv.RedisKVClient)
 
-	_, err := kv.Set(context.Background(), []cty.Value{cty.StringVal("k"), cty.NumberIntVal(5)})
-	assert.Error(t, err, "raw encoding should reject non-strings")
+	// Numbers serialize to their canonical string form
+	_, err := kv.Set(context.Background(), []cty.Value{cty.StringVal("n"), cty.NumberIntVal(5)})
+	require.NoError(t, err)
+	raw, _ := mr.Get("n")
+	assert.Equal(t, "5", raw)
 
 	_, err = kv.Set(context.Background(), []cty.Value{cty.StringVal("k"), cty.StringVal("{not decoded}")})
 	require.NoError(t, err)
@@ -182,13 +197,13 @@ client "redis_kv" "kv" {
 	assert.Equal(t, cty.StringVal("{not decoded}"), v)
 }
 
-func TestJSONEncoding(t *testing.T) {
+func TestJSONWireFormat(t *testing.T) {
 	mr := miniredis.RunT(t)
 	src := fmt.Sprintf(`
 client "redis" "base" { address = "%s" }
 client "redis_kv" "kv" {
-    connection     = client.base
-    value_encoding = "json"
+    connection  = client.base
+    wire_format = "json"
 }
 `, mr.Addr())
 	c := buildConfig(t, src)
