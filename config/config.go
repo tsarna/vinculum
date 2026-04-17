@@ -70,6 +70,7 @@ type Config struct {
 	CtyTriggerMap    map[string]cty.Value
 	TriggerDefRanges map[string]hcl.Range
 	CtyConditionMap  map[string]cty.Value
+	CtyWireFormatMap map[string]cty.Value
 
 	MetricsServers map[string]MetricsRegistrar
 	OtlpClients    map[string]OtlpClient
@@ -125,8 +126,9 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		CtyTriggerMap:    make(map[string]cty.Value),
 		CtyConditionMap:  make(map[string]cty.Value),
 		CtyVarMap:        make(map[string]cty.Value),
-		TriggerDefRanges: make(map[string]hcl.Range),
-		MetricsServers:   make(map[string]MetricsRegistrar),
+		TriggerDefRanges:  make(map[string]hcl.Range),
+		CtyWireFormatMap:  make(map[string]cty.Value),
+		MetricsServers:    make(map[string]MetricsRegistrar),
 	}
 
 	// Validate write-path is under file-path

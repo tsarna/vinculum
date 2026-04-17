@@ -50,6 +50,7 @@ func GetBlockHandlers() map[string]BlockHandler {
 		"subscription": NewSubscriptionBlockHandler(),
 		"trigger":      NewTriggerBlockHandler(),
 		"var":          NewVariableBlockHandler(),
+		"wire_format":  NewWireFormatBlockHandler(),
 	}
 }
 
@@ -105,6 +106,10 @@ var blockSchema = []hcl.BlockHeaderSchema{
 	{
 		Type:       "var",
 		LabelNames: []string{"name"},
+	},
+	{
+		Type:       "wire_format",
+		LabelNames: []string{"type", "name"},
 	},
 }
 
