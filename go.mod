@@ -33,6 +33,7 @@ require (
 	github.com/tsarna/vinculum-mqtt v0.6.0
 	github.com/tsarna/vinculum-redis v0.1.0
 	github.com/tsarna/vinculum-vws v0.11.0
+	github.com/tsarna/vinculum-wire v0.1.0
 	github.com/twmb/franz-go v1.20.7
 	github.com/twmb/franz-go/plugin/kotel v1.6.0
 	github.com/yosida95/uritemplate/v3 v3.0.2
