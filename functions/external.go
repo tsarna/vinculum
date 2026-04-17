@@ -1,6 +1,7 @@
 package functions
 
 import (
+	geocty "github.com/tsarna/geo-cty-funcs"
 	randcty "github.com/tsarna/rand-cty-funcs"
 	richcty "github.com/tsarna/rich-cty-types"
 	sqidcty "github.com/tsarna/sqid-cty-funcs"
@@ -11,6 +12,9 @@ import (
 )
 
 func init() {
+	cfg.RegisterFunctionPlugin("geo", func(_ *cfg.Config) map[string]function.Function {
+		return geocty.GetGeoFunctions()
+	})
 	cfg.RegisterFunctionPlugin("generic", func(_ *cfg.Config) map[string]function.Function {
 		return richcty.GetGenericFunctions()
 	})

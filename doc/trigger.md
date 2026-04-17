@@ -123,13 +123,12 @@ schedule can adapt based on how many times the trigger has already fired.
 **Creates** `trigger.<name>` as a capsule; read the next scheduled time with
 `get(trigger.<name>)`, or poke for rescheduling with `set(trigger.<name>)`.
 
-Example — fire at a dynamically computed time each day (e.g. sunrise once
-`sunrise()` is available):
+Example — fire at a dynamically computed time each day, for example using Vinculum's sunrise/sunset functions:
 
 ```hcl
 trigger "at" "sunrise" {
-    time   = sunrise(var.latitude, var.longitude)
-    action = set(lights.scene, "morning")
+    time   = sunrise({lat = get(var.latitude), lon = get(var.longitude)})
+    action = set(var.scene, "morning")
 }
 ```
 

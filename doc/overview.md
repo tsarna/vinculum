@@ -83,7 +83,7 @@ Subscriptions may declare some transformations to be performed on messages befor
 
 ## Triggers
 
-Triggers cause an action to be evaluated in response to time, lifecycle, or external events. Vinculum supports many trigger types: classic cron schedules, fixed and dynamically computed intervals, absolute / dynamically computed wall-clock times (e.g. sunrise/sunset), file-system events, OS signals, application startup and shutdown, watchdogs (fire when expected work *stops*), and watches over reactive values.
+Triggers cause an action to be evaluated in response to time, lifecycle, or external events. Vinculum supports many trigger types: classic cron schedules, fixed and dynamically computed intervals, absolute / dynamically computed wall-clock times (e.g. using `sunrise()` or `sunset()`), file-system events, OS signals, application startup and shutdown, watchdogs (fire when expected work *stops*), and watches over reactive values.
 
 See [trigger.md](trigger.md) for the full reference covering all trigger types.
 

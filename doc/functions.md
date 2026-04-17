@@ -229,6 +229,163 @@ The same `options` object must be used for both `sqid` and `unsqid` when using a
   without replacement. Errors if `k` exceeds the length of `list`.
 - `randshuffle(list)`: Return a shuffled copy of `list`. The original list is not modified.
 
+### Geographic
+
+VCL has a family of geographic functions for working with locations, solar events,
+celestial positions, geodesic calculations, and geometric queries. A **point** is
+any cty object with `lat` and `lon` number attributes (signed decimal degrees).
+Additional fields (`alt`, `speed`, `track`, `time`, etc.) are preserved by
+functions that return derived points. The field names are aligned with the
+[GPSD JSON `TPV` record](https://gpsd.gitlab.io/gpsd/gpsd_json.html), so data
+from a GPSD source can flow through without translation.
+
+#### Point Construction and Formatting
+
+- `geo_point(combined)`: Parse a combined `"lat,lon"` or DMS string into a point.
+  All `geo_format` output formats round-trip through this form.
+- `geo_point(combined, base)`: Same, merged onto `base`.
+- `geo_point(lat, lon)`: Construct a point from separate lat/lon values. Each may
+  be a number (signed decimal degrees) or a string in any of these forms:
+  - Signed decimal: `"37.7749"`, `"-122.4194"`
+  - Decimal with hemisphere: `"37.7749 N"`, `"N 37.7749"`, `"122.4194W"`
+  - DMS with degree symbol: `"37°46'29.6\"N"`
+  - DMS with ASCII `d`/`D`: `"37d46'29.6\"N"`
+  - Whitespace-separated DMS: `"37 46 29.6 N"`
+- `geo_point(lat, lon, base)`: Same, but the result is a copy of `base` with
+  `lat`/`lon` overwritten. All other fields in `base` are preserved.
+- `geo_format(point)`: Format a point as `"lat,lon"` (signed decimal, default).
+- `geo_format(point, format)`: Format using a named format:
+
+  | Format | Example |
+  |--------|---------|
+  | `"decimal"` | `"37.7749,-122.4194"` |
+  | `"decimal_alt"` | `"37.7749,-122.4194,11"` (includes `alt` if present) |
+  | `"dms"` | `"37°46'29.6\"N 122°25'9.8\"W"` |
+  | `"dms_ascii"` | `"37d46'29.6\"N 122d25'9.8\"W"` |
+  | `"dms_signed"` | `"37°46'29.6\" -122°25'9.8\""` |
+
+```hcl
+p = geo_point("37.7749,-122.4194")
+p = geo_point("37°46'29\"N 122°25'9\"W")
+p = geo_point(37.7749, -122.4194)
+p = geo_point("37°46'29\"N", "122°25'9\"W")
+p = geo_point(new_lat, new_lon, get(var.vehicle_position))
+geo_format(p, "dms")    # → "37°46'29.6\"N 122°25'9.8\"W"
+geo_point(geo_format(p, "dms"))   # round-trips back to a point
+```
+
+#### Solar / Astronomical Time Functions
+
+All four solar functions share the same signature:
+
+```
+f(point)
+f(point, offset)     — offset is a duration
+f(point, t)          — t is a time
+f(point, offset, t)
+```
+
+They return the **next occurrence** after `t` (default: `now()`) of the solar
+event plus `offset` (default: zero). If the computed target is in the past, the
+function advances to the next day. All times are UTC.
+
+To be clear: `f(point, delta)` is **not** the same as
+`timeadd(f(point), delta)`. Consider the case where it is now 30 minutes before
+sunrise. `sunrise(point, "-1h")` will return a time one hour before **tomorrow's**
+sunrise, because 1 hour before today's is in the past.
+
+In **polar regions** where the sun does not rise or set for extended periods,
+the functions search forward day-by-day (up to 400 days) until the event
+occurs again. `solar_noon` and `solar_midnight` require both sunrise and
+sunset to exist on the relevant day(s); during polar day or polar night they
+return the first meaningful occurrence after polar conditions end.
+
+- `sunrise(point[, offset][, t])`: Next sunrise.
+- `sunset(point[, offset][, t])`: Next sunset.
+- `solar_noon(point[, offset][, t])`: Next solar noon (midpoint of sunrise/sunset).
+- `solar_midnight(point[, offset][, t])`: Next solar midnight (midpoint of sunset
+  and next sunrise).
+
+```hcl
+time = sunrise(get(var.location))
+time = sunrise(get(var.location), duration("-30m"))
+time = sunset(get(var.location), duration("-15m"), ctx.scheduled_time)
+```
+
+#### Sun and Moon Position
+
+- `sun_position(point)` / `sun_position(point, t)`: Returns `{azimuth, altitude}`
+  in degrees. Azimuth is clockwise from true north; altitude is above the horizon
+  (negative = below).
+- `moon_position(point)` / `moon_position(point, t)`: Returns
+  `{azimuth, altitude, distance}`. Distance is in meters.
+- `moon_phase()` / `moon_phase(t)`: Returns `{fraction, phase, angle}`.
+  `fraction` is 0–1 (illuminated disc), `phase` is 0–1 (0 = new, 0.5 = full),
+  `angle` is the bright-limb angle in degrees (sign distinguishes waxing/waning).
+
+```hcl
+s = sun_position(get(var.location))
+s.altitude > 0              # true if the sun is up
+s.altitude < -6.0           # true if past civil twilight
+
+mp = moon_phase()
+mp.phase < 0.5              # true if waxing
+```
+
+#### Geodesic Functions (WGS-84)
+
+- `geo_inverse(point_a, point_b)`: Returns `{distance, bearing, back_bearing}`.
+  Distance in meters; bearings in degrees clockwise from north.
+- `geo_destination(origin, bearing, distance)`: Returns the point reached by
+  travelling `distance` meters from `origin` on the given bearing. All fields
+  from `origin` are preserved; only `lat`/`lon` are overwritten.
+- `geo_destination(origin, bearing, duration)`: Travel for the given duration at
+  `origin.speed` (m/s). Errors if `speed` is missing. Updates `time` if present.
+- `geo_destination(origin, bearing, target_time)`: Travel until `target_time` at
+  `origin.speed`. Requires both `speed` and `time` on the origin. Errors if
+  `target_time` is before `origin.time`.
+- `geo_destination(origin, bearing, third, extras)`: All three forms accept an
+  optional `extras` object that is merged onto `origin` before the calculation
+  (extras win on key conflicts).
+- `geo_waypoints(point_a, point_b, n)`: Returns a list of `n` (>= 2) evenly
+  spaced `{lat, lon, track}` objects along the geodesic, including both endpoints.
+
+```hcl
+r = geo_inverse(get(var.current), get(var.destination))
+r.distance      # meters
+r.bearing       # heading toward destination
+
+dest = geo_destination(get(var.location), 90.0, 1000.0)
+future = geo_destination(get(var.vehicle), get(var.vehicle).track, duration("5m"))
+
+waypoints = geo_waypoints(get(var.origin), get(var.destination), 5)
+```
+
+#### Geometric Functions
+
+A polygon is a `list(point)`, implicitly closed. Fewer than 3 points is an error.
+
+- `geo_area(polygon)`: Area in square meters. Orientation-independent.
+- `geo_contains(polygon, point)`: Returns `true` if `point` is inside `polygon`.
+- `geo_nearest(polygon, point)`: Returns the closest `{lat, lon}` on the polygon
+  perimeter (may be mid-edge, not just at a vertex).
+- `geo_line_intersect(line_a, line_b)`: Returns a list of `{lat, lon}` intersection
+  points between two polylines. Empty list if no crossings. Each line must have at
+  least 2 points.
+
+```hcl
+# Geofence detection
+geo_contains(const.home_zone, get(var.vehicle_position))
+
+# Distance to boundary
+boundary_pt = geo_nearest(const.restricted_zone, get(var.vehicle_position))
+dist = geo_inverse(get(var.vehicle_position), boundary_pt).distance
+
+# Route crossing
+crossings = geo_line_intersect(const.route_a, const.route_b)
+length(crossings) > 0    # true if routes cross
+```
+
 ### Time and Duration
 
 VCL has two native time types — `time` (a point in time) and `duration` (a length of time). Both
@@ -731,7 +888,7 @@ from any expression.
 
 ```hcl
 trigger "interval" "heartbeat" {
-    every  = "1m"
+    delay  = "1m"
     action = send(ctx, bus.main, "system/heartbeat", null)
 }
 

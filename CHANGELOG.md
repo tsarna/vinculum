@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-04-17
+
+### Added
+
+- **Geographic functions**: 16 new functions for working with locations, solar events, celestial positions, geodesic calculations, and geometric queries via the new [geo-cty-funcs](https://github.com/tsarna/geo-cty-funcs) (`v0.2.0`) module. Includes `geo_point`, `geo_format`, `sunrise`/`sunset`/`solar_noon`/`solar_midnight`, `sun_position`/`moon_position`/`moon_phase`, `geo_inverse`/`geo_destination`/`geo_waypoints`, and `geo_area`/`geo_contains`/`geo_nearest`/`geo_line_intersect`. See [doc/functions.md](doc/functions.md#geographic) for details.
+
 ### Changed
 
 - Extracted the URL capsule/object types and `url*` cty functions (`urlparse`, `urljoin`, `urljoinpath`, `urlqueryencode`, `urlquerydecode`, `urldecode`) into a new standalone module: [url-cty-funcs](https://github.com/tsarna/url-cty-funcs) (`v0.1.0`). Internal-only refactor with no VCL-visible changes; vinculum now depends on the external module for these symbols.
