@@ -14,6 +14,7 @@ import (
 	"github.com/tsarna/go2cty2go"
 	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum-redis/stream"
+	wire "github.com/tsarna/vinculum-wire"
 	redisclient "github.com/tsarna/vinculum/clients/redis"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
@@ -31,6 +32,7 @@ func init() {
 
 type RedisStreamDefinition struct {
 	Connection hcl.Expression `hcl:"connection"`
+	WireFormat hcl.Expression `hcl:"wire_format,optional"`
 	Metrics    hcl.Expression `hcl:"metrics,optional"`
 	Tracing    hcl.Expression `hcl:"tracing,optional"`
 	Producers  []ProducerDef  `hcl:"producer,block"`
@@ -204,6 +206,25 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		return nil, tpDiags
 	}
 
+	var wf wire.WireFormat = wire.Auto
+	if cfg.IsExpressionProvided(def.WireFormat) {
+		wfVal, wfDiags := def.WireFormat.Value(config.EvalCtx())
+		if wfDiags.HasErrors() {
+			return nil, wfDiags
+		}
+		resolved, err := cfg.GetWireFormatFromValue(wfVal)
+		if err != nil {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis_stream: invalid wire_format",
+				Detail:   err.Error(),
+				Subject:  def.WireFormat.Range().Ptr(),
+			}}
+		}
+		wf = resolved
+	}
+	ctyWF := &cfg.CtyWireFormat{Inner: wf}
+
 	seen := make(map[string]struct{}, len(def.Producers))
 	producers := make(map[string]*stream.RedisStreamProducer, len(def.Producers))
 	order := make([]string, 0, len(def.Producers))
@@ -217,7 +238,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}
 		seen[pdef.Name] = struct{}{}
 
-		p, pDiags := buildProducer(config, connector, clientName, pdef, mp, tp)
+		p, pDiags := buildProducer(config, connector, clientName, pdef, ctyWF, mp, tp)
 		if pDiags.HasErrors() {
 			return nil, pDiags
 		}
@@ -238,7 +259,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}
 		seenC[cdef.Name] = struct{}{}
 
-		cc, cDiags := buildConsumer(config, connector, clientName, cdef, mp, tp)
+		cc, cDiags := buildConsumer(config, connector, clientName, cdef, ctyWF, mp, tp)
 		if cDiags.HasErrors() {
 			return nil, cDiags
 		}
@@ -266,9 +287,10 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	return wrapper, nil
 }
 
-func buildProducer(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def ProducerDef, mp metric.MeterProvider, tp trace.TracerProvider) (*stream.RedisStreamProducer, hcl.Diagnostics) {
+func buildProducer(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def ProducerDef, wf wire.WireFormat, mp metric.MeterProvider, tp trace.TracerProvider) (*stream.RedisStreamProducer, hcl.Diagnostics) {
 	b := stream.NewProducer(def.Name, connector.UniversalClient()).
 		WithClientName(clientName).
+		WithWireFormat(wf).
 		WithLogger(config.Logger).
 		WithMeterProvider(mp).
 		WithTracerProvider(tp)
@@ -409,7 +431,7 @@ func makeStreamFunc(config *cfg.Config, expr hcl.Expression) stream.StreamFunc {
 	}
 }
 
-func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def ConsumerDef, mp metric.MeterProvider, tp trace.TracerProvider) (*stream.RedisStreamConsumer, hcl.Diagnostics) {
+func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def ConsumerDef, wf wire.WireFormat, mp metric.MeterProvider, tp trace.TracerProvider) (*stream.RedisStreamConsumer, hcl.Diagnostics) {
 	hasSubscriber := cfg.IsExpressionProvided(def.Subscriber)
 	hasAction := cfg.IsExpressionProvided(def.Action)
 	if hasSubscriber == hasAction {
@@ -463,6 +485,7 @@ func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, cli
 		WithGroup(def.Group).
 		WithConsumerName(consumerName).
 		WithTarget(target).
+		WithWireFormat(wf).
 		WithLogger(config.Logger).
 		WithMeterProvider(mp).
 		WithTracerProvider(tp)

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	bus "github.com/tsarna/vinculum-bus"
+	"github.com/zclconf/go-cty/cty"
 	"github.com/tsarna/vinculum/clients/redispubsub"
 	cfg "github.com/tsarna/vinculum/config"
 	"go.uber.org/zap"
@@ -98,7 +99,8 @@ client "redis_pubsub" "rps" {
 	require.NoError(t, wrapper.OnEvent(context.Background(), "device/abc123/status", "up", nil))
 	m := recv(t, ch)
 	assert.Equal(t, "devices.abc123.status", m.Channel)
-	assert.JSONEq(t, `"up"`, m.Payload)
+	// auto wire format passes strings through verbatim (not JSON-encoded)
+	assert.Equal(t, "up", m.Payload)
 }
 
 func TestPublisherDefaultIgnore(t *testing.T) {
@@ -231,8 +233,14 @@ client "redis_pubsub" "rps" {
 			t.Fatalf("timeout waiting for event %d (got so far: %v)", i+1, got)
 		}
 	}
-	assert.Equal(t, map[string]any{"lvl": "high"}, got["alerts"])
-	assert.Equal(t, []byte("up"), got["device/devices.abc/seen"])
+	// CtyWireFormat wraps deserialized values as cty.Values
+	alertVal := got["alerts"].(cty.Value)
+	assert.Equal(t, cty.String, alertVal.Index(cty.StringVal("lvl")).Type())
+	assert.Equal(t, "high", alertVal.Index(cty.StringVal("lvl")).AsString())
+
+	// auto format falls back to cty.StringVal for non-JSON
+	seenVal := got["device/devices.abc/seen"].(cty.Value)
+	assert.Equal(t, "up", seenVal.AsString())
 }
 
 // busSubFunc wraps a handler into a bus.Subscriber.

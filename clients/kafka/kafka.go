@@ -11,6 +11,7 @@ import (
 	bus "github.com/tsarna/vinculum-bus"
 	kconsumer "github.com/tsarna/vinculum-kafka/consumer"
 	kproducer "github.com/tsarna/vinculum-kafka/producer"
+	wire "github.com/tsarna/vinculum-wire"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -84,6 +85,7 @@ type KafkaClientDefinition struct {
 	DialTimeout    hcl.Expression       `hcl:"dial_timeout,optional"`
 	RequestTimeout hcl.Expression       `hcl:"request_timeout,optional"`
 	MetadataMaxAge hcl.Expression       `hcl:"metadata_max_age,optional"`
+	WireFormat     hcl.Expression       `hcl:"wire_format,optional"`
 	Metrics        hcl.Expression       `hcl:"metrics,optional"`
 	Tracing        hcl.Expression       `hcl:"tracing,optional"`
 	DefRange       hcl.Range            `hcl:",def_range"`
@@ -144,6 +146,7 @@ type KafkaClient struct {
 	prodSpecs       []builtProducerSpec
 	consSpecs       []builtConsumerSpec
 	producerProxies map[string]*KafkaProducerProxy
+	wireFormat      wire.WireFormat
 	meterProvider   metric.MeterProvider
 	tracerProvider  trace.TracerProvider
 	logger          *zap.Logger
@@ -198,6 +201,7 @@ func (c *KafkaClient) Start() error {
 			WithClient(kgoClient).
 			WithProduceMode(spec.produceMode).
 			WithDefaultTransform(spec.defaultXform).
+			WithWireFormat(c.wireFormat).
 			WithMeterProvider(c.meterProvider).
 			WithLogger(c.logger)
 		for _, tm := range spec.topicMappings {
@@ -225,6 +229,7 @@ func (c *KafkaClient) Start() error {
 			WithCommitMode(spec.commitMode).
 			WithDLQTopic(spec.dlqTopic).
 			WithSubscriber(spec.subscriber).
+			WithWireFormat(c.wireFormat).
 			WithMeterProvider(c.meterProvider).
 			WithLogger(c.logger)
 		for _, sub := range spec.subscriptions {
@@ -484,6 +489,26 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		return nil, tracingDiags
 	}
 
+	var wf wire.WireFormat = wire.Auto
+	if cfg.IsExpressionProvided(def.WireFormat) {
+		wfVal, wfDiags := def.WireFormat.Value(config.EvalCtx())
+		if wfDiags.HasErrors() {
+			return nil, wfDiags
+		}
+		resolved, err := cfg.GetWireFormatFromValue(wfVal)
+		if err != nil {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "kafka: invalid wire_format",
+				Detail:   err.Error(),
+				Subject:  def.WireFormat.Range().Ptr(),
+			}}
+		}
+		wf = resolved
+	}
+	// Wrap with CtyWireFormat so cty.Value payloads are converted transparently.
+	ctyWF := &cfg.CtyWireFormat{Inner: wf}
+
 	client := &KafkaClient{
 		BaseClient: cfg.BaseClient{
 			Name:     block.Labels[1],
@@ -493,6 +518,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		prodSpecs:       prodSpecs,
 		consSpecs:       consSpecs,
 		producerProxies: producerProxies,
+		wireFormat:      ctyWF,
 		meterProvider:   mp,
 		tracerProvider:  tracerProvider,
 		logger:          config.Logger,

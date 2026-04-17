@@ -17,6 +17,7 @@ import (
 	mqttclient "github.com/tsarna/vinculum-mqtt/client"
 	mqttpublisher "github.com/tsarna/vinculum-mqtt/publisher"
 	mqttsubscriber "github.com/tsarna/vinculum-mqtt/subscriber"
+	wire "github.com/tsarna/vinculum-wire"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
@@ -45,6 +46,7 @@ type MQTTClientDefinition struct {
 	OnDisconnect          hcl.Expression           `hcl:"on_disconnect,optional"`
 	Publishers            []MQTTPublisherDef       `hcl:"sender,block"`
 	Subscribers           []MQTTSubscriberDef      `hcl:"receiver,block"`
+	WireFormat            hcl.Expression           `hcl:"wire_format,optional"`
 	Metrics               hcl.Expression           `hcl:"metrics,optional"`
 	Tracing               hcl.Expression           `hcl:"tracing,optional"`
 	DefRange              hcl.Range                `hcl:",def_range"`
@@ -153,6 +155,7 @@ type MQTTClientWrapper struct {
 	pubSpecs         []builtMQTTPublisherSpec
 	subSpecs         []builtMQTTSubscriberSpec
 	publisherProxies map[string]*MQTTPublisherProxy
+	wireFormat       wire.WireFormat
 	meterProvider    metric.MeterProvider
 	tracerProvider   trace.TracerProvider
 	logger           *zap.Logger
@@ -189,6 +192,7 @@ func (c *MQTTClientWrapper) Start() error {
 			WithDefaultQoS(spec.defaultQoS).
 			WithDefaultRetain(spec.defaultRetain).
 			WithDefaultTransform(spec.defaultXform).
+			WithWireFormat(c.wireFormat).
 			WithMeterProvider(c.meterProvider).
 			WithTracerProvider(c.tracerProvider).
 			WithLogger(c.logger)
@@ -211,6 +215,7 @@ func (c *MQTTClientWrapper) Start() error {
 			WithSubscriber(spec.subscriber).
 			WithHandleRetained(spec.handleRetained).
 			WithSharedGroup(spec.sharedGroup).
+			WithWireFormat(c.wireFormat).
 			WithMeterProvider(c.meterProvider).
 			WithTracerProvider(c.tracerProvider).
 			WithLogger(c.logger)
@@ -480,6 +485,25 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		return nil, tracingDiags
 	}
 
+	var wf wire.WireFormat = wire.Auto
+	if cfg.IsExpressionProvided(def.WireFormat) {
+		wfVal, wfDiags := def.WireFormat.Value(config.EvalCtx())
+		if wfDiags.HasErrors() {
+			return nil, wfDiags
+		}
+		resolved, err := cfg.GetWireFormatFromValue(wfVal)
+		if err != nil {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "mqtt: invalid wire_format",
+				Detail:   err.Error(),
+				Subject:  def.WireFormat.Range().Ptr(),
+			}}
+		}
+		wf = resolved
+	}
+	ctyWF := &cfg.CtyWireFormat{Inner: wf}
+
 	clientCfg := mqttclient.ClientConfig{
 		ServerURLs:            serverURLs,
 		ClientID:              clientID,
@@ -524,6 +548,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		pubSpecs:         pubSpecs,
 		subSpecs:         subSpecs,
 		publisherProxies: publisherProxies,
+		wireFormat:       ctyWF,
 		meterProvider:    mp,
 		tracerProvider:   tracerProvider,
 		logger:           config.Logger,

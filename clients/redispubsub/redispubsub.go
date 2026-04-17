@@ -14,6 +14,7 @@ import (
 	"github.com/tsarna/go2cty2go"
 	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum-redis/pubsub"
+	wire "github.com/tsarna/vinculum-wire"
 	redisclient "github.com/tsarna/vinculum/clients/redis"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
@@ -30,6 +31,7 @@ func init() {
 
 type RedisPubSubDefinition struct {
 	Connection  hcl.Expression  `hcl:"connection"`
+	WireFormat  hcl.Expression  `hcl:"wire_format,optional"`
 	Metrics     hcl.Expression  `hcl:"metrics,optional"`
 	Tracing     hcl.Expression  `hcl:"tracing,optional"`
 	Publishers  []PublisherDef  `hcl:"publisher,block"`
@@ -193,6 +195,25 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		return nil, tpDiags
 	}
 
+	var wf wire.WireFormat = wire.Auto
+	if cfg.IsExpressionProvided(def.WireFormat) {
+		wfVal, wfDiags := def.WireFormat.Value(config.EvalCtx())
+		if wfDiags.HasErrors() {
+			return nil, wfDiags
+		}
+		resolved, err := cfg.GetWireFormatFromValue(wfVal)
+		if err != nil {
+			return nil, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "redis_pubsub: invalid wire_format",
+				Detail:   err.Error(),
+				Subject:  def.WireFormat.Range().Ptr(),
+			}}
+		}
+		wf = resolved
+	}
+	ctyWF := &cfg.CtyWireFormat{Inner: wf}
+
 	seen := make(map[string]struct{}, len(def.Publishers))
 	publishers := make(map[string]*pubsub.RedisPubSubPublisher, len(def.Publishers))
 	order := make([]string, 0, len(def.Publishers))
@@ -207,7 +228,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}
 		seen[pdef.Name] = struct{}{}
 
-		p, pDiags := buildPublisher(config, connector, clientName, pdef, mp, tp)
+		p, pDiags := buildPublisher(config, connector, clientName, pdef, ctyWF, mp, tp)
 		if pDiags.HasErrors() {
 			return nil, pDiags
 		}
@@ -227,7 +248,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}
 		seenSubs[sdef.Name] = struct{}{}
 
-		s, sDiags := buildSubscriber(config, connector, clientName, sdef, mp, tp)
+		s, sDiags := buildSubscriber(config, connector, clientName, sdef, ctyWF, mp, tp)
 		if sDiags.HasErrors() {
 			return nil, sDiags
 		}
@@ -253,7 +274,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	return wrapper, nil
 }
 
-func buildSubscriber(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def SubscriberDef, mp metric.MeterProvider, tp trace.TracerProvider) (*pubsub.RedisPubSubSubscriber, hcl.Diagnostics) {
+func buildSubscriber(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def SubscriberDef, wf wire.WireFormat, mp metric.MeterProvider, tp trace.TracerProvider) (*pubsub.RedisPubSubSubscriber, hcl.Diagnostics) {
 	hasSubscriber := cfg.IsExpressionProvided(def.Subscriber)
 	hasAction := cfg.IsExpressionProvided(def.Action)
 	if hasSubscriber == hasAction {
@@ -286,6 +307,7 @@ func buildSubscriber(config *cfg.Config, connector redisclient.RedisConnector, c
 	b := pubsub.NewSubscriber(def.Name, connector.UniversalClient()).
 		WithClientName(clientName).
 		WithTarget(target).
+		WithWireFormat(wf).
 		WithLogger(config.Logger).
 		WithMeterProvider(mp).
 		WithTracerProvider(tp)
@@ -353,9 +375,10 @@ func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) pubsub.Vincu
 	}
 }
 
-func buildPublisher(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def PublisherDef, mp metric.MeterProvider, tp trace.TracerProvider) (*pubsub.RedisPubSubPublisher, hcl.Diagnostics) {
+func buildPublisher(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def PublisherDef, wf wire.WireFormat, mp metric.MeterProvider, tp trace.TracerProvider) (*pubsub.RedisPubSubPublisher, hcl.Diagnostics) {
 	b := pubsub.NewPublisher(def.Name, connector.UniversalClient()).
 		WithClientName(clientName).
+		WithWireFormat(wf).
 		WithLogger(config.Logger).
 		WithMeterProvider(mp).
 		WithTracerProvider(tp)
