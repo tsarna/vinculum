@@ -107,9 +107,10 @@ cleanly onto vinculum's topic namespace (`/`-separated).
 
 ```hcl
 client "redis_pubsub" "rps" {
-  connection = client.myredis
-  metrics    = server.metrics.main   # optional
-  tracing    = server.metrics.main   # optional
+  connection  = client.myredis
+  wire_format = "auto"               # auto | json | string | bytes (default: auto)
+  metrics     = server.metrics.main  # optional
+  tracing     = server.metrics.main  # optional
 
   publisher "main" {
     # Optional block-level fallback expression when no channel_mapping
@@ -152,9 +153,9 @@ client "redis_pubsub" "rps" {
 
 ### Publisher behavior
 
-- Payloads are serialized like the other messaging clients: `[]byte` passes
-  through unchanged; `cty.Value` goes via `go2cty2go` to JSON; anything
-  else is JSON-encoded.
+- Payloads are serialized according to the client-level `wire_format`
+  (default `"auto"`). In auto mode, strings and bytes pass through verbatim;
+  everything else is JSON-encoded.
 - `bus.Subscriber` fan-out: the "publishers" wrapper implements `bus.Subscriber`
   and forwards to every publisher block, so
   `subscriber = client.clientname.publishers` broadcasts to all of them. Or, you can send
@@ -162,8 +163,9 @@ client "redis_pubsub" "rps" {
 
 ### Subscriber behavior
 
-- Payloads: valid JSON decodes to the natural cty-compatible value;
-  everything else is delivered as `[]byte`.
+- Payloads are deserialized according to the client-level `wire_format`
+  (default `"auto"`). In auto mode, JSON is decoded; non-JSON becomes a
+  string.
 - go-redis automatically re-subscribes on reconnect, so the
   `SUBSCRIBE`/`PSUBSCRIBE` set stays live without explicit config.
 - Redis keyspace notifications (`__keyevent@0__:expired` etc.) are just
@@ -187,9 +189,10 @@ the closest Redis analogue to the Kafka client.
 
 ```hcl
 client "redis_stream" "rs" {
-  connection = client.myredis
-  metrics    = server.metrics.main
-  tracing    = server.metrics.main
+  connection  = client.myredis
+  wire_format = "auto"               # auto | json | string | bytes (default: auto)
+  metrics     = server.metrics.main
+  tracing     = server.metrics.main
 
   producer "out" {
     # Stream name, evaluated per message. Default when omitted: vinculum
@@ -314,14 +317,14 @@ metrics, etc.).
 
 ```hcl
 client "redis_kv" "cache" {
-  connection     = client.myredis
-  key_prefix     = "app:"
-  default_ttl    = "1h"
-  value_encoding = "auto"     # auto | raw | json   (default: auto)
-  metrics        = server.metrics.main
+  connection  = client.myredis
+  key_prefix  = "app:"
+  default_ttl = "1h"
+  wire_format = "auto"       # auto | json | string | bytes  (default: auto)
+  metrics     = server.metrics.main
 }
 
-# GET app:mykey  → decoded per value_encoding
+# GET app:mykey  → decoded per wire_format
 get(ctx, client.cache, "mykey")
 get(ctx, client.cache, "mykey", "fallback")           # second arg is default
 
@@ -334,12 +337,13 @@ set(ctx, client.cache, "mykey", "value", 0)           # ttl=0 → PERSIST
 increment(ctx, client.cache, "page_views", 1)
 ```
 
-### Value encoding
+### Wire format
 
 | Mode | `set(v)` | `get()` |
 | --- | --- | --- |
-| `raw` | Strings and bytes verbatim; other types are a runtime error. | Raw string. |
+| `string` | Strings, bytes, numbers, bools to string form; objects/lists error. | Raw string. |
 | `json` | Everything JSON-encoded. | Everything JSON-decoded; malformed JSON errors. |
+| `bytes` | Same as `string`. | Raw bytes. |
 | `auto` (default) | Strings and bytes verbatim; other cty types JSON-encoded. | Values whose first non-whitespace byte is `{`, `[`, `"`, digit, `-`, `t`, `f`, or `n` are attempted as JSON; anything else (and JSON with trailing data, e.g. `2026-04-14`) stays a string. |
 
 `increment()` bypasses encoding — Redis `INCRBY`/`INCRBYFLOAT` require a

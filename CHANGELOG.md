@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-04-17
+
+### Added
+
+- **Pluggable wire format system** for consistent payload serialization/deserialization across all messaging clients and servers. Replaces the copy-pasted `serializePayload`/`deserializePayload` functions with a shared interface from the new [vinculum-wire](https://github.com/tsarna/vinculum-wire) (`v0.1.0`) module.
+  - **`wire_format` attribute** on `client "kafka"`, `client "mqtt"`, `client "redis_pubsub"`, `client "redis_stream"`, and `client "redis_kv"`. Accepts `"auto"` (default), `"json"`, `"string"`, or `"bytes"`, or a custom `wire_format` capsule.
+  - **`wire_format "<type>" "<name>"` block** for registering custom wire format plugins (e.g. Protocol Buffers, MessagePack). Custom formats participate in the dependency graph and are addressable as `wire_format.<name>` in expressions.
+  - **`serialize(wire_format, value)`**, **`serializestr(wire_format, value)`**, and **`deserialize(wire_format, data)`** expression functions for ad-hoc use in VCL. See [doc/functions.md](doc/functions.md#wire-format-serialize--deserialize).
+  - **`CtyWireFormat` decorator** in the config layer transparently converts between cty values and native Go types, so messaging clients never need to import cty.
+
+### Changed
+
+- **`client "redis_kv"`: `value_encoding` replaced by `wire_format`** — the old `value_encoding` attribute (`auto`/`raw`/`json`) is replaced by the shared `wire_format` system. The old `raw` mode maps to `wire_format = "string"`.
+- **Strings serialize verbatim in auto mode** — the `auto` wire format passes strings through unchanged (not JSON-encoded). Use `wire_format = "json"` for the old behavior.
+- Updated vinculum-kafka to v0.9.0, vinculum-mqtt to v0.7.0, vinculum-redis to v0.2.0.
+
 ## [0.29.0] - 2026-04-17
 
 ### Added

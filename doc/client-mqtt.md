@@ -63,6 +63,9 @@ client "mqtt" "iot" {
   on_connect    = send(ctx, bus.main, "mqtt/connected",    {client = "iot"})
   on_disconnect = send(ctx, bus.main, "mqtt/disconnected", {client = "iot"})
 
+  # Wire format for payload serialization/deserialization (default: "auto")
+  # wire_format = "json"     # auto | json | string | bytes
+
   # Named sender blocks (zero or more)
   sender "main" { ... }
 
@@ -203,11 +206,14 @@ Applied when no `topic` block matches.
 
 ### Message serialization
 
-| Payload type | Wire encoding |
-|---|---|
-| `cty.Value` | Converted via `go2cty2go`, then `json.Marshal` |
-| `[]byte` | Passed through unchanged |
-| other Go value | `json.Marshal` |
+Controlled by the client-level `wire_format` attribute (default `"auto"`):
+
+| Wire format | Serialize | Deserialize |
+|---|---|---|
+| `auto` | Strings/bytes verbatim; everything else JSON-encoded | Auto-detects JSON; falls back to string |
+| `json` | All values JSON-encoded; bytes pass through | Strict JSON; errors on malformed input |
+| `string` | Strings, bytes, numbers, bools to string form | Returns string |
+| `bytes` | Same as string | Returns bytes |
 
 vinculum `fields` are encoded as MQTT 5 user properties (one property per key).
 
@@ -289,12 +295,10 @@ topic (or pattern) is the block label.
 extracts the matched segment into `fields["deviceId"]`. The broker subscription
 uses the plain `+` wildcard; extraction happens locally.
 
-**Message deserialization:**
-
-| Payload | Vinculum `msg` type |
-|---|---|
-| Valid JSON | `any` (`map[string]any`, `[]any`, scalar) |
-| Non-JSON bytes | `[]byte` |
+**Message deserialization** is controlled by the client-level `wire_format`
+(default `"auto"`). In auto mode, JSON payloads are decoded; non-JSON becomes
+a string. Use `"json"` for strict decoding, or `"string"`/`"bytes"` for raw
+passthrough.
 
 MQTT 5 user properties become `fields["key"] = "value"` (last value wins for
 duplicate keys).

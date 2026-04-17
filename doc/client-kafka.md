@@ -43,6 +43,9 @@ client "kafka" "events" {
   linger      = "5ms"      # max wait to fill a batch — default: 0 (immediate)
   max_records = 10000      # max buffered records before ProduceSync blocks
 
+  # Wire format for payload serialization/deserialization (default: "auto")
+  # wire_format = "json"     # auto | json | string | bytes
+
   # Connection timeouts
   dial_timeout     = "10s"   # default: 10s
   request_timeout  = "30s"   # default: 30s
@@ -262,10 +265,11 @@ receiver.
 | `ctx.fields` | `map(string)` populated from Kafka record headers |
 | `ctx.msg` | The deserialized message payload |
 
-**Deserialization:** The Kafka record value is parsed as JSON if possible
-(producing `map`, `list`, or scalar values). If the bytes are not valid JSON,
-the raw `[]byte` is passed through unchanged. Kafka record headers become the
-`fields` map.
+**Deserialization** is controlled by the client-level `wire_format` attribute
+(default `"auto"`). In auto mode, values that look like JSON are decoded;
+everything else becomes a string. Use `wire_format = "json"` for strict JSON
+decoding, or `"string"`/`"bytes"` for raw passthrough. Kafka record headers
+become the `fields` map.
 
 **Static topic:**
 ```hcl

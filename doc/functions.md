@@ -80,6 +80,36 @@ base64decode("aGVsbG8=", "text/plain")         # → bytes object
 base64decode("aGVsbG8=", "")                   # → bytes object, no content type
 ```
 
+### Wire Format (`serialize` / `deserialize`)
+
+Ad-hoc serialization and deserialization using vinculum's pluggable wire
+format system. The first argument is either a built-in name (`"auto"`,
+`"json"`, `"string"`, `"bytes"`) or a `wire_format` capsule from a
+`wire_format` block.
+
+```hcl
+# Serialize a value as JSON bytes
+serialize("json", {status = "ok", count = 42})
+
+# Serialize as a string (convenient for interpolation)
+serializestr("json", {status = "ok"})
+
+# Deserialize JSON bytes or a string
+deserialize("json", raw_bytes)
+deserialize("auto", some_string)
+
+# Use a custom wire format
+serialize(wire_format.myproto, event_value)
+```
+
+- `serialize(wire_format, value)`: Serialize a cty value using the given
+  wire format. Returns a `bytes` object.
+- `serializestr(wire_format, value)`: Like `serialize`, but returns a
+  string. More convenient for string interpolation and contexts that
+  expect strings.
+- `deserialize(wire_format, data)`: Deserialize bytes or a string using
+  the given wire format. Returns the decoded cty value.
+
 ### URL Parsing and Manipulation
 
 VCL has a URL object type produced by `urlparse()`. A URL object has all standard
