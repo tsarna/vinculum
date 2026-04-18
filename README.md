@@ -15,7 +15,7 @@ MacGyver together a solution with a few lines of configuration.
 - **HCL Configuration** — Declarative configuration in HashiCorp Config Language (similar to Terraform), with constants, expressions, and assertions
 - **Publish/Subscribe Messaging** — One or more event buses with MQTT-style topic routing, wildcards, and parameter extraction
 - **Server Protocols** — HTTP(S), Vinculum WebSocket (VWS), plain WebSocket, Model Context Protocol (MCP), and Prometheus/OpenMetrics, with pluggable authentication (basic, OIDC, OAuth2)
-- **Client Protocols** — HTTP(S), Kafka, MQTT, Redis/Valkey (pub/sub, streams, key-value), VWS (to other Vinculum instances), OpenAI / LLM, and OpenTelemetry (OTLP) export
+- **Client Protocols** — HTTP(S), Kafka, MQTT, Redis/Valkey (pub/sub, streams, key-value), AWS SQS, VWS (to other Vinculum instances), OpenAI / LLM, and OpenTelemetry (OTLP) export
 - **Triggers** — A range of trigger types for time-, event-, and lifecycle-driven actions: cron, dynamic intervals with optional jitter, absolute / dynamic times, file-system events, OS signals, startup/shutdown, watchdogs, and watches over reactive values
 - **Conditions** — Named boolean primitives with temporal rules (activate/deactivate delays, hysteresis, retentive timing, latches, cooldown, inhibit), covering IEC 61131-3 timer and counter function-block behaviors and composable into pipelines
 - **Transformations and Procedures** — JQ-based message transforms, structured-text `editor` blocks, and `procedure` blocks for small imperative helpers
@@ -44,10 +44,11 @@ Vinculum is built on top of several standalone Go libraries that can be used ind
 | Project | Description |
 | ------- | ----------- |
 | [vinculum-bus](https://github.com/tsarna/vinculum-bus) | High-performance in-process EventBus with MQTT-style topic patterns and optional OpenTelemetry observability |
-| [vinculum-vws](https://github.com/tsarna/vinculum-vws) | Vinculum WebSocket Protocol — client and server for exposing an EventBus over WebSockets |
 | [vinculum-kafka](https://github.com/tsarna/vinculum-kafka) | Kafka producer/consumer adapters that plug into a vinculum-bus EventBus |
 | [vinculum-mqtt](https://github.com/tsarna/vinculum-mqtt) | MQTT publisher/subscriber adapters that plug into a vinculum-bus EventBus |
 | [vinculum-redis](https://github.com/tsarna/vinculum-redis) | Redis/Valkey pub/sub and streams adapters that plug into a vinculum-bus EventBus |
+| [vinculum-sqs](https://github.com/tsarna/vinculum-sqs) | AWS SQS sender/receiver adapters that plug into a vinculum-bus EventBus |
+| [vinculum-vws](https://github.com/tsarna/vinculum-vws) | Vinculum WebSocket Protocol — client and server for exposing an EventBus over WebSockets |
 
 Vinculum also relies on several smaller standalone HCL/cty helper libraries: [go2cty2go](https://github.com/tsarna/go2cty2go), [hcl-jqfunc](https://github.com/tsarna/hcl-jqfunc), [go-structdiff](https://github.com/tsarna/go-structdiff), [time-cty-funcs](https://github.com/tsarna/time-cty-funcs), [rand-cty-funcs](https://github.com/tsarna/rand-cty-funcs), and [sqid-cty-funcs](https://github.com/tsarna/sqid-cty-funcs).
 

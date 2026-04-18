@@ -171,6 +171,9 @@ A `client` block makes outbound connections to a remote service. Each client typ
 | [`client "redis_pubsub"`](client-redis.md#client-redis_pubsub) | Redis channel PUBLISH/SUBSCRIBE/PSUBSCRIBE — MQTT-style fire-and-forget |
 | [`client "redis_stream"`](client-redis.md#client-redis_stream) | Redis Streams XADD/XREADGROUP with consumer groups, manual ack, reclaim, and dead-letter |
 | [`client "redis_kv"`](client-redis.md#client-redis_kv) | Redis GET/SET/INCR/HGET/HSET behind the generic `get()`/`set()`/`increment()` interface |
+| [`client "aws"`](client-sqs.md#client-aws-name) | Shared AWS credentials and region for SQS (and future AWS service) clients |
+| [`client "sqs_sender"`](client-sqs.md#client-sqs_sender-name) | Send vinculum bus events to an SQS queue, with batching and FIFO support |
+| [`client "sqs_receiver"`](client-sqs.md#client-sqs_receiver-name) | Poll an SQS queue and dispatch messages to the vinculum bus |
 | [`client "vws"`](server-vws.md) | Vinculum WebSocket client — connects to another Vinculum instance over the VWS protocol (documented alongside the VWS server) |
 | [`client "openai"`](client-llm.md) | OpenAI and OpenAI-compatible LLM API client (used via the `call()` function) |
 | [`client "otlp"`](client-otlp.md) | OpenTelemetry Protocol exporter for traces and metrics (push-based) |

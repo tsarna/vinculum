@@ -4,12 +4,14 @@ package cmd
 // ambient provider, and function plugin implementations that live outside the config package.
 import (
 	_ "github.com/tsarna/vinculum/ambient"
+	_ "github.com/tsarna/vinculum/clients/aws"
 	_ "github.com/tsarna/vinculum/clients/http"
 	_ "github.com/tsarna/vinculum/clients/kafka"
 	_ "github.com/tsarna/vinculum/clients/mqtt"
 	_ "github.com/tsarna/vinculum/clients/openai"
 	_ "github.com/tsarna/vinculum/clients/otlp"
 	_ "github.com/tsarna/vinculum/clients/redis"
+	_ "github.com/tsarna/vinculum/clients/sqs"
 	_ "github.com/tsarna/vinculum/clients/rediskv"
 	_ "github.com/tsarna/vinculum/clients/redispubsub"
 	_ "github.com/tsarna/vinculum/clients/redisstream"

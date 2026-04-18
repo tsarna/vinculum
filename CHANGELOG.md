@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **AWS SQS support**: Two new client types for sending to and receiving from Amazon SQS queues, plus a shared AWS credentials block. Built on the [AWS SDK for Go v2](https://github.com/aws/aws-sdk-go-v2) via the new [vinculum-sqs](https://github.com/tsarna/vinculum-sqs) (`v0.1.0`) module.
+  - **`client "aws"`**: Shared AWS credentials and region configuration with support for static credentials, assume-role (STS), custom endpoints (LocalStack/ElasticMQ), and AWS profiles. Child clients reference it via `aws = client.<name>`.
+  - **`client "sqs_sender"`**: Sends vinculum bus events to an SQS queue. Features include wire format serialization, field-to-attribute mapping, optional topic attribute, FIFO queue support (`message_group_id`, `deduplication_id`), batching via `SendMessageBatch`, and W3C trace context propagation.
+  - **`client "sqs_receiver"`**: Polls an SQS queue via long-polling and dispatches messages to a vinculum subscriber or action. Features include configurable concurrency, auto-delete or manual acknowledgement, per-message vinculum topic resolution via HCL expressions, system attribute mapping (`$message_id`, `$receipt_handle`, `$receive_count`, etc.), and W3C trace context extraction.
+  - **`sqs_delete()` and `sqs_extend_visibility()` functions**: Global VCL functions for manual message deletion and visibility timeout extension. See [doc/client-sqs.md](doc/client-sqs.md) for details.
+
 ## [0.31.0] - 2026-04-18
 
 ### Added
