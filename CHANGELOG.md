@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-04-18
+
 ### Added
 
 - **`barcode()` function**: Generates barcode images as PNG `bytes` objects via the new [barcode-cty-func](https://github.com/tsarna/barcode-cty-func) (`v0.1.0`) module. Supports 11 formats: QR, DataMatrix, Aztec, PDF417, Code 128, Code 93, Code 39, Codabar, EAN-13, EAN-8, and Interleaved 2-of-5. Options include `scale`, `width`/`height`, and QR `error_correction`. 1D barcodes get sensible default heights automatically. See [doc/functions.md](doc/functions.md#barcode) for details.
