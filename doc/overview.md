@@ -12,11 +12,10 @@
 8. [Procedures](#procedures)
 9. [Editors](#editors)
 10. [Metrics](#metrics)
-11. [Servers](#servers)
-12. [Clients](#clients)
-13. [Examples](#examples)
-14. [Observability](#observability)
-15. [Block Type Reference](#block-type-reference)
+11. [Protocols](#protocols)
+12. [Examples](#examples)
+13. [Observability](#observability)
+14. [Block Type Reference](#block-type-reference)
 
 ## Introduction
 
@@ -142,41 +141,33 @@ See [editor.md](editor.md) for the full reference.
 
 ## Metrics
 
-A `metric` block declares a Prometheus-style metric (gauge, counter, or histogram), optionally with labels and a computed expression. Metrics can be exposed via the Prometheus/OpenMetrics endpoint (see [Servers](#servers) below) or pushed via OTLP (see [Clients](#clients) below).
+A `metric` block declares a Prometheus-style metric (gauge, counter, or histogram), optionally with labels and a computed expression. Metrics can be exposed via the Prometheus/OpenMetrics endpoint (see [Protocols](#protocols) below) or pushed via OTLP (see [Protocols](#protocols) below).
 
 See [metric.md](metric.md) for metric declaration syntax.
 
-## Servers
+## Protocols
 
-A `server` block accepts inbound connections or requests over a particular protocol. Each server type has its own dedicated reference page:
+A `server` block accepts inbound connections or requests over a particular protocol. A `client` block makes outbound connections to a remote service. Each protocol type has its own dedicated reference page:
 
-| Server | Description |
-| ------ | ----------- |
-| [`server "http"`](server-http.md) | HTTP(S) server with route handlers, static-file serving, TLS, cookies, and pluggable authentication |
-| [`server "vws"`](server-vws.md) | Vinculum WebSocket Protocol — exposes a bus over WebSockets with pub/sub semantics |
-| [`server "websocket"`](server-websocket.md) | Plain (raw) WebSocket server with bus integration and inbound/outbound transforms |
-| [`server "mcp"`](server-mcp.md) | Model Context Protocol server exposing resources, tools, and prompts to LLM clients |
-| [`server "metrics"`](server-metrics.md) | Prometheus / OpenMetrics exposition endpoint, standalone or mounted into an existing HTTP server |
+| Protocol | Client | Server | Description |
+| -------- | ------ | ------ | ----------- |
+| [AWS](client-sqs.md#client-aws-name) | [Yes](client-sqs.md#client-aws-name)[^infra] | — | Shared AWS credentials and region for SQS (and future AWS service) clients |
+| [HTTP](server-http.md) | [Yes](client-http.md) | [Yes](server-http.md) | HTTP(S) server with routes, static files, TLS, cookies, and auth; client with retry, cookies, and OpenTelemetry |
+| [Kafka](client-kafka.md) | [Yes](client-kafka.md) | — | Producer and consumer adapters with SASL/TLS, commit modes, and dead-letter queue support |
+| [MCP](server-mcp.md) | — | [Yes](server-mcp.md) | Model Context Protocol server exposing resources, tools, and prompts to LLM clients |
+| [MQTT](client-mqtt.md) | [Yes](client-mqtt.md) | — | MQTT 5.0 publisher and subscriber, including last-will and shared subscriptions |
+| [OpenAI / LLM](client-llm.md) | [Yes](client-llm.md) | — | OpenAI and OpenAI-compatible LLM API client (used via the `call()` function) |
+| [OTLP](client-otlp.md) | [Yes](client-otlp.md) | — | OpenTelemetry Protocol exporter for traces and metrics (push-based) |
+| [Prometheus](server-metrics.md) | — | [Yes](server-metrics.md) | Prometheus / OpenMetrics exposition endpoint, standalone or mounted into an existing HTTP server |
+| [Redis](client-redis.md) | [Yes](client-redis.md)[^infra] | — | Redis/Valkey connection manager; standalone, cluster, and sentinel modes |
+| [Redis KV](client-redis.md#client-redis_kv) | [Yes](client-redis.md#client-redis_kv) | — | Redis GET/SET/INCR/HGET/HSET behind the generic `get()`/`set()`/`increment()` interface |
+| [Redis Pub/Sub](client-redis.md#client-redis_pubsub) | [Yes](client-redis.md#client-redis_pubsub) | — | Redis channel PUBLISH/SUBSCRIBE/PSUBSCRIBE — MQTT-style fire-and-forget |
+| [Redis Streams](client-redis.md#client-redis_stream) | [Yes](client-redis.md#client-redis_stream) | — | Redis Streams XADD/XREADGROUP with consumer groups, manual ack, reclaim, and dead-letter |
+| [SQS](client-sqs.md) | [Sender](client-sqs.md#client-sqs_sender-name) / [Receiver](client-sqs.md#client-sqs_receiver-name) | — | Send bus events to an SQS queue or poll a queue and dispatch to the bus; batching and FIFO support |
+| [VWS](server-vws.md) | [Yes](server-vws.md) | [Yes](server-vws.md) | Vinculum WebSocket Protocol — pub/sub over WebSockets between Vinculum instances |
+| [WebSocket](server-websocket.md) | — | [Yes](server-websocket.md) | Plain (raw) WebSocket server with bus integration and inbound/outbound transforms |
 
-## Clients
-
-A `client` block makes outbound connections to a remote service. Each client type has its own dedicated reference page:
-
-| Client | Description |
-| ------ | ----------- |
-| [`client "http"`](client-http.md) | HTTP(S) request/response client with auth, retry, cookies, and OpenTelemetry (used via the `http_get()` / `http_post()` / etc. functions) |
-| [`client "kafka"`](client-kafka.md) | Kafka producer and consumer adapters with SASL/TLS, commit modes, and dead-letter queue support |
-| [`client "mqtt"`](client-mqtt.md) | MQTT 5.0 publisher and subscriber, including last-will and shared subscriptions |
-| [`client "redis"`](client-redis.md) | Redis/Valkey connection manager shared by `redis_pubsub`, `redis_stream`, and `redis_kv` child clients; standalone, cluster, and sentinel modes |
-| [`client "redis_pubsub"`](client-redis.md#client-redis_pubsub) | Redis channel PUBLISH/SUBSCRIBE/PSUBSCRIBE — MQTT-style fire-and-forget |
-| [`client "redis_stream"`](client-redis.md#client-redis_stream) | Redis Streams XADD/XREADGROUP with consumer groups, manual ack, reclaim, and dead-letter |
-| [`client "redis_kv"`](client-redis.md#client-redis_kv) | Redis GET/SET/INCR/HGET/HSET behind the generic `get()`/`set()`/`increment()` interface |
-| [`client "aws"`](client-sqs.md#client-aws-name) | Shared AWS credentials and region for SQS (and future AWS service) clients |
-| [`client "sqs_sender"`](client-sqs.md#client-sqs_sender-name) | Send vinculum bus events to an SQS queue, with batching and FIFO support |
-| [`client "sqs_receiver"`](client-sqs.md#client-sqs_receiver-name) | Poll an SQS queue and dispatch messages to the vinculum bus |
-| [`client "vws"`](server-vws.md) | Vinculum WebSocket client — connects to another Vinculum instance over the VWS protocol (documented alongside the VWS server) |
-| [`client "openai"`](client-llm.md) | OpenAI and OpenAI-compatible LLM API client (used via the `call()` function) |
-| [`client "otlp"`](client-otlp.md) | OpenTelemetry Protocol exporter for traces and metrics (push-based) |
+[^infra]: Shared infrastructure client — provides connection and credential management for its child clients, not a protocol itself.
 
 ## Examples
 
@@ -273,8 +264,8 @@ Top-level block types:
 
 - `bus` — event bus declaration
 - `subscription` — subscribes a target to one or more topic patterns on a bus, with optional transforms and an action
-- `server` — server protocol instance (see [Servers](#servers))
-- `client` — client protocol instance (see [Clients](#clients))
+- `server` — server protocol instance (see [Protocols](#protocols))
+- `client` — client protocol instance (see [Protocols](#protocols))
 - `trigger` — time, lifecycle, or event-driven action (see [trigger.md](trigger.md))
 - `condition` — named boolean with temporal rules, composable via `input = …` and observable via `trigger "watch"` (see [condition.md](condition.md))
 - `metric` — metric declaration for Prometheus/OTLP exposition (see [metric.md](metric.md))
