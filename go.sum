@@ -68,8 +68,8 @@ github.com/hashicorp/go-cty-funcs v0.1.0 h1:TRO/6x1unvTPpotTgrTU7qlcbd99JBLt+vmF
 github.com/hashicorp/go-cty-funcs v0.1.0/go.mod h1:crc3afXAsjGOJ+12LNX8PImH+ejyxOjnjvsUteKcFIw=
 github.com/hashicorp/hcl/v2 v2.24.0 h1:2QJdZ454DSsYGoaE6QheQZjtKZSUs9Nh2izTWiwQxvE=
 github.com/hashicorp/hcl/v2 v2.24.0/go.mod h1:oGoO1FIQYfn/AgyOhlg9qLC6/nOJPX3qGbkZpYAcqfM=
-github.com/heimdalr/dag v1.5.0 h1:hqVtijvY776P5OKP3QbdVBRt3Xxq6BYopz3XgklsGvo=
-github.com/heimdalr/dag v1.5.0/go.mod h1:lthekrHl01dddmzqyBQ1YZbi7XcVGGzjFo0jIky5knc=
+github.com/heimdalr/dag v1.5.1 h1:Oug6YdjFpQN1Itrc/deoIDqtWUk4FO96ulod23/TOr8=
+github.com/heimdalr/dag v1.5.1/go.mod h1:lthekrHl01dddmzqyBQ1YZbi7XcVGGzjFo0jIky5knc=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/itchyny/gojq v0.12.19 h1:ttXA0XCLEMoaLOz5lSeFOZ6u6Q3QxmG46vfgI4O0DEs=
