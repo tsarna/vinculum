@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"reflect"
+	"strings"
 
 	bytescty "github.com/tsarna/bytes-cty-type"
 	richcty "github.com/tsarna/rich-cty-types"
@@ -61,9 +62,37 @@ var HTTPRequestObjectType = cty.Object(map[string]cty.Type{
 	"user":         cty.String,
 	"password":     cty.String,
 	"password_set": cty.Bool,
-	"headers":      cty.Map(cty.List(cty.String)),
+	"path":  cty.Map(cty.String),
+	"form":         cty.Map(cty.List(cty.String)),
 	"_capsule":     HTTPRequestCapsuleType,
 })
+
+// ExtractPathParams extracts path parameter names from a Go 1.22+ ServeMux
+// route pattern (e.g. "GET /repos/{name}/commits/{sha}" → ["name", "sha"]).
+// Call this once at route registration time and pass the result to
+// BuildHTTPRequestObject on each request.
+func ExtractPathParams(pattern string) []string {
+	var names []string
+	for {
+		i := strings.IndexByte(pattern, '{')
+		if i < 0 {
+			break
+		}
+		pattern = pattern[i+1:]
+		j := strings.IndexByte(pattern, '}')
+		if j < 0 {
+			break
+		}
+		name := pattern[:j]
+		// Go 1.22 uses {name...} for wildcard suffix params — strip the "..."
+		name = strings.TrimSuffix(name, "...")
+		if name != "" {
+			names = append(names, name)
+		}
+		pattern = pattern[j+1:]
+	}
+	return names
+}
 
 // NewHTTPRequestCapsule wraps a *http.Request in a cty capsule value.
 func NewHTTPRequestCapsule(r *http.Request) cty.Value {
@@ -86,21 +115,36 @@ func GetHTTPRequestFromValue(val cty.Value) (*http.Request, error) {
 
 // BuildHTTPRequestObject builds a cty object value with all request fields
 // materialized as attributes, plus a _capsule attribute holding the request capsule.
-func BuildHTTPRequestObject(r *http.Request) cty.Value {
-	// Build headers: map[string][]string -> cty.Map(cty.List(cty.String))
-	var headersVal cty.Value
-	if len(r.Header) == 0 {
-		headersVal = cty.MapValEmpty(cty.List(cty.String))
+// pathParamNames should be pre-computed via ExtractPathParams at route registration
+// time; pass nil when path parameters are not applicable (e.g. auth middleware).
+func BuildHTTPRequestObject(r *http.Request, pathParamNames []string) cty.Value {
+	// Build path from pre-computed parameter names.
+	var pathParamsVal cty.Value
+	if len(pathParamNames) == 0 {
+		pathParamsVal = cty.MapValEmpty(cty.String)
 	} else {
-		hAttrs := make(map[string]cty.Value, len(r.Header))
-		for k, vs := range r.Header {
+		pAttrs := make(map[string]cty.Value, len(pathParamNames))
+		for _, name := range pathParamNames {
+			pAttrs[name] = cty.StringVal(r.PathValue(name))
+		}
+		pathParamsVal = cty.MapVal(pAttrs)
+	}
+
+	// Build form: parse form data and expose as map(list(string)).
+	var formVal cty.Value
+	_ = r.ParseForm()
+	if len(r.Form) == 0 {
+		formVal = cty.MapValEmpty(cty.List(cty.String))
+	} else {
+		fAttrs := make(map[string]cty.Value, len(r.Form))
+		for k, vs := range r.Form {
 			listItems := make([]cty.Value, len(vs))
 			for i, v := range vs {
 				listItems[i] = cty.StringVal(v)
 			}
-			hAttrs[k] = cty.ListVal(listItems)
+			fAttrs[k] = cty.ListVal(listItems)
 		}
-		headersVal = cty.MapVal(hAttrs)
+		formVal = cty.MapVal(fAttrs)
 	}
 
 	// Basic auth
@@ -122,7 +166,8 @@ func BuildHTTPRequestObject(r *http.Request) cty.Value {
 		"user":         cty.StringVal(user),
 		"password":     cty.StringVal(password),
 		"password_set": cty.BoolVal(passwordSet),
-		"headers":      headersVal,
+		"path":  pathParamsVal,
+		"form":         formVal,
 		"_capsule":     NewHTTPRequestCapsule(r),
 	})
 }
@@ -256,20 +301,6 @@ func (w *HTTPRequestWrapper) Get(_ context.Context, args []cty.Value) (cty.Value
 		}
 		return convertCookieObject(cookie), nil
 
-	case "path_value":
-		name, err := requireKey()
-		if err != nil {
-			return cty.NilVal, err
-		}
-		return cty.StringVal(w.R.PathValue(name)), nil
-
-	case "form_value":
-		key, err := requireKey()
-		if err != nil {
-			return cty.NilVal, err
-		}
-		return cty.StringVal(w.R.FormValue(key)), nil
-
 	case "post_form_value":
 		key, err := requireKey()
 		if err != nil {
@@ -279,7 +310,7 @@ func (w *HTTPRequestWrapper) Get(_ context.Context, args []cty.Value) (cty.Value
 
 	default:
 		return cty.NilVal, fmt.Errorf(
-			"httprequest get: unknown field %q (valid: body, body_bytes, body_json, header, header_all, cookie, path_value, form_value, post_form_value)",
+			"httprequest get: unknown field %q (valid: body, body_bytes, body_json, header, header_all, cookie, post_form_value)",
 			field,
 		)
 	}

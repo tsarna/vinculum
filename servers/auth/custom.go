@@ -21,7 +21,7 @@ func newCustomAuthenticator(ac *cfg.AuthConfig) *customAuthenticator {
 
 func (c *customAuthenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalContext) (cty.Value, *AuthFailure, error) {
 	actionEvalCtx, err := hclutil.NewEvalContext(r.Context()).
-		WithAttribute("request", types.BuildHTTPRequestObject(r)).
+		WithAttribute("request", types.BuildHTTPRequestObject(r, nil)).
 		BuildEvalContext(evalCtx)
 	if err != nil {
 		return cty.NilVal, nil, fmt.Errorf("building custom auth eval context: %w", err)

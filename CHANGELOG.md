@@ -10,10 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`barcode()` function**: Generates barcode images as PNG `bytes` objects via the new [barcode-cty-func](https://github.com/tsarna/barcode-cty-func) (`v0.1.0`) module. Supports 11 formats: QR, DataMatrix, Aztec, PDF417, Code 128, Code 93, Code 39, Codabar, EAN-13, EAN-8, and Interleaved 2-of-5. Options include `scale`, `width`/`height`, and QR `error_correction`. 1D barcodes get sensible default heights automatically. See [doc/functions.md](doc/functions.md#barcode) for details.
+- **`ctx.request.path`**: Route path parameters from `{name}` placeholders are now direct attributes on `ctx.request.path` (e.g. `ctx.request.path.id`), pre-extracted at route registration time for zero per-request parsing overhead.
+- **`ctx.request.form`**: Parsed form data (query string + URL-encoded POST body) is now a direct attribute as `map(list(string))` (e.g. `ctx.request.form.name[0]`).
+- **`ExtractPathParams()` utility**: Parses path parameter names from a Go 1.22+ route pattern once at registration time, returning a `[]string` for `BuildHTTPRequestObject`.
 
 ### Changed
 
 - Extracted the `bytes` capsule/object type and `bytes()`/`base64encode()`/`base64decode()` functions into a new standalone module: [bytes-cty-type](https://github.com/tsarna/bytes-cty-type) (`v0.1.0`). Internal-only refactor with no VCL-visible changes; vinculum now depends on the external module for these symbols. The `filebytes()` function remains in vinculum.
+- **HTTP request/response object redesign**: Commonly-needed fields are now direct attributes while infrequently-used or expensive fields use `get()`. Headers are accessed via `get(ctx.request, "header", name)` / `get(ctx.request, "header_all", name)` instead of the static `headers` map. The same change applies to HTTP client response objects.
+
+### Removed
+
+- **`ctx.request.headers`**: Removed from the static request object. Use `get(ctx.request, "header", name)` or `get(ctx.request, "header_all", name)` instead.
+- **`get(ctx.request, "path_value", name)`**: Replaced by `ctx.request.path.name`.
+- **`get(ctx.request, "form_value", name)`**: Replaced by `ctx.request.form.name`.
+- **Response `headers` attribute**: Removed from the HTTP client response object. Use `get(resp, "header", name)` or `get(resp, "header_all", name)` instead.
 
 ## [0.30.0] - 2026-04-17
 

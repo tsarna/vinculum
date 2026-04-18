@@ -195,7 +195,11 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 
 		var inner http.Handler
 		if cfg.IsExpressionProvided(handlerDef.Action) {
-			inner = &httpAction{config: config, actionExpr: handlerDef.Action}
+			inner = &httpAction{
+				config:         config,
+				actionExpr:     handlerDef.Action,
+				pathParamNames: types.ExtractPathParams(handlerDef.Route),
+			}
 		} else {
 			handler, handlerDiags := cfg.GetServerFromExpression(config, handlerDef.Handler)
 			if handlerDiags.HasErrors() {
@@ -395,12 +399,13 @@ func (l *loggingMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // ─── httpAction ───────────────────────────────────────────────────────────────
 
 type httpAction struct {
-	config     *cfg.Config
-	actionExpr hcl.Expression
+	config         *cfg.Config
+	actionExpr     hcl.Expression
+	pathParamNames []string
 }
 
 func (h *httpAction) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	evalCtx, err := getHttpActionEvalContext(h.config, r)
+	evalCtx, err := getHttpActionEvalContext(h.config, r, h.pathParamNames)
 	if err != nil {
 		h.config.Logger.Error("Error building evaluation context", zap.Error(err))
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -417,9 +422,9 @@ func (h *httpAction) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeHTTPResponse(h.config.Logger, w, val)
 }
 
-func getHttpActionEvalContext(config *cfg.Config, r *http.Request) (*hcl.EvalContext, error) {
+func getHttpActionEvalContext(config *cfg.Config, r *http.Request, pathParamNames []string) (*hcl.EvalContext, error) {
 	builder := hclutil.NewEvalContext(r.Context()).
-		WithAttribute("request", types.BuildHTTPRequestObject(r))
+		WithAttribute("request", types.BuildHTTPRequestObject(r, pathParamNames))
 
 	return builder.BuildEvalContext(config.EvalCtx())
 }

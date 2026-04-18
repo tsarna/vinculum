@@ -28,13 +28,13 @@ server "http" "dns_webhook" {
     }
 
     handle "GET /dns/update/{zone}" {
-        action = update_dns(ctx, ctx.auth.username, get(ctx.request, "path_value", "zone"),
-            get(ctx.request, "form_value", "host"), get(ctx.request, "form_value", "ip"), false)
+        action = update_dns(ctx, ctx.auth.username, ctx.request.path.zone,
+            ctx.request.form.host[0], ctx.request.form.ip[0], false)
     }
 
     handle "GET /dns/disable/{zone}" {
-        action = update_dns(ctx, ctx.auth.username, get(ctx.request, "path_value", "zone"),
-            get(ctx.request, "form_value", "host"), "127.0.0.1", true)
+        action = update_dns(ctx, ctx.auth.username, ctx.request.path.zone,
+            ctx.request.form.host[0], "127.0.0.1", true)
     }
 }
 

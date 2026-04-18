@@ -50,7 +50,7 @@ client "http" "github" {
 
 # A handler somewhere uses the client by relative path:
 handle "GET /repos/{name}" {
-    action = http_must(http_get(ctx, client.github, "/repos/tsarna/${ctx.request.path_value.name}"))
+    action = http_must(http_get(ctx, client.github, "/repos/tsarna/${ctx.request.path.name}"))
 }
 ```
 
@@ -374,7 +374,6 @@ of `get()` keys cover the body and other expensive operations.
 | `redirected` | bool | True if at least one redirect was followed. |
 | `final_url` | url object | URL of the final response after redirects. |
 | `proto` | string | E.g. `"HTTP/2.0"`. |
-| `headers` | map(list(string)) | All headers, canonical names, multi-value preserved. |
 | `content_length` | number | Response `Content-Length`, or `-1` if unknown. |
 | `content_type` | string | `Content-Type` cleaned of parameters (e.g. `"application/json"`). |
 | `body` | dynamic | Pre-decoded body, set only when `opts.as` was used. |
@@ -789,7 +788,7 @@ server "http" "api" {
         action = http_must(http_get(
             ctx,
             client.github,
-            "/repos/${ctx.request.path_value.owner}/${ctx.request.path_value.name}",
+            "/repos/${ctx.request.path.owner}/${ctx.request.path.name}",
         ))
     }
 }

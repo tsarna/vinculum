@@ -677,11 +677,11 @@ func TestHTTPHead(t *testing.T) {
 
 	resp, err := callVerb(t, "http_head", bgCtx, nullClientVal, cty.StringVal(srv.URL))
 	require.NoError(t, err)
-	headers := resp.GetAttr("headers")
-	assert.Equal(t,
-		cty.ListVal([]cty.Value{cty.StringVal("yes")}),
-		headers.Index(cty.StringVal("X-Probe")),
-	)
+	w, ok := types.GetHTTPClientResponseFromValue(resp)
+	require.True(t, ok)
+	hdrVal, err := w.Get(context.Background(), []cty.Value{cty.StringVal("header"), cty.StringVal("X-Probe")})
+	require.NoError(t, err)
+	assert.Equal(t, cty.StringVal("yes"), hdrVal)
 }
 
 func TestHTTPDelete(t *testing.T) {

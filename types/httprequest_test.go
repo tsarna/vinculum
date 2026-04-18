@@ -38,7 +38,7 @@ func TestBuildHTTPRequestObject_BasicFields(t *testing.T) {
 	r.Host = "example.com"
 	r.RemoteAddr = "127.0.0.1:12345"
 
-	obj := BuildHTTPRequestObject(r)
+	obj := BuildHTTPRequestObject(r, nil)
 
 	assert.Equal(t, cty.StringVal("GET"), obj.GetAttr("method"))
 	assert.Equal(t, cty.StringVal("HTTP/1.1"), obj.GetAttr("proto"))
@@ -50,7 +50,7 @@ func TestBuildHTTPRequestObject_BasicFields(t *testing.T) {
 
 func TestBuildHTTPRequestObject_URL(t *testing.T) {
 	r := newTestRequest(t, "GET", "https://api.example.com:8443/v1/users?page=2", "")
-	obj := BuildHTTPRequestObject(r)
+	obj := BuildHTTPRequestObject(r, nil)
 	urlObj := obj.GetAttr("url")
 
 	assert.Equal(t, urlcty.URLObjectType, urlObj.Type())
@@ -60,38 +60,83 @@ func TestBuildHTTPRequestObject_URL(t *testing.T) {
 	assert.Equal(t, cty.StringVal("/v1/users"), urlObj.GetAttr("path"))
 }
 
-func TestBuildHTTPRequestObject_Headers(t *testing.T) {
-	r := newTestRequest(t, "GET", "http://example.com/", "")
-	r.Header.Set("Content-Type", "application/json")
-	r.Header.Add("Accept", "text/html")
-	r.Header.Add("Accept", "application/json")
-
-	obj := BuildHTTPRequestObject(r)
-	headers := obj.GetAttr("headers")
-
-	assert.True(t, headers.Type().IsMapType())
-
-	ctList := headers.Index(cty.StringVal("Content-Type"))
-	assert.Equal(t, cty.ListVal([]cty.Value{cty.StringVal("application/json")}), ctList)
-
-	acceptList := headers.Index(cty.StringVal("Accept"))
-	assert.Equal(t, cty.ListVal([]cty.Value{cty.StringVal("text/html"), cty.StringVal("application/json")}), acceptList)
+func TestExtractPathParams(t *testing.T) {
+	cases := []struct {
+		pattern  string
+		expected []string
+	}{
+		{"GET /items/{id}", []string{"id"}},
+		{"GET /repos/{owner}/commits/{sha}", []string{"owner", "sha"}},
+		{"/static/", nil},
+		{"GET /files/{path...}", []string{"path"}},
+		{"POST /", nil},
+	}
+	for _, tc := range cases {
+		got := ExtractPathParams(tc.pattern)
+		assert.Equal(t, tc.expected, got, "pattern: %s", tc.pattern)
+	}
 }
 
-func TestBuildHTTPRequestObject_EmptyHeaders(t *testing.T) {
+func TestBuildHTTPRequestObject_Path(t *testing.T) {
+	// PathValue requires a request processed by a ServeMux pattern match.
+	var captured *http.Request
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /items/{id}", func(_ http.ResponseWriter, r *http.Request) {
+		captured = r
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/items/42")
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.NotNil(t, captured)
+
+	paramNames := ExtractPathParams("GET /items/{id}")
+	obj := BuildHTTPRequestObject(captured, paramNames)
+	pathParams := obj.GetAttr("path")
+
+	assert.True(t, pathParams.Type().IsMapType())
+	assert.Equal(t, cty.StringVal("42"), pathParams.Index(cty.StringVal("id")))
+}
+
+func TestBuildHTTPRequestObject_Path_Empty(t *testing.T) {
 	r := newTestRequest(t, "GET", "http://example.com/", "")
-	// Clear any default headers
-	r.Header = http.Header{}
-	obj := BuildHTTPRequestObject(r)
-	headers := obj.GetAttr("headers")
-	assert.True(t, headers.RawEquals(cty.MapValEmpty(cty.List(cty.String))))
+	obj := BuildHTTPRequestObject(r, nil)
+	pathParams := obj.GetAttr("path")
+	assert.True(t, pathParams.RawEquals(cty.MapValEmpty(cty.String)))
+}
+
+func TestBuildHTTPRequestObject_Form(t *testing.T) {
+	r := newTestRequest(t, "POST", "http://example.com/?q=search", "name=alice&name=bob&age=30")
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	obj := BuildHTTPRequestObject(r, nil)
+	form := obj.GetAttr("form")
+
+	assert.True(t, form.Type().IsMapType())
+	// POST body + query string are merged in r.Form
+	nameList := form.Index(cty.StringVal("name"))
+	assert.Equal(t, cty.ListVal([]cty.Value{cty.StringVal("alice"), cty.StringVal("bob")}), nameList)
+
+	qList := form.Index(cty.StringVal("q"))
+	assert.Equal(t, cty.ListVal([]cty.Value{cty.StringVal("search")}), qList)
+}
+
+func TestBuildHTTPRequestObject_Form_Empty(t *testing.T) {
+	r := newTestRequest(t, "GET", "http://example.com/", "")
+	obj := BuildHTTPRequestObject(r, nil)
+	form := obj.GetAttr("form")
+	assert.True(t, form.RawEquals(cty.MapValEmpty(cty.List(cty.String))))
 }
 
 func TestBuildHTTPRequestObject_BasicAuth(t *testing.T) {
 	r := newTestRequest(t, "GET", "http://example.com/", "")
 	r.SetBasicAuth("alice", "s3cret")
 
-	obj := BuildHTTPRequestObject(r)
+	obj := BuildHTTPRequestObject(r, nil)
 	assert.Equal(t, cty.StringVal("alice"), obj.GetAttr("user"))
 	assert.Equal(t, cty.StringVal("s3cret"), obj.GetAttr("password"))
 	assert.Equal(t, cty.BoolVal(true), obj.GetAttr("password_set"))
@@ -99,7 +144,7 @@ func TestBuildHTTPRequestObject_BasicAuth(t *testing.T) {
 
 func TestBuildHTTPRequestObject_NoBasicAuth(t *testing.T) {
 	r := newTestRequest(t, "GET", "http://example.com/", "")
-	obj := BuildHTTPRequestObject(r)
+	obj := BuildHTTPRequestObject(r, nil)
 	assert.Equal(t, cty.StringVal(""), obj.GetAttr("user"))
 	assert.Equal(t, cty.StringVal(""), obj.GetAttr("password"))
 	assert.Equal(t, cty.BoolVal(false), obj.GetAttr("password_set"))
@@ -107,7 +152,7 @@ func TestBuildHTTPRequestObject_NoBasicAuth(t *testing.T) {
 
 func TestBuildHTTPRequestObject_HasCapsule(t *testing.T) {
 	r := newTestRequest(t, "GET", "http://example.com/", "")
-	obj := BuildHTTPRequestObject(r)
+	obj := BuildHTTPRequestObject(r, nil)
 	cap := obj.GetAttr("_capsule")
 	assert.Equal(t, HTTPRequestCapsuleType, cap.Type())
 }
@@ -225,40 +270,6 @@ func TestHTTPRequestWrapper_Get_Cookie_NotFound(t *testing.T) {
 
 	_, err := w.Get(bg, []cty.Value{cty.StringVal("cookie"), cty.StringVal("missing")})
 	assert.Error(t, err)
-}
-
-func TestHTTPRequestWrapper_Get_PathValue(t *testing.T) {
-	// PathValue requires a request processed by a ServeMux pattern match.
-	// We test via an httptest server with a registered handler.
-	var captured *http.Request
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /items/{id}", func(_ http.ResponseWriter, r *http.Request) {
-		captured = r
-	})
-
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
-	resp, err := http.Get(srv.URL + "/items/42")
-	require.NoError(t, err)
-	resp.Body.Close()
-	require.NotNil(t, captured)
-
-	w := &HTTPRequestWrapper{R: captured}
-	result, err := w.Get(bg, []cty.Value{cty.StringVal("path_value"), cty.StringVal("id")})
-	require.NoError(t, err)
-	assert.Equal(t, cty.StringVal("42"), result)
-}
-
-func TestHTTPRequestWrapper_Get_FormValue(t *testing.T) {
-	r := newTestRequest(t, "POST", "http://example.com/", "name=alice&age=30")
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := &HTTPRequestWrapper{R: r}
-
-	result, err := w.Get(bg, []cty.Value{cty.StringVal("form_value"), cty.StringVal("name")})
-	require.NoError(t, err)
-	assert.Equal(t, cty.StringVal("alice"), result)
 }
 
 func TestHTTPRequestWrapper_Get_PostFormValue(t *testing.T) {

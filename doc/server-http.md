@@ -51,7 +51,7 @@ Routes use [Go 1.22 `http.ServeMux` pattern syntax](https://pkg.go.dev/net/http#
 - `GET /api/status` — match only GET requests to an exact path
 - `POST /api/events` — match only POST requests
 - `/api/` — match any method and any path under `/api/` (trailing slash = subtree)
-- `/items/{id}` — capture a path segment; accessible as `get(ctx.request, "path_value", "id")`
+- `/items/{id}` — capture a path segment; accessible as `ctx.request.path.id`
 - `{method} /path` — placeholder in the method position is not standard; use a specific method or omit for any method
 
 ### `action` Expression
@@ -124,7 +124,8 @@ Inside a `handle` action expression, the incoming request is available as
 | `ctx.request.user` | string | Basic auth username, or `""` if not sent |
 | `ctx.request.password` | string | Basic auth password, or `""` if not sent |
 | `ctx.request.password_set` | bool | `true` if Basic Auth was present |
-| `ctx.request.headers` | map(list(string)) | All request headers; keys in canonical form |
+| `ctx.request.path` | map(string) | Path parameters extracted from `{name}` placeholders in the route pattern |
+| `ctx.request.form` | map(list(string)) | Parsed form data from query string and URL-encoded POST body |
 
 The `url` attribute is a full URL object — all URL fields are accessible directly:
 `ctx.request.url.path`, `ctx.request.url.hostname`, `ctx.request.url.query`, etc.
@@ -132,8 +133,8 @@ See the urlparse function documentation for the full field list.
 
 ### `get(ctx.request, ...)` — On-demand Access
 
-These operations may have side effects (consuming the body, triggering form parsing)
-so they are accessed via `get()` rather than direct attributes.
+These operations may have side effects (consuming the body) or require a key
+argument, so they are accessed via `get()` rather than direct attributes.
 
 | Call | Returns | Description |
 |---|---|---|
@@ -143,8 +144,6 @@ so they are accessed via `get()` rather than direct attributes.
 | `get(ctx.request, "header", name)` | string | First value of the named header, or `""` if absent |
 | `get(ctx.request, "header_all", name)` | list(string) | All values for the named header; empty list if absent |
 | `get(ctx.request, "cookie", name)` | cookie object | Named cookie; error if not present |
-| `get(ctx.request, "path_value", name)` | string | Named path segment from a `{name}` placeholder in the route pattern |
-| `get(ctx.request, "form_value", name)` | string | Form field from query string or URL-encoded body |
 | `get(ctx.request, "post_form_value", name)` | string | Form field from POST body only (excludes query string) |
 
 ### Cookie Object
@@ -397,7 +396,7 @@ handle "/old-path" {
 ```hcl
 handle "GET /items/{id}" {
     action = try(
-        lookup_item(get(ctx.request, "path_value", "id")),
+        lookup_item(ctx.request.path.id),
         http_error(http_status.NotFound, "item not found"),
     )
 }
@@ -431,7 +430,7 @@ server "http" "api" {
 
     handle "POST /events/{kind}" {
         action = send(ctx, bus.main,
-            "http/" + get(ctx.request, "path_value", "kind"),
+            "http/" + ctx.request.path.kind,
             get(ctx.request, "body_json"))
     }
 

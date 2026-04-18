@@ -70,7 +70,6 @@ var HTTPClientResponseObjectType = cty.Object(map[string]cty.Type{
 	"redirected":     cty.Bool,
 	"final_url":      urlcty.URLObjectType,
 	"proto":          cty.String,
-	"headers":        cty.Map(cty.List(cty.String)),
 	"content_length": cty.Number,
 	"content_type":   cty.String,
 	"body":           cty.DynamicPseudoType,
@@ -88,22 +87,6 @@ func NewHTTPClientResponseCapsule(w *HTTPClientResponseWrapper) cty.Value {
 // holding the wrapper for interface dispatch (richcty.Gettable, richcty.Stringable, richcty.Lengthable).
 func BuildHTTPClientResponseObject(w *HTTPClientResponseWrapper) cty.Value {
 	r := w.R
-
-	// Headers: http.Header -> cty.Map(cty.List(cty.String)).
-	var headersVal cty.Value
-	if len(r.Header) == 0 {
-		headersVal = cty.MapValEmpty(cty.List(cty.String))
-	} else {
-		hAttrs := make(map[string]cty.Value, len(r.Header))
-		for k, vs := range r.Header {
-			listItems := make([]cty.Value, len(vs))
-			for i, v := range vs {
-				listItems[i] = cty.StringVal(v)
-			}
-			hAttrs[k] = cty.ListVal(listItems)
-		}
-		headersVal = cty.MapVal(hAttrs)
-	}
 
 	// content_type is stripped of parameters (charset, boundary, etc.).
 	contentType := ""
@@ -139,7 +122,6 @@ func BuildHTTPClientResponseObject(w *HTTPClientResponseWrapper) cty.Value {
 		"redirected":     cty.BoolVal(w.Redirected),
 		"final_url":      finalURLVal,
 		"proto":          cty.StringVal(r.Proto),
-		"headers":        headersVal,
 		"content_length": cty.NumberIntVal(r.ContentLength),
 		"content_type":   cty.StringVal(contentType),
 		"body":           bodyVal,

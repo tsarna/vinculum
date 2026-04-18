@@ -86,7 +86,7 @@ func (b *basicAuthenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalCont
 
 	// Action-based basic auth: evaluate with ctx.request in scope.
 	actionEvalCtx, err := hclutil.NewEvalContext(r.Context()).
-		WithAttribute("request", types.BuildHTTPRequestObject(r)).
+		WithAttribute("request", types.BuildHTTPRequestObject(r, nil)).
 		BuildEvalContext(evalCtx)
 	if err != nil {
 		return cty.NilVal, nil, fmt.Errorf("building auth action eval context: %w", err)

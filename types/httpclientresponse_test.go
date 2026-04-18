@@ -103,33 +103,6 @@ func TestBuildHTTPClientResponseObject_FinalURL_NilRequest(t *testing.T) {
 	assert.True(t, obj.GetAttr("final_url").IsNull())
 }
 
-func TestBuildHTTPClientResponseObject_Headers(t *testing.T) {
-	r := newTestResponse(200, "200 OK", "")
-	r.Header.Set("Content-Type", "application/json")
-	r.Header.Add("X-Multi", "a")
-	r.Header.Add("X-Multi", "b")
-
-	obj := BuildHTTPClientResponseObject(&HTTPClientResponseWrapper{R: r})
-	headers := obj.GetAttr("headers")
-
-	assert.True(t, headers.Type().IsMapType())
-	assert.Equal(t,
-		cty.ListVal([]cty.Value{cty.StringVal("application/json")}),
-		headers.Index(cty.StringVal("Content-Type")),
-	)
-	assert.Equal(t,
-		cty.ListVal([]cty.Value{cty.StringVal("a"), cty.StringVal("b")}),
-		headers.Index(cty.StringVal("X-Multi")),
-	)
-}
-
-func TestBuildHTTPClientResponseObject_EmptyHeaders(t *testing.T) {
-	r := newTestResponse(200, "200 OK", "")
-	obj := BuildHTTPClientResponseObject(&HTTPClientResponseWrapper{R: r})
-	headers := obj.GetAttr("headers")
-	assert.True(t, headers.RawEquals(cty.MapValEmpty(cty.List(cty.String))))
-}
-
 func TestBuildHTTPClientResponseObject_ContentType_NoParams(t *testing.T) {
 	r := newTestResponse(200, "200 OK", "")
 	r.Header.Set("Content-Type", "application/json")
