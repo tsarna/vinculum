@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	bytescty "github.com/tsarna/bytes-cty-type"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -84,7 +85,7 @@ func TestCoerceBodyToBytes_String(t *testing.T) {
 }
 
 func TestCoerceBodyToBytes_BytesObject_WithContentType(t *testing.T) {
-	obj := BuildBytesObject([]byte{1, 2, 3}, "image/png")
+	obj := bytescty.BuildBytesObject([]byte{1, 2, 3}, "image/png")
 	body, ct, err := CoerceBodyToBytes(obj)
 	require.NoError(t, err)
 	assert.Equal(t, []byte{1, 2, 3}, body)
@@ -92,7 +93,7 @@ func TestCoerceBodyToBytes_BytesObject_WithContentType(t *testing.T) {
 }
 
 func TestCoerceBodyToBytes_BytesObject_EmptyContentType(t *testing.T) {
-	obj := BuildBytesObject([]byte{1, 2, 3}, "")
+	obj := bytescty.BuildBytesObject([]byte{1, 2, 3}, "")
 	body, ct, err := CoerceBodyToBytes(obj)
 	require.NoError(t, err)
 	assert.Equal(t, []byte{1, 2, 3}, body)

@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	richcty "github.com/tsarna/rich-cty-types"
 	clientshttp "github.com/tsarna/vinculum/clients/http"
+	bytescty "github.com/tsarna/bytes-cty-type"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
@@ -420,7 +421,7 @@ client "http" "api" {
 }
 `, srv.URL))
 
-	body := types.BuildBytesObject([]byte("\x89PNG"), "image/png")
+	body := bytescty.BuildBytesObject([]byte("\x89PNG"), "image/png")
 	_, err := callVerb(t, "http_post", bgCtx, clientVal, cty.StringVal("/upload"), body)
 	require.NoError(t, err)
 	assert.Equal(t, "image/png", gotCT, "bytes content_type should override client default Content-Type")
@@ -434,7 +435,7 @@ func TestHTTPPost_BytesBody_OptsHeaderStillWins(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	body := types.BuildBytesObject([]byte("raw"), "image/png")
+	body := bytescty.BuildBytesObject([]byte("raw"), "image/png")
 	opts := cty.ObjectVal(map[string]cty.Value{
 		"headers": cty.ObjectVal(map[string]cty.Value{
 			"Content-Type": cty.StringVal("application/x-custom"),
@@ -536,9 +537,9 @@ func TestHTTPGet_AsBytes(t *testing.T) {
 	require.NoError(t, err)
 
 	body := resp.GetAttr("body")
-	assert.Equal(t, types.BytesObjectType, body.Type())
+	assert.Equal(t, bytescty.BytesObjectType, body.Type())
 	assert.Equal(t, cty.StringVal("image/png"), body.GetAttr("content_type"))
-	b, err := types.GetBytesFromValue(body)
+	b, err := bytescty.GetBytesFromValue(body)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("\x89PNG\r\n"), b.Data)
 }

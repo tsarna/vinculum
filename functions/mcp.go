@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"reflect"
 
+	bytescty "github.com/tsarna/bytes-cty-type"
 	cfg "github.com/tsarna/vinculum/config"
-	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 )
@@ -86,7 +86,7 @@ var MCPImageFunc = function.New(&function.Spec{
 			}
 			mimeType = args[1].AsString()
 		default:
-			b, err := types.GetBytesFromValue(args[0])
+			b, err := bytescty.GetBytesFromValue(args[0])
 			if err != nil {
 				return cty.NilVal, fmt.Errorf("mcp_image: data must be a base64 string or bytes value, got %s", args[0].Type().FriendlyName())
 			}

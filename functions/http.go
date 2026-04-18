@@ -18,6 +18,7 @@ import (
 	urlcty "github.com/tsarna/url-cty-funcs"
 	clientshttp "github.com/tsarna/vinculum/clients/http"
 	cfg "github.com/tsarna/vinculum/config"
+	bytescty "github.com/tsarna/bytes-cty-type"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
@@ -191,7 +192,7 @@ func doHTTPRequest(
 	if !body.IsNull() {
 		// Detect bytes body before coercion so we can route Content-Type
 		// through the right precedence level.
-		if _, bErr := types.GetBytesFromValue(body); bErr == nil {
+		if _, bErr := bytescty.GetBytesFromValue(body); bErr == nil {
 			isBytesBody = true
 		}
 		data, ct, cErr := types.CoerceBodyToBytes(body)
@@ -690,7 +691,7 @@ func finalizeResponse(
 	case "string":
 		wrapper.PreDecodedBody = cty.StringVal(string(data))
 	case "bytes":
-		wrapper.PreDecodedBody = types.BuildBytesObject(data, stripMIMEParams(wrapper.R.Header.Get("Content-Type")))
+		wrapper.PreDecodedBody = bytescty.BuildBytesObject(data, stripMIMEParams(wrapper.R.Header.Get("Content-Type")))
 	case "json":
 		ty, jErr := ctyjson.ImpliedType(data)
 		if jErr != nil {

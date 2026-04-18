@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Extracted the `bytes` capsule/object type and `bytes()`/`base64encode()`/`base64decode()` functions into a new standalone module: [bytes-cty-type](https://github.com/tsarna/bytes-cty-type) (`v0.1.0`). Internal-only refactor with no VCL-visible changes; vinculum now depends on the external module for these symbols. The `filebytes()` function remains in vinculum.
+
 ## [0.30.0] - 2026-04-17
 
 ### Added

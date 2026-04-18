@@ -9,9 +9,9 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	bytescty "github.com/tsarna/bytes-cty-type"
 	"github.com/tsarna/vinculum/clients/rediskv"
 	cfg "github.com/tsarna/vinculum/config"
-	vtypes "github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -164,7 +164,7 @@ func TestBytesPassthrough(t *testing.T) {
 	ctx := context.Background()
 
 	data := []byte{0x00, 0x01, 0xff, 'h', 'i'}
-	bytesVal := vtypes.NewBytesCapsule(data, "application/octet-stream")
+	bytesVal := bytescty.NewBytesCapsule(data, "application/octet-stream")
 
 	_, err := kv.Set(ctx, []cty.Value{cty.StringVal("b"), bytesVal})
 	require.NoError(t, err)

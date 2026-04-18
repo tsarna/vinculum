@@ -3,8 +3,8 @@ package functions
 import (
 	"fmt"
 
+	bytescty "github.com/tsarna/bytes-cty-type"
 	cfg "github.com/tsarna/vinculum/config"
-	vtypes "github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 )
@@ -37,7 +37,7 @@ func makeSerializeFunc() function.Function {
 			{Name: "wire_format", Type: cty.DynamicPseudoType, Description: "Wire format name (string) or wire_format capsule"},
 			{Name: "value", Type: cty.DynamicPseudoType, Description: "Value to serialize"},
 		},
-		Type: function.StaticReturnType(vtypes.BytesObjectType),
+		Type: function.StaticReturnType(bytescty.BytesObjectType),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 			wf, err := resolveWireFormat(args[0])
 			if err != nil {
@@ -47,7 +47,7 @@ func makeSerializeFunc() function.Function {
 			if err != nil {
 				return cty.NilVal, fmt.Errorf("serialize: %w", err)
 			}
-			return vtypes.BuildBytesObject(b, ""), nil
+			return bytescty.BuildBytesObject(b, ""), nil
 		},
 	})
 }
@@ -96,7 +96,7 @@ func makeDeserializeFunc() function.Function {
 			case data.Type() == cty.String:
 				raw = []byte(data.AsString())
 			default:
-				b, bErr := vtypes.GetBytesFromValue(data)
+				b, bErr := bytescty.GetBytesFromValue(data)
 				if bErr != nil {
 					return cty.NilVal, fmt.Errorf("deserialize: data must be a string or bytes value, got %s", data.Type().FriendlyName())
 				}

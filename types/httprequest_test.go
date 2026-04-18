@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	bytescty "github.com/tsarna/bytes-cty-type"
 	timecty "github.com/tsarna/time-cty-funcs"
 	urlcty "github.com/tsarna/url-cty-funcs"
 	"github.com/zclconf/go-cty/cty"
@@ -129,7 +130,7 @@ func TestHTTPRequestWrapper_Get_BodyBytes(t *testing.T) {
 
 	result, err := w.Get(bg, []cty.Value{cty.StringVal("body_bytes")})
 	require.NoError(t, err)
-	assert.Equal(t, BytesObjectType, result.Type())
+	assert.Equal(t, bytescty.BytesObjectType, result.Type())
 	// charset param should be stripped
 	assert.Equal(t, cty.StringVal("application/octet-stream"), result.GetAttr("content_type"))
 }

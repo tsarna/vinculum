@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	bytescty "github.com/tsarna/bytes-cty-type"
 	richcty "github.com/tsarna/rich-cty-types"
 	urlcty "github.com/tsarna/url-cty-funcs"
 
@@ -206,11 +207,11 @@ func TestHTTPClientResponse_Get_BodyBytes(t *testing.T) {
 
 	result, err := w.Get(bg, []cty.Value{cty.StringVal("body_bytes")})
 	require.NoError(t, err)
-	assert.Equal(t, BytesObjectType, result.Type())
+	assert.Equal(t, bytescty.BytesObjectType, result.Type())
 	// mime params stripped
 	assert.Equal(t, cty.StringVal("application/octet-stream"), result.GetAttr("content_type"))
 	// Data should round-trip through the capsule
-	b, err := GetBytesFromValue(result)
+	b, err := bytescty.GetBytesFromValue(result)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("binary"), b.Data)
 }
@@ -251,7 +252,7 @@ func TestHTTPClientResponse_Get_Body_Repeatable(t *testing.T) {
 	// And body_bytes should also re-read from buffer
 	bb, err := w.Get(bg, []cty.Value{cty.StringVal("body_bytes")})
 	require.NoError(t, err)
-	b, err := GetBytesFromValue(bb)
+	b, err := bytescty.GetBytesFromValue(bb)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("payload"), b.Data)
 }

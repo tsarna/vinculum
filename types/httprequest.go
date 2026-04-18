@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"reflect"
 
+	bytescty "github.com/tsarna/bytes-cty-type"
 	richcty "github.com/tsarna/rich-cty-types"
 	timecty "github.com/tsarna/time-cty-funcs"
 	urlcty "github.com/tsarna/url-cty-funcs"
@@ -205,7 +206,7 @@ func (w *HTTPRequestWrapper) Get(_ context.Context, args []cty.Value) (cty.Value
 				mediaType = mt
 			}
 		}
-		return BuildBytesObject(data, mediaType), nil
+		return bytescty.BuildBytesObject(data, mediaType), nil
 
 	case "body_json":
 		data, err := io.ReadAll(w.R.Body)

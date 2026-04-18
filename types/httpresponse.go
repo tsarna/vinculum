@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"reflect"
 
+	bytescty "github.com/tsarna/bytes-cty-type"
 	richcty "github.com/tsarna/rich-cty-types"
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
@@ -97,7 +98,7 @@ func CoerceBodyToBytes(val cty.Value) ([]byte, string, error) {
 		return []byte(val.AsString()), "text/plain; charset=utf-8", nil
 
 	case val.Type().IsObjectType() || val.Type().IsCapsuleType():
-		if b, err := GetBytesFromValue(val); err == nil {
+		if b, err := bytescty.GetBytesFromValue(val); err == nil {
 			ct := b.ContentType
 			if ct == "" {
 				ct = "application/octet-stream"

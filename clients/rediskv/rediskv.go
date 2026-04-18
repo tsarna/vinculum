@@ -12,11 +12,11 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	goredis "github.com/redis/go-redis/v9"
+	bytescty "github.com/tsarna/bytes-cty-type"
 	richcty "github.com/tsarna/rich-cty-types"
 	wire "github.com/tsarna/vinculum-wire"
 	redisclient "github.com/tsarna/vinculum/clients/redis"
 	cfg "github.com/tsarna/vinculum/config"
-	vtypes "github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -271,14 +271,14 @@ func extractBytes(v cty.Value) ([]byte, bool) {
 		return nil, false
 	}
 	t := v.Type()
-	if t == vtypes.BytesCapsuleType {
-		if b, err := vtypes.GetBytesFromCapsule(v); err == nil {
+	if t == bytescty.BytesCapsuleType {
+		if b, err := bytescty.GetBytesFromCapsule(v); err == nil {
 			return b.Data, true
 		}
 		return nil, false
 	}
 	if t.IsObjectType() && t.HasAttribute("_capsule") {
-		if b, err := vtypes.GetBytesFromValue(v); err == nil {
+		if b, err := bytescty.GetBytesFromValue(v); err == nil {
 			return b.Data, true
 		}
 	}

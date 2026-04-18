@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"reflect"
 
+	bytescty "github.com/tsarna/bytes-cty-type"
 	richcty "github.com/tsarna/rich-cty-types"
 	urlcty "github.com/tsarna/url-cty-funcs"
 	"github.com/zclconf/go-cty/cty"
@@ -229,7 +230,7 @@ func (w *HTTPClientResponseWrapper) Get(_ context.Context, args []cty.Value) (ct
 		if err != nil {
 			return cty.NilVal, fmt.Errorf("httpclientresponse get body_bytes: %w", err)
 		}
-		return BuildBytesObject(data, w.responseContentType()), nil
+		return bytescty.BuildBytesObject(data, w.responseContentType()), nil
 
 	case "body_json":
 		data, err := w.readBody()
