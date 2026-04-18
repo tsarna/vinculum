@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.32.0] - 2026-04-18
 
+### Fixed
+
+- Skip hidden directories (names starting with `.`) during config directory walking. This prevents errors from Kubernetes ConfigMap `..data` symlink directories and follows standard Unix conventions.
+
 ### Added
 
 - **AWS SQS support**: Two new client types for sending to and receiving from Amazon SQS queues, plus a shared AWS credentials block. Built on the [AWS SDK for Go v2](https://github.com/aws/aws-sdk-go-v2) via the new [vinculum-sqs](https://github.com/tsarna/vinculum-sqs) (`v0.1.0`) module.

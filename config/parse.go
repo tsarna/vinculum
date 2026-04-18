@@ -99,6 +99,9 @@ func parseDirectory(parser *hclparse.Parser, dir string) ([]hcl.Body, hcl.Diagno
 			})
 			return nil
 		}
+		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
+			return filepath.SkipDir
+		}
 		if !info.IsDir() && strings.HasSuffix(path, ".vcl") {
 			file, parseDiags := parser.ParseHCLFile(path)
 			diags = diags.Extend(parseDiags)
