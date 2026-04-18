@@ -26,7 +26,7 @@ require (
 	github.com/tsarna/barcode-cty-func v0.1.0
 	github.com/tsarna/geo-cty-funcs v0.2.0
 	github.com/tsarna/go-structdiff v0.2.1
-	github.com/tsarna/go2cty2go v0.1.2
+	github.com/tsarna/go2cty2go v0.1.3
 	github.com/tsarna/hcl-jqfunc v0.1.3
 	github.com/tsarna/rand-cty-funcs v0.1.0
 	github.com/tsarna/rich-cty-types v0.1.0
