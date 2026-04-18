@@ -1,6 +1,7 @@
 package functions
 
 import (
+	barcodecty "github.com/tsarna/barcode-cty-func"
 	geocty "github.com/tsarna/geo-cty-funcs"
 	randcty "github.com/tsarna/rand-cty-funcs"
 	richcty "github.com/tsarna/rich-cty-types"
@@ -12,6 +13,9 @@ import (
 )
 
 func init() {
+	cfg.RegisterFunctionPlugin("barcode", func(_ *cfg.Config) map[string]function.Function {
+		return barcodecty.GetBarcodeFunctions()
+	})
 	cfg.RegisterFunctionPlugin("geo", func(_ *cfg.Config) map[string]function.Function {
 		return geocty.GetGeoFunctions()
 	})

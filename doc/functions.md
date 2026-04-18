@@ -259,6 +259,50 @@ The same `options` object must be used for both `sqid` and `unsqid` when using a
   without replacement. Errors if `k` exceeds the length of `list`.
 - `randshuffle(list)`: Return a shuffled copy of `list`. The original list is not modified.
 
+### Barcode
+
+- `barcode(type, data)`: Generate a barcode image and return it as a `bytes` object with
+  `content_type = "image/png"`. The barcode is rendered at the default scale of 4.
+- `barcode(type, data, options)`: Same, with an options object controlling sizing and
+  (for QR codes) error correction level.
+
+Supported barcode types:
+
+| `type` string | Format | Dimensions | Notes |
+|---------------|--------|------------|-------|
+| `"qr"` | QR Code | 2D | Supports `error_correction` option |
+| `"datamatrix"` | Data Matrix | 2D | |
+| `"aztec"` | Aztec Code | 2D | |
+| `"pdf417"` | PDF 417 | 2D (stacked) | |
+| `"code128"` | Code 128 | 1D | Most versatile 1D format; encodes full ASCII |
+| `"code93"` | Code 93 | 1D | |
+| `"code39"` | Code 39 | 1D | |
+| `"codabar"` | Codabar | 1D | Numeric + limited symbols |
+| `"ean13"` | EAN-13 | 1D | Exactly 12 digits (check digit appended) |
+| `"ean8"` | EAN-8 | 1D | Exactly 7 digits (check digit appended) |
+| `"2of5"` | Interleaved 2-of-5 | 1D | Numeric only; even number of digits required |
+
+Options (`scale` and `width` are mutually exclusive; `height` can be used alone or with either):
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `scale` | number | `4` | Integer pixel multiplier applied to natural symbol size |
+| `width` | number | — | Output width in pixels (requires `height`; mutually exclusive with `scale`) |
+| `height` | number | see below | Output height in pixels (can be used alone or with `scale` or `width`) |
+| `error_correction` | string | `"M"` | QR only. `"L"` (~7%), `"M"` (~15%), `"Q"` (~25%), `"H"` (~30%) |
+
+1D barcodes get a default height when none is specified: Code 128 uses 20% of the scaled
+width; all other 1D types use `scale * 24` (96px at default scale).
+
+```hcl
+barcode("qr", "https://example.com")                          # PNG bytes, scale=4
+barcode("qr", url, {scale = 8, error_correction = "H"})       # high EC, 8x scale
+barcode("qr", url, {width = 400, height = 400})               # fixed pixel size
+barcode("code128", tracking_number, {scale = 3})               # 1D label, proportional height
+barcode("code39", item_id, {height = 80})                      # explicit height, default scale
+barcode("ean13", gtin12)                                       # 12-digit EAN
+```
+
 ### Geographic
 
 VCL has a family of geographic functions for working with locations, solar events,

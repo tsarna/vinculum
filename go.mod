@@ -23,6 +23,7 @@ require (
 	github.com/sosodev/duration v1.4.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
+	github.com/tsarna/barcode-cty-func v0.1.0
 	github.com/tsarna/geo-cty-funcs v0.2.0
 	github.com/tsarna/go-structdiff v0.2.1
 	github.com/tsarna/go2cty2go v0.1.2
@@ -59,6 +60,7 @@ require (
 	github.com/apparentlymart/go-cidr v1.1.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bmatcuk/doublestar v1.3.4 // indirect
+	github.com/boombuler/barcode v1.1.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
