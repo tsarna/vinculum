@@ -165,8 +165,8 @@ github.com/tsarna/go-structdiff v0.2.1 h1:SD30U/azJB85tH9dgNu4qVOA2bPie9e1l5EvJo
 github.com/tsarna/go-structdiff v0.2.1/go.mod h1:SJHNQUzbdMbXBBNyOBzBsRotrWcX1jruIrhouLuNBgo=
 github.com/tsarna/go2cty2go v0.1.2 h1:mSEqG5eHUkqaABA1XRgLoLpyEgN99XBZojuZqbFxFko=
 github.com/tsarna/go2cty2go v0.1.2/go.mod h1:IRpRWApZVoPjsCKzI2Yptu5Y1jySTSykG2wMETwoWXc=
-github.com/tsarna/hcl-jqfunc v0.1.3 h1:+5RQOArsc+KymBu2QYKWHVBGGw38ZLPvCyTzp4VGnLs=
-github.com/tsarna/hcl-jqfunc v0.1.3/go.mod h1:GO/aVwAl5iPG/bYK8BFXwD4W/qw6WGhkxmE3m3I2K50=
+github.com/tsarna/hcl-jqfunc v0.1.4 h1:RM6XtbsB/+vBmt3xyHrFcUQ9CBtoTyvH+f8cThFt4T0=
+github.com/tsarna/hcl-jqfunc v0.1.4/go.mod h1:68xhvtbrJJLOd4uYbnkKlFSxgoGaaZhWEnxuuOMTA5I=
 github.com/tsarna/rand-cty-funcs v0.1.0 h1:yM0iQpXTkpvwAvVwah/ED+VM3lZ9vUybyGGlFoj+utU=
 github.com/tsarna/rand-cty-funcs v0.1.0/go.mod h1:Xsw9Z69Xsowq/HWqE319t/7FvyjSJnFKnDOCPNDMjV8=
 github.com/tsarna/rich-cty-types v0.1.0 h1:kB5UImttQIUEwwaarYD2z9Iy2gxlHknCPunjNlXgRGI=
