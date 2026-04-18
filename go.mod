@@ -38,11 +38,11 @@ require (
 	github.com/tsarna/sqid-cty-funcs v0.1.0
 	github.com/tsarna/time-cty-funcs v0.2.0
 	github.com/tsarna/vinculum-bus v0.11.0
-	github.com/tsarna/vinculum-kafka v0.9.0
-	github.com/tsarna/vinculum-mqtt v0.7.0
+	github.com/tsarna/vinculum-kafka v0.9.1
+	github.com/tsarna/vinculum-mqtt v0.7.1
 	github.com/tsarna/vinculum-redis v0.2.0
 	github.com/tsarna/vinculum-sqs v0.1.0
-	github.com/tsarna/vinculum-vws v0.11.0
+	github.com/tsarna/vinculum-vws v0.11.1
 	github.com/tsarna/vinculum-wire v0.1.0
 	github.com/twmb/franz-go v1.20.7
 	github.com/twmb/franz-go/plugin/kotel v1.6.0

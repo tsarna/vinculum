@@ -189,6 +189,7 @@ func (c *MQTTClientWrapper) Start() error {
 	publishers := make([]*mqttpublisher.MQTTPublisher, 0, len(c.pubSpecs))
 	for _, spec := range c.pubSpecs {
 		b := mqttpublisher.NewPublisher().
+			WithClientName(c.Name).
 			WithDefaultQoS(spec.defaultQoS).
 			WithDefaultRetain(spec.defaultRetain).
 			WithDefaultTransform(spec.defaultXform).
@@ -212,6 +213,7 @@ func (c *MQTTClientWrapper) Start() error {
 
 	for _, spec := range c.subSpecs {
 		b := mqttsubscriber.NewSubscriber().
+			WithClientName(c.Name).
 			WithSubscriber(spec.subscriber).
 			WithHandleRetained(spec.handleRetained).
 			WithSharedGroup(spec.sharedGroup).
@@ -506,6 +508,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 
 	clientCfg := mqttclient.ClientConfig{
 		ServerURLs:            serverURLs,
+		ClientName:            clientName,
 		ClientID:              clientID,
 		KeepAlive:             keepAlive,
 		CleanStart:            cleanStart,

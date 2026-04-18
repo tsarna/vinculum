@@ -199,6 +199,7 @@ func (c *KafkaClient) Start() error {
 	for _, spec := range c.prodSpecs {
 		b := kproducer.NewProducer().
 			WithClient(kgoClient).
+			WithClientName(c.Name).
 			WithProduceMode(spec.produceMode).
 			WithDefaultTransform(spec.defaultXform).
 			WithWireFormat(c.wireFormat).
@@ -224,6 +225,7 @@ func (c *KafkaClient) Start() error {
 	for _, spec := range c.consSpecs {
 		b := kconsumer.NewConsumer().
 			WithBaseOpts(kgoOpts).
+			WithClientName(c.Name).
 			WithGroupID(spec.groupID).
 			WithStartOffset(spec.startOffset).
 			WithCommitMode(spec.commitMode).

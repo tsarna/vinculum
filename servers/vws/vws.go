@@ -73,7 +73,7 @@ func ProcessVinculumWebsocketsServerBlock(config *cfg.Config, block *hcl.Block, 
 		return nil, diags
 	}
 
-	listenerBuilder := server.NewListener().WithEventBus(bus).WithLogger(config.Logger)
+	listenerBuilder := server.NewListener().WithEventBus(bus).WithLogger(config.Logger).WithServerName(block.Labels[1])
 
 	if cfg.IsExpressionProvided(serverDef.PingInterval) {
 		pingInterval, diags := config.ParseDuration(serverDef.PingInterval)
