@@ -6,16 +6,17 @@
 2. [Core Concepts](#core-concepts)
 3. [Triggers](#triggers)
 4. [Conditions](#conditions)
-5. [Configuration Language](#configuration-language)
-6. [Built-in Functions](#built-in-functions)
-7. [Message Transforms](#message-transforms)
-8. [Procedures](#procedures)
-9. [Editors](#editors)
-10. [Metrics](#metrics)
-11. [Protocols](#protocols)
-12. [Examples](#examples)
-13. [Observability](#observability)
-14. [Block Type Reference](#block-type-reference)
+5. [State Machines](#state-machines)
+6. [Configuration Language](#configuration-language)
+7. [Built-in Functions](#built-in-functions)
+8. [Message Transforms](#message-transforms)
+9. [Procedures](#procedures)
+10. [Editors](#editors)
+11. [Metrics](#metrics)
+12. [Protocols](#protocols)
+13. [Examples](#examples)
+14. [Observability](#observability)
+15. [Block Type Reference](#block-type-reference)
 
 ## Introduction
 
@@ -38,6 +39,7 @@ block to safely rewrite BIND zone files in place.
 - **Client Protocols** — Kafka, MQTT, Redis/Valkey (pub/sub, streams, key-value), VWS (to other Vinculum instances), HTTP(S) (request/response), OpenAI / LLM, and OpenTelemetry (OTLP) export
 - **Triggers** — A range of trigger types for time-, event-, and lifecycle-driven actions: cron, dynamic intervals with optional jitter, absolute / dynamic times, file-system events, OS signals, startup/shutdown, watchdogs, and watches over reactive values
 - **Conditions** — Named boolean primitives with temporal rules (activate/deactivate delays, hysteresis, retentive timing, latches, cooldown, inhibit), covering IEC 61131-3 timer and counter function-block behaviors and composable into pipelines
+- **State Machines** — Finite state machines with guarded transitions, reactive events, key-value storage, MQTT topic matching, and OpenTelemetry tracing; composable with conditions and watchable for reactive integration
 - **Transformations and Procedures** — JQ-based message transforms, structured-text `editor` blocks, and `procedure` blocks for small imperative helpers
 - **Built-in Functions** — A large standard library covering HTTP, files, templates, time, randomness, IDs, LLMs, and more
 - **Observability** — Context propagation, OpenTelemetry tracing and metrics, and Prometheus exposition throughout
@@ -110,6 +112,27 @@ Three subtypes cover the common uses:
   Covers CTU, CTD, and CTUD patterns with optional auto-reset (rollover).
 
 See [condition.md](condition.md) for the full reference.
+
+## State Machines
+
+`fsm` blocks define finite state machines with event-driven transitions.
+Where conditions answer *when* something should be considered true, state
+machines answer *how* something should behave — tracking which state the
+system is in and what should happen when events arrive.
+
+State machines integrate with the rest of the Vinculum ecosystem:
+
+- **Watchable** — reactive expressions and `trigger "watch"` can observe
+  state transitions
+- **Subscriber** — wire to a bus via `subscriber = fsm.door`, or drive
+  imperatively with `send(ctx, fsm.door, "open", {})`
+- **Storage** — `get()`/`set()`/`increment()` for per-instance key-value data
+- **Reactive events** — `when` expressions with edge-triggering, composable
+  with conditions for debounce, hysteresis, and timing
+- **Tracing** — per-transition OpenTelemetry spans, auto-wired from the
+  default OTLP client
+
+See [fsm.md](fsm.md) for the full reference.
 
 ## Configuration Language
 
@@ -268,6 +291,7 @@ Top-level block types:
 - `client` — client protocol instance (see [Protocols](#protocols))
 - `trigger` — time, lifecycle, or event-driven action (see [trigger.md](trigger.md))
 - `condition` — named boolean with temporal rules, composable via `input = …` and observable via `trigger "watch"` (see [condition.md](condition.md))
+- `fsm` — finite state machine with guarded transitions, reactive events, storage, and tracing (see [fsm.md](fsm.md))
 - `metric` — metric declaration for Prometheus/OTLP exposition (see [metric.md](metric.md))
 - `procedure` — imperative function definition (see [procedure.md](procedure.md))
 - `editor` — structured text editing function (see [editor.md](editor.md))

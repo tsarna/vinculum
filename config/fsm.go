@@ -11,6 +11,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/tsarna/vinculum/hclutil"
+	"go.uber.org/zap"
 )
 
 // FsmTopLevel is the gohcl-decoded envelope for an fsm block. Sub-blocks
@@ -32,9 +33,9 @@ type FsmTopLevel struct {
 type FsmBlockHandler struct {
 	BlockHandlerBase
 	instances      map[string]*fsm.Instance
-	initialStorage map[string]map[string]cty.Value    // fsmName -> key -> value
-	reactiveExprs  map[string][]*ReactiveExpr          // fsmName -> reactive when exprs
-	edgeState      map[string]map[string]*bool         // fsmName -> eventName -> last bool
+	initialStorage map[string]map[string]cty.Value // fsmName -> key -> value
+	reactiveExprs  map[string][]*ReactiveExpr      // fsmName -> reactive when exprs
+	edgeState      map[string]map[string]*bool     // fsmName -> eventName -> last bool
 }
 
 func NewFsmBlockHandler() *FsmBlockHandler {
@@ -201,6 +202,14 @@ func (h *FsmBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnost
 		expr := topLevel.OnError
 		def.OnError = func(ctx context.Context, hookCtx *fsm.HookContext) {
 			evalHookExpr(ctx, config, expr, hookCtx)
+		}
+	} else {
+		def.OnError = func(_ context.Context, hookCtx *fsm.HookContext) {
+			config.Logger.Warn("FSM hook error",
+				zap.String("fsm", name),
+				zap.String("hook", hookCtx.Hook),
+				zap.String("error", hookCtx.Error),
+			)
 		}
 	}
 
