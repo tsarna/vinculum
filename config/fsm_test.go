@@ -157,3 +157,98 @@ func TestFsm_Disabled(t *testing.T) {
 
 	assert.NotContains(t, config.CtyFsmMap, "door")
 }
+
+//go:embed testdata/fsm_reactive.vcl
+var fsmReactiveTest []byte
+
+func TestFsm_ReactiveWhen(t *testing.T) {
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+
+	cfg, diags := NewConfig().WithSources(fsmReactiveTest).WithLogger(logger).Build()
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+
+	fsmCapsule := cfg.CtyFsmMap["hvac"]
+	inst, err := fsm.GetInstanceFromCapsule(fsmCapsule)
+	require.NoError(t, err)
+
+	tempCapsule := cfg.CtyVarMap["temperature"]
+
+	// Start everything.
+	for _, s := range cfg.Startables {
+		require.NoError(t, s.Start())
+	}
+
+	// Initially temperature=50, so "overheat" (>100) is false, state stays "idle".
+	state, _ := inst.State(context.Background())
+	assert.Equal(t, "idle", state)
+
+	// Set temperature to 110 -- triggers overheat (false→true edge).
+	setTemp := func(val int) {
+		v := tempCapsule.EncapsulatedValue()
+		s, ok := v.(interface {
+			Set(context.Context, []cty.Value) (cty.Value, error)
+		})
+		require.True(t, ok, "temperature variable must be Settable")
+		_, err := s.Set(context.Background(), []cty.Value{cty.NumberIntVal(int64(val))})
+		require.NoError(t, err)
+	}
+
+	setTemp(110)
+
+	// Stop to drain event queue and ensure transition completes.
+	for i := len(cfg.Stoppables) - 1; i >= 0; i-- {
+		cfg.Stoppables[i].Stop()
+	}
+
+	state, _ = inst.State(context.Background())
+	assert.Equal(t, "cooling", state)
+}
+
+func TestFsm_ReactiveEdgeTrigger(t *testing.T) {
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+
+	cfg, diags := NewConfig().WithSources(fsmReactiveTest).WithLogger(logger).Build()
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+
+	fsmCapsule := cfg.CtyFsmMap["hvac"]
+	inst, err := fsm.GetInstanceFromCapsule(fsmCapsule)
+	require.NoError(t, err)
+
+	tempCapsule := cfg.CtyVarMap["temperature"]
+	setTemp := func(val int) {
+		v := tempCapsule.EncapsulatedValue()
+		s := v.(interface {
+			Set(context.Context, []cty.Value) (cty.Value, error)
+		})
+		s.Set(context.Background(), []cty.Value{cty.NumberIntVal(int64(val))})
+	}
+
+	for _, s := range cfg.Startables {
+		require.NoError(t, s.Start())
+	}
+
+	// Set temperature above 100 -- triggers overheat.
+	setTemp(110)
+
+	// Set temperature to 120 -- still above 100, should NOT re-fire (edge-triggered).
+	setTemp(120)
+
+	// The FSM should have transitioned only once (idle→cooling).
+	// If it fired again, the self-transition would still leave it in cooling,
+	// but the transition count would be 2. Let's check count.
+	for i := len(cfg.Stoppables) - 1; i >= 0; i-- {
+		cfg.Stoppables[i].Stop()
+	}
+
+	state, _ := inst.State(context.Background())
+	assert.Equal(t, "cooling", state)
+
+	count, _ := inst.Count(context.Background())
+	assert.Equal(t, int64(1), count, "edge-triggered: should fire only once")
+}

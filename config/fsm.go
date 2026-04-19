@@ -32,7 +32,9 @@ type FsmTopLevel struct {
 type FsmBlockHandler struct {
 	BlockHandlerBase
 	instances      map[string]*fsm.Instance
-	initialStorage map[string]map[string]cty.Value // fsmName -> key -> value
+	initialStorage map[string]map[string]cty.Value    // fsmName -> key -> value
+	reactiveExprs  map[string][]*ReactiveExpr          // fsmName -> reactive when exprs
+	edgeState      map[string]map[string]*bool         // fsmName -> eventName -> last bool
 }
 
 func NewFsmBlockHandler() *FsmBlockHandler {
@@ -210,9 +212,11 @@ func (h *FsmBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnost
 		}
 	}
 
-	// Register lifecycle.
-	config.Startables = append(config.Startables, &fsmStartable{inst: inst})
-	config.Stoppables = append(config.Stoppables, &fsmStoppable{inst: inst})
+	// Register lifecycle. Reactive exprs are started after the instance
+	// (so the event goroutine is running) and stopped before it.
+	reactiveExprs := h.reactiveExprs[name]
+	config.Startables = append(config.Startables, &fsmStartable{inst: inst, reactiveExprs: reactiveExprs})
+	config.Stoppables = append(config.Stoppables, &fsmStoppable{inst: inst, reactiveExprs: reactiveExprs})
 
 	return diags
 }
@@ -228,7 +232,7 @@ func (h *FsmBlockHandler) parseSubBlocks(config *Config, def *fsm.Definition, fs
 			diags = diags.Extend(d)
 
 		case "event":
-			d := h.parseEventBlock(config, def, sub)
+			d := h.parseEventBlock(config, def, fsmName, sub)
 			diags = diags.Extend(d)
 
 		case "storage":
@@ -295,7 +299,7 @@ func (h *FsmBlockHandler) parseStateBlock(config *Config, def *fsm.Definition, b
 	return nil
 }
 
-func (h *FsmBlockHandler) parseEventBlock(config *Config, def *fsm.Definition, block *hclsyntax.Block) hcl.Diagnostics {
+func (h *FsmBlockHandler) parseEventBlock(config *Config, def *fsm.Definition, fsmName string, block *hclsyntax.Block) hcl.Diagnostics {
 	if len(block.Labels) != 1 {
 		return hcl.Diagnostics{{
 			Severity: hcl.DiagError,
@@ -328,8 +332,10 @@ func (h *FsmBlockHandler) parseEventBlock(config *Config, def *fsm.Definition, b
 
 		case "when":
 			eventDef.HasWhen = true
-			// Reactive expression wiring is Phase 4.
-			// For now, just mark the event as having a when clause.
+			reDiags := h.wireReactiveEvent(config, fsmName, eventName, attr.Expr)
+			if reDiags.HasErrors() {
+				return reDiags
+			}
 
 		default:
 			return hcl.Diagnostics{{
@@ -451,6 +457,46 @@ func (h *FsmBlockHandler) parseStorageBlock(config *Config, fsmName string, bloc
 	return diags
 }
 
+// wireReactiveEvent creates a ReactiveExpr for a `when` expression and
+// registers it for lifecycle management. The callback implements edge-
+// triggering: the event only fires on the false→true transition of the
+// expression, not continuously while it remains true.
+func (h *FsmBlockHandler) wireReactiveEvent(config *Config, fsmName string, eventName string, expr hclsyntax.Expression) hcl.Diagnostics {
+	// Initialize edge state tracking for this FSM/event.
+	if h.edgeState == nil {
+		h.edgeState = make(map[string]map[string]*bool)
+	}
+	if h.edgeState[fsmName] == nil {
+		h.edgeState[fsmName] = make(map[string]*bool)
+	}
+	lastWasTrue := new(bool)
+	h.edgeState[fsmName][eventName] = lastWasTrue
+
+	inst := h.instances[fsmName]
+
+	re, diags := NewReactiveExpr(expr, config.evalCtx, func(ctx context.Context, v cty.Value) {
+		// Determine if the expression is truthy.
+		isTrue := false
+		if v.IsKnown() && !v.IsNull() && v.Type() == cty.Bool {
+			isTrue = v.True()
+		}
+
+		// Edge-trigger: only fire on false→true transition.
+		wasTrueVal := *lastWasTrue
+		*lastWasTrue = isTrue
+		if isTrue && !wasTrueVal {
+			inst.EnqueueEvent(fsm.Event{Name: eventName})
+		}
+	})
+
+	if h.reactiveExprs == nil {
+		h.reactiveExprs = make(map[string][]*ReactiveExpr)
+	}
+	h.reactiveExprs[fsmName] = append(h.reactiveExprs[fsmName], re)
+
+	return diags
+}
+
 // makeHookFunc wraps an HCL expression as an fsm.HookFunc closure.
 func makeHookFunc(config *Config, expr hclsyntax.Expression) fsm.HookFunc {
 	return func(ctx context.Context, hookCtx *fsm.HookContext) error {
@@ -534,18 +580,34 @@ func buildHookEvalContext(ctx context.Context, config *Config, hookCtx *fsm.Hook
 
 // fsmStartable wraps an FSM instance for the Startable interface.
 type fsmStartable struct {
-	inst *fsm.Instance
+	inst          *fsm.Instance
+	reactiveExprs []*ReactiveExpr
 }
 
 func (s *fsmStartable) Start() error {
-	return s.inst.Start(context.Background())
+	// Start the event processing goroutine first.
+	if err := s.inst.Start(context.Background()); err != nil {
+		return err
+	}
+	// Then start reactive when expressions so they can enqueue events.
+	for _, re := range s.reactiveExprs {
+		if diags := re.Start(context.Background()); diags.HasErrors() {
+			return fmt.Errorf("fsm %q: reactive when: %s", s.inst.Name(), diags.Error())
+		}
+	}
+	return nil
 }
 
 // fsmStoppable wraps an FSM instance for the Stoppable interface.
 type fsmStoppable struct {
-	inst *fsm.Instance
+	inst          *fsm.Instance
+	reactiveExprs []*ReactiveExpr
 }
 
 func (s *fsmStoppable) Stop() error {
+	// Stop reactive expressions first so they stop enqueuing events.
+	for _, re := range s.reactiveExprs {
+		re.Stop()
+	}
 	return s.inst.Stop()
 }
