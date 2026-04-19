@@ -209,6 +209,8 @@ github.com/tsarna/url-cty-funcs v0.1.0 h1:oYn/S3AXYZCPV+5LHBUEFMPeTH5QusnwOxMyoh
 github.com/tsarna/url-cty-funcs v0.1.0/go.mod h1:L6HbW8wrXgcRp6ueeTYt0t20HBRfiFPDhuP5Y7v3Kns=
 github.com/tsarna/vinculum-bus v0.11.0 h1:vg2HbElFoh0s6vmPnTvcNwbccO2/qp7o5nYTTC8l5sw=
 github.com/tsarna/vinculum-bus v0.11.0/go.mod h1:fwVN24q/2iKXvtZQeiRB0tW41WsGWsV6nyvwetB25fA=
+github.com/tsarna/vinculum-fsm v0.1.0 h1:+Fz3KxXfXLfmLpmUJagN6wtzcGTHTn5dL/kPcpXrSY4=
+github.com/tsarna/vinculum-fsm v0.1.0/go.mod h1:jFOhcJOz2mldQApwWolgR3nKPuo2+IVxY/BTLY9TwBs=
 github.com/tsarna/vinculum-kafka v0.9.1 h1:bmc+26bhc0a8WDqpIzJrW+Px3NaZfZkiQ51ckIMJBOU=
 github.com/tsarna/vinculum-kafka v0.9.1/go.mod h1:Jeux0OKkqLSgxU9bgeys92f9w2Snz+K0YHGu+q9hDr4=
 github.com/tsarna/vinculum-mqtt v0.7.1 h1:tp8PCnkqBRPV75KYAqr7emou9WmikCnN9/BILbBH+P4=

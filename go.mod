@@ -138,7 +138,7 @@ require (
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/tsarna/url-cty-funcs v0.1.0
-	github.com/tsarna/vinculum-fsm v0.0.0
+	github.com/tsarna/vinculum-fsm v0.1.0
 	github.com/zclconf/go-cty v1.18.1
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/mod v0.34.0 // indirect
@@ -147,5 +147,3 @@ require (
 	golang.org/x/tools v0.43.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/tsarna/vinculum-fsm => ../vinculum-fsm
