@@ -33,7 +33,7 @@ require (
 	github.com/tsarna/go-structdiff v0.2.1
 	github.com/tsarna/go2cty2go v0.1.3
 	github.com/tsarna/hcl-jqfunc v0.1.4
-	github.com/tsarna/rand-cty-funcs v0.1.0
+	github.com/tsarna/rand-cty-funcs v0.1.1
 	github.com/tsarna/rich-cty-types v0.1.0
 	github.com/tsarna/sqid-cty-funcs v0.1.0
 	github.com/tsarna/time-cty-funcs v0.2.1
