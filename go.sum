@@ -197,8 +197,8 @@ github.com/tsarna/go2cty2go v0.1.3 h1:YJ07Xl6agKrhtP/mCOkWL8t1MV9ry8kqNkR/w+m0Kn
 github.com/tsarna/go2cty2go v0.1.3/go.mod h1:4691K1NVryGKWribbwTppXaVbUIDLvJVBwA/EbMN6r8=
 github.com/tsarna/hcl-jqfunc v0.1.4 h1:RM6XtbsB/+vBmt3xyHrFcUQ9CBtoTyvH+f8cThFt4T0=
 github.com/tsarna/hcl-jqfunc v0.1.4/go.mod h1:68xhvtbrJJLOd4uYbnkKlFSxgoGaaZhWEnxuuOMTA5I=
-github.com/tsarna/rand-cty-funcs v0.1.0 h1:yM0iQpXTkpvwAvVwah/ED+VM3lZ9vUybyGGlFoj+utU=
-github.com/tsarna/rand-cty-funcs v0.1.0/go.mod h1:Xsw9Z69Xsowq/HWqE319t/7FvyjSJnFKnDOCPNDMjV8=
+github.com/tsarna/rand-cty-funcs v0.1.1 h1:tYdl899CbqkkVAH62mvSCPhEg6CIp1tbthe8j8g/2fU=
+github.com/tsarna/rand-cty-funcs v0.1.1/go.mod h1:AgSFyrU3oypFIUgmWWEkjBWz7lXrV+2gpW87ef6mx2U=
 github.com/tsarna/rich-cty-types v0.1.0 h1:kB5UImttQIUEwwaarYD2z9Iy2gxlHknCPunjNlXgRGI=
 github.com/tsarna/rich-cty-types v0.1.0/go.mod h1:ExfNIaAeqEo19WLcrFAGPfsLmIQ4GCEvhu8MRbZeV4k=
 github.com/tsarna/sqid-cty-funcs v0.1.0 h1:q8Dt1l8u8t1hVIs40Iz7sgeaTPrxwX07q9IaEYjaBhs=
