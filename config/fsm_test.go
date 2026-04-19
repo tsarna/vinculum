@@ -252,3 +252,90 @@ func TestFsm_ReactiveEdgeTrigger(t *testing.T) {
 	count, _ := inst.Count(context.Background())
 	assert.Equal(t, int64(1), count, "edge-triggered: should fire only once")
 }
+
+//go:embed testdata/fsm_hooks.vcl
+var fsmHooksTest []byte
+
+func TestFsm_Hooks(t *testing.T) {
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+
+	cfg, diags := NewConfig().WithSources(fsmHooksTest).WithLogger(logger).Build()
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+
+	fsmCapsule := cfg.CtyFsmMap["door"]
+	inst, err := fsm.GetInstanceFromCapsule(fsmCapsule)
+	require.NoError(t, err)
+
+	logCapsule := cfg.CtyVarMap["log"]
+	getLog := func() string {
+		g := logCapsule.EncapsulatedValue().(interface {
+			Get(context.Context, []cty.Value) (cty.Value, error)
+		})
+		v, _ := g.Get(context.Background(), nil)
+		if v.IsNull() {
+			return ""
+		}
+		return v.AsString()
+	}
+
+	// Start.
+	for _, s := range cfg.Startables {
+		require.NoError(t, s.Start())
+	}
+
+	// on_init should have fired.
+	assert.Equal(t, "init", getLog())
+
+	// Send "open" event: exit:closed -> action:open -> on_entry(increment) -> on_change
+	inst.OnEvent(context.Background(), "open", nil, nil)
+
+	// Send an unknown event while in "open" state to trigger on_event.
+	inst.OnEvent(context.Background(), "unknown", nil, nil)
+
+	// Stop to drain.
+	for i := len(cfg.Stoppables) - 1; i >= 0; i-- {
+		cfg.Stoppables[i].Stop()
+	}
+
+	// After the sequence, var.log should be "on_event:open" (the last set).
+	assert.Equal(t, "on_event:open", getLog())
+
+	// open_count should be 1.
+	val, err := inst.Get(context.Background(), []cty.Value{cty.StringVal("open_count")})
+	require.NoError(t, err)
+	assert.Equal(t, "1", val.AsBigFloat().String())
+
+	state, _ := inst.State(context.Background())
+	assert.Equal(t, "open", state)
+}
+
+func TestFsm_GuardExpression(t *testing.T) {
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+
+	cfg, diags := NewConfig().WithSources(fsmHooksTest).WithLogger(logger).Build()
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+
+	fsmCapsule := cfg.CtyFsmMap["door"]
+	inst, err := fsm.GetInstanceFromCapsule(fsmCapsule)
+	require.NoError(t, err)
+
+	for _, s := range cfg.Startables {
+		require.NoError(t, s.Start())
+	}
+
+	// Guard on "lock" checks state(fsm.door) == "closed", which is true initially.
+	inst.OnEvent(context.Background(), "lock", nil, nil)
+
+	for i := len(cfg.Stoppables) - 1; i >= 0; i-- {
+		cfg.Stoppables[i].Stop()
+	}
+
+	state, _ := inst.State(context.Background())
+	assert.Equal(t, "locked", state)
+}

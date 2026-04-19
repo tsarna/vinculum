@@ -52,7 +52,19 @@ func (h *FsmBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Di
 
 func (h *FsmBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, hcl.Diagnostics) {
 	// Exclude runtime-only attributes from dependency extraction.
-	return ExtractBlockDependencies(block, "action", "on_event"), nil
+	// guard is runtime-evaluated during event processing, not at config time.
+	deps := ExtractBlockDependencies(block, "action", "on_event", "guard")
+
+	// Filter out self-references: hooks like on_entry = increment(fsm.door, ...)
+	// legitimately reference the FSM itself, but that's not a config-time dependency.
+	selfID := "fsm." + block.Labels[0]
+	filtered := deps[:0]
+	for _, d := range deps {
+		if d != selfID {
+			filtered = append(filtered, d)
+		}
+	}
+	return filtered, nil
 }
 
 // Preprocess validates the block and registers the FSM name for duplicate
@@ -197,13 +209,14 @@ func (h *FsmBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnost
 	if tracingDiags.HasErrors() {
 		return tracingDiags
 	}
-	_ = tp // TODO: pass to instance in Phase 5
-
 	// Configure the existing instance (created during Preprocess) with the
 	// real definition. This preserves the capsule identity so that references
 	// resolved during dependency analysis remain valid.
 	inst := h.instances[name]
 	inst.Configure(def)
+	if tp != nil {
+		inst.SetTracerProvider(tp)
+	}
 
 	// Apply initial storage values.
 	if storageVals, ok := h.initialStorage[name]; ok {
