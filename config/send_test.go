@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ const (
 // mockSubscriber captures published messages for testing
 type mockSubscriber struct {
 	bus.BaseSubscriber
+	mu       sync.Mutex
 	messages []mockMessage
 }
 
@@ -33,12 +35,32 @@ type mockMessage struct {
 }
 
 func (m *mockSubscriber) OnEvent(ctx context.Context, topic string, message any, fields map[string]string) error {
+	m.mu.Lock()
 	m.messages = append(m.messages, mockMessage{
 		topic:   topic,
 		payload: message,
 		fields:  fields,
 	})
+	m.mu.Unlock()
 	return nil
+}
+
+func (m *mockSubscriber) reset() {
+	m.mu.Lock()
+	m.messages = nil
+	m.mu.Unlock()
+}
+
+func (m *mockSubscriber) len() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.messages)
+}
+
+func (m *mockSubscriber) get(i int) mockMessage {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.messages[i]
 }
 
 func TestSendFunctions(t *testing.T) {
@@ -89,7 +111,7 @@ func TestSendFunctions(t *testing.T) {
 	topicValue := cty.StringVal("test/topic")
 
 	t.Run("send function (original)", func(t *testing.T) {
-		subscriber.messages = nil // Reset messages
+		subscriber.reset()
 
 		sendFunc := SendFunction(config)
 		result, err := sendFunc.Call([]cty.Value{ctxValue, busValue, topicValue, testCtyValue})
@@ -99,16 +121,16 @@ func TestSendFunctions(t *testing.T) {
 
 		// Give some time for async processing
 		assert.Eventually(t, func() bool {
-			return len(subscriber.messages) > 0
+			return subscriber.len() > 0
 		}, timeout, interval)
 
 		// The original send should pass the cty.Value as-is
-		assert.Equal(t, "test/topic", subscriber.messages[0].topic)
-		assert.Equal(t, testCtyValue, subscriber.messages[0].payload)
+		assert.Equal(t, "test/topic", subscriber.get(0).topic)
+		assert.Equal(t, testCtyValue, subscriber.get(0).payload)
 	})
 
 	t.Run("sendjson function", func(t *testing.T) {
-		subscriber.messages = nil // Reset messages
+		subscriber.reset()
 
 		sendJSONFunc := SendJSONFunction(config)
 		result, err := sendJSONFunc.Call([]cty.Value{ctxValue, busValue, topicValue, testCtyValue})
@@ -118,12 +140,12 @@ func TestSendFunctions(t *testing.T) {
 
 		// Give some time for async processing
 		assert.Eventually(t, func() bool {
-			return len(subscriber.messages) > 0
+			return subscriber.len() > 0
 		}, timeout, interval)
 
 		// The sendjson should convert to JSON bytes
-		assert.Equal(t, "test/topic", subscriber.messages[0].topic)
-		jsonBytes, ok := subscriber.messages[0].payload.([]byte)
+		assert.Equal(t, "test/topic", subscriber.get(0).topic)
+		jsonBytes, ok := subscriber.get(0).payload.([]byte)
 		require.True(t, ok, "Expected payload to be JSON bytes")
 
 		// Verify it's valid JSON by unmarshaling
@@ -141,7 +163,7 @@ func TestSendFunctions(t *testing.T) {
 	})
 
 	t.Run("sendgo function", func(t *testing.T) {
-		subscriber.messages = nil // Reset messages
+		subscriber.reset()
 
 		sendGoFunc := SendGoFunction(config)
 		result, err := sendGoFunc.Call([]cty.Value{ctxValue, busValue, topicValue, testCtyValue})
@@ -151,12 +173,12 @@ func TestSendFunctions(t *testing.T) {
 
 		// Give some time for async processing
 		assert.Eventually(t, func() bool {
-			return len(subscriber.messages) > 0
+			return subscriber.len() > 0
 		}, timeout, interval)
 
 		// The sendgo should convert to Go native types
-		assert.Equal(t, "test/topic", subscriber.messages[0].topic)
-		goValue, ok := subscriber.messages[0].payload.(map[string]any)
+		assert.Equal(t, "test/topic", subscriber.get(0).topic)
+		goValue, ok := subscriber.get(0).payload.(map[string]any)
 		require.True(t, ok, "Expected payload to be a Go map")
 
 		// Verify the content matches our expected structure
@@ -169,7 +191,7 @@ func TestSendFunctions(t *testing.T) {
 	})
 
 	t.Run("sendgo function with nested objects", func(t *testing.T) {
-		subscriber.messages = nil // Reset messages
+		subscriber.reset()
 
 		// Create a complex nested structure
 		nestedCtyValue := cty.ObjectVal(map[string]cty.Value{
@@ -203,12 +225,12 @@ func TestSendFunctions(t *testing.T) {
 
 		// Give some time for async processing
 		assert.Eventually(t, func() bool {
-			return len(subscriber.messages) > 0
+			return subscriber.len() > 0
 		}, timeout, interval)
 
 		// The sendgo should convert to Go native types recursively
-		assert.Equal(t, "test/topic", subscriber.messages[0].topic)
-		goValue, ok := subscriber.messages[0].payload.(map[string]any)
+		assert.Equal(t, "test/topic", subscriber.get(0).topic)
+		goValue, ok := subscriber.get(0).payload.(map[string]any)
 		require.True(t, ok, "Expected payload to be a Go map")
 
 		// Verify the nested structure
@@ -232,7 +254,7 @@ func TestSendFunctions(t *testing.T) {
 	})
 
 	t.Run("sendgo function with capsule types", func(t *testing.T) {
-		subscriber.messages = nil // Reset messages
+		subscriber.reset()
 
 		// Create a structure containing a capsule (context)
 		capsuleValue := cty.ObjectVal(map[string]cty.Value{
@@ -248,12 +270,12 @@ func TestSendFunctions(t *testing.T) {
 
 		// Give some time for async processing
 		assert.Eventually(t, func() bool {
-			return len(subscriber.messages) > 0
+			return subscriber.len() > 0
 		}, timeout, interval)
 
 		// The sendgo should unwrap capsule types
-		assert.Equal(t, "test/topic", subscriber.messages[0].topic)
-		goValue, ok := subscriber.messages[0].payload.(map[string]any)
+		assert.Equal(t, "test/topic", subscriber.get(0).topic)
+		goValue, ok := subscriber.get(0).payload.(map[string]any)
 		require.True(t, ok, "Expected payload to be a Go map")
 
 		// Verify the capsule was unwrapped to the actual context pointer
@@ -284,7 +306,7 @@ func TestSendFunctions(t *testing.T) {
 	})
 
 	t.Run("send with fields - object", func(t *testing.T) {
-		subscriber.messages = nil // Reset messages
+		subscriber.reset()
 
 		sendFunc := SendFunction(config)
 		fieldsValue := cty.ObjectVal(map[string]cty.Value{
@@ -299,8 +321,8 @@ func TestSendFunctions(t *testing.T) {
 		assert.Equal(t, cty.True, result)
 
 		// Verify the message was sent with fields directly to subscriber
-		require.Len(t, subscriber.messages, 1)
-		msg := subscriber.messages[0]
+		require.Equal(t, 1, subscriber.len())
+		msg := subscriber.get(0)
 		assert.Equal(t, "test/topic", msg.topic)
 		assert.Equal(t, testCtyValue, msg.payload)
 		require.NotNil(t, msg.fields)
@@ -310,7 +332,7 @@ func TestSendFunctions(t *testing.T) {
 	})
 
 	t.Run("send with fields - map", func(t *testing.T) {
-		subscriber.messages = nil // Reset
+		subscriber.reset()
 		sendFunc := SendFunction(config)
 		fieldsValue := cty.MapVal(map[string]cty.Value{
 			"sessionId": cty.StringVal("abc-123"),
@@ -323,8 +345,8 @@ func TestSendFunctions(t *testing.T) {
 		assert.Equal(t, cty.True, result)
 
 		// Verify the message was sent with fields directly to subscriber
-		require.Len(t, subscriber.messages, 1)
-		msg := subscriber.messages[0]
+		require.Equal(t, 1, subscriber.len())
+		msg := subscriber.get(0)
 		assert.Equal(t, "test/topic", msg.topic)
 		assert.Equal(t, testCtyValue, msg.payload)
 		require.NotNil(t, msg.fields)
@@ -333,7 +355,7 @@ func TestSendFunctions(t *testing.T) {
 	})
 
 	t.Run("send without fields - backward compatibility", func(t *testing.T) {
-		subscriber.messages = nil // Reset
+		subscriber.reset()
 		sendFunc := SendFunction(config)
 
 		result, err := sendFunc.Call([]cty.Value{ctxValue, subscriberValue, topicValue, testCtyValue})
@@ -342,8 +364,8 @@ func TestSendFunctions(t *testing.T) {
 		assert.Equal(t, cty.True, result)
 
 		// Verify backward compatibility (no fields)
-		require.Len(t, subscriber.messages, 1)
-		msg := subscriber.messages[0]
+		require.Equal(t, 1, subscriber.len())
+		msg := subscriber.get(0)
 		assert.Equal(t, "test/topic", msg.topic)
 		assert.Equal(t, testCtyValue, msg.payload)
 		assert.Nil(t, msg.fields) // Should be nil when no fields provided

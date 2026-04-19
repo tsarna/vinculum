@@ -272,8 +272,10 @@ func NewSubscriberCapsule(subscriber bus.Subscriber) cty.Value {
 // Any capsule whose encapsulated value implements bus.Subscriber can be used
 // (buses, clients, FSM instances, subscriber capsules, etc.).
 func GetSubscriberFromCapsule(val cty.Value) (bus.Subscriber, error) {
-	if sub, ok := val.EncapsulatedValue().(bus.Subscriber); ok {
-		return sub, nil
+	if val.Type().IsCapsuleType() {
+		if sub, ok := val.EncapsulatedValue().(bus.Subscriber); ok {
+			return sub, nil
+		}
 	}
 	return nil, fmt.Errorf("expected Subscriber capsule, got %s", val.Type().FriendlyName())
 }
