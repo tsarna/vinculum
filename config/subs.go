@@ -268,29 +268,14 @@ func NewSubscriberCapsule(subscriber bus.Subscriber) cty.Value {
 	return cty.CapsuleVal(SubscriberCapsuleType, subscriber)
 }
 
-// GetSubscriberFromCapsule extracts an Subscriber from a cty capsule value
+// GetSubscriberFromCapsule extracts a Subscriber from a cty capsule value.
+// Any capsule whose encapsulated value implements bus.Subscriber can be used
+// (buses, clients, FSM instances, subscriber capsules, etc.).
 func GetSubscriberFromCapsule(val cty.Value) (bus.Subscriber, error) {
-	// A bus may be used as a subscriber
-	if val.Type() == EventBusCapsuleType {
-		return GetEventBusFromCapsule(val)
+	if sub, ok := val.EncapsulatedValue().(bus.Subscriber); ok {
+		return sub, nil
 	}
-	// A client that implements bus.Subscriber (e.g. KafkaClient) may also be used directly.
-	if val.Type() == ClientCapsuleType {
-		if sub, ok := val.EncapsulatedValue().(bus.Subscriber); ok {
-			return sub, nil
-		}
-		return nil, fmt.Errorf("client does not implement Subscriber")
-	}
-	if val.Type() != SubscriberCapsuleType {
-		return nil, fmt.Errorf("expected Subscriber capsule, got %s", val.Type().FriendlyName())
-	}
-
-	encapsulated := val.EncapsulatedValue()
-	subscriber, ok := encapsulated.(bus.Subscriber)
-	if !ok {
-		return nil, fmt.Errorf("encapsulated value is not an Subscriber, got %T", encapsulated)
-	}
-	return subscriber, nil
+	return nil, fmt.Errorf("expected Subscriber capsule, got %s", val.Type().FriendlyName())
 }
 
 func GetSubscriberFromExpression(config *Config, subscriberExpr hcl.Expression) (bus.Subscriber, hcl.Diagnostics) {

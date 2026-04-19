@@ -45,6 +45,7 @@ func GetBlockHandlers() map[string]BlockHandler {
 		"client":       NewClientBlockHandler(),
 		"condition":    NewConditionBlockHandler(),
 		"const":        NewConstBlockHandler(),
+		"fsm":          NewFsmBlockHandler(),
 		"metric":       NewMetricBlockHandler(),
 		"server":       NewServerBlockHandler(),
 		"subscription": NewSubscriptionBlockHandler(),
@@ -62,6 +63,10 @@ var blockSchema = []hcl.BlockHeaderSchema{
 	{
 		Type:       "editor",
 		LabelNames: []string{"type", "name"},
+	},
+	{
+		Type:       "fsm",
+		LabelNames: []string{"name"},
 	},
 	{
 		Type:       "bus",
