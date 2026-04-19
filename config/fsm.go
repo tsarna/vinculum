@@ -517,11 +517,18 @@ func makeHookFunc(config *Config, expr hclsyntax.Expression) fsm.HookFunc {
 	}
 }
 
-// evalHookExpr evaluates an HCL expression in a hook context.
+// evalHookExpr evaluates an HCL expression in a hook context. The eval
+// context is built once per transition and cached in hookCtx.UserData so
+// that multiple hooks sharing the same HookContext avoid redundant work.
 func evalHookExpr(ctx context.Context, config *Config, expr hcl.Expression, hookCtx *fsm.HookContext) error {
-	evalCtx, err := buildHookEvalContext(ctx, config, hookCtx)
-	if err != nil {
-		return err
+	evalCtx, ok := hookCtx.UserData.(*hcl.EvalContext)
+	if !ok || evalCtx == nil {
+		var err error
+		evalCtx, err = buildHookEvalContext(ctx, config, hookCtx)
+		if err != nil {
+			return err
+		}
+		hookCtx.UserData = evalCtx
 	}
 	_, diags := expr.Value(evalCtx)
 	if diags.HasErrors() {
