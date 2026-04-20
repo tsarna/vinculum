@@ -339,3 +339,60 @@ func TestFsm_GuardExpression(t *testing.T) {
 	state, _ := inst.State(context.Background())
 	assert.Equal(t, "locked", state)
 }
+
+func TestFsm_SnapshotRestore(t *testing.T) {
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+
+	cfg, diags := NewConfig().WithSources(fsmBasicTest).WithLogger(logger).Build()
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+
+	fsmCapsule := cfg.CtyFsmMap["door"]
+	inst, err := fsm.GetInstanceFromCapsule(fsmCapsule)
+	require.NoError(t, err)
+
+	for _, s := range cfg.Startables {
+		require.NoError(t, s.Start())
+	}
+
+	// Transition to "open" and set some storage.
+	inst.OnEvent(context.Background(), "open", nil, nil)
+
+	// Take a snapshot (via Get with no args).
+	// Stop first to ensure the transition is processed.
+	for i := len(cfg.Stoppables) - 1; i >= 0; i-- {
+		cfg.Stoppables[i].Stop()
+	}
+
+	snap, err := inst.Get(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Equal(t, "fsm", snap.GetAttr("_type").AsString())
+	assert.Equal(t, "open", snap.GetAttr("state").AsString())
+
+	// Create a fresh config and restore the snapshot.
+	cfg2, diags := NewConfig().WithSources(fsmBasicTest).WithLogger(logger).Build()
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+
+	inst2, err := fsm.GetInstanceFromCapsule(cfg2.CtyFsmMap["door"])
+	require.NoError(t, err)
+
+	for _, s := range cfg2.Startables {
+		require.NoError(t, s.Start())
+	}
+
+	// Restore the snapshot.
+	_, err = inst2.Set(context.Background(), []cty.Value{snap})
+	require.NoError(t, err)
+
+	// Stop to drain queue (restore is async).
+	for i := len(cfg2.Stoppables) - 1; i >= 0; i-- {
+		cfg2.Stoppables[i].Stop()
+	}
+
+	state, _ := inst2.State(context.Background())
+	assert.Equal(t, "open", state)
+}

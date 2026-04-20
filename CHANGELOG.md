@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`fsm` block**: Finite state machines with guarded transitions, reactive `when` expressions (edge-triggered), key-value storage, MQTT topic pattern matching, and OpenTelemetry tracing. Built on the new [vinculum-fsm](https://github.com/tsarna/vinculum-fsm) (`v0.1.0`) module. See [doc/fsm.md](doc/fsm.md) for details.
+- **`fsm` block**: Finite state machines with guarded transitions, reactive `when` expressions (edge-triggered), key-value storage, snapshot/restore, MQTT topic pattern matching, and OpenTelemetry tracing. Built on [vinculum-fsm](https://github.com/tsarna/vinculum-fsm) (`v0.2.0`). See [doc/fsm.md](doc/fsm.md) for details.
 
 ## [0.32.0] - 2026-04-18
 

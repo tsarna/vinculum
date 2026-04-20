@@ -262,6 +262,46 @@ fsm "door" {
 
 Values are evaluated at config time and set before `on_init` runs.
 
+### Snapshot and Restore
+
+`get(fsm.x)` without a key returns a complete snapshot of the instance's
+runtime state:
+
+```hcl
+snapshot = get(fsm.door)
+# {
+#   _type            = "fsm"
+#   state            = "locked"
+#   transition_count = 42
+#   storage          = { open_count = 17, last_user = "alice" }
+# }
+```
+
+`set(fsm.x, snapshot)` restores a previously captured snapshot, replacing
+the current state and storage entirely. Validation is synchronous (bad
+snapshots fail immediately); the actual state swap is async, processed by
+the event goroutine like any other event. No hooks fire during restore,
+but watchers are notified.
+
+This enables saving and restoring FSM state for crash recovery or
+migration. Use `tojson()`/`fromjson()` for persistent storage:
+
+```hcl
+# Save on shutdown
+trigger "shutdown" "save_door" {
+    action = set(ctx, client.rediskv, "fsm:door:state", tojson(get(fsm.door)))
+}
+
+# Restore on startup
+fsm "door" {
+    initial = "closed"
+    state "closed" {
+        on_init = set(fsm.door, fromjson(get(client.rediskv, "fsm:door:state")))
+    }
+    # ...
+}
+```
+
 ---
 
 ## Hook Context
