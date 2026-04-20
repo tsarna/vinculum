@@ -86,6 +86,14 @@ func (h *TriggerBlockHandler) FinishPreprocessing(config *Config) hcl.Diagnostic
 	return nil
 }
 
+func (h *TriggerBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, hcl.Diagnostics) {
+	// Exclude runtime-only attributes: action is evaluated when the trigger
+	// fires, and stop_when is evaluated after each run. Neither should create
+	// config-time dependencies (e.g. a trigger whose action sends to an FSM
+	// that references the trigger in on_entry hooks).
+	return ExtractBlockDependencies(block, "action", "stop_when"), nil
+}
+
 // GetBlockDependencyId returns "trigger.<name>" for trigger types that produce a
 // cty value, enabling correct dependency ordering for blocks that reference
 // trigger.<name>. Other trigger types return "" (no ordering needed).

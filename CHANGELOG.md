@@ -7,9 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-04-20
+
 ### Added
 
 - **`fsm` block**: Finite state machines with guarded transitions, reactive `when` expressions (edge-triggered), key-value storage, snapshot/restore, MQTT topic pattern matching, and OpenTelemetry tracing. Built on [vinculum-fsm](https://github.com/tsarna/vinculum-fsm) (`v0.2.0`). See [doc/fsm.md](doc/fsm.md) for details.
+- **`trigger "interval"` imperative control**: Interval triggers now support `set()` and `reset()` for imperative control from VCL expressions (e.g. FSM `on_entry` hooks). `set(trigger.<name>, duration)` restarts the trigger with a specific delay (+/- jitter); `reset(trigger.<name>)` cancels any pending timer and goes dormant. New `repeat = false` attribute makes the trigger fire once then wait for `set()`. Omitting `delay` starts the trigger dormant, waiting for the first `set()` — enabling FSM-driven one-shot timers with variable delays per state. See [doc/trigger.md](doc/trigger.md#trigger-interval) for details.
+
+### Fixed
+
+- **Dependency cycle between FSM and trigger blocks**: FSM `on_entry`/`on_exit`/`on_init`/`on_change`/`on_error` hooks and trigger `action`/`stop_when` attributes are now correctly excluded from config-time dependency extraction, since they are evaluated at runtime. Previously, an FSM referencing a trigger in `on_entry` while that trigger's action referenced the FSM would produce a spurious circular dependency error.
 
 ## [0.32.0] - 2026-04-18
 

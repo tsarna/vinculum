@@ -53,8 +53,12 @@ func (h *FsmBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Di
 
 func (h *FsmBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, hcl.Diagnostics) {
 	// Exclude runtime-only attributes from dependency extraction.
-	// guard is runtime-evaluated during event processing, not at config time.
-	deps := ExtractBlockDependencies(block, "action", "on_event", "guard")
+	// All hooks (on_init, on_entry, on_exit, on_event, on_change, on_error)
+	// and transition attributes (action, guard) are evaluated at runtime,
+	// not at config time.
+	deps := ExtractBlockDependencies(block,
+		"action", "guard", "on_init", "on_entry", "on_exit", "on_event", "on_change", "on_error",
+	)
 
 	// Filter out self-references: hooks like on_entry = increment(fsm.door, ...)
 	// legitimately reference the FSM itself, but that's not a config-time dependency.

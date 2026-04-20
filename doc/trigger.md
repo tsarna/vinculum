@@ -363,10 +363,11 @@ trigger "file" "spool_arrive" {
 
 ```hcl
 trigger "interval" "name" {
-    delay         = expression  # required — duration between runs
+    delay         = expression  # optional — duration between runs; omit for set()-driven triggers
     initial_delay = expression  # optional — duration before the very first run (default: delay)
     error_delay   = expression  # optional — duration after a failed run (default: delay)
     jitter        = 0.0         # optional — fraction in [0, 1]; actual delay uniform in [delay*(1-jitter/2), delay*(1+jitter/2)]
+    repeat        = true        # optional — if false, fire once then go dormant until set()
     stop_when     = expression  # optional — boolean; trigger stops itself when this evaluates true
     action        = expression  # required — evaluated each time the delay elapses
     disabled      = false       # optional
@@ -385,6 +386,35 @@ Durations may be expressed as numbers (seconds), Go duration strings (`"500ms"`,
 `get(trigger.<name>)` returns the most recent result of `action`, `null` before
 the first run, or an error if the most recent run failed.
 
+### Imperative control with `set()` and `reset()`
+
+`set(trigger.<name>, duration)` restarts the trigger with the given delay,
+resetting the run count. If the trigger has stopped (via `stop_when` or
+`repeat = false`), `set()` revives it. The duration override persists until
+cleared by `reset()` or replaced by another `set()`. **Note that if jitter is
+configured, it will be applied to the passed-in duration**.
+
+`set(trigger.<name>)` with no duration argument restarts using the configured
+`delay` expression. Returns an error if no `delay` was configured.
+
+`reset(trigger.<name>)` cancels any pending timer and puts the trigger into a
+dormant state, waiting for the next `set()` call. Clears the delay override,
+run count, and last result/error.
+
+### Dormant start (no `delay`)
+
+When `delay` is omitted, the trigger starts dormant and waits for the first
+`set()` call before firing. This is the idiomatic way to create a fully
+`set()`-driven trigger. `initial_delay` and `error_delay` cannot be used
+without `delay`.
+
+### `repeat = false`
+
+When `repeat` is `false`, the trigger fires once and then goes dormant,
+waiting for `set()` to revive it. This is useful for one-shot timers driven
+by external state — for example, an FSM whose `on_entry` hooks set different
+delays for each state.
+
 When each iteration runs, `ctx` provides:
 
 | Variable | Description |
@@ -400,7 +430,8 @@ state *before* this iteration). `stop_when` is evaluated *after* the action
 completes, with `ctx.run_count` already incremented.
 
 **Creates** `trigger.<name>` as a capsule; read the most recent result with
-`get(trigger.<name>)`.
+`get(trigger.<name>)`, restart with `set(trigger.<name>, duration)`, or cancel
+with `reset(trigger.<name>)`.
 
 Example — poll every 10 seconds, starting immediately:
 
@@ -439,6 +470,41 @@ trigger "interval" "reporter" {
     delay  = "30s"
     jitter = 0.2  # actual delay uniform in [27s, 33s], average stays 30s
     action = send_metrics(ctx)
+}
+```
+
+Example — FSM-driven one-shot timer with variable delays per state:
+
+```hcl
+trigger "interval" "phase_timer" {
+    repeat = false
+    action = send(ctx, fsm.intersection, "next_phase", {})
+}
+
+fsm "intersection" {
+    initial = "ns_green"
+
+    state "ns_green" {
+        on_entry = set(trigger.phase_timer, "30s")
+    }
+    state "ns_yellow" {
+        on_entry = set(trigger.phase_timer, "5s")
+    }
+    state "clearance" {
+        on_entry = set(trigger.phase_timer, "2s")
+    }
+    state "fault" {
+        on_entry = reset(trigger.phase_timer)  # cancel pending timer
+    }
+
+    event "next_phase" {
+        transition "ns_green" "ns_yellow" {}
+        transition "ns_yellow" "clearance" {}
+        transition "clearance" "ns_green" {}
+    }
+    event "fault" {
+        transition "*" "fault" {}
+    }
 }
 ```
 
