@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`client "sns_sender"`**: AWS SNS sender support. Publishes vinculum bus events to SNS topics, target ARNs, or phone numbers with auto-detection, FIFO topic support, and per-message expression evaluation. See [doc/client-sns.md](doc/client-sns.md).
+
+### Changed
+
+- **`client "sqs_sender"`**: Removed batching (`SendMessageBatch`) support due to incompatibility with single-goroutine dispatch model.
+
 ## [0.33.0] - 2026-04-20
 
 ### Added

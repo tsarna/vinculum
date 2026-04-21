@@ -174,7 +174,7 @@ A `server` block accepts inbound connections or requests over a particular proto
 
 | Protocol | Client | Server | Description |
 | -------- | ------ | ------ | ----------- |
-| [AWS](client-sqs.md#client-aws-name) | [Yes](client-sqs.md#client-aws-name)[^infra] | — | Shared AWS credentials and region for SQS (and future AWS service) clients |
+| [AWS](client-sqs.md#client-aws-name) | [Yes](client-sqs.md#client-aws-name)[^infra] | — | Shared AWS credentials and region for SQS and SNS clients |
 | [HTTP](server-http.md) | [Yes](client-http.md) | [Yes](server-http.md) | HTTP(S) server with routes, static files, TLS, cookies, and auth; client with retry, cookies, and OpenTelemetry |
 | [Kafka](client-kafka.md) | [Yes](client-kafka.md) | — | Producer and consumer adapters with SASL/TLS, commit modes, and dead-letter queue support |
 | [MCP](server-mcp.md) | — | [Yes](server-mcp.md) | Model Context Protocol server exposing resources, tools, and prompts to LLM clients |
@@ -186,7 +186,8 @@ A `server` block accepts inbound connections or requests over a particular proto
 | [Redis KV](client-redis.md#client-redis_kv) | [Yes](client-redis.md#client-redis_kv) | — | Redis GET/SET/INCR/HGET/HSET behind the generic `get()`/`set()`/`increment()` interface |
 | [Redis Pub/Sub](client-redis.md#client-redis_pubsub) | [Yes](client-redis.md#client-redis_pubsub) | — | Redis channel PUBLISH/SUBSCRIBE/PSUBSCRIBE — MQTT-style fire-and-forget |
 | [Redis Streams](client-redis.md#client-redis_stream) | [Yes](client-redis.md#client-redis_stream) | — | Redis Streams XADD/XREADGROUP with consumer groups, manual ack, reclaim, and dead-letter |
-| [SQS](client-sqs.md) | [Sender](client-sqs.md#client-sqs_sender-name) / [Receiver](client-sqs.md#client-sqs_receiver-name) | — | Send bus events to an SQS queue or poll a queue and dispatch to the bus; batching and FIFO support |
+| [SNS](client-sns.md) | [Sender](client-sns.md#client-sns_sender-name) | — | Publish bus events to an SNS topic, target ARN, or phone number; FIFO support |
+| [SQS](client-sqs.md) | [Sender](client-sqs.md#client-sqs_sender-name) / [Receiver](client-sqs.md#client-sqs_receiver-name) | — | Send bus events to an SQS queue or poll a queue and dispatch to the bus; FIFO support |
 | [VWS](server-vws.md) | [Yes](server-vws.md) | [Yes](server-vws.md) | Vinculum WebSocket Protocol — pub/sub over WebSockets between Vinculum instances |
 | [WebSocket](server-websocket.md) | — | [Yes](server-websocket.md) | Plain (raw) WebSocket server with bus integration and inbound/outbound transforms |
 

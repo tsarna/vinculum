@@ -115,6 +115,9 @@ func processSender(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body)
 		WithLogger(config.Logger).
 		WithTracerProvider(tp)
 
+	// Track whether any hooks need per-message evaluation.
+	hasHooks := false
+
 	// Target resolution: sns_topic expression.
 	if cfg.IsExpressionProvided(def.SNSTopic) {
 		// Check if the expression is a constant (most common: static ARN literal).
@@ -129,7 +132,8 @@ func processSender(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body)
 			builder = builder.WithStaticTarget(constVal.AsString())
 		} else {
 			// Dynamic expression — evaluated per message.
-			builder = builder.WithTopicFunc(makeSenderExprFunc(config, def.SNSTopic))
+			builder = builder.WithTopicHook(makeSenderHook(def.SNSTopic))
+			hasHooks = true
 		}
 	} else {
 		// No sns_topic — passthrough mode (vinculum topic used as target value).
@@ -138,7 +142,8 @@ func processSender(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body)
 
 	// Subject expression.
 	if cfg.IsExpressionProvided(def.Subject) {
-		builder = builder.WithSubjectFunc(makeSenderExprFunc(config, def.Subject))
+		builder = builder.WithSubjectHook(makeSenderHook(def.Subject))
+		hasHooks = true
 	}
 
 	// Message structure.
@@ -154,12 +159,18 @@ func processSender(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body)
 	// FIFO topic support.
 	if cfg.IsExpressionProvided(def.MessageGroupID) {
 		fifo := &snssender.FIFOConfig{
-			GroupIDFunc: makeSenderExprFunc(config, def.MessageGroupID),
+			GroupIDHook: makeSenderHook(def.MessageGroupID),
 		}
 		if cfg.IsExpressionProvided(def.DeduplicationID) {
-			fifo.DeduplicationFunc = makeSenderExprFunc(config, def.DeduplicationID)
+			fifo.DeduplicationHook = makeSenderHook(def.DeduplicationID)
 		}
 		builder = builder.WithFIFOConfig(fifo)
+		hasHooks = true
+	}
+
+	// Provide shared hook context builder when any hooks are configured.
+	if hasHooks {
+		builder = builder.WithMakeHookContext(makeSenderHookContext(config))
 	}
 
 	sender, err := builder.Build()
@@ -232,14 +243,14 @@ func resolveSNSClient(config *cfg.Config, awsExpr hcl.Expression, region string,
 	return sns.NewFromConfig(awsCfg), nil
 }
 
-// makeSenderExprFunc builds a closure that evaluates an HCL expression
-// per-message with the standard vinculum sender context (ctx.topic, ctx.msg,
-// ctx.fields). Used for sns_topic, subject, message_group_id, and deduplication_id.
-func makeSenderExprFunc(config *cfg.Config, expr hcl.Expression) func(topic string, msg any, fields map[string]string) (string, error) {
-	return func(topic string, msg any, fields map[string]string) (string, error) {
+// makeSenderHookContext returns a MakeHookContextFunc that builds a shared
+// HCL evaluation context from the per-message data (topic, msg, fields).
+// This context is built once per OnEvent call and reused across all hooks.
+func makeSenderHookContext(config *cfg.Config) snssender.MakeHookContextFunc {
+	return func(topic string, msg any, fields map[string]string) (snssender.HookContext, error) {
 		ctyMsg, err := go2cty2go.AnyToCty(msg)
 		if err != nil {
-			return "", fmt.Errorf("convert msg: %w", err)
+			return nil, fmt.Errorf("convert msg: %w", err)
 		}
 
 		ctxBuilder := hclutil.NewEvalContext(context.Background()).
@@ -256,8 +267,17 @@ func makeSenderExprFunc(config *cfg.Config, expr hcl.Expression) func(topic stri
 
 		evalCtx, err := ctxBuilder.BuildEvalContext(config.EvalCtx())
 		if err != nil {
-			return "", err
+			return nil, err
 		}
+		return evalCtx, nil
+	}
+}
+
+// makeSenderHook returns a HookFunc that evaluates an HCL expression against
+// the shared HookContext (an *hcl.EvalContext built by makeSenderHookContext).
+func makeSenderHook(expr hcl.Expression) snssender.HookFunc {
+	return func(hookCtx snssender.HookContext) (string, error) {
+		evalCtx := hookCtx.(*hcl.EvalContext)
 		val, diags := expr.Value(evalCtx)
 		if diags.HasErrors() {
 			return "", diags

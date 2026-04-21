@@ -15,8 +15,8 @@ with explicit topic assignment on both sides.
 
 ## `client "aws" "<name>"`
 
-Holds AWS credentials and region configuration. Multiple SQS (and future AWS
-service) clients can reference the same `client "aws"` block.
+Holds AWS credentials and region configuration. Multiple AWS service clients
+(SQS, [SNS](client-sns.md)) can reference the same `client "aws"` block.
 
 ```hcl
 client "aws" "prod" {
@@ -81,13 +81,6 @@ client "sqs_sender" "orders" {
     # message_group_id = ctx.topic       # required for FIFO queues
     # deduplication_id = ctx.fields["$id"] # optional
 
-    # Batching (optional)
-    # batch {
-    #     enabled   = true
-    #     max_size  = 10       # 1-10, default: 10
-    #     max_delay = "100ms"  # default: 100ms
-    # }
-
     # Wire format for payload serialization (default: "auto")
     # wire_format = "json"
 
@@ -115,19 +108,6 @@ subscription "orders_to_sqs" {
 | `wire_format` | expression | Wire format for serialization. Default: `"auto"`. |
 | `metrics` | expression | Metrics backend reference. |
 | `tracing` | expression | Tracing backend reference. |
-
-### Batch sub-block
-
-| Attribute | Type | Description |
-|---|---|---|
-| `enabled` | bool | Enable batching. Default: `true` (if block present). |
-| `max_size` | int | Maximum messages per batch (1--10). Default: 10. |
-| `max_delay` | duration | Maximum wait time before flushing a partial batch. Default: `"100ms"`. |
-
-When batching is enabled, `OnEvent` buffers messages and a background goroutine
-sends them via `SendMessageBatch`. Each `OnEvent` call blocks until the batch
-containing its message has been sent. Partial batch failures route errors back
-to the individual callers.
 
 ### Message format
 
@@ -282,7 +262,6 @@ All SQS metrics carry attributes: `messaging.system=aws_sqs`,
 |---|---|---|---|
 | `messaging.client.sent.messages` | Int64Counter | `{message}` | Messages sent |
 | `messaging.client.operation.duration` | Float64Histogram | `s` | Send API call latency |
-| `messaging.batch.message_count` | Float64Histogram | `{message}` | Messages per batch |
 
 ### Receiver metrics
 
@@ -307,12 +286,6 @@ client "sqs_sender" "order_events" {
 
     message_group_id = ctx.msg.order_id
     deduplication_id = ctx.msg.event_id
-
-    batch {
-        enabled   = true
-        max_size  = 10
-        max_delay = "200ms"
-    }
 }
 
 subscription "orders_to_sqs" {

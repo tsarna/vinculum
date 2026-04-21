@@ -28,6 +28,8 @@ github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.22 h1:PUmZeJU6
 github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.22/go.mod h1:nO6egFBoAaoXze24a2C0NjQCvdpk8OueRoYimvEB9jo=
 github.com/aws/aws-sdk-go-v2/service/signin v1.0.10 h1:a1Fq/KXn75wSzoJaPQTgZO0wHGqE9mjFnylnqEPTchA=
 github.com/aws/aws-sdk-go-v2/service/signin v1.0.10/go.mod h1:p6+MXNxW7IA6dMgHfTAzljuwSKD0NCm/4lbS4t6+7vI=
+github.com/aws/aws-sdk-go-v2/service/sns v1.37.2 h1:dXu0MVrJRbidEuUPb7tY3IT896K//tF2RHZmARts9QY=
+github.com/aws/aws-sdk-go-v2/service/sns v1.37.2/go.mod h1:LI2j0ARb4J453bpa8PTEYUmMjbUp7RwPzP30KoeIIA8=
 github.com/aws/aws-sdk-go-v2/service/sqs v1.42.26 h1:jtUEQz/c14fCMkOX3r2/nhYmhXZas0XdcQhUaIW5ubY=
 github.com/aws/aws-sdk-go-v2/service/sqs v1.42.26/go.mod h1:gcJv70rH+Z/Q1PM3jKsJr6+vfKrDHJOfmKq7342+Vq8=
 github.com/aws/aws-sdk-go-v2/service/sso v1.30.16 h1:x6bKbmDhsgSZwv6q19wY/u3rLk/3FGjJWyqKcIRufpE=
@@ -217,8 +219,10 @@ github.com/tsarna/vinculum-mqtt v0.7.1 h1:tp8PCnkqBRPV75KYAqr7emou9WmikCnN9/BILb
 github.com/tsarna/vinculum-mqtt v0.7.1/go.mod h1:TJTGtHNAWtmM1v9ayayYBVZ0mNRlQduCkx19ys3RYX4=
 github.com/tsarna/vinculum-redis v0.2.0 h1:o9Ad65155TltCVwgS1evgiMSBe91inabjdyC0A7VlFg=
 github.com/tsarna/vinculum-redis v0.2.0/go.mod h1:/gExw0HaH6wKyRp2Z4/sl/peiOfsTQXzRwADT3jmRK8=
-github.com/tsarna/vinculum-sqs v0.1.0 h1:M+IcZx2yTv4h+NHWWOjU6v52pRL3dNHlVUqoF5mkv8Q=
-github.com/tsarna/vinculum-sqs v0.1.0/go.mod h1:8J0ThDo3rbcz/sBn1xWHV4ZRXck11lwmEDBNdCNvOX0=
+github.com/tsarna/vinculum-sns v0.2.0 h1:oJp3vOBL/pssZFmUgwjfoU/F++36Bp0LP5FBpPhJbRA=
+github.com/tsarna/vinculum-sns v0.2.0/go.mod h1:B4oiAx8rhg10yYbE+XK2R1qRcdJidpS/QL8ysmnJycA=
+github.com/tsarna/vinculum-sqs v0.2.0 h1:YGWxjzl52VayaqVuIw/wV4fXOytWUFOfuLDJk3fIt28=
+github.com/tsarna/vinculum-sqs v0.2.0/go.mod h1:8J0ThDo3rbcz/sBn1xWHV4ZRXck11lwmEDBNdCNvOX0=
 github.com/tsarna/vinculum-vws v0.11.1 h1:Z+j4rK7r3334IShaBhRifahQwIB+d09+U2PQ+42PHt8=
 github.com/tsarna/vinculum-vws v0.11.1/go.mod h1:RiKc102vawkerUYvFI2MUtIOUVzchakvClpXHcTh+Y8=
 github.com/tsarna/vinculum-wire v0.1.0 h1:GWvDcuYBYkceC/hzwUYUvMqFI+yThxEwbYmjYSQIQ18=

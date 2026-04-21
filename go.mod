@@ -42,7 +42,8 @@ require (
 	github.com/tsarna/vinculum-kafka v0.9.1
 	github.com/tsarna/vinculum-mqtt v0.7.1
 	github.com/tsarna/vinculum-redis v0.2.0
-	github.com/tsarna/vinculum-sqs v0.1.0
+	github.com/tsarna/vinculum-sns v0.2.0
+	github.com/tsarna/vinculum-sqs v0.2.0
 	github.com/tsarna/vinculum-vws v0.11.1
 	github.com/tsarna/vinculum-wire v0.1.0
 	github.com/twmb/franz-go v1.20.7
