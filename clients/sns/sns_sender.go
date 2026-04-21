@@ -33,19 +33,10 @@ type SNSSenderDefinition struct {
 	TopicAttribute   string           `hcl:"topic_attribute,optional"`
 	MessageGroupID   hcl.Expression   `hcl:"message_group_id,optional"`
 	DeduplicationID  hcl.Expression   `hcl:"deduplication_id,optional"`
-	Batch            *BatchDefinition `hcl:"batch,block"`
 	WireFormat       hcl.Expression   `hcl:"wire_format,optional"`
 	Metrics          hcl.Expression   `hcl:"metrics,optional"`
 	Tracing          hcl.Expression   `hcl:"tracing,optional"`
 	DefRange         hcl.Range        `hcl:",def_range"`
-}
-
-// BatchDefinition is the HCL schema for the `batch {}` sub-block.
-type BatchDefinition struct {
-	Enabled  *bool          `hcl:"enabled,optional"`
-	MaxSize  *int           `hcl:"max_size,optional"`
-	MaxDelay hcl.Expression `hcl:"max_delay,optional"`
-	DefRange hcl.Range      `hcl:",def_range"`
 }
 
 // SNSSenderClient wraps an SNSSender for vinculum config integration.
@@ -169,22 +160,6 @@ func processSender(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body)
 			fifo.DeduplicationFunc = makeSenderExprFunc(config, def.DeduplicationID)
 		}
 		builder = builder.WithFIFOConfig(fifo)
-	}
-
-	// Batching.
-	if def.Batch != nil && (def.Batch.Enabled == nil || *def.Batch.Enabled) {
-		bc := &snssender.BatchConfig{MaxSize: 10}
-		if def.Batch.MaxSize != nil {
-			bc.MaxSize = *def.Batch.MaxSize
-		}
-		if cfg.IsExpressionProvided(def.Batch.MaxDelay) {
-			d, dDiags := config.ParseDuration(def.Batch.MaxDelay)
-			if dDiags.HasErrors() {
-				return nil, dDiags
-			}
-			bc.MaxDelay = d
-		}
-		builder = builder.WithBatchConfig(bc)
 	}
 
 	sender, err := builder.Build()
