@@ -11,6 +11,7 @@ import (
 	_ "github.com/tsarna/vinculum/clients/openai"
 	_ "github.com/tsarna/vinculum/clients/otlp"
 	_ "github.com/tsarna/vinculum/clients/redis"
+	_ "github.com/tsarna/vinculum/clients/sns"
 	_ "github.com/tsarna/vinculum/clients/sqs"
 	_ "github.com/tsarna/vinculum/clients/rediskv"
 	_ "github.com/tsarna/vinculum/clients/redispubsub"
