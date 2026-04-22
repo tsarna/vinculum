@@ -87,7 +87,9 @@ timeout = "10m"
 If the condition remains active for this duration, auto-deactivate. The
 timeout clock starts on activation and restarts whenever the input is
 re-asserted while the condition is already active. Ignored when
-`latch = true`.
+`latch = true`. When the condition boots active via `start_active`, the
+timeout clock starts at boot (unless latched, in which case timeout is
+ignored as usual).
 
 ### `latch`
 
@@ -100,6 +102,54 @@ Once active, stay active regardless of input. `deactivate_after` and
 
 - Release a timer or threshold latch with `clear(condition.name)`.
 - Release a counter latch with `reset(condition.name)` (which also resets the count).
+
+### `start_active`
+
+```hcl
+start_active = true
+```
+
+Force the condition to begin in the `active` state at startup, rather than the
+default `inactive`. No `inactive → active` transition event is emitted —
+`trigger "watch"` will only fire on the first transition *out of* the boot-
+active state. `activate_after` and `cooldown` do not apply to the boot state;
+they govern input-driven activations.
+
+Combined with `latch = true`, this implements the standard **fail-safe** /
+**power-loss-is-a-fault** pattern: the system comes up with the condition
+latched and cannot proceed until an operator clears it.
+
+```hcl
+# Power loss is a fault. Fault must be cleared before operation resumes.
+condition "timer" "safety_fault" {
+    latch        = true
+    start_active = true
+}
+
+subscription "clear_fault" {
+    bus    = bus.main
+    topics = ["operator/reset"]
+    action = clear(condition.safety_fault)
+}
+```
+
+Without `latch`, the condition starts active but behaves normally from then on:
+the next input edge (for `timer`), the first numeric sample crossing a
+threshold (for `threshold`), or the `Start()` preset reconcile (for `counter`)
+may deactivate it. This is the "assume worst until proven otherwise" variant.
+
+**Interactions:**
+
+- `start_active` sets the internal state. `invert` still applies as a final
+  transform on the output — `start_active = true` combined with `invert = true`
+  yields `get() == false` at boot.
+- `inhibit` does **not** suppress `start_active`. A condition with
+  `start_active = true` starts active even if `inhibit` evaluates `true` at
+  boot, because the boot state is a configured initial condition, not a new
+  activation. Inhibit takes effect from the first subsequent input event.
+- `clear()` / `reset()` always return the condition to `inactive`. They do
+  **not** restore the configured `start_active` state — otherwise a
+  boot-latched fault could never be cleared.
 
 ### `invert`
 
@@ -338,7 +388,8 @@ low form `off_above > on_below` is required.
 
 If the input value starts within the hysteresis deadband at startup, the
 initial output is `inactive`. The condition activates only when an
-unambiguous threshold crossing is observed.
+unambiguous threshold crossing is observed. Use `start_active = true` to
+override this default — see the common attribute section above.
 
 ---
 

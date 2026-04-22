@@ -23,6 +23,12 @@ var counterRejectsInputVCL []byte
 //go:embed testdata/counter_missing_preset.vcl
 var counterMissingPresetVCL []byte
 
+//go:embed testdata/counter_start_active.vcl
+var counterStartActiveVCL []byte
+
+//go:embed testdata/counter_start_active_unlatched.vcl
+var counterStartActiveUnlatchedVCL []byte
+
 func TestCounterBasicDecode(t *testing.T) {
 	c := buildConfig(t, counterBasicVCL)
 	require.Contains(t, c.CtyConditionMap, "fault_count")
@@ -162,4 +168,53 @@ func TestCounterStartAppliesInitialPreset(t *testing.T) {
 	c := newTestCounter(0, 0, false, true, false)
 	require.NoError(t, c.Start())
 	assert.Equal(t, "active", stateMust(t, c), "initial value already at preset")
+}
+
+func TestCounterStartActiveLatched(t *testing.T) {
+	c := buildConfig(t, counterStartActiveVCL)
+	cond := c.CtyConditionMap["fault_count"].EncapsulatedValue().(*CounterCondition)
+	assert.True(t, cond.sm.behavior.StartActive)
+
+	for _, s := range c.Startables {
+		require.NoError(t, s.Start())
+	}
+	defer func() {
+		for _, s := range c.Stoppables {
+			_ = s.Stop()
+		}
+	}()
+
+	assert.Equal(t, "active", stateMust(t, cond), "boot-latched despite count < preset")
+	cnt, _ := cond.Count(context.Background())
+	assert.Equal(t, int64(0), cnt)
+
+	// Increment a few times — latched output holds regardless.
+	for i := 0; i < 3; i++ {
+		_, _ = cond.Increment(context.Background(), nil)
+	}
+	assert.Equal(t, "active", stateMust(t, cond))
+
+	require.NoError(t, cond.Reset(context.Background()))
+	assert.Equal(t, "inactive", stateMust(t, cond), "reset returns to inactive")
+	cnt, _ = cond.Count(context.Background())
+	assert.Equal(t, int64(0), cnt)
+}
+
+func TestCounterStartActiveUnlatchedReconciles(t *testing.T) {
+	// Unlatched start_active + count (0) < preset (5): the applyDelta(0) in
+	// Start() must reconcile the forced-active SM to inactive.
+	c := buildConfig(t, counterStartActiveUnlatchedVCL)
+	cond := c.CtyConditionMap["fault_count"].EncapsulatedValue().(*CounterCondition)
+
+	for _, s := range c.Startables {
+		require.NoError(t, s.Start())
+	}
+	defer func() {
+		for _, s := range c.Stoppables {
+			_ = s.Stop()
+		}
+	}()
+
+	assert.Equal(t, "inactive", stateMust(t, cond),
+		"unlatched start_active yields to count reconcile")
 }

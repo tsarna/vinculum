@@ -122,13 +122,18 @@ func (c *CounterCondition) matchedLocked() bool {
 }
 
 func (c *CounterCondition) Start() error {
+	c.sm.Bootstrap()
 	if c.inhibitExpr != nil {
 		if diags := c.inhibitExpr.Start(context.Background()); diags.HasErrors() {
 			return fmt.Errorf("condition %q: inhibit: %s", c.name, diags.Error())
 		}
 	}
 	// Apply the initial-value preset check at start so an initial count that
-	// already satisfies the comparison is reflected in the SM.
+	// already satisfies the comparison is reflected in the SM. When start_active
+	// is set alongside latch, the latched SM ignores a deasserted reconcile
+	// (state.go's StateActive branch returns early on !value && latched); when
+	// start_active is set without latch, the reconcile correctly overrides the
+	// forced-active boot state with whatever the current count dictates.
 	c.applyDelta(context.Background(), 0)
 	return nil
 }
@@ -165,6 +170,7 @@ type counterBody struct {
 	Cooldown        hcl.Expression `hcl:"cooldown,optional"`
 	Latch           *bool          `hcl:"latch,optional"`
 	Invert          *bool          `hcl:"invert,optional"`
+	StartActive     *bool          `hcl:"start_active,optional"`
 	Inhibit         hcl.Expression `hcl:"inhibit,optional"`
 
 	// Forbidden — declared so we can produce a friendly diagnostic instead
@@ -231,6 +237,9 @@ func processCounterCondition(config *cfg.Config, block *hcl.Block, def *cfg.Cond
 	}
 	if body.Invert != nil {
 		behavior.Invert = *body.Invert
+	}
+	if body.StartActive != nil {
+		behavior.StartActive = *body.StartActive
 	}
 	if diags.HasErrors() {
 		return diags

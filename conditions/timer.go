@@ -137,6 +137,17 @@ func (t *TimerCondition) onDebounceFire() {
 // reactive input and inhibit expressions; each subscribes to its Watchables
 // and pushes initial values into the condition.
 func (t *TimerCondition) Start() error {
+	t.sm.Bootstrap()
+	if t.sm.behavior.StartActive {
+		// Mirror StateMachine.Bootstrap's rawInput pre-assertion at this
+		// layer so a subsequent set(false) — or a declared input whose
+		// initial value is false — registers as an edge in submitInput
+		// rather than hitting the "value unchanged" early-out.
+		t.mu.Lock()
+		t.rawInput = true
+		t.stableInput = true
+		t.mu.Unlock()
+	}
 	if t.inhibitExpr != nil {
 		if diags := t.inhibitExpr.Start(context.Background()); diags.HasErrors() {
 			return fmt.Errorf("condition %q: inhibit: %s", t.name, diags.Error())
@@ -184,6 +195,7 @@ type timerBody struct {
 	Latch           *bool          `hcl:"latch,optional"`
 	Invert          *bool          `hcl:"invert,optional"`
 	Retentive       *bool          `hcl:"retentive,optional"`
+	StartActive     *bool          `hcl:"start_active,optional"`
 	Inhibit         hcl.Expression `hcl:"inhibit,optional"`
 	Debounce        hcl.Expression `hcl:"debounce,optional"`
 	Input           hcl.Expression `hcl:"input,optional"`
@@ -221,6 +233,9 @@ func processTimerCondition(config *cfg.Config, block *hcl.Block, def *cfg.Condit
 	}
 	if body.Retentive != nil {
 		behavior.Retentive = *body.Retentive
+	}
+	if body.StartActive != nil {
+		behavior.StartActive = *body.StartActive
 	}
 
 	debounce, moreDiags := parseOptDuration(config, body.Debounce)

@@ -101,6 +101,37 @@ func NewStateMachine(behavior Behavior, clock Clock) *StateMachine {
 	return &StateMachine{behavior: behavior, clock: clock, state: StateInactive}
 }
 
+// Bootstrap applies the configured initial state. Must be called exactly once,
+// from the owning subtype's Start() method, before any input is pushed to the
+// state machine. If behavior.StartActive is false, this is a no-op.
+//
+// When StartActive is true: state is forced to Active. If behavior.Latch is
+// also true, the latch is engaged (only clear()/reset() can release it). If
+// Latch is false and Timeout > 0, the timeout timer is armed. No NotifyAll
+// fires — boot-active is a silent initial condition, not a synthetic rising
+// edge.
+//
+// Bootstrap does NOT consult inhibit: inhibit prevents new activations, and a
+// configured initial state is not an activation. Invert is applied by Output()
+// as usual, so start_active + invert produces external get() == false.
+func (sm *StateMachine) Bootstrap() {
+	if !sm.behavior.StartActive {
+		return
+	}
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.state = StateActive
+	// Track rawInput as asserted so a subsequent SetRawInput(false) is
+	// recognised as a real falling edge rather than getting absorbed by the
+	// "value unchanged" early-out at the top of SetRawInput.
+	sm.rawInput = true
+	if sm.behavior.Latch {
+		sm.latched = true
+	} else if sm.behavior.Timeout > 0 {
+		sm.timeoutTimer = sm.clock.AfterFunc(sm.behavior.Timeout, sm.onTimeoutTimer)
+	}
+}
+
 // SetRawInput drives the state machine from the subtype's pre-filtered boolean
 // input signal. ctx is forwarded to watcher notifications.
 func (sm *StateMachine) SetRawInput(ctx context.Context, value bool) {

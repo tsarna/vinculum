@@ -479,3 +479,105 @@ func stateOf(t *testing.T, sm *StateMachine) string {
 	require.NoError(t, err)
 	return s
 }
+
+func TestBootstrap_NoopWhenDisabled(t *testing.T) {
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{}, clock)
+	sm.Bootstrap()
+	assert.Equal(t, "inactive", stateOf(t, sm))
+	assert.False(t, sm.Output())
+}
+
+func TestBootstrap_ActiveLatched(t *testing.T) {
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{StartActive: true, Latch: true}, clock)
+	sm.Bootstrap()
+
+	assert.Equal(t, "active", stateOf(t, sm))
+	assert.True(t, sm.Output())
+
+	sm.SetRawInput(context.Background(), false)
+	assert.Equal(t, "active", stateOf(t, sm), "latch ignores deassertion")
+
+	require.NoError(t, sm.Clear(context.Background()))
+	assert.Equal(t, "inactive", stateOf(t, sm))
+	assert.False(t, sm.Output())
+}
+
+func TestBootstrap_ActiveUnlatched(t *testing.T) {
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{StartActive: true}, clock)
+	sm.Bootstrap()
+
+	assert.Equal(t, "active", stateOf(t, sm))
+	assert.True(t, sm.Output())
+
+	sm.SetRawInput(context.Background(), false)
+	assert.Equal(t, "inactive", stateOf(t, sm), "unlatched deasserts normally")
+}
+
+func TestBootstrap_ActiveUnlatchedWithTimeout(t *testing.T) {
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{StartActive: true, Timeout: 10 * time.Second}, clock)
+	w := &capturingWatcher{}
+	sm.Watch(w)
+	sm.Bootstrap()
+
+	require.Equal(t, "active", stateOf(t, sm))
+	require.Empty(t, w.snapshot(), "bootstrap itself must not notify")
+
+	clock.Advance(10 * time.Second)
+	assert.Equal(t, "inactive", stateOf(t, sm))
+	assert.Equal(t, []watcherCall{{true, false}}, w.snapshot(),
+		"only the timeout-driven deactivation fires; no synthetic rising edge")
+}
+
+func TestBootstrap_NoSyntheticNotify(t *testing.T) {
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{StartActive: true, Latch: true}, clock)
+	w := &capturingWatcher{}
+	sm.Watch(w)
+	sm.Bootstrap()
+	assert.Empty(t, w.snapshot(), "silent boot-active contract")
+}
+
+func TestBootstrap_InvertTransformsOutput(t *testing.T) {
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{StartActive: true, Latch: true, Invert: true}, clock)
+	sm.Bootstrap()
+
+	assert.Equal(t, "active", stateOf(t, sm), "internal state is active")
+	assert.False(t, sm.Output(), "invert flips external output")
+
+	sm.SetRawInput(context.Background(), false)
+	assert.Equal(t, "active", stateOf(t, sm), "latch still holds")
+	assert.False(t, sm.Output())
+
+	require.NoError(t, sm.Clear(context.Background()))
+	assert.Equal(t, "inactive", stateOf(t, sm))
+	assert.True(t, sm.Output(), "inactive inverted reads true")
+}
+
+func TestBootstrap_InhibitIgnored(t *testing.T) {
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{StartActive: true, Latch: true}, clock)
+	sm.SetInhibited(context.Background(), true)
+	sm.Bootstrap()
+
+	assert.Equal(t, "active", stateOf(t, sm),
+		"inhibit does not suppress a configured initial state")
+	assert.True(t, sm.Output())
+}
+
+func TestBootstrap_ClearGoesToInactive(t *testing.T) {
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{StartActive: true, Latch: true}, clock)
+	sm.Bootstrap()
+
+	require.NoError(t, sm.Clear(context.Background()))
+	assert.Equal(t, "inactive", stateOf(t, sm), "clear returns to inactive, not start_active")
+	assert.False(t, sm.Output())
+
+	sm.SetRawInput(context.Background(), true)
+	assert.Equal(t, "active", stateOf(t, sm), "fresh cycle activates normally")
+}

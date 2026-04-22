@@ -26,5 +26,6 @@ type Behavior struct {
 	Latch           bool
 	Invert          bool
 	Retentive       bool
+	StartActive     bool
 	Inhibit         hcl.Expression
 }

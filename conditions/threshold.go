@@ -160,6 +160,19 @@ func (c *ThresholdCondition) onDebounceFire() {
 }
 
 func (c *ThresholdCondition) Start() error {
+	c.sm.Bootstrap()
+	if c.sm.behavior.StartActive {
+		// Keep the hysteresis baseline consistent with the forced-active SM
+		// output so the first numeric sample doesn't submit a spurious rising
+		// edge. derived=true means subsequent samples evaluate against the
+		// "currently above" branch of deriveLocked (for high form) or "currently
+		// below" (for low form); stableInput=true suppresses redundant
+		// SetRawInput(true) calls on the first settle.
+		c.mu.Lock()
+		c.derived = true
+		c.stableInput = true
+		c.mu.Unlock()
+	}
 	if c.inhibitExpr != nil {
 		if diags := c.inhibitExpr.Start(context.Background()); diags.HasErrors() {
 			return fmt.Errorf("condition %q: inhibit: %s", c.name, diags.Error())
@@ -206,6 +219,7 @@ type thresholdBody struct {
 	Latch           *bool          `hcl:"latch,optional"`
 	Invert          *bool          `hcl:"invert,optional"`
 	Retentive       *bool          `hcl:"retentive,optional"`
+	StartActive     *bool          `hcl:"start_active,optional"`
 	Inhibit         hcl.Expression `hcl:"inhibit,optional"`
 	Debounce        hcl.Expression `hcl:"debounce,optional"`
 }
@@ -300,6 +314,9 @@ func processThresholdCondition(config *cfg.Config, block *hcl.Block, def *cfg.Co
 	}
 	if body.Retentive != nil {
 		behavior.Retentive = *body.Retentive
+	}
+	if body.StartActive != nil {
+		behavior.StartActive = *body.StartActive
 	}
 	debounce, moreDiags := parseOptDuration(config, body.Debounce)
 	diags = diags.Extend(moreDiags)

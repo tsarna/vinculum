@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`start_active` condition attribute**: New common attribute on all three `condition` subtypes (`timer`, `threshold`, `counter`) that forces the condition to begin in the `active` state at startup. Combined with `latch = true`, implements the classic fail-safe pattern where power loss is itself treated as a fault — the system comes up with the condition latched and must be explicitly cleared (`clear()` / `reset()`) before it can resume operation. No synthetic transition event fires at boot; `inhibit` does not suppress the configured initial state; `invert` still applies as a final output transform. See [doc/condition.md](doc/condition.md#start_active).
 - **Build version identity**: New `version` package exposes `Version`, `Commit`, `BuildTime`, and `Modified` for the vinculum binary. Values come from `-ldflags "-X …"` when set, falling back to Go's automatic `runtime/debug` VCS stamping for local builds. Surfaced in three places:
   - `vinculum version` subcommand prints version, commit, build time, Go version, and platform.
   - Startup log message now includes a `version` field (e.g. `"version":"v0.34.0 (abc123def456)"`).

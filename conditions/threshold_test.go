@@ -23,6 +23,12 @@ var thresholdBadPairVCL []byte
 //go:embed testdata/threshold_bad_order.vcl
 var thresholdBadOrderVCL []byte
 
+//go:embed testdata/threshold_start_active.vcl
+var thresholdStartActiveVCL []byte
+
+//go:embed testdata/threshold_start_active_unlatched.vcl
+var thresholdStartActiveUnlatchedVCL []byte
+
 func TestThresholdHighFormDecode(t *testing.T) {
 	c := buildConfig(t, thresholdHighVCL)
 	require.Contains(t, c.CtyConditionMap, "high_temp")
@@ -155,4 +161,59 @@ func TestThresholdDrivesReactivelyFromVar(t *testing.T) {
 	_, err = v.Set(context.Background(), []cty.Value{cty.NumberIntVal(65)})
 	require.NoError(t, err)
 	assert.Equal(t, "inactive", stateMust(t, cond))
+}
+
+func TestThresholdStartActiveLatchedInDeadband(t *testing.T) {
+	// var.temp = 75, which is in the deadband [70, 80]. With start_active +
+	// latch, the condition boots active and the first reactive sample in the
+	// deadband must not deactivate it.
+	c := buildConfig(t, thresholdStartActiveVCL)
+	cond := c.CtyConditionMap["high_temp"].EncapsulatedValue().(*ThresholdCondition)
+
+	for _, s := range c.Startables {
+		require.NoError(t, s.Start())
+	}
+	defer func() {
+		for _, s := range c.Stoppables {
+			_ = s.Stop()
+		}
+	}()
+
+	assert.Equal(t, "active", stateMust(t, cond), "boot-latched in deadband")
+
+	// Drop value below off_below — latch holds.
+	v := c.CtyVarMap["temp"].EncapsulatedValue().(interface {
+		Set(context.Context, []cty.Value) (cty.Value, error)
+	})
+	_, err := v.Set(context.Background(), []cty.Value{cty.NumberIntVal(30)})
+	require.NoError(t, err)
+	assert.Equal(t, "active", stateMust(t, cond), "latch holds through below-threshold sample")
+
+	require.NoError(t, cond.Clear(context.Background()))
+	assert.Equal(t, "inactive", stateMust(t, cond))
+}
+
+func TestThresholdStartActiveUnlatchedReconciles(t *testing.T) {
+	// var.temp = 50, below off_below=70. With start_active + no latch, the
+	// first reactive sample must deactivate. Exactly one transition event
+	// fires (the deactivation), not two.
+	c := buildConfig(t, thresholdStartActiveUnlatchedVCL)
+	cond := c.CtyConditionMap["high_temp"].EncapsulatedValue().(*ThresholdCondition)
+	w := &capturingWatcher{}
+	cond.Watch(w)
+
+	for _, s := range c.Startables {
+		require.NoError(t, s.Start())
+	}
+	defer func() {
+		for _, s := range c.Stoppables {
+			_ = s.Stop()
+		}
+	}()
+
+	assert.Equal(t, "inactive", stateMust(t, cond), "unlatched boot-active reconciles to value")
+
+	calls := w.snapshot()
+	require.Len(t, calls, 1, "only the deactivation event fires")
+	assert.Equal(t, watcherCall{true, false}, calls[0])
 }

@@ -26,6 +26,9 @@ var timerComposedVCL []byte
 //go:embed testdata/timer_unknown_subtype.vcl
 var timerUnknownSubtypeVCL []byte
 
+//go:embed testdata/timer_start_active.vcl
+var timerStartActiveVCL []byte
+
 func testLogger(t *testing.T) *zap.Logger {
 	t.Helper()
 	l, err := zap.NewDevelopment()
@@ -150,6 +153,35 @@ func TestTimerDebouncePlusActivateAfter(t *testing.T) {
 	assert.Equal(t, "pending_activation", stateMust(t, tc), "debounce elapsed, activate_after begins")
 	clock.Advance(2 * time.Second)
 	assert.Equal(t, "active", stateMust(t, tc))
+}
+
+func TestTimerStartActiveLatched(t *testing.T) {
+	c := buildConfig(t, timerStartActiveVCL)
+	cond := c.CtyConditionMap["fault"].EncapsulatedValue().(*TimerCondition)
+	assert.True(t, cond.sm.behavior.StartActive)
+	assert.True(t, cond.sm.behavior.Latch)
+
+	for _, s := range c.Startables {
+		require.NoError(t, s.Start())
+	}
+	defer func() {
+		for _, s := range c.Stoppables {
+			_ = s.Stop()
+		}
+	}()
+
+	assert.Equal(t, "active", stateMust(t, cond), "boot-latched")
+	out, err := cond.Get(context.Background(), nil)
+	require.NoError(t, err)
+	assert.True(t, out.True())
+
+	// set(false) cannot clear a latched condition.
+	_, err = cond.Set(context.Background(), []cty.Value{cty.False})
+	require.NoError(t, err)
+	assert.Equal(t, "active", stateMust(t, cond), "latch holds through set(false)")
+
+	require.NoError(t, cond.Clear(context.Background()))
+	assert.Equal(t, "inactive", stateMust(t, cond))
 }
 
 func stateMust(t *testing.T, tc interface {
