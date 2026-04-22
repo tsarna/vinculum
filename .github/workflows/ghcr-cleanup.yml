@@ -1,0 +1,41 @@
+name: GHCR Cleanup
+
+on:
+  schedule:
+    - cron: "13 7 * * 0"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Preview deletions without deleting"
+        type: boolean
+        default: true
+      older-than:
+        description: "Delete untagged versions older than"
+        type: string
+        default: "14 days"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [vinculum, vinculum-minimal]
+    steps:
+      - name: Clean ${{ matrix.package }}
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          owner: ${{ github.repository_owner }}
+          package: ${{ matrix.package }}
+          delete-untagged: true
+          older-than: ${{ inputs.older-than || '14 days' }}
+          exclude-tags: latest,dev
+          keep-n-tagged: 0
+          delete-partial-images: false
+          validate: true
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || false }}
