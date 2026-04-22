@@ -21,20 +21,16 @@ permissions:
 jobs:
   cleanup:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        package: [vinculum, vinculum-minimal]
     steps:
-      - name: Clean ${{ matrix.package }}
+      - name: Clean vinculum
         uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           owner: ${{ github.repository_owner }}
-          package: ${{ matrix.package }}
+          package: vinculum
           delete-untagged: true
           older-than: ${{ inputs.older-than || '14 days' }}
-          exclude-tags: latest,dev
+          exclude-tags: latest,dev,latest-minimal,dev-minimal
           keep-n-tagged: 0
           delete-partial-images: false
           validate: true
