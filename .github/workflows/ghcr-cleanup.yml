@@ -31,7 +31,6 @@ jobs:
           delete-untagged: true
           older-than: ${{ inputs.older-than || '14 days' }}
           exclude-tags: latest,dev,latest-minimal,dev-minimal
-          keep-n-tagged: 0
           delete-partial-images: false
           validate: true
           dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || false }}
