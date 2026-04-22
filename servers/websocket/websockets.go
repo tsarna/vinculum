@@ -40,6 +40,7 @@ func ProcessWebsocketsServerBlock(config *cfg.Config, block *hcl.Block, remainin
 	if diags.HasErrors() {
 		return nil, diags
 	}
+	serverDef.DefRange = block.DefRange
 
 	websocketsServers, ok := config.Servers["websocket"]
 	if !ok {

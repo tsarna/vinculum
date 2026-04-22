@@ -315,6 +315,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	if diags.HasErrors() {
 		return nil, diags
 	}
+	def.DefRange = block.DefRange
 
 	hashMode := def.HashMode != nil && *def.HashMode
 

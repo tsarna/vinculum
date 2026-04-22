@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`client "sns_sender"`**: AWS SNS sender support. Publishes vinculum bus events to SNS topics, target ARNs, or phone numbers with auto-detection, FIFO topic support, and per-message expression evaluation. See [doc/client-sns.md](doc/client-sns.md).
 
+### Fixed
+
+- **Diagnostic source locations**: Fixed `hcl:",def_range"` producing `:0,0-0` in all error diagnostics from client, server, trigger, wire_format, and metric block processors. The `gohcl.DecodeBody` tag only works for nested blocks, not top-level body decodes; all handlers now set `DefRange` from `block.DefRange` after decoding.
+
 ### Changed
 
 - **`client "sqs_sender"`**: Removed batching (`SendMessageBatch`) support due to incompatibility with single-goroutine dispatch model.

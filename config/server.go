@@ -37,6 +37,7 @@ func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	if diags.HasErrors() {
 		return diags
 	}
+	serverDef.DefRange = block.DefRange
 
 	if serverDef.Disabled {
 		return nil
@@ -55,7 +56,7 @@ func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 				Severity: hcl.DiagError,
 				Summary:  "Server already defined",
 				Detail:   fmt.Sprintf("Server %s already defined at %s", block.Labels[1], existingDef.GetDefRange()),
-				Subject:  &serverDef.DefRange,
+				Subject:  block.DefRange.Ptr(),
 			},
 		}
 	}

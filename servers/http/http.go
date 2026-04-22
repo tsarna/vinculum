@@ -71,6 +71,7 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 	if diags.HasErrors() {
 		return nil, diags
 	}
+	serverDef.DefRange = block.DefRange
 
 	if serverDef.Auth != nil {
 		if authDiags := cfg.ValidateAuthConfig(serverDef.Auth); authDiags.HasErrors() {

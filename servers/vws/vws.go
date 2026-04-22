@@ -49,6 +49,7 @@ func ProcessVinculumWebsocketsServerBlock(config *cfg.Config, block *hcl.Block, 
 	if diags.HasErrors() {
 		return nil, diags
 	}
+	serverDef.DefRange = block.DefRange
 
 	vinculumWebsocketsServers, ok := config.Servers["vws"]
 	if !ok {

@@ -219,6 +219,7 @@ func process(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Client, h
 	if diags.HasErrors() {
 		return nil, diags
 	}
+	def.DefRange = block.DefRange
 
 	// Evaluate optional headers expression → map(string)
 	headers := map[string]string{}

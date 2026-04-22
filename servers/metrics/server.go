@@ -173,6 +173,7 @@ func ProcessMetricsServerBlock(config *cfg.Config, block *hcl.Block, remainingBo
 	if diags.HasErrors() {
 		return nil, diags
 	}
+	def.DefRange = block.DefRange
 
 	name := block.Labels[1]
 

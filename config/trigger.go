@@ -119,6 +119,7 @@ func (h *TriggerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diag
 	if diags.HasErrors() {
 		return diags
 	}
+	triggerDef.DefRange = block.DefRange
 
 	if triggerDef.Disabled {
 		return nil
@@ -139,10 +140,10 @@ func (h *TriggerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diag
 			Severity: hcl.DiagError,
 			Summary:  "Trigger already defined",
 			Detail:   fmt.Sprintf("Trigger %q already defined at %s", name, existingRange),
-			Subject:  &triggerDef.DefRange,
+			Subject:  block.DefRange.Ptr(),
 		}}
 	}
-	config.TriggerDefRanges[name] = triggerDef.DefRange
+	config.TriggerDefRanges[name] = block.DefRange
 
 	reg, ok := h.registry[block.Labels[0]]
 	if !ok {

@@ -47,6 +47,7 @@ func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	if diags.HasErrors() {
 		return diags
 	}
+	clientDef.DefRange = block.DefRange
 
 	if clientDef.Disabled {
 		return nil
@@ -81,7 +82,7 @@ func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 				Severity: hcl.DiagError,
 				Summary:  "Client already defined",
 				Detail:   detail,
-				Subject:  &clientDef.DefRange,
+				Subject:  block.DefRange.Ptr(),
 			},
 		}
 	}
@@ -103,6 +104,14 @@ func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 
 	if diags.HasErrors() {
 		return diags
+	}
+
+	// Ensure the client's DefRange is set from the block header.
+	// The hcl:",def_range" tag does not work with gohcl.DecodeBody on a
+	// body (only on nested blocks), so processor-set def.DefRange may be
+	// zero. Overwrite with the block's DefRange which is always correct.
+	if bc, ok := client.(interface{ SetDefRange(hcl.Range) }); ok {
+		bc.SetDefRange(block.DefRange)
 	}
 
 	config.Clients[block.Labels[0]][block.Labels[1]] = client
@@ -155,6 +164,10 @@ func (s *BaseClient) GetName() string {
 
 func (s *BaseClient) GetDefRange() hcl.Range {
 	return s.DefRange
+}
+
+func (s *BaseClient) SetDefRange(r hcl.Range) {
+	s.DefRange = r
 }
 
 // BaseBusClient is the base struct for bus-backed clients (VWS, etc.).

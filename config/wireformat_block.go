@@ -51,13 +51,14 @@ func (h *WireFormatBlockHandler) Process(config *Config, block *hcl.Block) hcl.D
 	if diags.HasErrors() {
 		return diags
 	}
+	def.DefRange = block.DefRange
 
 	if _, exists := config.CtyWireFormatMap[def.Name]; exists {
 		return hcl.Diagnostics{{
 			Severity: hcl.DiagError,
 			Summary:  "Duplicate wire_format name",
 			Detail:   fmt.Sprintf("wire_format %q is already defined", def.Name),
-			Subject:  &def.DefRange,
+			Subject:  block.DefRange.Ptr(),
 		}}
 	}
 

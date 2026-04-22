@@ -344,6 +344,7 @@ func (h *MetricBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	if diags.HasErrors() {
 		return diags
 	}
+	def.DefRange = block.DefRange
 
 	// Resolve the metrics backend (MeterProvider)
 	var mp metric.MeterProvider

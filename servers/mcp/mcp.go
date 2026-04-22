@@ -92,6 +92,7 @@ func ProcessMcpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody h
 	if diags.HasErrors() {
 		return nil, diags
 	}
+	def.DefRange = block.DefRange
 
 	if def.Disabled {
 		return nil, nil

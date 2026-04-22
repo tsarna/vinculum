@@ -171,6 +171,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	if diags.HasErrors() {
 		return nil, diags
 	}
+	def.DefRange = block.DefRange
 
 	clientName := block.Labels[1]
 
