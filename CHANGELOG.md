@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Build version identity**: New `version` package exposes `Version`, `Commit`, `BuildTime`, and `Modified` for the vinculum binary. Values come from `-ldflags "-X …"` when set, falling back to Go's automatic `runtime/debug` VCS stamping for local builds. Surfaced in three places:
+  - `vinculum version` subcommand prints version, commit, build time, Go version, and platform.
+  - Startup log message now includes a `version` field (e.g. `"version":"v0.34.0 (abc123def456)"`).
+  - `sys.version`, `sys.commit`, `sys.build_time`, and `sys.modified` available in VCL expressions.
+  The Docker image builds (`Dockerfile`, `Dockerfile.minimal`, `.github/workflows/docker.yml`) now plumb `VERSION` (from the resolved image tag), `COMMIT` (`github.sha`), and `BUILD_TIME` through as build-args, since `.git/` is excluded from the Docker context and VCS stamping would otherwise be unavailable.
 - **CI: GHCR image cleanup workflow**: New scheduled workflow (`.github/workflows/ghcr-cleanup.yml`) that weekly prunes untagged `vinculum` and `vinculum-minimal` GHCR package versions older than 14 days. Preserves all tagged releases (`latest`, `dev`, and semver tags) and multi-arch manifest children via [dataaxiom/ghcr-cleanup-action](https://github.com/dataaxiom/ghcr-cleanup-action). Supports manual dispatch with a dry-run preview.
 
 ### Changed

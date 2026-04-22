@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/version"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -57,6 +58,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 	defer logger.Sync()
 
 	logger.Info("Starting vinculum server",
+		zap.String("version", version.String()),
 		zap.Strings("config-paths", args),
 		zap.String("log-level", logLevel),
 		zap.String("file-path", filePath),

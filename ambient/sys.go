@@ -10,6 +10,7 @@ import (
 	timecty "github.com/tsarna/time-cty-funcs"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/platform"
+	"github.com/tsarna/vinculum/version"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -67,6 +68,12 @@ func GetSysObject(baseDir string, writeDir string, features []string) cty.Value 
 	sysMap["os"] = cty.StringVal(runtime.GOOS)
 	sysMap["arch"] = cty.StringVal(runtime.GOARCH)
 	sysMap["cpus"] = cty.NumberIntVal(int64(runtime.NumCPU()))
+
+	// Build identity
+	sysMap["version"] = cty.StringVal(version.Version)
+	sysMap["commit"] = cty.StringVal(version.Commit)
+	sysMap["build_time"] = cty.StringVal(version.BuildTime)
+	sysMap["modified"] = cty.BoolVal(version.Modified)
 
 	// Process paths
 	executable, err := os.Executable()

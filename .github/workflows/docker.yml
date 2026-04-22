@@ -36,6 +36,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Compute build timestamp
+        id: build_time
+        run: echo "time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       # ── Tag strategy ─────────────────────────────────────────────────────
       # main      → :latest
       # develop   → :dev
@@ -75,6 +79,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ steps.build_time.outputs.time }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -87,5 +95,9 @@ jobs:
           push: true
           tags: ${{ steps.meta-minimal.outputs.tags }}
           labels: ${{ steps.meta-minimal.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ steps.build_time.outputs.time }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -12,7 +12,16 @@ RUN apk add --no-cache git
 WORKDIR /src
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/vinculum .
+ARG VERSION=dev
+ARG COMMIT=""
+ARG BUILD_TIME=""
+
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
+    -ldflags="-s -w \
+      -X github.com/tsarna/vinculum/version.Version=${VERSION} \
+      -X github.com/tsarna/vinculum/version.Commit=${COMMIT} \
+      -X github.com/tsarna/vinculum/version.BuildTime=${BUILD_TIME}" \
+    -o /out/vinculum .
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM alpine:3.23
