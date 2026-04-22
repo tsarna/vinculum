@@ -232,13 +232,11 @@ func makeSenderExprFunc(config *cfg.Config, expr hcl.Expression) func(topic stri
 			WithStringAttribute("topic", topic).
 			WithAttribute("msg", ctyMsg)
 
-		if len(fields) > 0 {
-			ctyFields := make(map[string]cty.Value, len(fields))
-			for k, v := range fields {
-				ctyFields[k] = cty.StringVal(v)
-			}
-			ctxBuilder = ctxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
+		ctyFields := make(map[string]cty.Value, len(fields))
+		for k, v := range fields {
+			ctyFields[k] = cty.StringVal(v)
 		}
+		ctxBuilder = ctxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
 
 		evalCtx, err := ctxBuilder.BuildEvalContext(config.EvalCtx())
 		if err != nil {

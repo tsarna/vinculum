@@ -232,13 +232,11 @@ func (a *ActionSubscriber) OnEvent(ctx context.Context, topic string, message an
 		WithStringAttribute("topic", topic).
 		WithAttribute("msg", ctyMessage)
 
-	if len(fields) > 0 {
-		ctyFields := make(map[string]cty.Value)
-		for key, value := range fields {
-			ctyFields[key] = cty.StringVal(value)
-		}
-		evalCtxBuilder = evalCtxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
+	ctyFields := make(map[string]cty.Value)
+	for key, value := range fields {
+		ctyFields[key] = cty.StringVal(value)
 	}
+	evalCtxBuilder = evalCtxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
 
 	evalCtx, err := evalCtxBuilder.BuildEvalContext(a.Config.evalCtx)
 	if err != nil {

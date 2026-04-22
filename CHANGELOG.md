@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-04-22
+
 ### Added
 
 - **`client "sns_sender"`**: AWS SNS sender support. Publishes vinculum bus events to SNS topics, target ARNs, or phone numbers with auto-detection, FIFO topic support, and per-message expression evaluation. See [doc/client-sns.md](doc/client-sns.md).
@@ -14,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Diagnostic source locations**: Fixed `hcl:",def_range"` producing `:0,0-0` in all error diagnostics from client, server, trigger, wire_format, and metric block processors. The `gohcl.DecodeBody` tag only works for nested blocks, not top-level body decodes; all handlers now set `DefRange` from `block.DefRange` after decoding.
+- **`ctx.fields` always present in action contexts**: `ctx.fields` is now always set as an empty object when a message has no fields, rather than being absent. Previously, referencing `ctx.fields` in a subscription action or per-message expression would error when no fields were present. Affects subscription actions, and all client per-message expressions (SNS, SQS, Kafka, MQTT, Redis pub/sub, Redis streams).
 
 ### Changed
 
