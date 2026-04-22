@@ -35,7 +35,7 @@ func (t *startTrigger) PostStart() error {
 		WithStringAttribute("name", t.name).
 		BuildEvalContext(t.config.EvalCtx())
 	if err != nil {
-		t.config.Logger.Error("start trigger: error building eval context",
+		t.config.UserLogger.Error("start trigger: error building eval context",
 			zap.String("name", t.name), zap.Error(err))
 		stopSpan(err)
 		return nil
@@ -43,7 +43,7 @@ func (t *startTrigger) PostStart() error {
 
 	value, diags := t.expr.Value(evalCtx)
 	if diags.HasErrors() {
-		t.config.Logger.Error("start trigger: action error",
+		t.config.UserLogger.Error("start trigger: action error",
 			zap.String("name", t.name), zap.Error(diags))
 		stopSpan(diags)
 		return nil

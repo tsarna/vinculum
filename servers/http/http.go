@@ -408,14 +408,14 @@ type httpAction struct {
 func (h *httpAction) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	evalCtx, err := getHttpActionEvalContext(h.config, r, h.pathParamNames)
 	if err != nil {
-		h.config.Logger.Error("Error building evaluation context", zap.Error(err))
+		h.config.UserLogger.Error("Error building evaluation context", zap.Error(err))
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
 	val, diags := h.actionExpr.Value(evalCtx)
 	if diags.HasErrors() {
-		h.config.Logger.Error("Error executing action", zap.Error(diags))
+		h.config.UserLogger.Error("Error executing action", zap.Error(diags))
 		http.Error(w, diags.Error(), http.StatusInternalServerError)
 		return
 	}

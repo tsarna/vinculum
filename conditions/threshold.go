@@ -325,7 +325,7 @@ func processThresholdCondition(config *cfg.Config, block *hcl.Block, def *cfg.Co
 		}
 		f, err := ctyToFloat(v)
 		if err != nil {
-			config.Logger.Warn("condition threshold input is not numeric",
+			config.UserLogger.Warn("condition threshold input is not numeric",
 				zap.String("name", c.name), zap.String("type", v.Type().FriendlyName()))
 			return
 		}
@@ -337,7 +337,7 @@ func processThresholdCondition(config *cfg.Config, block *hcl.Block, def *cfg.Co
 	if cfg.IsExpressionProvided(body.Inhibit) {
 		re, d := cfg.NewReactiveExpr(body.Inhibit, config.EvalCtx(), func(ctx context.Context, v cty.Value) {
 			if v.Type() != cty.Bool || v.IsNull() || !v.IsKnown() {
-				config.Logger.Warn("condition inhibit expression did not produce a boolean",
+				config.UserLogger.Warn("condition inhibit expression did not produce a boolean",
 					zap.String("name", c.name), zap.String("type", v.Type().FriendlyName()))
 				return
 			}

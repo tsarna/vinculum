@@ -209,7 +209,7 @@ func (h *FsmBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnost
 		}
 	} else {
 		def.OnError = func(_ context.Context, hookCtx *fsm.HookContext) {
-			config.Logger.Warn("FSM hook error",
+			config.UserLogger.Warn("FSM hook error",
 				zap.String("fsm", name),
 				zap.String("hook", hookCtx.Hook),
 				zap.String("error", hookCtx.Error),

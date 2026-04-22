@@ -141,7 +141,7 @@ func (t *AtTrigger) run() {
 		// Evaluate the time expression (no span here — the span lives in fire()).
 		evalCtx, err := t.buildEvalContext(context.Background(), runCount, lastResult)
 		if err != nil {
-			t.config.Logger.Error("at trigger: error building eval context",
+			t.config.UserLogger.Error("at trigger: error building eval context",
 				zap.String("name", t.name), zap.Error(err))
 			if !t.waitOrStop(errorRetry, nil) {
 				return
@@ -151,7 +151,7 @@ func (t *AtTrigger) run() {
 
 		timeVal, diags := t.timeExpr.Value(evalCtx)
 		if diags.HasErrors() {
-			t.config.Logger.Error("at trigger: time expression error",
+			t.config.UserLogger.Error("at trigger: time expression error",
 				zap.String("name", t.name), zap.Error(diags))
 			if !t.waitOrStop(errorRetry, nil) {
 				return
@@ -161,7 +161,7 @@ func (t *AtTrigger) run() {
 
 		targetTime, err := timecty.GetTime(timeVal)
 		if err != nil {
-			t.config.Logger.Error("at trigger: time expression did not produce a time value",
+			t.config.UserLogger.Error("at trigger: time expression did not produce a time value",
 				zap.String("name", t.name), zap.Error(err))
 			if !t.waitOrStop(errorRetry, nil) {
 				return
@@ -176,7 +176,7 @@ func (t *AtTrigger) run() {
 
 		delay := time.Until(targetTime)
 		if delay < 0 {
-			t.config.Logger.Warn("at trigger: computed time is in the past, firing immediately",
+			t.config.UserLogger.Warn("at trigger: computed time is in the past, firing immediately",
 				zap.String("name", t.name), zap.Time("scheduled_time", targetTime))
 			delay = 0
 		} else {
@@ -227,7 +227,7 @@ func (t *AtTrigger) fire(_ *hcl.EvalContext) {
 
 	evalCtx, err := t.buildEvalContext(spanCtx, runCount, lastResult)
 	if err != nil {
-		t.config.Logger.Error("at trigger: error building eval context",
+		t.config.UserLogger.Error("at trigger: error building eval context",
 			zap.String("name", t.name), zap.Error(err))
 		stopSpan(err)
 		return
@@ -237,7 +237,7 @@ func (t *AtTrigger) fire(_ *hcl.EvalContext) {
 	t.mu.Lock()
 	t.runCount++
 	if diags.HasErrors() {
-		t.config.Logger.Error("at trigger: action error",
+		t.config.UserLogger.Error("at trigger: action error",
 			zap.String("name", t.name), zap.Error(diags))
 		stopSpan(diags)
 	} else {

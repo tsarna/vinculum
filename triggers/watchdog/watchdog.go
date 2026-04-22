@@ -177,14 +177,14 @@ func (t *WatchdogTrigger) fire() bool {
 
 	evalCtx, err := t.buildEvalContext(spanCtx, missCount, lastSet)
 	if err != nil {
-		t.config.Logger.Error("watchdog trigger: error building eval context",
+		t.config.UserLogger.Error("watchdog trigger: error building eval context",
 			zap.String("name", t.name), zap.Error(err))
 		stopSpan(err)
 		return false
 	}
 	val, diags := t.actionExpr.Value(evalCtx)
 	if diags.HasErrors() {
-		t.config.Logger.Error("watchdog trigger: action error",
+		t.config.UserLogger.Error("watchdog trigger: action error",
 			zap.String("name", t.name), zap.Error(diags))
 		stopSpan(diags)
 		return false
@@ -202,7 +202,7 @@ func (t *WatchdogTrigger) fire() bool {
 	if cfg.IsExpressionProvided(t.stopWhenExpr) {
 		stopVal, stopDiags := t.stopWhenExpr.Value(evalCtx)
 		if stopDiags.HasErrors() {
-			t.config.Logger.Error("watchdog trigger: error evaluating stop_when",
+			t.config.UserLogger.Error("watchdog trigger: error evaluating stop_when",
 				zap.String("name", t.name), zap.Error(stopDiags))
 			return false
 		}

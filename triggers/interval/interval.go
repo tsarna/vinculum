@@ -251,13 +251,13 @@ func (t *IntervalTrigger) shouldStop(runCount int64, lastResult cty.Value, lastE
 	if cfg.IsExpressionProvided(t.stopWhenExpr) {
 		evalCtx, err := t.buildEvalContext(context.Background(), runCount, lastResult, lastErr)
 		if err != nil {
-			t.config.Logger.Error("interval trigger: error building stop_when context",
+			t.config.UserLogger.Error("interval trigger: error building stop_when context",
 				zap.String("name", t.name), zap.Error(err))
 			return false
 		}
 		stopVal, stopDiags := t.stopWhenExpr.Value(evalCtx)
 		if stopDiags.HasErrors() {
-			t.config.Logger.Error("interval trigger: error evaluating stop_when",
+			t.config.UserLogger.Error("interval trigger: error evaluating stop_when",
 				zap.String("name", t.name), zap.Error(stopDiags))
 			return false
 		}
@@ -357,14 +357,14 @@ func (t *IntervalTrigger) run() {
 		// Build eval context for delay computation.
 		evalCtx, err := t.buildEvalContext(context.Background(), runCount, lastResult, lastErr)
 		if err != nil {
-			t.config.Logger.Error("interval trigger: error building eval context",
+			t.config.UserLogger.Error("interval trigger: error building eval context",
 				zap.String("name", t.name), zap.Error(err))
 			return
 		}
 
 		dur, err := t.computeDelay(evalCtx)
 		if err != nil {
-			t.config.Logger.Error("interval trigger: error computing delay",
+			t.config.UserLogger.Error("interval trigger: error computing delay",
 				zap.String("name", t.name), zap.Error(err))
 			return
 		}
@@ -392,7 +392,7 @@ func (t *IntervalTrigger) run() {
 		spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), t.tracerProvider, "interval", t.name)
 		actionEvalCtx, err := t.buildEvalContext(spanCtx, runCount, lastResult, lastErr)
 		if err != nil {
-			t.config.Logger.Error("interval trigger: error building action eval context",
+			t.config.UserLogger.Error("interval trigger: error building action eval context",
 				zap.String("name", t.name), zap.Error(err))
 			stopSpan(err)
 			return
@@ -406,7 +406,7 @@ func (t *IntervalTrigger) run() {
 		if actionDiags.HasErrors() {
 			actionErr = actionDiags
 			actionVal = cty.NilVal
-			t.config.Logger.Error("interval trigger: action error",
+			t.config.UserLogger.Error("interval trigger: action error",
 				zap.String("name", t.name), zap.Error(actionErr))
 		} else {
 			t.config.Logger.Debug("interval trigger: action completed",

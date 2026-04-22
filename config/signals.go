@@ -26,6 +26,7 @@ type SignalsDefinition struct {
 type SignalActionHandler struct {
 	Ctx            context.Context
 	Logger         *zap.Logger
+	UserLogger     *zap.Logger
 	SignalActions  map[platform.Signal]hcl.Expression
 	SignalCtx      map[platform.Signal]*hcl.EvalContext
 	SigChannel     chan os.Signal
@@ -33,9 +34,10 @@ type SignalActionHandler struct {
 	TracerProvider trace.TracerProvider
 }
 
-func NewSignalActionHandler(logger *zap.Logger) *SignalActionHandler {
+func NewSignalActionHandler(logger, userLogger *zap.Logger) *SignalActionHandler {
 	return &SignalActionHandler{
 		Logger:        logger,
+		UserLogger:    userLogger,
 		Ctx:           context.Background(),
 		SignalActions: make(map[platform.Signal]hcl.Expression),
 		SignalCtx:     make(map[platform.Signal]*hcl.EvalContext),
@@ -103,7 +105,7 @@ func (sa *SignalActionHandler) Start() error {
 				go func() {
 					platformSig := platform.FromOsSignal(sig)
 					if platformSig == 0 {
-						sa.Logger.Error("Invalid signal", zap.String("signal", sig.String()))
+						sa.UserLogger.Error("Invalid signal", zap.String("signal", sig.String()))
 						return
 					}
 
@@ -111,20 +113,20 @@ func (sa *SignalActionHandler) Start() error {
 
 					sigExpr, ok := sa.SignalActions[platformSig]
 					if !ok {
-						sa.Logger.Error("Signal action expression not found", zap.String("signal", platformSig.String()))
+						sa.UserLogger.Error("Signal action expression not found", zap.String("signal", platformSig.String()))
 						return
 					}
 
 					evalCtx, ok := sa.SignalCtx[platformSig]
 					if !ok {
-						sa.Logger.Error("Signal context not found", zap.String("signal", platformSig.String()))
+						sa.UserLogger.Error("Signal context not found", zap.String("signal", platformSig.String()))
 						return
 					}
 
 					_, stopSpan := hclutil.StartTriggerSpan(context.Background(), sa.TracerProvider, "signal", platformSig.String())
 					result, diags := sigExpr.Value(evalCtx)
 					if diags.HasErrors() {
-						sa.Logger.Error("Error executing signal action", zap.Error(diags))
+						sa.UserLogger.Error("Error executing signal action", zap.Error(diags))
 						stopSpan(diags)
 					} else {
 						stopSpan(nil)

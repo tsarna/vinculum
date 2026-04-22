@@ -129,7 +129,7 @@ func (t *FileTrigger) addSubdirs(path string) error {
 		}
 		if d.IsDir() && p != path {
 			if addErr := t.watcher.Add(p); addErr != nil {
-				t.config.Logger.Warn("file trigger: failed to watch subdirectory",
+				t.config.UserLogger.Warn("file trigger: failed to watch subdirectory",
 					zap.String("name", t.name), zap.String("path", p), zap.Error(addErr))
 			}
 		}
@@ -155,7 +155,7 @@ func (t *FileTrigger) PostStart() error {
 		return nil
 	})
 	if err != nil {
-		t.config.Logger.Error("file trigger: on_start_existing walk failed",
+		t.config.UserLogger.Error("file trigger: on_start_existing walk failed",
 			zap.String("name", t.name), zap.Error(err))
 	}
 	return nil
@@ -215,7 +215,7 @@ func (t *FileTrigger) handleFsEvent(event fsnotify.Event) {
 	if t.recursive && event.Has(fsnotify.Create) {
 		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
 			if addErr := t.watcher.Add(event.Name); addErr != nil {
-				t.config.Logger.Warn("file trigger: failed to watch new directory",
+				t.config.UserLogger.Warn("file trigger: failed to watch new directory",
 					zap.String("name", t.name), zap.String("path", event.Name), zap.Error(addErr))
 			}
 		}
@@ -314,7 +314,7 @@ func (t *FileTrigger) dispatch(eventPath, eventStr string) {
 		WithAttribute("last_error", lastErrStr).
 		BuildEvalContext(t.config.EvalCtx())
 	if err != nil {
-		t.config.Logger.Error("file trigger: error building eval context",
+		t.config.UserLogger.Error("file trigger: error building eval context",
 			zap.String("name", t.name), zap.Error(err))
 		stopSpan(err)
 		return
@@ -323,7 +323,7 @@ func (t *FileTrigger) dispatch(eventPath, eventStr string) {
 	if t.skipWhenExpr != nil {
 		skipVal, diags := t.skipWhenExpr.Value(evalCtx)
 		if diags.HasErrors() {
-			t.config.Logger.Error("file trigger: skip_when error",
+			t.config.UserLogger.Error("file trigger: skip_when error",
 				zap.String("name", t.name), zap.Error(diags))
 			stopSpan(diags)
 			return
@@ -342,7 +342,7 @@ func (t *FileTrigger) dispatch(eventPath, eventStr string) {
 	if actionDiags.HasErrors() {
 		actionErr = actionDiags
 		actionVal = cty.NilVal
-		t.config.Logger.Error("file trigger: action error",
+		t.config.UserLogger.Error("file trigger: action error",
 			zap.String("name", t.name), zap.String("event_path", eventPath), zap.Error(actionErr))
 	} else {
 		t.config.Logger.Debug("file trigger: action completed",

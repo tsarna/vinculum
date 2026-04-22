@@ -10,6 +10,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 type ConfigBuilder struct {
@@ -46,8 +47,13 @@ type PreStoppable interface {
 }
 
 type Config struct {
-	Logger    *zap.Logger
-	Functions map[string]function.Function
+	Logger *zap.Logger
+	// UserLogger is Logger with Go caller and stacktrace suppressed. Use it
+	// at sites that report errors caused by user-supplied VCL (expression
+	// eval failures, assertion failures, action errors, etc.) where the Go
+	// source location and stack are noise rather than signal.
+	UserLogger *zap.Logger
+	Functions  map[string]function.Function
 	Constants map[string]cty.Value
 	evalCtx   *hcl.EvalContext
 	Features  map[string]string
@@ -111,13 +117,22 @@ func (c *ConfigBuilder) WithFeature(name, value string) *ConfigBuilder {
 }
 
 func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
+	userLogger := cb.logger
+	if userLogger != nil {
+		userLogger = userLogger.WithOptions(
+			zap.WithCaller(false),
+			zap.AddStacktrace(zapcore.FatalLevel+1),
+		)
+	}
+
 	config := &Config{
 		Logger:           cb.logger,
+		UserLogger:       userLogger,
 		Features:         cb.features,
 		BaseDir:          cb.features["readfiles"],
 		WriteDir:         cb.features["writefiles"],
 		Constants:        make(map[string]cty.Value),
-		SigActions:       NewSignalActionHandler(cb.logger),
+		SigActions:       NewSignalActionHandler(cb.logger, userLogger),
 		Buses:            make(map[string]bus.EventBus),
 		CtyBusMap:        make(map[string]cty.Value),
 		Clients:          make(map[string]map[string]Client),

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **CI: GHCR image cleanup workflow**: New scheduled workflow (`.github/workflows/ghcr-cleanup.yml`) that weekly prunes untagged `vinculum` and `vinculum-minimal` GHCR package versions older than 14 days. Preserves all tagged releases (`latest`, `dev`, and semver tags) and multi-arch manifest children via [dataaxiom/ghcr-cleanup-action](https://github.com/dataaxiom/ghcr-cleanup-action). Supports manual dispatch with a dry-run preview.
 
+### Changed
+
+- **Quieter logging for user-caused errors**: Log output from VCL `log_debug`/`log_info`/`log_warn`/`log_error`/`log_msg` functions no longer includes the Go `caller` field or a Go stacktrace — those always pointed at `functions/log.go` and carried no signal about the VCL call site. Similarly, errors from evaluating user expressions in triggers, conditions, FSM hooks, signal actions, HTTP actions, MQTT lifecycle hooks, and assertions are now emitted via a new `Config.UserLogger` with caller and stacktrace suppressed. Infrastructure/operational errors (fsnotify watcher failures, HTTP server bind failures) still carry caller + stacktrace. The global stacktrace threshold is now pinned to `error` level regardless of `--debug`, so routine warnings no longer drag Go stacks along.
+
 ### Fixed
 
 - **CLI error reporting**: `vinculum check` and `vinculum serve` no longer print the command usage block when a config file has a syntax or validation error, and no longer print the error twice. Config diagnostics are now shown once as a clean `Error: ...` line with no stack-trace log spam. Usage is still printed for genuine argument-parsing errors (missing required args, unknown flags).

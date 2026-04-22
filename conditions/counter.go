@@ -258,7 +258,7 @@ func processCounterCondition(config *cfg.Config, block *hcl.Block, def *cfg.Cond
 	if cfg.IsExpressionProvided(body.Inhibit) {
 		re, d := cfg.NewReactiveExpr(body.Inhibit, config.EvalCtx(), func(ctx context.Context, v cty.Value) {
 			if v.Type() != cty.Bool || v.IsNull() || !v.IsKnown() {
-				config.Logger.Warn("condition inhibit expression did not produce a boolean",
+				config.UserLogger.Warn("condition inhibit expression did not produce a boolean",
 					zap.String("name", c.name), zap.String("type", v.Type().FriendlyName()))
 				return
 			}

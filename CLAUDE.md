@@ -333,6 +333,25 @@ Always return `hcl.Diagnostics` with a meaningful `Summary`, `Detail`, and
 `Subject` (pointing to the relevant source range). Never panic or log-and-continue
 for config errors.
 
+### Runtime logging: `Logger` vs `UserLogger`
+
+`Config` exposes two zap loggers. Pick based on the cause of the message, not the
+log level:
+
+- **`config.Logger`** — operational/infrastructure events where a Go caller and
+  stacktrace help diagnose an internal bug (e.g. fsnotify watcher failure, HTTP
+  listen error, startup/shutdown lifecycle).
+- **`config.UserLogger`** — anything caused by the user's VCL: expression eval
+  errors, action errors, assertion failures, condition-expression type mismatches,
+  FSM/lifecycle hook failures, `skip_when`/`stop_when` errors, etc. Caller and
+  stacktrace are suppressed because the Go source location is always the generic
+  eval plumbing and carries no signal about the VCL site.
+
+`SignalActionHandler` mirrors this with its own `Logger` / `UserLogger` fields.
+
+The VCL `log_*` functions already derive their own caller/stack-suppressed logger
+inside `functions/log.go` — callers of `GetLogFunctions` pass the normal logger.
+
 ### Disabled flag
 
 All server and client blocks support `disabled = true` (optional, default false).

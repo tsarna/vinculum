@@ -54,14 +54,14 @@ func (a *ShutdownTriggerAction) PreStop() error {
 		WithStringAttribute("name", a.name).
 		BuildEvalContext(a.config.EvalCtx())
 	if err != nil {
-		a.config.Logger.Error("Error building shutdown trigger context", zap.String("name", a.name), zap.Error(err))
+		a.config.UserLogger.Error("Error building shutdown trigger context", zap.String("name", a.name), zap.Error(err))
 		stopSpan(err)
 		return nil
 	}
 
 	value, addDiags := a.action.Value(evalCtx)
 	if addDiags.HasErrors() {
-		a.config.Logger.Error("Error executing shutdown trigger", zap.String("name", a.name), zap.Error(addDiags))
+		a.config.UserLogger.Error("Error executing shutdown trigger", zap.String("name", a.name), zap.Error(addDiags))
 		stopSpan(addDiags)
 		return nil
 	}

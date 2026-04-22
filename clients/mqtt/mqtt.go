@@ -787,12 +787,12 @@ func makeLifecycleHook(config *cfg.Config, expr hcl.Expression) func(ctx context
 	return func(ctx context.Context) {
 		evalCtx, err := hclutil.NewEvalContext(ctx).BuildEvalContext(config.EvalCtx())
 		if err != nil {
-			config.Logger.Error("mqtt lifecycle hook: build eval context", zap.Error(err))
+			config.UserLogger.Error("mqtt lifecycle hook: build eval context", zap.Error(err))
 			return
 		}
 		_, diags := expr.Value(evalCtx)
 		if diags.HasErrors() {
-			config.Logger.Error("mqtt lifecycle hook: eval failed", zap.Error(diags))
+			config.UserLogger.Error("mqtt lifecycle hook: eval failed", zap.Error(diags))
 		}
 	}
 }

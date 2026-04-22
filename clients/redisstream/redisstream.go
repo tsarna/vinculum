@@ -371,7 +371,7 @@ func buildProducer(config *cfg.Config, connector redisclient.RedisConnector, cli
 			continue
 		}
 		if kv.val == "traceparent" || kv.val == "tracestate" || kv.val == "fields" {
-			config.Logger.Warn("redis_stream: field name overlaps a reserved stream entry field — Vinculum reserved names always win at runtime",
+			config.UserLogger.Warn("redis_stream: field name overlaps a reserved stream entry field — Vinculum reserved names always win at runtime",
 				zap.String("client", clientName),
 				zap.String("producer", def.Name),
 				zap.String("setting", kv.setting),

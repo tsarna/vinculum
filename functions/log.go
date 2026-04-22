@@ -30,6 +30,14 @@ func GetLogFunctions(logger *zap.Logger) map[string]function.Function {
 		}
 	}
 
+	// Suppress Go caller and stacktrace for VCL-originated logs — the Go
+	// source location is always this file, and a Go stacktrace adds no
+	// signal about the VCL call site.
+	logger = logger.WithOptions(
+		zap.WithCaller(false),
+		zap.AddStacktrace(zapcore.FatalLevel+1),
+	)
+
 	return map[string]function.Function{
 		"log_debug": makeLogFunc(logger, zapcore.DebugLevel),
 		"log_info":  makeLogFunc(logger, zapcore.InfoLevel),

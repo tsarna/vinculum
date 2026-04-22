@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tsarna/vinculum/config"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // serverCmd represents the server command
@@ -143,7 +144,11 @@ func setupLogger() (*zap.Logger, error) {
 	config.Level = zapLevel
 	config.Development = debugFlag
 
-	return config.Build()
+	// Pin stacktrace to error level regardless of Development mode.
+	// zap's default promotes stacktraces to warn when Development=true, which
+	// produces noisy output for routine warnings and for user-caused errors
+	// that surface via Logger.Warn.
+	return config.Build(zap.AddStacktrace(zapcore.ErrorLevel))
 }
 
 // Helper to convert []string to []any

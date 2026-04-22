@@ -63,7 +63,7 @@ func (t *WatchTrigger) dispatch(ctx context.Context, oldValue, newValue cty.Valu
 		WithAttribute("new_value", newValue).
 		BuildEvalContext(t.config.EvalCtx())
 	if err != nil {
-		t.config.Logger.Error("watch trigger: error building eval context",
+		t.config.UserLogger.Error("watch trigger: error building eval context",
 			zap.String("name", t.name), zap.Error(err))
 		stopSpan(err)
 		return
@@ -72,7 +72,7 @@ func (t *WatchTrigger) dispatch(ctx context.Context, oldValue, newValue cty.Valu
 	if t.skipWhenExpr != nil {
 		skipVal, diags := t.skipWhenExpr.Value(evalCtx)
 		if diags.HasErrors() {
-			t.config.Logger.Error("watch trigger: skip_when error",
+			t.config.UserLogger.Error("watch trigger: skip_when error",
 				zap.String("name", t.name), zap.Error(diags))
 			stopSpan(diags)
 			return
@@ -85,7 +85,7 @@ func (t *WatchTrigger) dispatch(ctx context.Context, oldValue, newValue cty.Valu
 
 	val, diags := t.actionExpr.Value(evalCtx)
 	if diags.HasErrors() {
-		t.config.Logger.Error("watch trigger: action error",
+		t.config.UserLogger.Error("watch trigger: action error",
 			zap.String("name", t.name), zap.Error(diags))
 		stopSpan(diags)
 		return

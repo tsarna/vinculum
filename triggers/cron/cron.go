@@ -122,14 +122,14 @@ func (a *AtAction) Run() {
 		WithStringAttribute("at_name", a.atName).
 		BuildEvalContext(a.config.EvalCtx())
 	if err != nil {
-		a.config.Logger.Error("Error building evaluation context", zap.Error(err))
+		a.config.UserLogger.Error("Error building evaluation context", zap.Error(err))
 		stopSpan(err)
 		return
 	}
 
 	value, diags := a.action.Value(evalCtx)
 	if diags.HasErrors() {
-		a.config.Logger.Error("Error executing action", zap.Error(diags))
+		a.config.UserLogger.Error("Error executing action", zap.Error(diags))
 		stopSpan(diags)
 		return
 	}

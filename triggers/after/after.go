@@ -100,7 +100,7 @@ func (t *AfterTrigger) run() {
 		WithStringAttribute("name", t.name).
 		BuildEvalContext(t.config.EvalCtx())
 	if err != nil {
-		t.config.Logger.Error("after trigger: error building eval context",
+		t.config.UserLogger.Error("after trigger: error building eval context",
 			zap.String("name", t.name), zap.Error(err))
 		stopSpan(err)
 		t.mu.Lock()
@@ -114,7 +114,7 @@ func (t *AfterTrigger) run() {
 	if diags.HasErrors() {
 		actionErr = diags
 		t.err = diags
-		t.config.Logger.Error("after trigger: action error",
+		t.config.UserLogger.Error("after trigger: action error",
 			zap.String("name", t.name), zap.Error(diags))
 	} else {
 		t.result = val

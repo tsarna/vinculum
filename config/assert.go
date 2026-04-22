@@ -40,7 +40,7 @@ func (h *AssertBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	}
 
 	if !assertion.Condition {
-		config.Logger.Error("Assertion failed", zap.String("assert", assertion.Name), zap.Any("location", block.DefRange))
+		config.UserLogger.Error("Assertion failed", zap.String("assert", assertion.Name), zap.Any("location", block.DefRange))
 
 		return hcl.Diagnostics{
 			&hcl.Diagnostic{
