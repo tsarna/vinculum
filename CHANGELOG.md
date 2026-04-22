@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **CI: GHCR image cleanup workflow**: New scheduled workflow (`.github/workflows/ghcr-cleanup.yml`) that weekly prunes untagged `vinculum` and `vinculum-minimal` GHCR package versions older than 14 days. Preserves all tagged releases (`latest`, `dev`, and semver tags) and multi-arch manifest children via [dataaxiom/ghcr-cleanup-action](https://github.com/dataaxiom/ghcr-cleanup-action). Supports manual dispatch with a dry-run preview.
 
+### Fixed
+
+- **CLI error reporting**: `vinculum check` and `vinculum serve` no longer print the command usage block when a config file has a syntax or validation error, and no longer print the error twice. Config diagnostics are now shown once as a clean `Error: ...` line with no stack-trace log spam. Usage is still printed for genuine argument-parsing errors (missing required args, unknown flags).
+
 ## [0.34.0] - 2026-04-22
 
 ### Added

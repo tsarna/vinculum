@@ -18,6 +18,7 @@ flexible event routing and processing capabilities.
 
 It uses HCL (HashiCorp Configuration Language) for configuration
 and supports various event bus patterns and integrations.`,
+	SilenceErrors: true,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/tsarna/vinculum/config"
-	"go.uber.org/zap"
 )
 
 var checkCmd = &cobra.Command{
@@ -33,6 +32,7 @@ func init() {
 }
 
 func runCheck(cmd *cobra.Command, args []string) error {
+	cmd.SilenceUsage = true
 	logger, err := setupLogger()
 	if err != nil {
 		return fmt.Errorf("failed to setup logger: %w", err)
@@ -62,7 +62,6 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	}
 
 	if diags.HasErrors() {
-		logger.Error("Configuration is invalid", zap.Any("diags", diags))
 		return diags
 	}
 

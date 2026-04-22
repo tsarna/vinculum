@@ -47,6 +47,7 @@ func init() {
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
+	cmd.SilenceUsage = true
 	// Setup logger
 	logger, err := setupLogger()
 	if err != nil {
@@ -77,7 +78,6 @@ func runServer(cmd *cobra.Command, args []string) error {
 	cfg, diags := configBuilder.Build()
 
 	if diags.HasErrors() {
-		logger.Error("Failed to build config", zap.Any("diags", diags))
 		return diags
 	}
 
