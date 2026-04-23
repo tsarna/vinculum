@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Async dispatch context propagation**: Two bugs where in-flight trigger/FSM actions could be corrupted by the caller's context lifecycle.
+  - **`trigger "watch"` cancellation leak**: the dispatched action's goroutine inherited the caller's ctx verbatim, so an upstream cancel (e.g. the HTTP request that drove the watched change completing) could cancel the action mid-flight. Fixed by applying `context.WithoutCancel` at the dispatch boundary. The action's trace span is now a new root linked to the caller's span (matches OTel async-messaging semantic conventions), replacing the prior child-span relationship that violated parent-before-child discipline.
+  - **FSM events dropped the caller's context entirely**: the vinculum-fsm library's `Event` struct carried no ctx, so reactive-when and bus-delivered events processed under `context.Background()`, losing the caller's trace span, auth, and everything else. Fixed upstream in vinculum-fsm (new `Event.Ctx` field, wired through `OnEvent` subscriber and the event loop with `context.WithoutCancel` applied at the dequeue boundary). Vinculum's reactive-when enqueue now threads the callback's ctx into the event, and FSM transition spans are now linked roots. Requires vinculum-fsm v0.3.0.
+  - Added `hclutil.StartLinkedTriggerSpan` as the canonical helper for the async dispatch pattern: `LinkFromContext` + `WithoutCancel` + `WithNewRoot` + `WithLinks`.
+  - Audited and confirmed unaffected: `trigger "watchdog"`, `trigger "file"`, `config/signals`, `ActionSubscriber.OnEvent` (sync; bus's `deliverAsync` already applies the correct pattern), computed metrics (use a private ctx), server startup goroutines.
+
 ### Added
 
 - **Condition lifecycle hooks**: New optional `on_init`, `on_activate`, and `on_deactivate` action-expression attributes on every condition subtype (`timer`, `threshold`, `counter`). `on_init` fires once in the `PostStart` phase — after every Startable has bootstrapped — so cross-condition references in init expressions are safe. `on_activate` and `on_deactivate` fire synchronously on each user-visible output transition (respecting `invert`), with caller-ctx propagated for trace-span continuity. Hooks replace the common `trigger "watch" ... skip_when = !ctx.new_value` boilerplate for condition-local reactions; `trigger "watch"` remains the right tool for async dispatch or cross-cutting observers. See [doc/condition.md](doc/condition.md#lifecycle-hooks).

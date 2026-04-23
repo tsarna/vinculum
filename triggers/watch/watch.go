@@ -54,7 +54,11 @@ func (t *WatchTrigger) OnChange(ctx context.Context, oldValue, newValue cty.Valu
 }
 
 func (t *WatchTrigger) dispatch(ctx context.Context, oldValue, newValue cty.Value) {
-	ctx, stopSpan := hclutil.StartTriggerSpan(ctx, t.tracerProvider, "watch", t.name)
+	// The action runs in a goroutine that outlives the caller of Set() on
+	// the watched value. Use a linked-root span + WithoutCancel so a
+	// short-lived caller ctx (e.g. an HTTP request that completes before
+	// the action finishes) doesn't cancel the action mid-flight.
+	ctx, stopSpan := hclutil.StartLinkedTriggerSpan(ctx, t.tracerProvider, "watch", t.name)
 
 	evalCtx, err := hclutil.NewEvalContext(ctx).
 		WithStringAttribute("trigger", "watch").

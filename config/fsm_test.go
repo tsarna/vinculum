@@ -3,18 +3,26 @@ package config
 import (
 	"context"
 	"testing"
+	"time"
 
 	_ "embed"
 
 	fsm "github.com/tsarna/vinculum-fsm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.uber.org/zap"
 )
 
 //go:embed testdata/fsm_basic.vcl
 var fsmBasicTest []byte
+
+//go:embed testdata/fsm_ctx_reactive.vcl
+var fsmCtxReactiveTest []byte
 
 func TestFsm_BasicConfig(t *testing.T) {
 	logger, err := zap.NewDevelopment()
@@ -395,4 +403,136 @@ func TestFsm_SnapshotRestore(t *testing.T) {
 
 	state, _ := inst2.State(context.Background())
 	assert.Equal(t, "open", state)
+}
+
+// varFromFsmCtxConfig pulls a *types.Variable from the config eval context.
+func varFromFsmCtxConfig(t *testing.T, c *Config, name string) *types.Variable {
+	t.Helper()
+	varMap := c.EvalCtx().Variables["var"]
+	capsule := varMap.GetAttr(name)
+	v, err := types.GetVariableFromCapsule(capsule)
+	require.NoError(t, err)
+	return v
+}
+
+// TestFSM_ReactiveEventPreservesCtx verifies that the ctx a caller passes to
+// a watched value's Set() flows through ReactiveExpr → EnqueueEvent → FSM
+// event loop → hook evaluation — specifically, that the hook sees the
+// caller's trace span in ctx.trace_id. Before the fix, reactive events lost
+// the ctx entirely (context.Background() was used throughout).
+func TestFSM_ReactiveEventPreservesCtx(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() {
+		_ = tp.Shutdown(context.Background())
+		otel.SetTracerProvider(prev)
+	})
+
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+	c, diags := NewConfig().WithSources(fsmCtxReactiveTest).WithLogger(logger).Build()
+	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
+
+	// The FSM's SetTracerProvider is only invoked automatically when an
+	// OTLP client is configured in VCL. For this unit test we set it
+	// directly on the instance so linked-root span behavior can be
+	// observed via the in-memory exporter.
+	inst, err := fsm.GetInstanceFromCapsule(c.CtyFsmMap["hvac"])
+	require.NoError(t, err)
+	inst.SetTracerProvider(tp)
+
+	for _, s := range c.Startables {
+		require.NoError(t, s.Start())
+	}
+	t.Cleanup(func() {
+		for i := len(c.Stoppables) - 1; i >= 0; i-- {
+			_ = c.Stoppables[i].Stop()
+		}
+	})
+
+	temp := varFromFsmCtxConfig(t, c, "temp")
+	captured := varFromFsmCtxConfig(t, c, "captured_trace")
+	done := varFromFsmCtxConfig(t, c, "captured_done")
+
+	// Start a parent span and use its ctx to drive the reactive trigger.
+	parentTracer := tp.Tracer("test/fsm_parent")
+	ctx, parentSpan := parentTracer.Start(context.Background(), "parent-op")
+	parentTraceID := parentSpan.SpanContext().TraceID().String()
+
+	_, err = temp.Set(ctx, []cty.Value{cty.NumberIntVal(150)})
+	require.NoError(t, err)
+	parentSpan.End()
+
+	// FSM processing is async; wait for the hook to write the done flag.
+	require.Eventually(t, func() bool {
+		v, _ := done.Get(context.Background(), nil)
+		return v.True()
+	}, time.Second, 5*time.Millisecond, "on_entry hook should have fired")
+
+	got, err := captured.Get(context.Background(), nil)
+	require.NoError(t, err)
+	require.Equal(t, cty.String, got.Type())
+	gotTrace := got.AsString()
+
+	// With a tracer configured on the FSM, every transition creates a
+	// linked-root span. Inside the hook, ctx.trace_id is the FSM
+	// transition's trace_id (a new root), NOT the parent's. This proves:
+	//   1. ctx flowed across the queue boundary (trace_id non-empty),
+	//   2. the FSM layer correctly spawns a new root (trace_id != parent).
+	assert.NotEmpty(t, gotTrace, "hook's ctx.trace_id should be non-empty")
+	assert.NotEqual(t, parentTraceID, gotTrace,
+		"FSM transition is a linked root; trace_id should differ from parent")
+
+	// Verify the FSM transition span in the exporter has a Link back to
+	// the parent span — the OTel async-messaging correlation.
+	var fsmSpan sdktrace.ReadOnlySpan
+	for _, s := range exporter.GetSpans().Snapshots() {
+		if s.Name() == "fsm.hvac/overheat" {
+			fsmSpan = s
+			break
+		}
+	}
+	require.NotNil(t, fsmSpan, "expected 'fsm.hvac/overheat' span in exporter")
+	assert.Equal(t, gotTrace, fsmSpan.SpanContext().TraceID().String(),
+		"hook ran under the FSM transition span")
+	require.Len(t, fsmSpan.Links(), 1, "FSM span should have exactly one link")
+	assert.Equal(t, parentTraceID, fsmSpan.Links()[0].SpanContext.TraceID().String(),
+		"FSM span link should point at the caller's trace")
+}
+
+// TestFSM_CallerCancellationDoesNotInterruptHook verifies that if the caller
+// cancels its ctx after enqueuing an event (but before the FSM event loop
+// has dequeued it), the hook still runs. This is the cancellation-severance
+// half of the fix.
+func TestFSM_CallerCancellationDoesNotInterruptHook(t *testing.T) {
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+	c, diags := NewConfig().WithSources(fsmCtxReactiveTest).WithLogger(logger).Build()
+	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
+
+	for _, s := range c.Startables {
+		require.NoError(t, s.Start())
+	}
+	t.Cleanup(func() {
+		for i := len(c.Stoppables) - 1; i >= 0; i-- {
+			_ = c.Stoppables[i].Stop()
+		}
+	})
+
+	temp := varFromFsmCtxConfig(t, c, "temp")
+	done := varFromFsmCtxConfig(t, c, "captured_done")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before Set so the reactive callback's ctx is already dead
+
+	_, err = temp.Set(ctx, []cty.Value{cty.NumberIntVal(150)})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		v, _ := done.Get(context.Background(), nil)
+		return v.True()
+	}, time.Second, 5*time.Millisecond,
+		"hook should have run despite caller ctx cancellation")
 }

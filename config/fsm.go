@@ -511,7 +511,7 @@ func (h *FsmBlockHandler) wireReactiveEvent(config *Config, fsmName string, even
 		wasTrueVal := *lastWasTrue
 		*lastWasTrue = isTrue
 		if isTrue && !wasTrueVal {
-			inst.EnqueueEvent(fsm.Event{Name: eventName})
+			inst.EnqueueEvent(fsm.Event{Ctx: ctx, Name: eventName})
 		}
 	})
 

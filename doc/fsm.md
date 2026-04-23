@@ -93,6 +93,16 @@ state "name" {
   transition exists for the current state. No transition semantics — no
   exit/entry, no `on_change`, no watch notification.
 
+**Context propagation.** FSM events are processed asynchronously on the
+FSM's own event-loop goroutine, so hooks run after the caller that
+enqueued the event has already returned. Hook `ctx` carries the caller's
+context **values** (trace spans, auth, etc.) across the queue boundary,
+but the caller's cancellation is severed — so an upstream ctx cancel
+(e.g. an HTTP request that triggered the event completing) cannot
+interrupt a hook mid-execution. Each FSM transition opens a new root
+span linked to the caller's span, matching OTel async-messaging
+conventions.
+
 States may be declared with an empty body if they have no associated behavior: `state "idle" {}`
 
 ---

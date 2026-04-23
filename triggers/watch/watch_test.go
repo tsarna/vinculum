@@ -11,6 +11,10 @@ import (
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -203,6 +207,114 @@ trigger "watch" "on_x" {
 	last, err := trig.Get(bg, nil)
 	require.NoError(t, err)
 	assert.True(t, last.RawEquals(cty.StringVal("v")))
+}
+
+// TestWatchTrigger_CallerCancellationDoesNotPropagate verifies that when the
+// caller of Set() provides a ctx that is cancelled before (or during) the
+// dispatched action evaluation, the action still completes. The caller's
+// span context values are preserved; cancellation is severed.
+func TestWatchTrigger_CallerCancellationDoesNotPropagate(t *testing.T) {
+	src := []byte(`
+var "x" {}
+var "result" {}
+
+trigger "watch" "on_x" {
+    watch  = var.x
+    action = set(var.result, "fired")
+}
+`)
+	c, diags := cfg.NewConfig().WithSources(src).WithLogger(testLogger(t)).Build()
+	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
+
+	trig, err := GetWatchTriggerFromCapsule(c.CtyTriggerMap["on_x"])
+	require.NoError(t, err)
+	x := varFromConfig(t, c, "x")
+	result := varFromConfig(t, c, "result")
+
+	require.NoError(t, trig.Start())
+
+	// Call Set with a ctx that we cancel immediately. In the pre-fix code
+	// the goroutine's action evaluated against this cancelled ctx; with
+	// the fix the dispatch helper applies context.WithoutCancel so the
+	// action proceeds.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = x.Set(ctx, []cty.Value{cty.StringVal("trigger-me")})
+
+	require.NoError(t, trig.Stop()) // waits for in-flight goroutines
+
+	got, err := result.Get(bg, nil)
+	require.NoError(t, err)
+	assert.True(t, got.RawEquals(cty.StringVal("fired")),
+		"action should have completed despite caller ctx cancellation; got %s", got.GoString())
+}
+
+// TestWatchTrigger_SpanIsLinkedRoot verifies that the span created for an
+// async action is a new-root span linked to the caller's span — not a child
+// of it. This matches OTel's async-messaging semantic conventions and avoids
+// parent-before-child violations when the caller's span ends first.
+func TestWatchTrigger_SpanIsLinkedRoot(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() {
+		_ = tp.Shutdown(context.Background())
+		otel.SetTracerProvider(prev)
+	})
+
+	src := []byte(`
+var "x" {}
+
+trigger "watch" "on_x" {
+    watch  = var.x
+    action = "ok"
+}
+`)
+	c, diags := cfg.NewConfig().WithSources(src).WithLogger(testLogger(t)).Build()
+	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
+
+	trig, err := GetWatchTriggerFromCapsule(c.CtyTriggerMap["on_x"])
+	require.NoError(t, err)
+	x := varFromConfig(t, c, "x")
+
+	require.NoError(t, trig.Start())
+
+	// Start a parent span and drive a Set through its ctx. The watch
+	// action's span should be a new-root linked to this parent, not a
+	// child of it.
+	parentTracer := tp.Tracer("test/parent")
+	ctx, parentSpan := parentTracer.Start(context.Background(), "parent-op")
+	parentCtx := parentSpan.SpanContext()
+	_, _ = x.Set(ctx, []cty.Value{cty.StringVal("v")})
+	parentSpan.End()
+
+	require.NoError(t, trig.Stop()) // waits for in-flight goroutines
+
+	// Find the trigger span in the exported batch.
+	var triggerSpan sdktrace.ReadOnlySpan
+	for _, s := range exporter.GetSpans().Snapshots() {
+		if s.Name() == "trigger.watch on_x" {
+			triggerSpan = s
+			break
+		}
+	}
+	require.NotNil(t, triggerSpan, "expected 'trigger.watch on_x' span in exporter")
+
+	// New root: different TraceID from the parent.
+	assert.NotEqual(t, parentCtx.TraceID(), triggerSpan.SpanContext().TraceID(),
+		"trigger span should be a new root (different TraceID), got child")
+
+	// Linked back to the parent span.
+	links := triggerSpan.Links()
+	require.Len(t, links, 1, "expected exactly one link on the trigger span")
+	assert.Equal(t, parentCtx.TraceID(), links[0].SpanContext.TraceID(),
+		"link should point at the parent trace")
+	assert.Equal(t, parentCtx.SpanID(), links[0].SpanContext.SpanID(),
+		"link should point at the parent span")
+
+	// Avoid unused-import error if someone rearranges.
+	_ = trace.SpanFromContext
 }
 
 func TestWatchTrigger_Stop_WaitsForInFlight(t *testing.T) {

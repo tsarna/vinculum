@@ -698,6 +698,12 @@ When a change is observed, `action` is dispatched to a new goroutine so the call
 (in the same goroutine); if it returns `true`, the action is skipped. Each firing evaluates
 `skip_when` independently.
 
+The dispatched action runs with the caller's context **values** (trace spans, auth, etc.)
+preserved, but the caller's cancellation is severed — so an upstream ctx cancel (e.g. an
+HTTP request that drove the change completing) cannot interrupt the in-flight action
+mid-operation. The action's span is a new root linked to the caller's span, matching OTel
+async-messaging conventions.
+
 `get(trigger.<name>)` returns the most recently observed `newValue`, or `null` before any
 change has been observed since startup.
 
