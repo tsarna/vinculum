@@ -39,12 +39,12 @@ require (
 	github.com/tsarna/sqid-cty-funcs v0.1.0
 	github.com/tsarna/time-cty-funcs v0.2.1
 	github.com/tsarna/vinculum-bus v0.12.0
-	github.com/tsarna/vinculum-kafka v0.9.2
-	github.com/tsarna/vinculum-mqtt v0.7.1
-	github.com/tsarna/vinculum-redis v0.2.0
+	github.com/tsarna/vinculum-kafka v0.9.3
+	github.com/tsarna/vinculum-mqtt v0.7.2
+	github.com/tsarna/vinculum-redis v0.2.1
 	github.com/tsarna/vinculum-sns v0.2.0
 	github.com/tsarna/vinculum-sqs v0.2.0
-	github.com/tsarna/vinculum-vws v0.11.1
+	github.com/tsarna/vinculum-vws v0.11.2
 	github.com/tsarna/vinculum-wire v0.1.0
 	github.com/twmb/franz-go v1.20.7
 	github.com/twmb/franz-go/plugin/kotel v1.6.0
@@ -140,7 +140,7 @@ require (
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/tsarna/url-cty-funcs v0.1.0
-	github.com/tsarna/vinculum-fsm v0.3.0
+	github.com/tsarna/vinculum-fsm v0.3.1
 	github.com/zclconf/go-cty v1.18.1
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/mod v0.34.0 // indirect
