@@ -29,3 +29,13 @@ type Behavior struct {
 	StartActive     bool
 	Inhibit         hcl.Expression
 }
+
+// Hooks bundles the three condition lifecycle action expressions. Zero-valued
+// (nil) expressions are treated as "not configured" and skipped. Kept as a
+// shared value type even though gohcl cannot inline-promote its fields into
+// subtype body structs — the runtime plumbing (HookDispatcher) is shared.
+type Hooks struct {
+	OnInit       hcl.Expression
+	OnActivate   hcl.Expression
+	OnDeactivate hcl.Expression
+}

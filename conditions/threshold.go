@@ -40,6 +40,7 @@ type ThresholdCondition struct {
 
 	inputExpr   *cfg.ReactiveExpr
 	inhibitExpr *cfg.ReactiveExpr
+	hooks       *HookDispatcher
 
 	mu          sync.Mutex
 	haveValue   bool
@@ -184,6 +185,13 @@ func (c *ThresholdCondition) Start() error {
 	return nil
 }
 
+// PostStart fires the on_init hook after all Startables have bootstrapped.
+// Implements config.PostStartable.
+func (c *ThresholdCondition) PostStart() error {
+	c.hooks.FireInit(c.sm.Output())
+	return nil
+}
+
 func (c *ThresholdCondition) Stop() error {
 	c.inputExpr.Stop()
 	if c.inhibitExpr != nil {
@@ -222,6 +230,9 @@ type thresholdBody struct {
 	StartActive     *bool          `hcl:"start_active,optional"`
 	Inhibit         hcl.Expression `hcl:"inhibit,optional"`
 	Debounce        hcl.Expression `hcl:"debounce,optional"`
+	OnInit          hcl.Expression `hcl:"on_init,optional"`
+	OnActivate      hcl.Expression `hcl:"on_activate,optional"`
+	OnDeactivate    hcl.Expression `hcl:"on_deactivate,optional"`
 }
 
 func init() {
@@ -367,9 +378,22 @@ func processThresholdCondition(config *cfg.Config, block *hcl.Block, def *cfg.Co
 		return diags
 	}
 
+	tp, _ := config.ResolveTracerProvider(hcl.Expression(nil))
+	c.hooks = NewHookDispatcher(def.Name, Hooks{
+		OnInit:       body.OnInit,
+		OnActivate:   body.OnActivate,
+		OnDeactivate: body.OnDeactivate,
+	}, config, tp)
+	if c.hooks != nil {
+		c.sm.Watch(c.hooks)
+	}
+
 	config.CtyConditionMap[def.Name] = newThresholdConditionCapsule(c)
 	config.EvalCtx().Variables["condition"] = cfg.CtyObjectOrEmpty(config.CtyConditionMap)
 	config.Startables = append(config.Startables, c)
+	if c.hooks != nil {
+		config.PostStartables = append(config.PostStartables, c)
+	}
 	config.Stoppables = append(config.Stoppables, c)
 	return diags
 }

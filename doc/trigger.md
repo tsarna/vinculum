@@ -686,6 +686,13 @@ is evaluated once at config build time and must produce a `var` or non-computed 
 capsule (gauge or counter). A config build error is raised if the expression does not resolve
 to a watchable type.
 
+> For condition-local reactions, consider `on_activate` / `on_deactivate` /
+> `on_init` declared inline on the condition block instead — see
+> [Lifecycle Hooks in condition.md](condition.md#lifecycle-hooks). Hooks run
+> synchronously on the caller's goroutine and guarantee post-bootstrap
+> ordering via `on_init`; `trigger "watch"` remains the right choice for
+> async dispatch and cross-cutting observers.
+
 When a change is observed, `action` is dispatched to a new goroutine so the caller of
 `set()` / `increment()` is not blocked. If `skip_when` is provided, it is evaluated first
 (in the same goroutine); if it returns `true`, the action is skipped. Each firing evaluates

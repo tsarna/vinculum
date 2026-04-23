@@ -34,6 +34,7 @@ type CounterCondition struct {
 	countDown bool
 
 	inhibitExpr *cfg.ReactiveExpr
+	hooks       *HookDispatcher
 
 	mu    sync.Mutex
 	count int64
@@ -138,6 +139,13 @@ func (c *CounterCondition) Start() error {
 	return nil
 }
 
+// PostStart fires the on_init hook after all Startables have bootstrapped.
+// Implements config.PostStartable.
+func (c *CounterCondition) PostStart() error {
+	c.hooks.FireInit(c.sm.Output())
+	return nil
+}
+
 func (c *CounterCondition) Stop() error {
 	if c.inhibitExpr != nil {
 		c.inhibitExpr.Stop()
@@ -172,6 +180,9 @@ type counterBody struct {
 	Invert          *bool          `hcl:"invert,optional"`
 	StartActive     *bool          `hcl:"start_active,optional"`
 	Inhibit         hcl.Expression `hcl:"inhibit,optional"`
+	OnInit          hcl.Expression `hcl:"on_init,optional"`
+	OnActivate      hcl.Expression `hcl:"on_activate,optional"`
+	OnDeactivate    hcl.Expression `hcl:"on_deactivate,optional"`
 
 	// Forbidden — declared so we can produce a friendly diagnostic instead
 	// of HCL's generic "argument not expected" message.
@@ -280,9 +291,22 @@ func processCounterCondition(config *cfg.Config, block *hcl.Block, def *cfg.Cond
 		return diags
 	}
 
+	tp, _ := config.ResolveTracerProvider(hcl.Expression(nil))
+	c.hooks = NewHookDispatcher(def.Name, Hooks{
+		OnInit:       body.OnInit,
+		OnActivate:   body.OnActivate,
+		OnDeactivate: body.OnDeactivate,
+	}, config, tp)
+	if c.hooks != nil {
+		c.sm.Watch(c.hooks)
+	}
+
 	config.CtyConditionMap[def.Name] = newCounterConditionCapsule(c)
 	config.EvalCtx().Variables["condition"] = cfg.CtyObjectOrEmpty(config.CtyConditionMap)
 	config.Startables = append(config.Startables, c)
+	if c.hooks != nil {
+		config.PostStartables = append(config.PostStartables, c)
+	}
 	config.Stoppables = append(config.Stoppables, c)
 	return diags
 }

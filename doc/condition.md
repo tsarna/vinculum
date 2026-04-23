@@ -213,6 +213,105 @@ condition "timer" "tank_alarm" {
 
 ---
 
+## Lifecycle Hooks
+
+Three optional action-expression attributes — `on_init`, `on_activate`, and
+`on_deactivate` — declare inline reactions to a condition's lifecycle events.
+They are the locality-friendly alternative to a separate
+`trigger "watch"` block for condition-local side effects.
+
+| Hook | Fires | `ctx.new_value` | `ctx.old_value` |
+|---|---|---|---|
+| `on_init` | Once at startup, after every Startable has bootstrapped (runs in the `PostStart` phase). | condition's current output | — (absent) |
+| `on_activate` | Each `inactive → active` output transition, on the user-visible edge (after `invert` applies). | `true` | `false` |
+| `on_deactivate` | Each `active → inactive` output transition. | `false` | `true` |
+
+All three expressions see the same `ctx`:
+
+| Key | Value |
+|---|---|
+| `ctx.trigger` | `"condition"` |
+| `ctx.name` | Name of this condition |
+| `ctx.new_value` | See table above |
+| `ctx.old_value` | See table above (not set for `on_init`) |
+
+**Synchronous dispatch.** `on_activate` / `on_deactivate` fire inline on the
+caller's goroutine at the moment of the transition — this means a `set()` /
+`clear()` / `reset()` call blocks until the hook's action expression has
+evaluated (and any side effects it issues have been enqueued). This is
+different from `trigger "watch"`, which dispatches the action to a
+goroutine. For high-throughput inputs where blocking is unacceptable, use
+`trigger "watch"` instead. For ordering guarantees where the hook's side
+effects must be visible before the caller returns, hooks are the right tool.
+
+**Boot semantics.** `on_init` fires regardless of the boot state, once, at
+`PostStart`. If `start_active = true`, `on_init` sees `new_value = true`.
+`on_activate` does **not** fire at boot — consistent with the
+"no synthetic transition event" rule documented under `start_active`.
+Ordinary transitions *during* the Startables phase (e.g. an unlatched
+`start_active` counter reconciling against its count) fire their
+transition hook normally, which can produce an `on_deactivate` *before* the
+later `on_init` fires.
+
+**Context propagation.** The hook's `ctx` carries the caller's context when
+the transition is input-driven (e.g. from a subscription action), including
+any trace span. For autonomous transitions (timer callbacks like
+`activate_after`, `deactivate_after`, `timeout`, `cooldown`) the hook runs
+under a fresh root trace span. Every hook invocation opens a
+`trigger.condition.<hook>` span.
+
+**Errors** in hook expressions are logged to the user log
+(condition name + hook name) and are non-fatal. A broken `on_activate`
+does not prevent `on_deactivate` from firing on the next transition, nor
+block other watchers.
+
+**Re-entrancy.** Hooks fire outside the condition's state-machine lock, so a
+hook calling `set()` / `clear()` / `reset()` on its own condition is safe.
+Flicker-loops (`on_activate = clear(condition.self)`) are possible — the
+same footgun that exists with `trigger "watch"` today. Don't do that.
+
+### Hooks vs `trigger "watch"`
+
+Both mechanisms observe the same output transitions. Use hooks when the
+reaction is local to the condition and you want inline declaration,
+synchronous dispatch, or guaranteed post-bootstrap ordering. Use
+`trigger "watch"` when you want async dispatch, cross-cutting observers, or
+decoupled reactions that live independently from the condition block.
+
+### Example — fail-safe fault with status broadcasts
+
+```hcl
+condition "timer" "safety_fault" {
+    latch         = true
+    start_active  = true
+
+    on_init       = send(ctx, bus.status, "fault/safety", {
+                        active = ctx.new_value,
+                        source = "boot",
+                    })
+    on_activate   = send(ctx, bus.status, "fault/safety", {
+                        active = true,
+                        source = "runtime",
+                    })
+    on_deactivate = send(ctx, bus.status, "fault/safety", {
+                        active = false,
+                        source = "cleared",
+                    })
+}
+
+subscription "clear_fault" {
+    bus    = bus.main
+    topics = ["operator/reset"]
+    action = clear(condition.safety_fault)
+}
+```
+
+At boot the fault starts latched; `on_init` publishes an `active = true`
+status message so any dashboard subscriber knows immediately. When the
+operator clears the fault, `on_deactivate` publishes the transition.
+
+---
+
 ## `condition "timer" "name"`
 
 Applies temporal conditioning rules to a boolean signal. Equivalent in

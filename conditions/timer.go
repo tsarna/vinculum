@@ -31,6 +31,7 @@ type TimerCondition struct {
 	hasInputExpr bool
 	inputExpr    *cfg.ReactiveExpr
 	inhibitExpr  *cfg.ReactiveExpr
+	hooks        *HookDispatcher
 
 	mu          sync.Mutex
 	rawInput    bool // most recent submitted value
@@ -161,6 +162,17 @@ func (t *TimerCondition) Start() error {
 	return nil
 }
 
+// PostStart fires the on_init hook after all Startables have bootstrapped.
+// Implements config.PostStartable. Called by the config runtime exactly once,
+// in Startables order, after the Startables phase completes. No-op when no
+// hooks were configured (hooks is nil and the subtype was not added to
+// PostStartables in that case, so this method should not be invoked — the
+// nil-guard in FireInit makes it safe regardless).
+func (t *TimerCondition) PostStart() error {
+	t.hooks.FireInit(t.sm.Output())
+	return nil
+}
+
 // Stop unsubscribes reactive expressions so the condition stops reacting to
 // upstream changes during shutdown.
 func (t *TimerCondition) Stop() error {
@@ -199,6 +211,9 @@ type timerBody struct {
 	Inhibit         hcl.Expression `hcl:"inhibit,optional"`
 	Debounce        hcl.Expression `hcl:"debounce,optional"`
 	Input           hcl.Expression `hcl:"input,optional"`
+	OnInit          hcl.Expression `hcl:"on_init,optional"`
+	OnActivate      hcl.Expression `hcl:"on_activate,optional"`
+	OnDeactivate    hcl.Expression `hcl:"on_deactivate,optional"`
 }
 
 func init() {
@@ -283,9 +298,22 @@ func processTimerCondition(config *cfg.Config, block *hcl.Block, def *cfg.Condit
 		return diags
 	}
 
+	tp, _ := config.ResolveTracerProvider(hcl.Expression(nil))
+	t.hooks = NewHookDispatcher(def.Name, Hooks{
+		OnInit:       body.OnInit,
+		OnActivate:   body.OnActivate,
+		OnDeactivate: body.OnDeactivate,
+	}, config, tp)
+	if t.hooks != nil {
+		t.sm.Watch(t.hooks)
+	}
+
 	config.CtyConditionMap[def.Name] = newTimerConditionCapsule(t)
 	config.EvalCtx().Variables["condition"] = cfg.CtyObjectOrEmpty(config.CtyConditionMap)
 	config.Startables = append(config.Startables, t)
+	if t.hooks != nil {
+		config.PostStartables = append(config.PostStartables, t)
+	}
 	config.Stoppables = append(config.Stoppables, t)
 	return diags
 }
