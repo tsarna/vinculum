@@ -76,9 +76,11 @@ trigger "after" "announce" {
 
 ```hcl
 trigger "at" "name" {
-    time     = expression  # required — must evaluate to a time capsule
-    action   = expression  # required — evaluated each time the trigger fires
-    disabled = false       # optional
+    time      = expression  # optional — must evaluate to a time capsule; omit for set()-driven triggers
+    repeat    = true        # optional — if false, fire once then go dormant until set()
+    stop_when = expression  # optional — boolean; trigger stops itself when this evaluates true
+    action    = expression  # required — evaluated each time the trigger fires
+    disabled  = false       # optional
 }
 ```
 
@@ -98,15 +100,41 @@ then the currently scheduled fire time as a time capsule. This lets other
 expressions compute how far away the next firing is, e.g.
 `until(get(trigger.<name>))`.
 
-`set(trigger.<name>)` wakes the goroutine immediately and causes it to
-re-evaluate `time` without firing the action. Use this to force rescheduling
-when conditions change — for example, when a vehicle's position shifts and the
-computed target time needs to be updated. Pair with `trigger "interval"` to
-re-evaluate on a dynamic schedule.
-
 If `time` evaluates to a time in the past, the action fires immediately and a
 warning is logged. If `time` evaluation fails (wrong type, expression error),
 the trigger logs the error and retries after one minute.
+
+### Imperative control with `set()` and `reset()`
+
+`set(trigger.<name>, time)` overrides the next fire with an explicit absolute
+time, resets the run count, and revives the trigger if it was dormant (via
+`stop_when`, `repeat = false`, or a dormant start). The override is consumed
+on fire — subsequent iterations fall back to the configured `time`
+expression. If the override is already in the past, the trigger fires
+immediately and logs a warning (same as the `time` expression case).
+
+`set(trigger.<name>)` with no argument re-evaluates the `time` expression
+immediately without firing the action. Useful when conditions change — for
+example, when a vehicle's position shifts and the computed target time
+needs updating. Returns an error if no `time` expression was configured.
+
+`reset(trigger.<name>)` cancels any pending timer and puts the trigger into a
+dormant state, waiting for the next `set()` call. Clears the override,
+scheduled time, run count, and last result/error.
+
+### Dormant start (no `time`)
+
+When `time` is omitted, the trigger starts dormant and waits for the first
+`set(trigger.<name>, time_value)` call before firing. This is the idiomatic
+way to create a fully `set()`-driven trigger, e.g. an alarm that an FSM state
+arms with an explicit wall-clock time. A no-argument `set()` cannot revive a
+dormant trigger without a `time` expression — it requires an override.
+
+### `repeat = false`
+
+When `repeat` is `false`, the trigger fires once and then goes dormant,
+waiting for `set()` to revive it. Combined with dormant start (no `time`),
+this yields a classic one-shot alarm.
 
 When the action runs, `ctx` provides:
 
@@ -116,12 +144,17 @@ When the action runs, `ctx` provides:
 | `ctx.name` | string | Name of this trigger block |
 | `ctx.run_count` | number | How many times the action has fired |
 | `ctx.last_result` | dynamic | Result of the previous action, or `null` on first fire |
+| `ctx.last_error` | string | Error string from the previous evaluation, or `null` if it succeeded |
 
 The same context is available when evaluating the `time` expression, so the
 schedule can adapt based on how many times the trigger has already fired.
+`stop_when` is evaluated after each fire with the same `ctx`, with
+`ctx.run_count` already incremented.
 
 **Creates** `trigger.<name>` as a capsule; read the next scheduled time with
-`get(trigger.<name>)`, or poke for rescheduling with `set(trigger.<name>)`.
+`get(trigger.<name>)`, override the next fire with
+`set(trigger.<name>, time)`, re-evaluate the configured `time` expression
+with `set(trigger.<name>)`, or cancel with `reset(trigger.<name>)`.
 
 Example — fire at a dynamically computed time each day, for example using Vinculum's sunrise/sunset functions:
 
@@ -145,6 +178,23 @@ trigger "at" "arrival_alert" {
 trigger "interval" "recompute_eta" {
     delay  = recheck_interval(var.speed, until(get(trigger.arrival_alert)))
     action = set(trigger.arrival_alert)
+}
+```
+
+Example — overnight scene change that can be forced earlier by an external
+event. The `time` expression recomputes sunset each day; a weather alert can
+override the next fire with the storm's expected arrival time:
+
+```hcl
+trigger "at" "draw_curtains" {
+    time   = sunset({lat = get(var.lat), lon = get(var.lon)})
+    action = send(ctx, bus.main, "home/curtains/close", {})
+}
+
+subscription "weather_override" {
+    target = bus.main
+    topics = ["weather/storm_alert"]
+    action = set(trigger.draw_curtains, ctx.msg.expected_at)
 }
 ```
 

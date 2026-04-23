@@ -25,25 +25,39 @@ import (
 // get(trigger.<name>) returns null until the first time expression has been
 // evaluated, then the currently scheduled fire time as a time capsule.
 //
-// set(trigger.<name>) wakes the goroutine early so it re-evaluates the time
-// expression immediately. This allows an external trigger (e.g. trigger
-// "interval") to poke the at trigger whenever conditions change, such as
-// a vehicle's position shifting significantly.
+// set(trigger.<name>, time) overrides the next fire with an explicit absolute
+// time; the override is consumed on fire and subsequent iterations fall back
+// to the configured time expression. Revives a dormant trigger.
+//
+// set(trigger.<name>) with no argument re-evaluates the time expression
+// immediately without firing the action. Returns an error if no time
+// expression was configured.
+//
+// reset(trigger.<name>) cancels any pending timer and puts the trigger into
+// a dormant state, waiting for the next set() call.
+//
+// If time is omitted from the configuration, the trigger starts dormant and
+// waits for the first set() call before firing.
 type AtTrigger struct {
 	name           string
 	config         *cfg.Config
 	timeExpr       hcl.Expression
 	actionExpr     hcl.Expression
+	stopWhenExpr   hcl.Expression // optional; trigger stops when this evaluates true
+	repeat         bool           // if true (default), loop; if false, fire once then go dormant
 	tracerProvider trace.TracerProvider
 
 	mu            sync.RWMutex
-	scheduledTime time.Time // zero = not yet evaluated
+	scheduledTime time.Time  // zero = not yet evaluated
 	runCount      int64
-	lastResult    cty.Value // cty.NilVal until first fire
+	lastResult    cty.Value  // cty.NilVal until first fire
+	lastError     error
+	timeOverride  *time.Time // non-nil when set() provided an explicit time
 
-	stopCh chan struct{}
-	doneCh chan struct{}
-	setCh  chan struct{} // buffered 1; signals goroutine to re-evaluate time
+	setCh   chan *time.Time // buffered 1; signals goroutine to re-evaluate / use override
+	resetCh chan struct{}   // buffered 1; signals goroutine to go dormant
+	stopCh  chan struct{}
+	doneCh  chan struct{}
 }
 
 // Count returns the number of times the trigger has fired. Implements
@@ -65,22 +79,66 @@ func (t *AtTrigger) Get(_ context.Context, _ []cty.Value) (cty.Value, error) {
 	return timecty.NewTimeCapsule(t.scheduledTime), nil
 }
 
-// Set wakes the goroutine so it re-evaluates the time expression immediately,
-// resetting the scheduled fire time. Implements Settable.
+// Set reschedules the trigger. If called with a time argument, that time
+// overrides the next fire (the override is consumed on fire). If called with
+// no arguments, wakes the goroutine so it re-evaluates the time expression
+// immediately (returns an error if no time expression was configured). In
+// either case resets runCount and clears lastError, and revives the trigger
+// if it was dormant. Implements Settable.
 func (t *AtTrigger) Set(_ context.Context, args []cty.Value) (cty.Value, error) {
+	var override *time.Time
+	if len(args) > 0 {
+		tm, err := timecty.GetTime(args[0])
+		if err != nil {
+			return cty.NilVal, fmt.Errorf("at trigger %q: invalid time for set(): %w", t.name, err)
+		}
+		override = &tm
+	} else if !cfg.IsExpressionProvided(t.timeExpr) {
+		return cty.NilVal, fmt.Errorf("at trigger %q: set() with no time requires a configured time expression", t.name)
+	}
+
+	t.mu.Lock()
+	t.timeOverride = override
+	t.runCount = 0
+	t.lastError = nil
+	t.mu.Unlock()
+
 	select {
-	case t.setCh <- struct{}{}:
+	case t.setCh <- override:
 	default:
 	}
-	if len(args) > 0 {
-		return args[0], nil
+
+	if override != nil {
+		return timecty.NewTimeCapsule(*override), nil
 	}
 	return cty.NullVal(cty.DynamicPseudoType), nil
 }
 
-// Start initialises the set and stop channels. Implements Startable.
+// Reset cancels any pending timer and puts the trigger into a dormant state,
+// waiting for the next set() call. Clears the override, scheduled time, run
+// count, and last result/error. Implements Resettable.
+func (t *AtTrigger) Reset(_ context.Context) error {
+	t.mu.Lock()
+	t.timeOverride = nil
+	t.scheduledTime = time.Time{}
+	t.runCount = 0
+	t.lastResult = cty.NilVal
+	t.lastError = nil
+	t.mu.Unlock()
+
+	if t.resetCh != nil {
+		select {
+		case t.resetCh <- struct{}{}:
+		default:
+		}
+	}
+	return nil
+}
+
+// Start initialises the control channels. Implements Startable.
 func (t *AtTrigger) Start() error {
-	t.setCh = make(chan struct{}, 1)
+	t.setCh = make(chan *time.Time, 1)
+	t.resetCh = make(chan struct{}, 1)
 	t.stopCh = make(chan struct{})
 	return nil
 }
@@ -107,15 +165,20 @@ func (t *AtTrigger) Stop() error {
 	return nil
 }
 
-func (t *AtTrigger) buildEvalContext(ctx context.Context, runCount int64, lastResult cty.Value) (*hcl.EvalContext, error) {
+func (t *AtTrigger) buildEvalContext(ctx context.Context, runCount int64, lastResult cty.Value, lastErr error) (*hcl.EvalContext, error) {
 	if lastResult == cty.NilVal {
 		lastResult = cty.NullVal(cty.DynamicPseudoType)
+	}
+	lastErrStr := cty.NullVal(cty.String)
+	if lastErr != nil {
+		lastErrStr = cty.StringVal(lastErr.Error())
 	}
 	return hclutil.NewEvalContext(ctx).
 		WithStringAttribute("trigger", "at").
 		WithStringAttribute("name", t.name).
 		WithInt64Attribute("run_count", runCount).
 		WithAttribute("last_result", lastResult).
+		WithAttribute("last_error", lastErrStr).
 		BuildEvalContext(t.config.EvalCtx())
 }
 
@@ -131,45 +194,80 @@ func (t *AtTrigger) run() {
 
 	const errorRetry = time.Minute
 
-	for {
-		// Read current state for eval context.
+	// If no time expression and no override, start dormant.
+	if !cfg.IsExpressionProvided(t.timeExpr) {
 		t.mu.RLock()
+		hasOverride := t.timeOverride != nil
+		t.mu.RUnlock()
+		if !hasOverride {
+			if t.waitForRevival() {
+				return
+			}
+		}
+	}
+
+	for {
+		// Snapshot state for this iteration.
+		t.mu.RLock()
+		override := t.timeOverride
 		runCount := t.runCount
 		lastResult := t.lastResult
+		lastErr := t.lastError
 		t.mu.RUnlock()
 
-		// Evaluate the time expression (no span here — the span lives in fire()).
-		evalCtx, err := t.buildEvalContext(context.Background(), runCount, lastResult)
-		if err != nil {
-			t.config.UserLogger.Error("at trigger: error building eval context",
-				zap.String("name", t.name), zap.Error(err))
-			if !t.waitOrStop(errorRetry, nil) {
-				return
+		var targetTime time.Time
+		if override != nil {
+			targetTime = *override
+		} else {
+			// Evaluate the time expression.
+			evalCtx, err := t.buildEvalContext(context.Background(), runCount, lastResult, lastErr)
+			if err != nil {
+				t.config.UserLogger.Error("at trigger: error building eval context",
+					zap.String("name", t.name), zap.Error(err))
+				switch t.waitForRetry(errorRetry) {
+				case runStop:
+					return
+				case runDormant:
+					if t.waitForRevival() {
+						return
+					}
+				}
+				continue
 			}
-			continue
+
+			timeVal, diags := t.timeExpr.Value(evalCtx)
+			if diags.HasErrors() {
+				t.config.UserLogger.Error("at trigger: time expression error",
+					zap.String("name", t.name), zap.Error(diags))
+				switch t.waitForRetry(errorRetry) {
+				case runStop:
+					return
+				case runDormant:
+					if t.waitForRevival() {
+						return
+					}
+				}
+				continue
+			}
+
+			tm, err := timecty.GetTime(timeVal)
+			if err != nil {
+				t.config.UserLogger.Error("at trigger: time expression did not produce a time value",
+					zap.String("name", t.name), zap.Error(err))
+				switch t.waitForRetry(errorRetry) {
+				case runStop:
+					return
+				case runDormant:
+					if t.waitForRevival() {
+						return
+					}
+				}
+				continue
+			}
+			targetTime = tm
 		}
 
-		timeVal, diags := t.timeExpr.Value(evalCtx)
-		if diags.HasErrors() {
-			t.config.UserLogger.Error("at trigger: time expression error",
-				zap.String("name", t.name), zap.Error(diags))
-			if !t.waitOrStop(errorRetry, nil) {
-				return
-			}
-			continue
-		}
-
-		targetTime, err := timecty.GetTime(timeVal)
-		if err != nil {
-			t.config.UserLogger.Error("at trigger: time expression did not produce a time value",
-				zap.String("name", t.name), zap.Error(err))
-			if !t.waitOrStop(errorRetry, nil) {
-				return
-			}
-			continue
-		}
-
-		// Store the scheduled time so Get() can return it.
+		// Publish the scheduled time so Get() can return it.
 		t.mu.Lock()
 		t.scheduledTime = targetTime
 		t.mu.Unlock()
@@ -184,7 +282,6 @@ func (t *AtTrigger) run() {
 				zap.String("name", t.name), zap.Time("fire_at", targetTime), zap.Duration("delay", delay))
 		}
 
-		// Set or reset the timer.
 		if timer == nil {
 			timer = time.NewTimer(delay)
 		} else {
@@ -193,19 +290,43 @@ func (t *AtTrigger) run() {
 
 		select {
 		case <-timer.C:
-			// Time to fire.
-			t.fire(evalCtx)
-			// Loop back to re-evaluate time for next occurrence.
+			// Consume the override (if any) now that it has fired. Only clear
+			// if it's still the same pointer — a concurrent Set() may have
+			// replaced it, and we must preserve the new one for the next loop.
+			t.mu.Lock()
+			if t.timeOverride == override {
+				t.timeOverride = nil
+			}
+			t.mu.Unlock()
+
+			t.fire()
+
+			if t.shouldStop() {
+				t.config.Logger.Debug("at trigger: stop condition met, going dormant",
+					zap.String("name", t.name))
+				if t.waitForRevival() {
+					return
+				}
+			}
 
 		case <-t.setCh:
-			// External poke: re-evaluate time without firing.
-			t.config.Logger.Debug("at trigger: re-evaluating time due to set()",
+			// External poke: re-read state on next iteration (override may have changed).
+			t.config.Logger.Debug("at trigger: re-evaluating due to set()",
 				zap.String("name", t.name))
-			safeTimerReset(timer, 0) // drain/reset so next iteration creates cleanly
-			// Drain the timer channel in case it fired concurrently.
+			safeTimerReset(timer, 0)
 			select {
 			case <-timer.C:
 			default:
+			}
+
+		case <-t.resetCh:
+			safeTimerReset(timer, 0)
+			select {
+			case <-timer.C:
+			default:
+			}
+			if t.waitForRevival() {
+				return
 			}
 
 		case <-t.stopCh:
@@ -214,18 +335,20 @@ func (t *AtTrigger) run() {
 	}
 }
 
-// fire evaluates the action expression and updates runCount and lastResult.
-func (t *AtTrigger) fire(_ *hcl.EvalContext) {
+// fire evaluates the action expression and updates runCount, lastResult, and
+// lastError.
+func (t *AtTrigger) fire() {
 	t.config.Logger.Debug("at trigger: firing", zap.String("name", t.name))
 
 	t.mu.RLock()
 	runCount := t.runCount
 	lastResult := t.lastResult
+	lastErr := t.lastError
 	t.mu.RUnlock()
 
 	spanCtx, stopSpan := hclutil.StartTriggerSpan(context.Background(), t.tracerProvider, "at", t.name)
 
-	evalCtx, err := t.buildEvalContext(spanCtx, runCount, lastResult)
+	evalCtx, err := t.buildEvalContext(spanCtx, runCount, lastResult, lastErr)
 	if err != nil {
 		t.config.UserLogger.Error("at trigger: error building eval context",
 			zap.String("name", t.name), zap.Error(err))
@@ -234,38 +357,136 @@ func (t *AtTrigger) fire(_ *hcl.EvalContext) {
 	}
 
 	val, diags := t.actionExpr.Value(evalCtx)
-	t.mu.Lock()
-	t.runCount++
+	var actionErr error
 	if diags.HasErrors() {
+		actionErr = diags
+		val = cty.NilVal
 		t.config.UserLogger.Error("at trigger: action error",
-			zap.String("name", t.name), zap.Error(diags))
-		stopSpan(diags)
+			zap.String("name", t.name), zap.Error(actionErr))
 	} else {
-		t.lastResult = val
 		t.config.Logger.Debug("at trigger: action completed",
 			zap.String("name", t.name), zap.Any("result", val))
-		stopSpan(nil)
 	}
+	stopSpan(actionErr)
+
+	t.mu.Lock()
+	t.runCount++
+	t.lastResult = val
+	t.lastError = actionErr
 	t.mu.Unlock()
 }
 
-// waitOrStop waits for the given duration (or a set() signal), then returns
-// true if execution should continue, or false if the trigger should stop.
-// A nil timer means "create a fresh one".
-func (t *AtTrigger) waitOrStop(d time.Duration, timer *time.Timer) bool {
-	if timer == nil {
-		timer = time.NewTimer(d)
-		defer timer.Stop()
-	} else {
-		safeTimerReset(timer, d)
+// shouldStop reports whether the trigger should go dormant after a fire:
+// either repeat is false, or stop_when evaluates true.
+func (t *AtTrigger) shouldStop() bool {
+	if !t.repeat {
+		return true
 	}
+	if !cfg.IsExpressionProvided(t.stopWhenExpr) {
+		return false
+	}
+
+	t.mu.RLock()
+	runCount := t.runCount
+	lastResult := t.lastResult
+	lastErr := t.lastError
+	t.mu.RUnlock()
+
+	evalCtx, err := t.buildEvalContext(context.Background(), runCount, lastResult, lastErr)
+	if err != nil {
+		t.config.UserLogger.Error("at trigger: error building stop_when context",
+			zap.String("name", t.name), zap.Error(err))
+		return false
+	}
+	stopVal, stopDiags := t.stopWhenExpr.Value(evalCtx)
+	if stopDiags.HasErrors() {
+		t.config.UserLogger.Error("at trigger: error evaluating stop_when",
+			zap.String("name", t.name), zap.Error(stopDiags))
+		return false
+	}
+	return stopVal.IsKnown() && !stopVal.IsNull() && stopVal.Type() == cty.Bool && stopVal.True()
+}
+
+// shouldRemainStopped reports whether the trigger should stay dormant after a
+// set() call. repeat=false is always revivable (set() resets runCount); with
+// stop_when, we re-evaluate against the post-set() state.
+func (t *AtTrigger) shouldRemainStopped() bool {
+	if !cfg.IsExpressionProvided(t.stopWhenExpr) {
+		return false
+	}
+
+	t.mu.RLock()
+	runCount := t.runCount
+	lastResult := t.lastResult
+	lastErr := t.lastError
+	t.mu.RUnlock()
+
+	evalCtx, err := t.buildEvalContext(context.Background(), runCount, lastResult, lastErr)
+	if err != nil {
+		return false
+	}
+	stopVal, stopDiags := t.stopWhenExpr.Value(evalCtx)
+	if stopDiags.HasErrors() {
+		return false
+	}
+	return stopVal.IsKnown() && !stopVal.IsNull() && stopVal.Type() == cty.Bool && stopVal.True()
+}
+
+// waitForRevival blocks until a set() call revives the trigger or Stop() is
+// called. Returns true if the goroutine should exit (shutdown), false if
+// revived.
+func (t *AtTrigger) waitForRevival() bool {
+	t.config.Logger.Debug("at trigger: dormant, waiting for set()",
+		zap.String("name", t.name))
+	for {
+		select {
+		case <-t.setCh:
+			// Only revive if there is something to fire: an override, or a
+			// configured time expression. Set() errors otherwise, so this
+			// shouldn't normally fail — guard anyway.
+			t.mu.RLock()
+			hasOverride := t.timeOverride != nil
+			t.mu.RUnlock()
+			if !hasOverride && !cfg.IsExpressionProvided(t.timeExpr) {
+				continue
+			}
+			if !t.shouldRemainStopped() {
+				t.config.Logger.Debug("at trigger: revived by set()",
+					zap.String("name", t.name))
+				return false
+			}
+		case <-t.resetCh:
+			// Already dormant; drain.
+		case <-t.stopCh:
+			return true
+		}
+	}
+}
+
+// runAction reports how the main loop should proceed after an error-retry wait.
+type runAction int
+
+const (
+	runResume runAction = iota
+	runDormant
+	runStop
+)
+
+// waitForRetry waits up to d for a retry opportunity, responding to external
+// signals. Returns runResume to retry, runDormant to go dormant, or runStop
+// to exit.
+func (t *AtTrigger) waitForRetry(d time.Duration) runAction {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
 	select {
 	case <-timer.C:
-		return true
+		return runResume
 	case <-t.setCh:
-		return true
+		return runResume
+	case <-t.resetCh:
+		return runDormant
 	case <-t.stopCh:
-		return false
+		return runStop
 	}
 }
 
@@ -310,8 +531,10 @@ func GetAtTriggerFromCapsule(val cty.Value) (*AtTrigger, error) {
 // --- Block processing ---
 
 type triggerAtBody struct {
-	Time   hcl.Expression `hcl:"time"`
-	Action hcl.Expression `hcl:"action"`
+	Time     hcl.Expression `hcl:"time,optional"`
+	Repeat   *bool          `hcl:"repeat,optional"`
+	StopWhen hcl.Expression `hcl:"stop_when,optional"`
+	Action   hcl.Expression `hcl:"action"`
 }
 
 func init() {
@@ -325,12 +548,19 @@ func processAtTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.Trig
 		return diags
 	}
 
+	repeat := true
+	if body.Repeat != nil {
+		repeat = *body.Repeat
+	}
+
 	name := block.Labels[1]
 	t := &AtTrigger{
 		name:           name,
 		config:         config,
 		timeExpr:       body.Time,
 		actionExpr:     body.Action,
+		stopWhenExpr:   body.StopWhen,
+		repeat:         repeat,
 		tracerProvider: triggerDef.TracerProvider,
 	}
 
