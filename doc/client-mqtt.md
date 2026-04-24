@@ -230,6 +230,11 @@ receiver "main" {
   # OR
   # action = log_info(ctx, "mqtt", {topic = ctx.topic, msg = ctx.msg})
 
+  # Optional transform pipeline and async queue (same semantics as the
+  # top-level `subscription` block — see config.md#subscription).
+  # transforms = [ jq(".payload") ]
+  # queue_size = 100
+
   qos              = 1         # default QoS for subscriptions in this block (default: 0)
   handle_retained  = true      # deliver retained messages (default: true)
   shared_group     = ""        # MQTT 5 shared subscription group name
@@ -250,6 +255,12 @@ Exactly one must be specified.
 
 - `subscriber` — forward each received message to a bus or subscriber (e.g. `bus.main`).
 - `action` — evaluate an HCL expression for each message.
+
+Optionally, `transforms = [...]` applies a transform pipeline to each message
+before delivery, and `queue_size = N` wraps delivery in an async background
+queue of depth `N` so slow handlers don't block the MQTT client's inbound
+dispatch. Same semantics as the top-level [subscription](config.md#subscription)
+block.
 
 #### Action context variables
 

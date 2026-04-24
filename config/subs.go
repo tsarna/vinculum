@@ -15,7 +15,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
-	"go.uber.org/zap"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type SubscriptionDefinition struct {
@@ -27,6 +27,91 @@ type SubscriptionDefinition struct {
 	Subscriber hcl.Expression `hcl:"subscriber,optional"`
 	ActionExpr hcl.Expression `hcl:"action,optional"`
 	Disabled   bool           `hcl:"disabled,optional"`
+}
+
+// SubscriberSource groups the four HCL attributes that together specify where a
+// block delivers events: a destination (a named subscriber or an inline
+// action) plus an optional transform pipeline and an optional async queue.
+//
+// Every block that accepts this pattern should declare the four attributes on
+// its own definition struct with these exact HCL names:
+//
+//	Subscriber hcl.Expression `hcl:"subscriber,optional"`
+//	Action     hcl.Expression `hcl:"action,optional"`
+//	Transforms hcl.Expression `hcl:"transforms,optional"`
+//	QueueSize  *int           `hcl:"queue_size,optional"`
+//
+// After decoding, populate a SubscriberSource from those fields and call
+// Resolve to obtain the final bus.Subscriber.
+//
+// Example VCL:
+//
+//	subscriber = bus.main                    // XOR
+//	action     = log_info(topic, msg)
+//	transforms = [ jq(".payload") ]          // optional
+//	queue_size = 100                         // optional — enables async queue
+type SubscriberSource struct {
+	Subscriber hcl.Expression
+	Action     hcl.Expression
+	Transforms hcl.Expression
+	QueueSize  *int
+}
+
+// Resolve produces the bus.Subscriber specified by the source. Wrappers are
+// applied in order: action|subscriber → transforms → async queue. Exactly one
+// of Subscriber or Action must be provided.
+//
+// `name` is used as the AsyncQueueingSubscriber instrumentation name (tracer
+// scope + span attribute). `tp` (if non-nil) is forwarded to the async queue
+// so background processing emits new-root SpanKindConsumer spans linked to
+// the caller's span (vinculum-bus v0.13.0+).
+func (s SubscriberSource) Resolve(
+	config *Config,
+	defRange hcl.Range,
+	name string,
+	tp trace.TracerProvider,
+) (bus.Subscriber, hcl.Diagnostics) {
+	hasSub := IsExpressionProvided(s.Subscriber)
+	hasAct := IsExpressionProvided(s.Action)
+	if hasSub == hasAct {
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "Exactly one of subscriber or action must be specified",
+			Subject:  &defRange,
+		}}
+	}
+
+	var subscriber bus.Subscriber
+	var diags hcl.Diagnostics
+	if hasSub {
+		subscriber, diags = GetSubscriberFromExpression(config, s.Subscriber)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+	} else {
+		subscriber = NewActionSubscriber(config, s.Action)
+	}
+
+	if IsExpressionProvided(s.Transforms) {
+		transforms, tDiags := config.GetMessageTransforms(s.Transforms)
+		if tDiags.HasErrors() {
+			return nil, tDiags
+		}
+		subscriber = subutils.NewTransformingSubscriber(subscriber, transforms...)
+	}
+
+	if s.QueueSize != nil {
+		async := subutils.NewAsyncQueueingSubscriber(subscriber, *s.QueueSize)
+		if name != "" {
+			async = async.WithName(name)
+		}
+		if tp != nil {
+			async = async.WithTracerProvider(tp)
+		}
+		subscriber = async.Start()
+	}
+
+	return subscriber, nil
 }
 
 type SubscriptionBlockHandler struct {
@@ -62,57 +147,14 @@ func (h *SubscriptionBlockHandler) Process(config *Config, block *hcl.Block) hcl
 		subscriptionDef.Name = block.Labels[0]
 	}
 
-	/*
-		eventBus, diags := GetEventBusFromExpression(config, subscriptionDef.TargetExpr)
-		if diags.HasErrors() {
-			client, diags := GetClientFromExpression(config, subscriptionDef.TargetExpr)
-			if diags.HasErrors() {
-				return diags
-			}
-			eventBus = client.GetClient()
-			return diags
-		}
-	*/
-
-	// Check if expressions are actually present (not just empty HCL expressions)
-	hasSubscriber := IsExpressionProvided(subscriptionDef.Subscriber)
-	hasAction := IsExpressionProvided(subscriptionDef.ActionExpr)
-
-	if hasSubscriber && hasAction || !hasSubscriber && !hasAction {
-		return hcl.Diagnostics{
-			&hcl.Diagnostic{
-				Severity: hcl.DiagError,
-				Summary:  "Exactly one of subscriber or action must be specified",
-				Subject:  &block.DefRange,
-			},
-		}
-	}
-
-	var subscriber bus.Subscriber
-
-	if hasSubscriber {
-		subscriber, diags = GetSubscriberFromExpression(config, subscriptionDef.Subscriber)
-		if diags.HasErrors() {
-			return diags
-		}
-	} else {
-		subscriber, diags = CreateActionSubscriber(config, &subscriptionDef)
-		if diags.HasErrors() {
-			return diags
-		}
-	}
-
-	if IsExpressionProvided(subscriptionDef.Transforms) {
-		transforms, diags := config.GetMessageTransforms(subscriptionDef.Transforms)
-		if diags.HasErrors() {
-			return diags
-		}
-
-		subscriber = subutils.NewTransformingSubscriber(subscriber, transforms...)
-	}
-
-	if subscriptionDef.QueueSize != nil {
-		subscriber = subutils.NewAsyncQueueingSubscriber(subscriber, *subscriptionDef.QueueSize)
+	subscriber, diags := SubscriberSource{
+		Subscriber: subscriptionDef.Subscriber,
+		Action:     subscriptionDef.ActionExpr,
+		Transforms: subscriptionDef.Transforms,
+		QueueSize:  subscriptionDef.QueueSize,
+	}.Resolve(config, block.DefRange, "subscription/"+subscriptionDef.Name, nil)
+	if diags.HasErrors() {
+		return diags
 	}
 
 	target, diags := GetTargetFromExpression(config, subscriptionDef.TargetExpr)
@@ -201,14 +243,6 @@ func GetTargetFromExpression(config *Config, targetExpr hcl.Expression) (any, hc
 			Detail:   fmt.Sprintf("expected EventBus or Client capsule, got %s", targetCapsule.Type().FriendlyName()),
 		},
 	}
-}
-
-func CreateActionSubscriber(config *Config, subscriptionDef *SubscriptionDefinition) (bus.Subscriber, hcl.Diagnostics) {
-	config.Logger.Info("CreateSubscriber called", zap.String("subscription", subscriptionDef.Name))
-	return &ActionSubscriber{
-		Config:     config,
-		ActionExpr: subscriptionDef.ActionExpr,
-	}, nil
 }
 
 type ActionSubscriber struct {

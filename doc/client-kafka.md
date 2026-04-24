@@ -176,6 +176,11 @@ receiver "main" {
   # OR
   # action     = expression        # evaluate an expression per message
 
+  # Optional transform pipeline and async queue (same semantics as the
+  # top-level `subscription` block — see config.md#subscription).
+  # transforms = [ jq(".payload") ]
+  # queue_size = 100
+
   start_offset = "stored"          # stored | earliest | latest — default: stored
   commit_mode  = "after_process"   # after_process | periodic | manual — default: after_process
   dlq_topic    = "vinculum.dlq"    # optional: dead-letter queue topic
@@ -201,6 +206,11 @@ Exactly one must be specified.
 
 - `subscriber` — forward each received message to a bus or subscriber (e.g. `bus.main`).
 - `action` — evaluate an HCL expression for each message. See context variables below.
+
+Optionally, `transforms = [...]` applies a transform pipeline to each message
+before delivery, and `queue_size = N` wraps delivery in an async background
+queue of depth `N` so slow handlers don't block the Kafka poll loop. Same
+semantics as the top-level [subscription](config.md#subscription) block.
 
 #### Action context variables
 

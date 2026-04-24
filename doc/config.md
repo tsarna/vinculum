@@ -410,6 +410,13 @@ expression for each message or forwards messages to another subscriber.
 
 Exactly one of `action` or `subscriber` must be specified.
 
+The `subscriber`/`action`/`transforms`/`queue_size` set of attributes is a
+shared delivery-target pattern: the same four attributes, with identical
+semantics, are also accepted by every client *receiver* block
+(`client "sqs_receiver"`, `client "kafka"` receivers, `client "mqtt"`
+subscribers, `client "redis_stream"` consumers, `client "redis_pubsub"`
+subscribers). The attribute reference below applies in all of those contexts.
+
 #### Attributes
 
 - `target` — the bus or client to subscribe to (e.g. `bus.main`, `bus.events`). Required.

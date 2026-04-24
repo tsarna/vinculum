@@ -209,8 +209,8 @@ github.com/tsarna/time-cty-funcs v0.2.1 h1:MHz0UYQe/EUDu2dVH5ZnBT44d4eDjsEsNeHk/
 github.com/tsarna/time-cty-funcs v0.2.1/go.mod h1:Gi89xEq4jLucO4LkWvyq5vfGA26qY/GzXOsy8im5Yw8=
 github.com/tsarna/url-cty-funcs v0.1.0 h1:oYn/S3AXYZCPV+5LHBUEFMPeTH5QusnwOxMyohuxskc=
 github.com/tsarna/url-cty-funcs v0.1.0/go.mod h1:L6HbW8wrXgcRp6ueeTYt0t20HBRfiFPDhuP5Y7v3Kns=
-github.com/tsarna/vinculum-bus v0.12.0 h1:tCgOUpoKfX59uopUVMPTYI9o+WJL3w/byemaIueLtEo=
-github.com/tsarna/vinculum-bus v0.12.0/go.mod h1:fwVN24q/2iKXvtZQeiRB0tW41WsGWsV6nyvwetB25fA=
+github.com/tsarna/vinculum-bus v0.13.0 h1:lRr4xatsd0RRtWj5Tav7JswhipnOrbJg9u6Uxqiy9wY=
+github.com/tsarna/vinculum-bus v0.13.0/go.mod h1:fwVN24q/2iKXvtZQeiRB0tW41WsGWsV6nyvwetB25fA=
 github.com/tsarna/vinculum-fsm v0.3.1 h1:TrCc/Z0PupVwUKA9uD9irYBLypTUbxUSwZMkBqHiSUg=
 github.com/tsarna/vinculum-fsm v0.3.1/go.mod h1:EjpzkLJr0oA47C+4KCWq3q7JXD55AvLRhRDumgKbDuA=
 github.com/tsarna/vinculum-kafka v0.9.3 h1:UpJXVNqHek65XDKp+Rs1DS/TAm4ojqbixQsyltEZOnc=

@@ -139,6 +139,11 @@ client "redis_pubsub" "rps" {
     subscriber = bus.main
     # action   = send(ctx, bus.main, "redis/${ctx.topic}", msg)
 
+    # Optional transform pipeline and async queue (same semantics as the
+    # top-level `subscription` block — see config.md#subscription).
+    # transforms = [ jq(".payload") ]
+    # queue_size = 100
+
     # Exact channels use SUBSCRIBE; globs (*, ?, [...]) use PSUBSCRIBE.
     channel_subscription {
       channel        = "alerts"
@@ -218,6 +223,11 @@ client "redis_stream" "rs" {
     # Exactly one of:
     subscriber = bus.main
     # action   = [ ..., redis_ack(ctx, client.rs.consumer.in, ctx.message_id) ]
+
+    # Optional transform pipeline and async queue (same semantics as the
+    # top-level `subscription` block — see config.md#subscription).
+    # transforms = [ jq(".payload") ]
+    # queue_size = 100
 
     batch_size     = 10
     block_timeout  = "2s"

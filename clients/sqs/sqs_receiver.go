@@ -8,7 +8,6 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
-	bus "github.com/tsarna/vinculum-bus"
 	sqsreceiver "github.com/tsarna/vinculum-sqs/receiver"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
@@ -27,6 +26,8 @@ type SQSReceiverDefinition struct {
 	QueueURL          hcl.Expression `hcl:"queue_url"`
 	Subscriber        hcl.Expression `hcl:"subscriber,optional"`
 	Action            hcl.Expression `hcl:"action,optional"`
+	Transforms        hcl.Expression `hcl:"transforms,optional"`
+	QueueSize         *int           `hcl:"queue_size,optional"`
 	VinculumTopic     hcl.Expression `hcl:"vinculum_topic,optional"`
 	WaitTime          hcl.Expression `hcl:"wait_time,optional"`
 	MaxMessages       *int           `hcl:"max_messages,optional"`
@@ -89,26 +90,26 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 	}
 	queueURL := queueURLVal.AsString()
 
-	// Resolve subscriber or action (exactly one required).
-	hasSubscriber := cfg.IsExpressionProvided(def.Subscriber)
-	hasAction := cfg.IsExpressionProvided(def.Action)
-	if hasSubscriber == hasAction {
-		return nil, hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("sqs_receiver %q: exactly one of subscriber or action must be specified", clientName),
-			Subject:  &def.DefRange,
-		}}
+	// Resolve metrics and tracing first so the subscriber source can propagate
+	// the tracer provider into its async queue (when queue_size is set).
+	mp, mpDiags := cfg.ResolveMeterProvider(config, def.Metrics)
+	if mpDiags.HasErrors() {
+		return nil, mpDiags
+	}
+	tp, tpDiags := config.ResolveTracerProvider(def.Tracing)
+	if tpDiags.HasErrors() {
+		return nil, tpDiags
 	}
 
-	var target bus.Subscriber
-	if hasSubscriber {
-		sub, subDiags := cfg.GetSubscriberFromExpression(config, def.Subscriber)
-		if subDiags.HasErrors() {
-			return nil, subDiags
-		}
-		target = sub
-	} else {
-		target = cfg.NewActionSubscriber(config, def.Action)
+	// Resolve subscriber / action (+ optional transforms / async queue).
+	target, subDiags := cfg.SubscriberSource{
+		Subscriber: def.Subscriber,
+		Action:     def.Action,
+		Transforms: def.Transforms,
+		QueueSize:  def.QueueSize,
+	}.Resolve(config, def.DefRange, "sqs_receiver/"+clientName, tp)
+	if subDiags.HasErrors() {
+		return nil, subDiags
 	}
 
 	// Resolve wire format.
@@ -130,16 +131,6 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 		wf = resolved
 	}
 	ctyWF := &cfg.CtyWireFormat{Inner: wf}
-
-	// Resolve metrics and tracing.
-	mp, mpDiags := cfg.ResolveMeterProvider(config, def.Metrics)
-	if mpDiags.HasErrors() {
-		return nil, mpDiags
-	}
-	tp, tpDiags := config.ResolveTracerProvider(def.Tracing)
-	if tpDiags.HasErrors() {
-		return nil, tpDiags
-	}
 
 	// Build receiver.
 	builder := sqsreceiver.NewReceiver().

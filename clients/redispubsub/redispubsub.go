@@ -40,11 +40,13 @@ type RedisPubSubDefinition struct {
 }
 
 type SubscriberDef struct {
-	Name          string                     `hcl:",label"`
-	Subscriber    hcl.Expression             `hcl:"subscriber,optional"`
-	Action        hcl.Expression             `hcl:"action,optional"`
-	Subscriptions []ChannelSubscriptionDef   `hcl:"channel_subscription,block"`
-	DefRange      hcl.Range                  `hcl:",def_range"`
+	Name          string                   `hcl:",label"`
+	Subscriber    hcl.Expression           `hcl:"subscriber,optional"`
+	Action        hcl.Expression           `hcl:"action,optional"`
+	Transforms    hcl.Expression           `hcl:"transforms,optional"`
+	QueueSize     *int                     `hcl:"queue_size,optional"`
+	Subscriptions []ChannelSubscriptionDef `hcl:"channel_subscription,block"`
+	DefRange      hcl.Range                `hcl:",def_range"`
 }
 
 type ChannelSubscriptionDef struct {
@@ -276,25 +278,14 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 }
 
 func buildSubscriber(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def SubscriberDef, wf wire.WireFormat, mp metric.MeterProvider, tp trace.TracerProvider) (*pubsub.RedisPubSubSubscriber, hcl.Diagnostics) {
-	hasSubscriber := cfg.IsExpressionProvided(def.Subscriber)
-	hasAction := cfg.IsExpressionProvided(def.Action)
-	if hasSubscriber == hasAction {
-		return nil, hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("redis_pubsub client %q subscriber %q: exactly one of subscriber or action must be specified", clientName, def.Name),
-			Subject:  &def.DefRange,
-		}}
-	}
-
-	var target bus.Subscriber
-	if hasSubscriber {
-		sub, diags := cfg.GetSubscriberFromExpression(config, def.Subscriber)
-		if diags.HasErrors() {
-			return nil, diags
-		}
-		target = sub
-	} else {
-		target = cfg.NewActionSubscriber(config, def.Action)
+	target, diags := cfg.SubscriberSource{
+		Subscriber: def.Subscriber,
+		Action:     def.Action,
+		Transforms: def.Transforms,
+		QueueSize:  def.QueueSize,
+	}.Resolve(config, def.DefRange, "redis_pubsub/"+clientName+"/"+def.Name, tp)
+	if diags.HasErrors() {
+		return nil, diags
 	}
 
 	if len(def.Subscriptions) == 0 {

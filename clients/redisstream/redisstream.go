@@ -48,6 +48,8 @@ type ConsumerDef struct {
 	VinculumTopic    hcl.Expression `hcl:"vinculum_topic,optional"`
 	Subscriber       hcl.Expression `hcl:"subscriber,optional"`
 	Action           hcl.Expression `hcl:"action,optional"`
+	Transforms       hcl.Expression `hcl:"transforms,optional"`
+	QueueSize        *int           `hcl:"queue_size,optional"`
 	BatchSize        *int64         `hcl:"batch_size,optional"`
 	BlockTimeout     hcl.Expression `hcl:"block_timeout,optional"`
 	AutoAck          *bool          `hcl:"auto_ack,optional"`
@@ -431,25 +433,14 @@ func makeStreamFunc(config *cfg.Config, expr hcl.Expression) stream.StreamFunc {
 }
 
 func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def ConsumerDef, wf wire.WireFormat, mp metric.MeterProvider, tp trace.TracerProvider) (*stream.RedisStreamConsumer, hcl.Diagnostics) {
-	hasSubscriber := cfg.IsExpressionProvided(def.Subscriber)
-	hasAction := cfg.IsExpressionProvided(def.Action)
-	if hasSubscriber == hasAction {
-		return nil, hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("redis_stream client %q consumer %q: exactly one of subscriber or action must be specified", clientName, def.Name),
-			Subject:  &def.DefRange,
-		}}
-	}
-
-	var target bus.Subscriber
-	if hasSubscriber {
-		sub, diags := cfg.GetSubscriberFromExpression(config, def.Subscriber)
-		if diags.HasErrors() {
-			return nil, diags
-		}
-		target = sub
-	} else {
-		target = cfg.NewActionSubscriber(config, def.Action)
+	target, diags := cfg.SubscriberSource{
+		Subscriber: def.Subscriber,
+		Action:     def.Action,
+		Transforms: def.Transforms,
+		QueueSize:  def.QueueSize,
+	}.Resolve(config, def.DefRange, "redis_stream/"+clientName+"/"+def.Name, tp)
+	if diags.HasErrors() {
+		return nil, diags
 	}
 
 	streamVal, sDiags := def.Stream.Value(config.EvalCtx())

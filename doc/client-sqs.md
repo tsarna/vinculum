@@ -152,6 +152,11 @@ client "sqs_receiver" "tasks" {
     subscriber     = bus.main
     # action       = log_info(ctx, "sqs msg", {topic = ctx.topic, body = ctx.msg})
 
+    # Optional transform pipeline and async queue (same semantics as the
+    # top-level `subscription` block — see config.md#subscription).
+    # transforms = [ jq(".payload") ]
+    # queue_size = 100
+
     # Vinculum topic for received messages (default: queue name from URL)
     vinculum_topic = "tasks/incoming"
     # Dynamic: vinculum_topic = "sqs/${ctx.fields[\"type\"]}"
@@ -183,6 +188,8 @@ client "sqs_receiver" "tasks" {
 | `queue_url` | expression | **Required.** Full SQS queue URL. |
 | `subscriber` | expression | Vinculum subscriber to receive messages. Exactly one of `subscriber` or `action`. |
 | `action` | expression | Inline action expression. Exactly one of `subscriber` or `action`. |
+| `transforms` | list | Transform pipeline applied to each message before delivery. See [subscription](config.md#subscription). |
+| `queue_size` | int | If set, wraps delivery in an async background queue of this depth. See [subscription](config.md#subscription). |
 | `vinculum_topic` | expression | Vinculum topic for dispatched messages. Default: queue name from URL. |
 | `wait_time` | duration | Long-poll wait time (0--20s). Default: `"20s"`. |
 | `max_messages` | int | Messages per poll (1--10). Default: 10. |

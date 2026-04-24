@@ -87,6 +87,8 @@ type MQTTSubscriberDef struct {
 	Name           string                     `hcl:",label"`
 	Subscriber     hcl.Expression             `hcl:"subscriber,optional"`
 	Action         hcl.Expression             `hcl:"action,optional"`
+	Transforms     hcl.Expression             `hcl:"transforms,optional"`
+	QueueSize      *int                       `hcl:"queue_size,optional"`
 	QoS            *int                       `hcl:"qos,optional"`
 	HandleRetained *bool                      `hcl:"handle_retained,optional"`
 	SharedGroup    string                     `hcl:"shared_group,optional"`
@@ -530,7 +532,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		return nil, pubDiags
 	}
 
-	subSpecs, subDiags := buildSubscriberSpecs(config, clientName, def.Subscribers)
+	subSpecs, subDiags := buildSubscriberSpecs(config, clientName, def.Subscribers, tracerProvider)
 	if subDiags.HasErrors() {
 		return nil, subDiags
 	}
@@ -628,10 +630,10 @@ func buildPublisherSpec(config *cfg.Config, def MQTTPublisherDef) (builtMQTTPubl
 	return spec, nil
 }
 
-func buildSubscriberSpecs(config *cfg.Config, clientName string, defs []MQTTSubscriberDef) ([]builtMQTTSubscriberSpec, hcl.Diagnostics) {
+func buildSubscriberSpecs(config *cfg.Config, clientName string, defs []MQTTSubscriberDef, tp trace.TracerProvider) ([]builtMQTTSubscriberSpec, hcl.Diagnostics) {
 	specs := make([]builtMQTTSubscriberSpec, 0, len(defs))
 	for _, def := range defs {
-		spec, diags := buildSubscriberSpec(config, clientName, def)
+		spec, diags := buildSubscriberSpec(config, clientName, def, tp)
 		if diags.HasErrors() {
 			return nil, diags
 		}
@@ -640,7 +642,7 @@ func buildSubscriberSpecs(config *cfg.Config, clientName string, defs []MQTTSubs
 	return specs, nil
 }
 
-func buildSubscriberSpec(config *cfg.Config, clientName string, def MQTTSubscriberDef) (builtMQTTSubscriberSpec, hcl.Diagnostics) {
+func buildSubscriberSpec(config *cfg.Config, clientName string, def MQTTSubscriberDef, tp trace.TracerProvider) (builtMQTTSubscriberSpec, hcl.Diagnostics) {
 	spec := builtMQTTSubscriberSpec{
 		name:           def.Name,
 		handleRetained: true,
@@ -650,25 +652,16 @@ func buildSubscriberSpec(config *cfg.Config, clientName string, def MQTTSubscrib
 		spec.handleRetained = *def.HandleRetained
 	}
 
-	hasSubscriber := cfg.IsExpressionProvided(def.Subscriber)
-	hasAction := cfg.IsExpressionProvided(def.Action)
-	if hasSubscriber == hasAction {
-		return spec, hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("mqtt receiver %q: exactly one of subscriber or action must be specified", def.Name),
-			Subject:  &def.DefRange,
-		}}
+	subscriber, diags := cfg.SubscriberSource{
+		Subscriber: def.Subscriber,
+		Action:     def.Action,
+		Transforms: def.Transforms,
+		QueueSize:  def.QueueSize,
+	}.Resolve(config, def.DefRange, "mqtt/"+clientName+"/"+def.Name, tp)
+	if diags.HasErrors() {
+		return spec, diags
 	}
-
-	if hasSubscriber {
-		sub, diags := cfg.GetSubscriberFromExpression(config, def.Subscriber)
-		if diags.HasErrors() {
-			return spec, diags
-		}
-		spec.subscriber = sub
-	} else {
-		spec.subscriber = cfg.NewActionSubscriber(config, def.Action)
-	}
+	spec.subscriber = subscriber
 
 	if len(def.Subscriptions) == 0 {
 		return spec, hcl.Diagnostics{{

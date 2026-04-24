@@ -65,6 +65,8 @@ type ConsumerDefinition struct {
 	StartOffset   string                        `hcl:"start_offset,optional"`
 	Subscriber    hcl.Expression                `hcl:"subscriber,optional"`
 	Action        hcl.Expression                `hcl:"action,optional"`
+	Transforms    hcl.Expression                `hcl:"transforms,optional"`
+	QueueSize     *int                          `hcl:"queue_size,optional"`
 	CommitMode    string                        `hcl:"commit_mode,optional"`
 	DLQTopic      string                        `hcl:"dlq_topic,optional"`
 	Subscriptions []TopicSubscriptionDefinition `hcl:"subscription,block"`
@@ -469,7 +471,17 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		return nil, prodDiags
 	}
 
-	consSpecs, consDiags := buildConsumerSpecs(config, def.Consumers)
+	mp, metricsDiags := cfg.ResolveMeterProvider(config, def.Metrics)
+	if metricsDiags.HasErrors() {
+		return nil, metricsDiags
+	}
+
+	tracerProvider, tracingDiags := config.ResolveTracerProvider(def.Tracing)
+	if tracingDiags.HasErrors() {
+		return nil, tracingDiags
+	}
+
+	consSpecs, consDiags := buildConsumerSpecs(config, block.Labels[1], def.Consumers, tracerProvider)
 	if consDiags.HasErrors() {
 		return nil, consDiags
 	}
@@ -480,16 +492,6 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 			clientName:   block.Labels[1],
 			producerName: spec.name,
 		}
-	}
-
-	mp, metricsDiags := cfg.ResolveMeterProvider(config, def.Metrics)
-	if metricsDiags.HasErrors() {
-		return nil, metricsDiags
-	}
-
-	tracerProvider, tracingDiags := config.ResolveTracerProvider(def.Tracing)
-	if tracingDiags.HasErrors() {
-		return nil, tracingDiags
 	}
 
 	var wf wire.WireFormat = wire.Auto
@@ -666,10 +668,10 @@ func buildProducerSpec(config *cfg.Config, def ProducerDefinition) (builtProduce
 	return spec, nil
 }
 
-func buildConsumerSpecs(config *cfg.Config, defs []ConsumerDefinition) ([]builtConsumerSpec, hcl.Diagnostics) {
+func buildConsumerSpecs(config *cfg.Config, clientName string, defs []ConsumerDefinition, tp trace.TracerProvider) ([]builtConsumerSpec, hcl.Diagnostics) {
 	specs := make([]builtConsumerSpec, 0, len(defs))
 	for _, def := range defs {
-		spec, diags := buildConsumerSpec(config, def)
+		spec, diags := buildConsumerSpec(config, clientName, def, tp)
 		if diags.HasErrors() {
 			return nil, diags
 		}
@@ -678,7 +680,7 @@ func buildConsumerSpecs(config *cfg.Config, defs []ConsumerDefinition) ([]builtC
 	return specs, nil
 }
 
-func buildConsumerSpec(config *cfg.Config, def ConsumerDefinition) (builtConsumerSpec, hcl.Diagnostics) {
+func buildConsumerSpec(config *cfg.Config, clientName string, def ConsumerDefinition, tp trace.TracerProvider) (builtConsumerSpec, hcl.Diagnostics) {
 	var spec builtConsumerSpec
 	spec.name = def.Name
 
@@ -725,25 +727,14 @@ func buildConsumerSpec(config *cfg.Config, def ConsumerDefinition) (builtConsume
 
 	spec.dlqTopic = def.DLQTopic
 
-	hasSubscriber := cfg.IsExpressionProvided(def.Subscriber)
-	hasAction := cfg.IsExpressionProvided(def.Action)
-	if hasSubscriber == hasAction {
-		return spec, hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("kafka receiver %q: exactly one of subscriber or action must be specified", def.Name),
-			Subject:  &def.DefRange,
-		}}
-	}
-
-	var subscriber bus.Subscriber
-	if hasSubscriber {
-		var diags hcl.Diagnostics
-		subscriber, diags = cfg.GetSubscriberFromExpression(config, def.Subscriber)
-		if diags.HasErrors() {
-			return spec, diags
-		}
-	} else {
-		subscriber = cfg.NewActionSubscriber(config, def.Action)
+	subscriber, diags := cfg.SubscriberSource{
+		Subscriber: def.Subscriber,
+		Action:     def.Action,
+		Transforms: def.Transforms,
+		QueueSize:  def.QueueSize,
+	}.Resolve(config, def.DefRange, "kafka/"+clientName+"/"+def.Name, tp)
+	if diags.HasErrors() {
+		return spec, diags
 	}
 	spec.subscriber = subscriber
 
