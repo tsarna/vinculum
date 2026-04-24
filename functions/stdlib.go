@@ -124,8 +124,10 @@ func GetStandardLibraryFunctions() map[string]function.Function {
 		"uuidv4": uuid.V4Func,
 		"uuidv5": uuid.V5Func,
 
-		// Try/can functions
-		"try": tryfunc.TryFunc,
+		// can() from tryfunc. Note: "try" is registered by the misc plugin with
+		// a single-eval implementation — upstream tryfunc.TryFunc evaluates the
+		// selected expression twice (once in Type for inference, once in Impl),
+		// which is a footgun for side-effectful VCL expressions.
 		"can": tryfunc.CanFunc,
 	}
 }
