@@ -254,6 +254,7 @@ func JqTransform(jqQuery string, logger *zap.Logger) (transform.MessageTransform
 			MsgType: msg.MsgType,
 			Topic:   msg.Topic,
 			Payload: newPayload,
+			Fields:  msg.Fields,
 		}, true
 	}, nil
 }

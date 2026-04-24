@@ -211,6 +211,8 @@ github.com/tsarna/url-cty-funcs v0.1.0 h1:oYn/S3AXYZCPV+5LHBUEFMPeTH5QusnwOxMyoh
 github.com/tsarna/url-cty-funcs v0.1.0/go.mod h1:L6HbW8wrXgcRp6ueeTYt0t20HBRfiFPDhuP5Y7v3Kns=
 github.com/tsarna/vinculum-bus v0.13.0 h1:lRr4xatsd0RRtWj5Tav7JswhipnOrbJg9u6Uxqiy9wY=
 github.com/tsarna/vinculum-bus v0.13.0/go.mod h1:fwVN24q/2iKXvtZQeiRB0tW41WsGWsV6nyvwetB25fA=
+github.com/tsarna/vinculum-bus v0.14.0 h1:JRo+EGuuLZO2WS+y0MU+DKoxwkH2rGYjn6KlkaezuHg=
+github.com/tsarna/vinculum-bus v0.14.0/go.mod h1:fwVN24q/2iKXvtZQeiRB0tW41WsGWsV6nyvwetB25fA=
 github.com/tsarna/vinculum-fsm v0.3.1 h1:TrCc/Z0PupVwUKA9uD9irYBLypTUbxUSwZMkBqHiSUg=
 github.com/tsarna/vinculum-fsm v0.3.1/go.mod h1:EjpzkLJr0oA47C+4KCWq3q7JXD55AvLRhRDumgKbDuA=
 github.com/tsarna/vinculum-kafka v0.9.3 h1:UpJXVNqHek65XDKp+Rs1DS/TAm4ojqbixQsyltEZOnc=
@@ -225,6 +227,8 @@ github.com/tsarna/vinculum-sqs v0.2.0 h1:YGWxjzl52VayaqVuIw/wV4fXOytWUFOfuLDJk3f
 github.com/tsarna/vinculum-sqs v0.2.0/go.mod h1:8J0ThDo3rbcz/sBn1xWHV4ZRXck11lwmEDBNdCNvOX0=
 github.com/tsarna/vinculum-vws v0.11.2 h1:hEWzF48vQQYqmpcdr9Fz/zsqS8HOGG+kDVF+OOu0CfY=
 github.com/tsarna/vinculum-vws v0.11.2/go.mod h1:xswqEDMcTdTQLEOY99TkOvMgOahmi6jm2/zMRsT9wCg=
+github.com/tsarna/vinculum-vws v0.12.0 h1:2uq/natQN/ZxndykQ5B/3G8ta+8i53CGwu0s69F7Ptk=
+github.com/tsarna/vinculum-vws v0.12.0/go.mod h1:37ViJgo+t2+o4K67tsNbjc51o2CRNBkMfuId25UM1jI=
 github.com/tsarna/vinculum-wire v0.1.0 h1:GWvDcuYBYkceC/hzwUYUvMqFI+yThxEwbYmjYSQIQ18=
 github.com/tsarna/vinculum-wire v0.1.0/go.mod h1:hh64ALOi1PX+YfFpnKTFL/y0X79mvaDuTepRaiNHN7w=
 github.com/twmb/franz-go v1.20.7 h1:P4MGSXJjjAPP3NRGPCks/Lrq+j+twWMVl1qYCVgNmWY=

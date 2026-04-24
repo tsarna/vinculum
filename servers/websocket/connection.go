@@ -155,7 +155,7 @@ func (c *Connection) messageReader(listener *Listener) {
 		// Record received message metrics
 		c.metrics.RecordMessageReceived(c.ctx, len(data), messageType.String())
 
-		transformedMsg, _ := transform.ApplyTransforms(c.ctx, topic, data, c.config.inboundTransforms)
+		transformedMsg, _ := transform.ApplyTransforms(c.ctx, topic, data, nil, c.config.inboundTransforms)
 		// Transform and publish received message to EventBus, unless transformed message is nil
 		if transformedMsg != nil {
 			if err := c.eventBus.Publish(c.ctx, transformedMsg.Topic, transformedMsg.Payload); err != nil {
