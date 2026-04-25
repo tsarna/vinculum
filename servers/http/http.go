@@ -1,8 +1,11 @@
 package httpserver
 
 import (
+	"bufio"
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -360,6 +363,23 @@ func (w *statusCapturingResponseWriter) effectiveStatus() int {
 		return http.StatusOK
 	}
 	return w.status
+}
+
+// Hijack delegates to the underlying ResponseWriter if it supports hijacking,
+// so that protocol upgrades (e.g. WebSocket) work through this middleware.
+func (w *statusCapturingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, errors.New("ResponseWriter does not implement http.Hijacker")
+}
+
+// Flush delegates to the underlying ResponseWriter if it supports flushing,
+// so that streaming responses (e.g. SSE) work through this middleware.
+func (w *statusCapturingResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 type loggingMiddleware struct {
