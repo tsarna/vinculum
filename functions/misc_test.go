@@ -20,6 +20,9 @@ var condFuncsVCL []byte
 //go:embed testdata/try_funcs.vcl
 var tryFuncsVCL []byte
 
+//go:embed testdata/switch_funcs.vcl
+var switchFuncsVCL []byte
+
 // testCallCounter tracks how many times a side-effecting test function was
 // invoked. Used by the single-eval proof test for try().
 var testCallCounter atomic.Int64
@@ -131,6 +134,58 @@ func TestCondLazyViaCounter(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), testCallCounter.Load(),
 		"cond() must not evaluate branches it doesn't select")
+}
+
+func TestSwitch(t *testing.T) {
+	_, err := buildVCL(t, switchFuncsVCL)
+	require.NoError(t, err, "switch_funcs.vcl assertions should all pass")
+}
+
+func TestSwitchArityErrors(t *testing.T) {
+	cases := map[string]string{
+		"zero args": `const { x = switch() }`,
+		"one arg":   `const { x = switch(1) }`,
+		"two args":  `const { x = switch(1, "a") }`,
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := buildVCL(t, []byte(src))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "switch requires at least 3")
+		})
+	}
+}
+
+// No match and no default: the function errors at call time.
+func TestSwitchNoMatchNoDefault(t *testing.T) {
+	src := `const { x = switch(99, 1, "one", 2, "two") }`
+	_, err := buildVCL(t, []byte(src))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no case matched")
+}
+
+// TestSwitchOnEvaluatedOnce verifies that the `on` expression — which the
+// implementation reads exactly once — actually runs once even when several
+// case-value comparisons are performed.
+func TestSwitchOnEvaluatedOnce(t *testing.T) {
+	testCallCounter.Store(0)
+	src := `const { x = switch(_test_bump_counter(), "a", "no", "b", "no", "bumped", "yes", "default") }`
+	c, err := buildVCL(t, []byte(src))
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), testCallCounter.Load(),
+		"switch() must evaluate `on` exactly once")
+	_ = c
+}
+
+// TestSwitchSkipsLaterCaseValues confirms that case-values past the matching
+// arm are not evaluated.
+func TestSwitchSkipsLaterCaseValues(t *testing.T) {
+	testCallCounter.Store(0)
+	src := `const { x = switch("hit", "hit", "ok", _test_bump_counter(), "never", "default") }`
+	_, err := buildVCL(t, []byte(src))
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), testCallCounter.Load(),
+		"switch() must not evaluate case values after a match")
 }
 
 // Sanity check: non-bool string condition that isn't convertible errors.

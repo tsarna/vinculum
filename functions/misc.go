@@ -19,6 +19,7 @@ func init() {
 			"typeof": TypeOfFunc,
 			"error":  ErrorFunc,
 			"cond":   CondFunc,
+			"switch": SwitchFunc,
 			"try":    TryFunc,
 		}
 	})
@@ -85,6 +86,60 @@ var CondFunc = function.New(&function.Spec{
 			}
 		}
 		return evalClosure(args[len(args)-1], "cond: else")
+	},
+})
+
+// SwitchFunc dispatches on a single value against a series of (match, result)
+// pairs, with an optional trailing default.
+//
+// Usage: switch(on, v1, r1, v2, r2, ..., default?). The trailing default is
+// optional; with it the total argument count is even, without it odd.
+//
+// `on` is evaluated exactly once. Then for each (vN, rN) pair, vN is evaluated
+// and compared to `on` for equality; on the first match, rN is evaluated and
+// returned. If no vN matches, the default (when present) is evaluated and
+// returned; if no default was given, switch() errors. Case values past the
+// matching arm are not evaluated, nor are unselected results or the default.
+//
+// Equality uses cty.Value.RawEquals — exact structural equality. Type
+// mismatches (e.g. number 200 vs string "200") count as no match rather than
+// erroring.
+var SwitchFunc = function.New(&function.Spec{
+	Description: "Switch dispatch: switch(on, v1, r1, v2, r2, ..., default?). Evaluates `on` once, then each vN until a match; returns the matching rN, or the optional default. Errors if nothing matches and no default was given. Each branch is evaluated at most once.",
+	VarParam: &function.Parameter{
+		Name: "exprs",
+		Type: customdecode.ExpressionClosureType,
+	},
+	Type: func(args []cty.Value) (cty.Type, error) {
+		if len(args) < 3 {
+			return cty.NilType, fmt.Errorf("switch requires at least 3 arguments (got %d)", len(args))
+		}
+		return cty.DynamicPseudoType, nil
+	},
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		hasDefault := len(args)%2 == 0
+		caseEnd := len(args)
+		if hasDefault {
+			caseEnd = len(args) - 1
+		}
+		on, err := evalClosure(args[0], "switch: on")
+		if err != nil {
+			return cty.NilVal, err
+		}
+		for i := 1; i+1 < caseEnd; i += 2 {
+			caseNum := (i + 1) / 2
+			v, err := evalClosure(args[i], fmt.Sprintf("switch: case #%d value", caseNum))
+			if err != nil {
+				return cty.NilVal, err
+			}
+			if on.RawEquals(v) {
+				return evalClosure(args[i+1], fmt.Sprintf("switch: case #%d result", caseNum))
+			}
+		}
+		if hasDefault {
+			return evalClosure(args[len(args)-1], "switch: default")
+		}
+		return cty.NilVal, errors.New("switch: no case matched and no default was given")
 	},
 })
 
