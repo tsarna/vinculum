@@ -108,6 +108,48 @@ func TestTimerBlockComposed(t *testing.T) {
 	assert.Equal(t, "active", stateMust(t, fault), "latch holds through input=false")
 }
 
+func TestTimerClearReSamplesDeclaredInput(t *testing.T) {
+	// clear() releases the latch but must re-sample input=. If the input is
+	// still asserted, the condition re-activates (and re-latches). If the
+	// input is no longer asserted, the condition stays inactive.
+	c := buildConfig(t, timerComposedVCL)
+	high := c.CtyConditionMap["high_temp"].EncapsulatedValue().(*TimerCondition)
+	fault := c.CtyConditionMap["system_fault"].EncapsulatedValue().(*TimerCondition)
+	require.True(t, fault.sm.behavior.Latch)
+
+	for _, s := range c.Startables {
+		require.NoError(t, s.Start())
+	}
+	defer func() {
+		for _, s := range c.Stoppables {
+			_ = s.Stop()
+		}
+	}()
+
+	// Latch the fault by asserting an upstream condition.
+	_, err := high.Set(context.Background(), []cty.Value{cty.True})
+	require.NoError(t, err)
+	require.Equal(t, "active", stateMust(t, fault))
+
+	// Upstream input is still asserted — clear() must NOT silence an
+	// ongoing-true input. The fault re-activates and re-latches.
+	require.NoError(t, fault.Clear(context.Background()))
+	assert.Equal(t, "active", stateMust(t, fault),
+		"clear() with input still true should re-activate")
+	require.True(t, fault.sm.latched, "re-activation must re-engage the latch")
+
+	// Drop the upstream input. Latch holds because we haven't cleared again.
+	_, err = high.Set(context.Background(), []cty.Value{cty.False})
+	require.NoError(t, err)
+	require.Equal(t, "active", stateMust(t, fault), "latch holds through input=false")
+
+	// Now clear with the input no longer asserted — fault stays inactive.
+	require.NoError(t, fault.Clear(context.Background()))
+	assert.Equal(t, "inactive", stateMust(t, fault),
+		"clear() with input now false should stay inactive")
+	assert.False(t, fault.sm.latched)
+}
+
 func TestTimerSetRejectedWhenInputDeclared(t *testing.T) {
 	c := buildConfig(t, timerComposedVCL)
 	fault := c.CtyConditionMap["system_fault"].EncapsulatedValue().(*TimerCondition)

@@ -50,6 +50,13 @@ func (t *TimerCondition) State(ctx context.Context) (string, error) { return t.s
 // Clear implements richcty.Clearable. In addition to resetting the state
 // machine (cancelling pending state, releasing latch, discarding retentive
 // accumulation), it cancels any in-flight debounce.
+//
+// When a declared input expression is currently truthy, the rising edge is
+// re-asserted into the state machine so the condition re-activates (and, if
+// latch is configured, re-latches): clear() releases the latch but does not
+// silence an ongoing-true input. Debounce is bypassed — the signal has
+// already proven stable through the debounce window. activate_after,
+// cooldown, and inhibit gating still apply via the normal SetRawInput path.
 func (t *TimerCondition) Clear(ctx context.Context) error {
 	t.mu.Lock()
 	if t.debTimer != nil {
@@ -59,7 +66,22 @@ func (t *TimerCondition) Clear(ctx context.Context) error {
 	t.rawInput = false
 	t.stableInput = false
 	t.mu.Unlock()
-	return t.sm.Clear(ctx)
+	if err := t.sm.Clear(ctx); err != nil {
+		return err
+	}
+	if t.inputExpr == nil {
+		return nil
+	}
+	v, diags := t.inputExpr.Eval()
+	if diags.HasErrors() || v.IsNull() || !v.IsKnown() || v.Type() != cty.Bool || !v.True() {
+		return nil
+	}
+	t.mu.Lock()
+	t.rawInput = true
+	t.stableInput = true
+	t.mu.Unlock()
+	t.sm.SetRawInput(ctx, true)
+	return nil
 }
 
 // Watch implements richcty.Watchable by forwarding to the state machine, whose

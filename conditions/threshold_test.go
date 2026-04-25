@@ -29,6 +29,9 @@ var thresholdStartActiveVCL []byte
 //go:embed testdata/threshold_start_active_unlatched.vcl
 var thresholdStartActiveUnlatchedVCL []byte
 
+//go:embed testdata/threshold_latched.vcl
+var thresholdLatchedVCL []byte
+
 func TestThresholdHighFormDecode(t *testing.T) {
 	c := buildConfig(t, thresholdHighVCL)
 	require.Contains(t, c.CtyConditionMap, "high_temp")
@@ -191,6 +194,66 @@ func TestThresholdStartActiveLatchedInDeadband(t *testing.T) {
 
 	require.NoError(t, cond.Clear(context.Background()))
 	assert.Equal(t, "inactive", stateMust(t, cond))
+}
+
+func TestThresholdClearReSamplesDeclaredInput(t *testing.T) {
+	// clear() on a latched threshold must re-sample the numeric input and
+	// apply hysteresis from the freshly-reset baseline (derived=false):
+	//   - value above on_above       → re-activate (and re-latch)
+	//   - value in deadband          → stay inactive (first-sample rule)
+	//   - value below off_below      → stay inactive
+	c := buildConfig(t, thresholdLatchedVCL)
+	cond := c.CtyConditionMap["high_temp"].EncapsulatedValue().(*ThresholdCondition)
+	require.True(t, cond.sm.behavior.Latch)
+
+	for _, s := range c.Startables {
+		require.NoError(t, s.Start())
+	}
+	defer func() {
+		for _, s := range c.Stoppables {
+			_ = s.Stop()
+		}
+	}()
+
+	temp := c.CtyVarMap["temp"].EncapsulatedValue().(interface {
+		Set(context.Context, []cty.Value) (cty.Value, error)
+	})
+	setTemp := func(v float64) {
+		_, err := temp.Set(context.Background(), []cty.Value{cty.NumberFloatVal(v)})
+		require.NoError(t, err)
+	}
+
+	// Drive above on_above; latch.
+	setTemp(90)
+	require.Equal(t, "active", stateMust(t, cond))
+	require.True(t, cond.sm.latched)
+
+	// Value still above on_above — clear must re-activate and re-latch.
+	require.NoError(t, cond.Clear(context.Background()))
+	assert.Equal(t, "active", stateMust(t, cond),
+		"clear() with input still above on_above should re-activate")
+	require.True(t, cond.sm.latched, "re-activation must re-engage the latch")
+
+	// Drop into deadband; latch holds.
+	setTemp(75)
+	require.Equal(t, "active", stateMust(t, cond), "latch holds through deadband")
+
+	// Clear with value in the deadband — first-sample rule says inactive.
+	require.NoError(t, cond.Clear(context.Background()))
+	assert.Equal(t, "inactive", stateMust(t, cond),
+		"clear() in deadband should stay inactive (first-sample rule)")
+	assert.False(t, cond.sm.latched)
+
+	// Drive above on_above to re-latch, then drop fully below off_below.
+	setTemp(90)
+	require.Equal(t, "active", stateMust(t, cond))
+	setTemp(60)
+	require.Equal(t, "active", stateMust(t, cond), "latch holds below off_below")
+
+	// Clear below off_below — stays inactive.
+	require.NoError(t, cond.Clear(context.Background()))
+	assert.Equal(t, "inactive", stateMust(t, cond),
+		"clear() below off_below should stay inactive")
 }
 
 func TestThresholdStartActiveUnlatchedReconciles(t *testing.T) {

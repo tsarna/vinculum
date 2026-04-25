@@ -57,8 +57,14 @@ func (c *ThresholdCondition) Watch(w richcty.Watcher)                   { c.sm.W
 func (c *ThresholdCondition) Unwatch(w richcty.Watcher)                 { c.sm.Unwatch(w) }
 
 // Clear resets the hysteresis state machine and cancels any in-flight
-// debounce. The initial-value rule applies anew: until the next numeric
-// sample is observed, the condition reports inactive.
+// debounce. The declared input is re-sampled afterward and hysteresis is
+// applied from the freshly-reset baseline (derived=false): a value above the
+// on threshold re-activates the condition; values inside the deadband leave
+// it inactive (consistent with the first-sample initial-value rule). When
+// re-activation occurs and latch is configured, the latch re-engages
+// automatically — clear() releases the latch but does not silence an
+// ongoing-true input. Debounce is bypassed on the re-activation edge since
+// the signal has already proven stable.
 func (c *ThresholdCondition) Clear(ctx context.Context) error {
 	c.mu.Lock()
 	if c.debTimer != nil {
@@ -69,7 +75,30 @@ func (c *ThresholdCondition) Clear(ctx context.Context) error {
 	c.derived = false
 	c.stableInput = false
 	c.mu.Unlock()
-	return c.sm.Clear(ctx)
+	if err := c.sm.Clear(ctx); err != nil {
+		return err
+	}
+	if c.inputExpr == nil {
+		return nil
+	}
+	v, diags := c.inputExpr.Eval()
+	if diags.HasErrors() || v.IsNull() || !v.IsKnown() {
+		return nil
+	}
+	f, err := ctyToFloat(v)
+	if err != nil {
+		return nil
+	}
+	c.mu.Lock()
+	derived := c.deriveLocked(f)
+	c.haveValue = true
+	c.derived = derived
+	c.stableInput = derived
+	c.mu.Unlock()
+	if derived {
+		c.sm.SetRawInput(ctx, true)
+	}
+	return nil
 }
 
 // submitValue applies hysteresis to a new numeric sample and, on derived-

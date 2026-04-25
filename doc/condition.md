@@ -103,6 +103,16 @@ Once active, stay active regardless of input. `deactivate_after` and
 - Release a timer or threshold latch with `clear(condition.name)`.
 - Release a counter latch with `reset(condition.name)` (which also resets the count).
 
+`clear()` releases the latch but does **not** silence an ongoing-true input.
+After resetting, a declared `input =` expression is re-sampled: if it is still
+asserted (for `threshold`, with hysteresis applied from the freshly-reset
+baseline), the condition re-activates and — when `latch = true` — re-engages
+the latch. Debounce is bypassed on the re-activation edge since the signal
+has already proven stable; `activate_after`, `cooldown`, and `inhibit` still
+apply normally. This avoids the "latched fault you can clear while the cause
+persists" footgun: clearing tells you whether the fault really went away,
+rather than masking it.
+
 ### `start_active`
 
 ```hcl
