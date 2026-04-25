@@ -51,6 +51,7 @@ Routes use [Go 1.22 `http.ServeMux` pattern syntax](https://pkg.go.dev/net/http#
 - `GET /api/status` — match only GET requests to an exact path
 - `POST /api/events` — match only POST requests
 - `/api/` — match any method and any path under `/api/` (trailing slash = subtree)
+- `/{$}` — match only the exact path `/` (the `{$}` anchor prevents subtree matching)
 - `/items/{id}` — capture a path segment; accessible as `ctx.request.path.id`
 - `{method} /path` — placeholder in the method position is not standard; use a specific method or omit for any method
 
