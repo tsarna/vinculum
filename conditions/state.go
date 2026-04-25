@@ -346,11 +346,27 @@ func (sm *StateMachine) onTimeoutTimer() {
 	sm.timeoutTimer = nil
 	before := sm.outputLocked()
 	sm.becomeInactiveLocked()
+	// Timeout consumes the current active session. Reset rawInput so a
+	// subsequent SetRawInput(true) registers as a fresh rising edge — without
+	// this, the "value unchanged" early-out at the top of SetRawInput would
+	// silently swallow a re-assertion after the timeout. Mirrors Clear()'s
+	// rawInput reset for the same reason.
+	sm.rawInput = false
 	after := sm.outputLocked()
 	sm.mu.Unlock()
 	if before != after {
 		sm.notifyAll(context.Background(), cty.BoolVal(before), cty.BoolVal(after))
 	}
+}
+
+// RawInput returns the most recent value tracked by the state machine. Subtype
+// wrappers use this to reconcile their own input cache after the state machine
+// has auto-changed its view of the input (e.g. via timeout-driven deactivation
+// or Clear()).
+func (sm *StateMachine) RawInput() bool {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	return sm.rawInput
 }
 
 func (sm *StateMachine) onCooldownTimer() {

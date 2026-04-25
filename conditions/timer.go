@@ -113,6 +113,15 @@ func (t *TimerCondition) Set(ctx context.Context, args []cty.Value) (cty.Value, 
 // firings use context.Background().
 func (t *TimerCondition) submitInput(ctx context.Context, value bool) {
 	t.mu.Lock()
+	// Reconcile our cached view of the SM's input with the SM's actual
+	// rawInput before consulting stableInput for dedup / debounce decisions.
+	// The SM auto-resets rawInput on timeout-driven deactivation (and on
+	// Clear()), so a stale stableInput would otherwise silently dedup a
+	// genuine re-assertion edge and the SM would never see the input flip.
+	if smRaw := t.sm.RawInput(); smRaw != t.stableInput {
+		t.stableInput = smRaw
+		t.rawInput = smRaw
+	}
 	t.rawInput = value
 	if t.debounce <= 0 {
 		if value == t.stableInput {

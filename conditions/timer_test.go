@@ -197,6 +197,67 @@ func TestTimerDebouncePlusActivateAfter(t *testing.T) {
 	assert.Equal(t, "active", stateMust(t, tc))
 }
 
+func TestTimerTimeoutAllowsReassertion(t *testing.T) {
+	// After a timeout-driven deactivation, set(true) must register as a fresh
+	// rising edge and re-activate. Previously the wrapper's stableInput cache
+	// (and the SM's rawInput) remained "true" after timeout, so the
+	// re-assertion was silently deduped at both layers and the SM never saw
+	// the edge.
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{Timeout: 5 * time.Minute}, clock)
+	tc := &TimerCondition{
+		name:  "preempt",
+		sm:    sm,
+		clock: clock,
+	}
+
+	_, err := tc.Set(context.Background(), []cty.Value{cty.True})
+	require.NoError(t, err)
+	require.Equal(t, "active", stateMust(t, tc))
+
+	clock.Advance(5 * time.Minute)
+	require.Equal(t, "inactive", stateMust(t, tc),
+		"timeout should auto-deactivate")
+
+	// Re-assert. Before the fix this was silently dropped.
+	_, err = tc.Set(context.Background(), []cty.Value{cty.True})
+	require.NoError(t, err)
+	assert.Equal(t, "active", stateMust(t, tc),
+		"set(true) after timeout should re-activate")
+
+	// And the new active session has its own timeout running.
+	clock.Advance(5 * time.Minute)
+	assert.Equal(t, "inactive", stateMust(t, tc),
+		"second timeout should fire on the re-asserted session")
+}
+
+func TestTimerTimeoutAllowsReassertionWithDebounce(t *testing.T) {
+	// Same scenario as TestTimerTimeoutAllowsReassertion, but with debounce
+	// enabled — the wrapper's stableInput must still be reconciled with the
+	// SM's rawInput so the post-timeout re-assertion starts a fresh debounce
+	// edge rather than being collapsed as "settled to stable".
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{Timeout: 5 * time.Minute}, clock)
+	tc := &TimerCondition{
+		name:     "preempt",
+		sm:       sm,
+		clock:    clock,
+		debounce: 50 * time.Millisecond,
+	}
+
+	tc.submitInput(context.Background(), true)
+	clock.Advance(50 * time.Millisecond)
+	require.Equal(t, "active", stateMust(t, tc))
+
+	clock.Advance(5 * time.Minute)
+	require.Equal(t, "inactive", stateMust(t, tc))
+
+	tc.submitInput(context.Background(), true)
+	clock.Advance(50 * time.Millisecond)
+	assert.Equal(t, "active", stateMust(t, tc),
+		"debounced re-assertion after timeout should re-activate")
+}
+
 func TestTimerStartActiveLatched(t *testing.T) {
 	c := buildConfig(t, timerStartActiveVCL)
 	cond := c.CtyConditionMap["fault"].EncapsulatedValue().(*TimerCondition)
