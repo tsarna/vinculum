@@ -1,6 +1,6 @@
 module github.com/tsarna/vinculum
 
-go 1.25.8
+go 1.26.0
 
 require (
 	github.com/tsarna/bytes-cty-type v0.1.0
@@ -21,6 +21,7 @@ require (
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/itchyny/gojq v0.12.19
 	github.com/lestrrat-go/jwx/v2 v2.1.6
+	github.com/lestrrat-go/jwx/v4 v4.0.0
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.18.0
@@ -143,9 +144,9 @@ require (
 	github.com/tsarna/vinculum-fsm v0.3.1
 	github.com/zclconf/go-cty v1.18.1
 	go.uber.org/multierr v1.10.0 // indirect
-	golang.org/x/mod v0.34.0 // indirect
+	golang.org/x/mod v0.35.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
-	golang.org/x/tools v0.43.0 // indirect
+	golang.org/x/tools v0.44.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
