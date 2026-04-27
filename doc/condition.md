@@ -572,6 +572,45 @@ implement the classic "load N, count down to zero" pattern. All other
 behavior (latch, activate_after, rollover, etc.) is unchanged — only the
 comparison direction flips.
 
+#### `window`
+
+```hcl
+window = "1m"   # optional, default unset
+```
+
+When set, the counter runs in **sliding-window** mode: the count reflects
+the number of `increment()` calls in the last `window` duration. Each
+increment timestamps the events into a FIFO; entries that age out (i.e.
+`event_time + window <= now`) are dropped automatically. This implements
+the classic "N events in the last T" rate primitive.
+
+```hcl
+# Trip if 5 errors arrive within any 1-minute span. Latched so the alarm
+# survives the burst's tail aging out and requires explicit clear.
+condition "counter" "error_rate" {
+    preset = 5
+    window = "1m"
+    latch  = true
+}
+```
+
+A single internal timer is armed for the next-to-expire event, so the
+implementation cost is `O(1)` timers regardless of event rate; memory is
+`O(N-in-window)` (one timestamp per live event).
+
+`decrement(condition.x [, n])` pops the `n` oldest entries from the FIFO
+(useful for "retract an in-flight count"); decrementing past empty is a
+no-op.
+
+`reset(condition.x)` and `clear(condition.x)` both empty the FIFO and
+release any latch — counters have no `input =` to re-sample, so the two
+functions are equivalent on a counter.
+
+`window` is incompatible with `rollover`, `count_down`, and a non-zero
+`initial`: rollover snap-back, count-down semantics, and synthetic
+baseline events all require a notion of "current count" independent of
+event timestamps. These combinations are rejected at parse time.
+
 ### Attribute applicability
 
 Counter conditions support the common attributes `activate_after`,

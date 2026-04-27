@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"time"
 
 	richcty "github.com/tsarna/rich-cty-types"
 
@@ -28,16 +29,20 @@ type CounterCondition struct {
 	name      string
 	config    *cfg.Config
 	sm        *StateMachine
+	clock     Clock
 	initial   int64
 	preset    int64
 	rollover  bool
 	countDown bool
+	window    time.Duration // sliding window; > 0 enables windowed mode
 
 	inhibitExpr *cfg.ReactiveExpr
 	hooks       *HookDispatcher
 
-	mu    sync.Mutex
-	count int64
+	mu          sync.Mutex
+	count       int64
+	events      []time.Time // FIFO of in-window event timestamps; nil unless window > 0
+	expiryTimer ClockTimer  // fires when the head of `events` ages out
 }
 
 func (c *CounterCondition) Get(ctx context.Context, args []cty.Value) (cty.Value, error) {
@@ -49,19 +54,40 @@ func (c *CounterCondition) Unwatch(w richcty.Watcher)                 { c.sm.Unw
 
 // Count implements richcty.Countable: returns the current numeric count value.
 // Distinct from Get(), which returns the boolean preset-reached output.
+//
+// In windowed mode, expired events are pruned opportunistically before the
+// count is read so that a quiescent counter still reports an accurate value
+// between expiry-timer firings.
 func (c *CounterCondition) Count(_ context.Context) (int64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.window > 0 && len(c.events) > 0 {
+		c.pruneLocked(c.clock.Now())
+	}
 	return c.count, nil
 }
 
 // Reset implements richcty.Resettable: count → initial, latch released, pending
-// state cancelled, output → inactive. Spec §Functions.
+// state cancelled, output → inactive. Spec §Functions. In windowed mode, the
+// FIFO of in-window events is also discarded and the expiry timer cancelled.
 func (c *CounterCondition) Reset(ctx context.Context) error {
 	c.mu.Lock()
 	c.count = c.initial
+	c.events = nil
+	if c.expiryTimer != nil {
+		c.expiryTimer.Stop()
+		c.expiryTimer = nil
+	}
 	c.mu.Unlock()
 	return c.sm.Clear(ctx)
+}
+
+// Clear implements richcty.Clearable. For counters there is no `input =` to
+// re-sample (counters reject input=), so clear() is equivalent to reset(): it
+// empties the count (and the windowed FIFO), releases any latch, and returns
+// the output to inactive.
+func (c *CounterCondition) Clear(ctx context.Context) error {
+	return c.Reset(ctx)
 }
 
 // Increment implements richcty.Incrementable. Adds args[0] (default 1) to the
@@ -84,6 +110,10 @@ func (c *CounterCondition) Increment(ctx context.Context, args []cty.Value) (cty
 }
 
 func (c *CounterCondition) applyDelta(ctx context.Context, delta int64) {
+	if c.window > 0 {
+		c.applyWindowedDelta(ctx, delta)
+		return
+	}
 	c.mu.Lock()
 	c.count += delta
 	if c.count < 0 {
@@ -111,6 +141,90 @@ func (c *CounterCondition) applyDelta(ctx context.Context, delta int64) {
 	if !stillMatched {
 		c.sm.SetRawInput(ctx, false)
 	}
+}
+
+// applyWindowedDelta is the windowed-mode counterpart to applyDelta. Positive
+// delta appends `delta` events at the current clock; negative delta pops
+// `|delta|` oldest events from the FIFO. Expired events are pruned and the
+// expiry timer is re-armed for the new head before the preset comparison is
+// pushed to the SM. Window mode is incompatible with rollover and count_down
+// (rejected at parse time), so this path stays straightforward.
+func (c *CounterCondition) applyWindowedDelta(ctx context.Context, delta int64) {
+	now := c.clock.Now()
+	c.mu.Lock()
+	c.pruneLocked(now)
+	if delta > 0 {
+		for i := int64(0); i < delta; i++ {
+			c.events = append(c.events, now)
+		}
+	} else if delta < 0 {
+		pop := -delta
+		if pop > int64(len(c.events)) {
+			pop = int64(len(c.events))
+		}
+		c.events = c.events[pop:]
+	}
+	c.count = int64(len(c.events))
+	c.armExpiryLocked(now)
+	matched := c.matchedLocked()
+	c.mu.Unlock()
+	c.sm.SetRawInput(ctx, matched)
+}
+
+// pruneLocked drops events older than `now - window` from the FIFO front.
+// Caller holds c.mu. Updates c.count to reflect the new length. Releases the
+// underlying array when the FIFO empties so a long quiet period after a burst
+// doesn't pin a large backing slice. No-op when window is not configured.
+func (c *CounterCondition) pruneLocked(now time.Time) {
+	if c.window <= 0 {
+		return
+	}
+	cutoff := now.Add(-c.window)
+	drop := 0
+	for drop < len(c.events) && !c.events[drop].After(cutoff) {
+		drop++
+	}
+	if drop == 0 {
+		return
+	}
+	if drop == len(c.events) {
+		c.events = nil
+	} else {
+		c.events = c.events[drop:]
+	}
+	c.count = int64(len(c.events))
+}
+
+// armExpiryLocked (re)schedules the expiry timer for the next-to-expire event,
+// or stops it if the FIFO is empty. Caller holds c.mu and must have just
+// pruned, so events[0] (if present) is guaranteed to be still in-window.
+func (c *CounterCondition) armExpiryLocked(now time.Time) {
+	if c.expiryTimer != nil {
+		c.expiryTimer.Stop()
+		c.expiryTimer = nil
+	}
+	if len(c.events) == 0 {
+		return
+	}
+	delay := c.events[0].Add(c.window).Sub(now)
+	if delay < 0 {
+		delay = 0
+	}
+	c.expiryTimer = c.clock.AfterFunc(delay, c.onWindowExpire)
+}
+
+// onWindowExpire fires when the head event ages out. It prunes, re-arms the
+// timer for the new head, and pushes the new matched value to the SM so a
+// quiescent counter correctly transitions to inactive when its last event
+// drops out of the window.
+func (c *CounterCondition) onWindowExpire() {
+	now := c.clock.Now()
+	c.mu.Lock()
+	c.pruneLocked(now)
+	c.armExpiryLocked(now)
+	matched := c.matchedLocked()
+	c.mu.Unlock()
+	c.sm.SetRawInput(context.Background(), matched)
 }
 
 // matchedLocked returns whether the current count satisfies the preset
@@ -147,6 +261,12 @@ func (c *CounterCondition) PostStart() error {
 }
 
 func (c *CounterCondition) Stop() error {
+	c.mu.Lock()
+	if c.expiryTimer != nil {
+		c.expiryTimer.Stop()
+		c.expiryTimer = nil
+	}
+	c.mu.Unlock()
 	if c.inhibitExpr != nil {
 		c.inhibitExpr.Stop()
 	}
@@ -172,6 +292,7 @@ type counterBody struct {
 	Initial         *int64         `hcl:"initial,optional"`
 	Rollover        *bool          `hcl:"rollover,optional"`
 	CountDown       *bool          `hcl:"count_down,optional"`
+	Window          hcl.Expression `hcl:"window,optional"`
 	ActivateAfter   hcl.Expression `hcl:"activate_after,optional"`
 	DeactivateAfter hcl.Expression `hcl:"deactivate_after,optional"`
 	Timeout         hcl.Expression `hcl:"timeout,optional"`
@@ -243,6 +364,8 @@ func processCounterCondition(config *cfg.Config, block *hcl.Block, def *cfg.Cond
 	diags = diags.Extend(moreDiags)
 	behavior.Cooldown, moreDiags = parseOptDuration(config, body.Cooldown)
 	diags = diags.Extend(moreDiags)
+	window, moreDiags := parseOptDuration(config, body.Window)
+	diags = diags.Extend(moreDiags)
 	if body.Latch != nil {
 		behavior.Latch = *body.Latch
 	}
@@ -251,6 +374,37 @@ func processCounterCondition(config *cfg.Config, block *hcl.Block, def *cfg.Cond
 	}
 	if body.StartActive != nil {
 		behavior.StartActive = *body.StartActive
+	}
+
+	// Window is incompatible with rollover, count_down, and a non-zero
+	// initial: there's no meaningful interpretation of "rollover snap-back",
+	// "count down toward zero", or "synthetic baseline events" when the
+	// count is derived from a FIFO of timestamped event arrivals.
+	if window > 0 {
+		if body.Rollover != nil && *body.Rollover {
+			diags = append(diags, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Incompatible counter attributes",
+				Detail:   "rollover cannot be combined with window",
+				Subject:  &def.DefRange,
+			})
+		}
+		if body.CountDown != nil && *body.CountDown {
+			diags = append(diags, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Incompatible counter attributes",
+				Detail:   "count_down cannot be combined with window",
+				Subject:  &def.DefRange,
+			})
+		}
+		if body.Initial != nil && *body.Initial != 0 {
+			diags = append(diags, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Incompatible counter attributes",
+				Detail:   "initial must be 0 (or omitted) when window is set; the count is the number of in-window events",
+				Subject:  &def.DefRange,
+			})
+		}
 	}
 	if diags.HasErrors() {
 		return diags
@@ -261,8 +415,10 @@ func processCounterCondition(config *cfg.Config, block *hcl.Block, def *cfg.Cond
 		name:    def.Name,
 		config:  config,
 		sm:      NewStateMachine(behavior, clock),
+		clock:   clock,
 		initial: 0,
 		preset:  *body.Preset,
+		window:  window,
 	}
 	if body.Initial != nil {
 		c.initial = *body.Initial

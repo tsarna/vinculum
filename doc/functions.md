@@ -896,13 +896,16 @@ is a runtime error.
 action = set(condition.door_open, ctx.payload.open)
 ```
 
-#### `clear(condition.name)` — timer and threshold
+#### `clear(condition.name)`
 
 Resets the condition to `inactive`, cancelling any pending state and
 releasing any latch. For retentive timers, also discards the accumulated
-time. Safe to call in any state (no-op if already inactive and unlatched).
+time. For counter conditions, empties the count (and, in windowed mode,
+the FIFO of in-window events). Safe to call in any state (no-op if
+already inactive and unlatched).
 
-Not applicable to counter conditions — use `reset()` instead.
+On counters, `clear()` and `reset()` are equivalent — counters have no
+`input =` to re-sample.
 
 ```hcl
 action = clear(condition.fault)
