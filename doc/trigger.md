@@ -972,7 +972,7 @@ acknowledge it (which `set()` does); for the common ack-and-rearm flow
 
 ## Watchables
 
-`var`, gauge `metric`, and counter `metric` values implement the `Watchable` interface.
+`var`, gauge `metric`, and counter `metric` values implement the `Watchable` interface, as do `condition` and `fsm` types.
 Any code that calls `set()` or `increment()` on one of these values will synchronously
 notify all registered watchers after the value is committed and the internal lock is
 released. The `context.Context` passed to `set()`/`increment()` is forwarded verbatim
