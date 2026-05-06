@@ -87,9 +87,10 @@ func (c *OtlpClientImpl) IsDefaultMetricsBackend() bool {
 	return c.isDefaultMetrics
 }
 
-// ─── Startable / Stoppable ────────────────────────────────────────────────────
-
-func (c *OtlpClientImpl) Start() error {
+// buildProviders constructs the trace and meter providers. It is called during
+// the config Process phase so that metric blocks (which run after this client
+// in dependency order) can obtain a non-nil MeterProvider.
+func (c *OtlpClientImpl) buildProviders() error {
 	ctx := context.Background()
 
 	// --- Build exporter options ---
@@ -100,7 +101,7 @@ func (c *OtlpClientImpl) Start() error {
 	if c.tlsConfig != nil {
 		tlsCfg, err := c.tlsConfig.BuildTLSClientConfig(c.baseDir)
 		if err != nil {
-			return fmt.Errorf("client \"otlp\" %q: TLS config: %w", c.Name, err)
+			return fmt.Errorf("TLS config: %w", err)
 		}
 		if tlsCfg != nil {
 			traceOptions = append(traceOptions, otlptracehttp.WithTLSClientConfig(tlsCfg))
@@ -127,7 +128,7 @@ func (c *OtlpClientImpl) Start() error {
 	// --- Trace provider ---
 	traceExporter, err := otlptracehttp.New(ctx, traceOptions...)
 	if err != nil {
-		return fmt.Errorf("client \"otlp\" %q: trace exporter: %w", c.Name, err)
+		return fmt.Errorf("trace exporter: %w", err)
 	}
 
 	samplingRatio := 1.0
@@ -140,13 +141,6 @@ func (c *OtlpClientImpl) Start() error {
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(samplingRatio))),
 	)
-
-	// Set globals so otel.Tracer() / otel.GetTextMapPropagator() resolve correctly.
-	otel.SetTracerProvider(c.tracerProvider)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
 
 	// --- Metric provider ---
 	metricEndpoint := c.metricEndpoint
@@ -161,7 +155,7 @@ func (c *OtlpClientImpl) Start() error {
 	if c.tlsConfig != nil {
 		tlsCfg, err := c.tlsConfig.BuildTLSClientConfig(c.baseDir)
 		if err != nil {
-			return fmt.Errorf("client \"otlp\" %q: metric TLS config: %w", c.Name, err)
+			return fmt.Errorf("metric TLS config: %w", err)
 		}
 		if tlsCfg != nil {
 			metricOptions = append(metricOptions, otlpmetrichttp.WithTLSClientConfig(tlsCfg))
@@ -174,7 +168,7 @@ func (c *OtlpClientImpl) Start() error {
 
 	metricExporter, err := otlpmetrichttp.New(ctx, metricOptions...)
 	if err != nil {
-		return fmt.Errorf("client \"otlp\" %q: metric exporter: %w", c.Name, err)
+		return fmt.Errorf("metric exporter: %w", err)
 	}
 
 	c.meterProvider = sdkmetric.NewMeterProvider(
@@ -183,6 +177,19 @@ func (c *OtlpClientImpl) Start() error {
 		)),
 		sdkmetric.WithResource(res),
 	)
+
+	return nil
+}
+
+// ─── Startable / Stoppable ────────────────────────────────────────────────────
+
+func (c *OtlpClientImpl) Start() error {
+	// Set globals so otel.Tracer() / otel.GetTextMapPropagator() resolve correctly.
+	otel.SetTracerProvider(c.tracerProvider)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
 
 	otel.SetMeterProvider(c.meterProvider)
 
@@ -285,6 +292,17 @@ func process(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Client, h
 		metricInterval:   metricInterval,
 		includeGoMetrics: includeGoMetrics,
 		isDefaultMetrics: def.DefaultMetrics,
+	}
+
+	if err := client.buildProviders(); err != nil {
+		return nil, hcl.Diagnostics{
+			&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Failed to build OTLP providers",
+				Detail:   fmt.Sprintf("client \"otlp\" %q: %s", name, err),
+				Subject:  def.DefRange.Ptr(),
+			},
+		}
 	}
 
 	if config.OtlpClients == nil {
