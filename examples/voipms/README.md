@@ -1,8 +1,7 @@
-# VoIP.ms Prometheus Exporter
+# VoIP.ms Metrics Exporter
 
 A multi-file Vinculum configuration that scrapes the [VoIP.ms](https://voip.ms)
-REST API on an interval and exposes the results as Prometheus metrics.
-Demonstrates:
+REST API on an interval and exposes the results as Prometheus or OpenTelemetry metrics. Demonstrates:
 
 - [`client "http"`](../../doc/client-http.md) wrapping a third-party JSON API,
   with reusable [`function`](../../doc/functions.md) blocks for each endpoint
@@ -13,6 +12,7 @@ Demonstrates:
   stagger scrapes
 - [`server "metrics"`](../../doc/server-metrics.md) exposing a Prometheus
   endpoint
+- [`client "otlp"`](../../doc/client-otlp.md) for OpenTelemetry push metrics.
 - Splitting a single logical configuration across multiple `.vcl` files:
 
   - [voipms-api.vcl](voipms-api.vcl) — HTTP client and API wrapper functions
@@ -22,8 +22,11 @@ Demonstrates:
     and call counts (labeled metrics)
   - [voipms-sip.vcl](voipms-sip.vcl) — SIP account registration status
   - [voipms-stats.vcl](voipms-stats.vcl) — the Prometheus `server "metrics"`
-    block
+    block and OpenTelemetry `client "otlp"`.
 
 Required environment variables: `VOIPMS_API_USER` and `VOIPMS_API_PASSWORD`
 (see [the VoIP.ms API documentation](https://voip.ms/m/apidocs.php) for how to
 enable API access and generate credentials).
+
+Optional environment variable OTLP_URL configures push metrics via OTLP.
+If not set or empty, metrics are instead exposed via Prometheus on port 9090.
