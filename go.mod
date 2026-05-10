@@ -16,7 +16,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.42.27
 	github.com/aws/aws-sdk-go-v2/service/sts v1.42.1
 	github.com/coder/websocket v1.8.14
-	github.com/fsnotify/fsnotify v1.9.0
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/hashicorp/go-cty-funcs v0.1.0
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/itchyny/gojq v0.12.19
