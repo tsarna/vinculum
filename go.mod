@@ -4,7 +4,7 @@ go 1.25.8
 
 require (
 	github.com/tsarna/bytes-cty-type v0.1.0
-	go.uber.org/zap v1.27.1
+	go.uber.org/zap v1.28.0
 )
 
 require (
