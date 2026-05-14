@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-05-14
+
 ### Fixed
 
   - **`server "http"` logging middleware now passes through `http.Hijacker` and `http.Flusher`**: the `statusCapturingResponseWriter` wrapper embedded only the `http.ResponseWriter` interface, which hid extra capabilities of the underlying writer behind type assertions. As a result, mounting `server "vws"` (or any other WebSocket-upgrading handler) under an HTTP `handle` block failed at upgrade time with `http.ResponseWriter does not implement http.Hijacker`. The wrapper now implements `Hijack()` and `Flush()` that delegate to the underlying writer when supported, so WebSocket upgrades and streaming responses (e.g. SSE) work correctly through the request-logging middleware.
@@ -33,10 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `sys.version`, `sys.commit`, `sys.build_time`, and `sys.modified` available in VCL expressions.
   The Docker image builds (`Dockerfile`, `Dockerfile.minimal`, `.github/workflows/docker.yml`) now plumb `VERSION` (from the resolved image tag), `COMMIT` (`github.sha`), and `BUILD_TIME` through as build-args, since `.git/` is excluded from the Docker context and VCS stamping would otherwise be unavailable.
 - **CI: GHCR image cleanup workflow**: New scheduled workflow (`.github/workflows/ghcr-cleanup.yml`) that weekly prunes untagged `vinculum` and `vinculum-minimal` GHCR package versions older than 14 days. Preserves all tagged releases (`latest`, `dev`, and semver tags) and multi-arch manifest children via [dataaxiom/ghcr-cleanup-action](https://github.com/dataaxiom/ghcr-cleanup-action). Supports manual dispatch with a dry-run preview.
-
-### Changed
-
-- **Quieter logging for user-caused errors**: Log output from VCL `log_debug`/`log_info`/`log_warn`/`log_error`/`log_msg` functions no longer includes the Go `caller` field or a Go stacktrace — those always pointed at `functions/log.go` and carried no signal about the VCL call site. Similarly, errors from evaluating user expressions in triggers, conditions, FSM hooks, signal actions, HTTP actions, MQTT lifecycle hooks, and assertions are now emitted via a new `Config.UserLogger` with caller and stacktrace suppressed. Infrastructure/operational errors (fsnotify watcher failures, HTTP server bind failures) still carry caller + stacktrace. The global stacktrace threshold is now pinned to `error` level regardless of `--debug`, so routine warnings no longer drag Go stacks along.
+- **Example: traffic-light intersection**: New multi-file example under [examples/traffic-light/](examples/traffic-light/) modeling a four-way traffic intersection — `fsm` for the phase cycle, latched `condition "timer"` blocks for fault detection / emergency preempt / manual override, `trigger` blocks (interval, cron, start, watchdog) for phase advancement and mode switching, plus a `server "http"` + `server "vws"` pair serving a live web UI that pushes state changes over a WebSocket. A running instance is available at <https://traffic.thevinculum.org>.
+- **Example: VoIP.ms metrics exporter — OTLP option**: The [examples/voipms/](examples/voipms/) configuration can now push metrics via `client "otlp"` when `OTLP_URL` is set, falling back to the existing Prometheus `server "metrics"` endpoint otherwise.
 
 ## [0.34.0] - 2026-04-22
 

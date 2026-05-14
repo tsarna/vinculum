@@ -31,6 +31,19 @@ Required environment variables: `ZONES_DIR` (path to the directory containing
 BIND zone files) and one `PASS_<ZONE>_<HOST>` variable per credential, as
 referenced from the `auth "basic"` block in the example.
 
+### [traffic-light/](traffic-light/)
+
+A simulated four-way traffic intersection: a multi-file configuration combining
+an [`fsm`](../doc/fsm.md) for the phase cycle, latched
+[`condition "timer"`](../doc/condition.md) blocks for fault detection and
+emergency preemption, [`trigger`](../doc/trigger.md) blocks (interval, cron,
+start, watchdog) for phase advancement and mode switching, and a
+[`server "http"`](../doc/server-http.md) +
+[`server "vws"`](../doc/server-vws.md) pair serving a live web UI that pushes
+state changes over a WebSocket. A running instance is available at
+<https://traffic.thevinculum.org>. See
+[traffic-light/README.md](traffic-light/README.md) for details.
+
 ### [voipms/](voipms/)
 
 A Prometheus exporter for the [VoIP.ms](https://voip.ms) REST API, split across

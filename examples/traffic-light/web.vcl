@@ -2,7 +2,7 @@ server "http" "traffic" {
     listen = ":8080"
 
     files "/traffic" {
-        directory = "html"
+        directory = "/conf/html"
     }
 
     handle "GET /{$}" {
