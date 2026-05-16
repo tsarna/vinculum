@@ -8,7 +8,7 @@ require (
 )
 
 require (
-	github.com/alicebob/miniredis/v2 v2.37.0
+	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/aws/aws-sdk-go-v2 v1.41.7
 	github.com/aws/aws-sdk-go-v2/config v1.32.17
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.16
@@ -21,7 +21,6 @@ require (
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/itchyny/gojq v0.12.19
 	github.com/lestrrat-go/jwx/v2 v2.1.6
-	github.com/lestrrat-go/jwx/v4 v4.0.2
 	github.com/modelcontextprotocol/go-sdk v1.6.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.19.0
