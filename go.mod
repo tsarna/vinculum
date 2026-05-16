@@ -21,7 +21,6 @@ require (
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/itchyny/gojq v0.12.19
 	github.com/lestrrat-go/jwx/v2 v2.1.6
-	github.com/lestrrat-go/jwx/v4 v4.0.2
 	github.com/modelcontextprotocol/go-sdk v1.6.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.19.0
@@ -47,7 +46,7 @@ require (
 	github.com/tsarna/vinculum-sqs v0.2.0
 	github.com/tsarna/vinculum-vws v0.12.0
 	github.com/tsarna/vinculum-wire v0.1.0
-	github.com/twmb/franz-go v1.21.0
+	github.com/twmb/franz-go v1.21.2
 	github.com/twmb/franz-go/plugin/kotel v1.6.0
 	github.com/yosida95/uritemplate/v3 v3.0.2
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.68.0
@@ -97,7 +96,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/itchyny/timefmt-go v0.1.8 // indirect
 	github.com/kixorz/suncalc v1.0.0 // indirect
-	github.com/klauspost/compress v1.18.5 // indirect
+	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.3 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
 	github.com/lestrrat-go/httprc v1.0.6 // indirect
