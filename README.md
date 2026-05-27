@@ -15,7 +15,7 @@ MacGyver together a solution with a few lines of configuration.
 - **HCL Configuration** — Declarative configuration in HashiCorp Config Language (similar to Terraform), with constants, expressions, and assertions
 - **Publish/Subscribe Messaging** — One or more event buses with MQTT-style topic routing, wildcards, and parameter extraction
 - **Server Protocols** — HTTP(S), Vinculum WebSocket (VWS), plain WebSocket, Model Context Protocol (MCP), and Prometheus/OpenMetrics, with pluggable authentication (basic, OIDC, OAuth2)
-- **Client Protocols** — HTTP(S), Kafka, MQTT, Redis/Valkey (pub/sub, streams, key-value), AWS SQS, AWS SNS, VWS (to other Vinculum instances), OpenAI / LLM, and OpenTelemetry (OTLP) export
+- **Client Protocols** — HTTP(S), Kafka, MQTT, RabbitMQ (AMQP 0-9-1), Redis/Valkey (pub/sub, streams, key-value), AWS SQS, AWS SNS, VWS (to other Vinculum instances), OpenAI / LLM, and OpenTelemetry (OTLP) export
 - **Triggers** — A range of trigger types for time-, event-, and lifecycle-driven actions: cron, dynamic intervals with optional jitter, absolute / dynamic times, file-system events, OS signals, startup/shutdown, watchdogs, and watches over reactive values
 - **Conditions** — Named boolean primitives with temporal rules (activate/deactivate delays, hysteresis, retentive timing, latches, cooldown, inhibit), covering IEC 61131-3 timer and counter function-block behaviors and composable into pipelines
 - **State Machines** — Finite state machines with guarded transitions, reactive events, key-value storage, MQTT topic matching, and OpenTelemetry tracing; composable with conditions and watchable for reactive integration
@@ -48,6 +48,7 @@ Vinculum is built on top of several standalone Go libraries that can be used ind
 | [vinculum-fsm](https://github.com/tsarna/vinculum-fsm) | cty-native finite state machine library with guarded transitions, storage, topic matching, and tracing |
 | [vinculum-kafka](https://github.com/tsarna/vinculum-kafka) | Kafka producer/consumer adapters that plug into a vinculum-bus EventBus |
 | [vinculum-mqtt](https://github.com/tsarna/vinculum-mqtt) | MQTT publisher/subscriber adapters that plug into a vinculum-bus EventBus |
+| [vinculum-rabbitmq](https://github.com/tsarna/vinculum-rabbitmq) | RabbitMQ (AMQP 0-9-1) sender/receiver adapters that plug into a vinculum-bus EventBus |
 | [vinculum-redis](https://github.com/tsarna/vinculum-redis) | Redis/Valkey pub/sub and streams adapters that plug into a vinculum-bus EventBus |
 | [vinculum-sns](https://github.com/tsarna/vinculum-sns) | AWS SNS sender adapter that plugs into a vinculum-bus EventBus |
 | [vinculum-sqs](https://github.com/tsarna/vinculum-sqs) | AWS SQS sender/receiver adapters that plug into a vinculum-bus EventBus |

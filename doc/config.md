@@ -360,6 +360,7 @@ For details on each client type, see the dedicated pages:
 - [`client "mqtt"`](client-mqtt.md) — MQTT 5.0 publisher and subscriber
 - [`client "openai"`](client-llm.md) — OpenAI and OpenAI-compatible LLM APIs
 - [`client "otlp"`](client-otlp.md) — OpenTelemetry Protocol exporter (push-based)
+- [`client "rabbitmq"`](client-rabbitmq.md) — RabbitMQ / AMQP 0-9-1 sender and receiver
 - [`client "vws"`](server-vws.md#client-vws) — Vinculum WebSocket Protocol client
 
 ---

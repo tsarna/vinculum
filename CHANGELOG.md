@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **RabbitMQ client (`client "rabbitmq"`)**: First-class AMQP 0-9-1 client built on [amqp091-go](https://github.com/rabbitmq/amqp091-go), via the new [`vinculum-rabbitmq`](https://github.com/tsarna/vinculum-rabbitmq) module (v0.1.0). A single `client "rabbitmq"` block owns one AMQP connection shared by any number of named `sender` sub-blocks (vinculum → exchange) and `receiver` sub-blocks (queue → vinculum), each on its own channel per RabbitMQ's recommendation. Highlights:
+  - **Topology contract**: vinculum never declares exchanges (treat them as operational topology); queues are passive-declared by default or actively declared via an inline `declare` block, and bindings are declared in VCL and re-declared idempotently on every reconnect.
+  - **Topic mapping with named captures**: senders use MQTT-style vinculum topic patterns with `+name`/`#name` capture; receivers use AMQP-style routing-key patterns with `*name` (one word) and `#name` (zero or more, dot-joined) capture. Captures land in `ctx.fields` for use in `routing_key` / `vinculum_topic` expressions.
+  - **Mandatory delivery with broker-return correlation**: with `mandatory = true` + `confirm_mode = true` (default), an unroutable message — which the broker `Ack`s while also issuing a `Basic.Return` — surfaces as an `OnEvent` error carrying the broker's reply code and text. The sender sets a unique `Publishing.MessageId` per mandatory publish and drains the returns channel inline immediately after the ack; AMQP's wire ordering (Return before Ack) makes this race-free with no per-publish latency penalty.
+  - **At-least-once delivery**: receiver default is manual ack after `subscriber.OnEvent` returns; on error the message is nacked without requeue (forwarded to a DLX if the queue has one configured via policy). Configurable `prefetch` caps in-flight unacked messages.
+  - **Multi-broker failover + reconnect recovery**: the `brokers` list is walked in order on every connect and reconnect. Connection drops fire `on_disconnect`, walk the list with configurable exponential backoff, re-open all channels, re-declare receiver topology, re-register consumers, and fire `on_connect`. A separate per-channel watcher recovers channel-level errors (e.g. publishing to a non-existent exchange) without a full reconnect.
+  - **TLS** via the standard `tls` block (auto-enabled for `amqps://`); **wire formats** pluggable via `vinculum-wire` (default `auto`); **fields** ↔ `headers` table conversion with W3C trace headers stripped from the visible fields map.
+  - **OTel tracing**: producer span on send; new-root consumer span linked to the producer span on receive (the OTel async-messaging convention); link survives `AsyncQueueingSubscriber` queues.
+  - **OTel metrics** follow messaging semconv v1.26.0 (`messaging.client.sent.messages`, `messaging.client.operation.duration`, `messaging.client.consumed.messages`, `messaging.process.duration`) plus rabbitmq-specific instruments (`rabbitmq.publisher.returned`, `rabbitmq.consumer.nacks`, `rabbitmq.client.connected`, `rabbitmq.client.reconnections`, `rabbitmq.client.channel_reopens`).
+  - See [doc/client-rabbitmq.md](doc/client-rabbitmq.md) for the full VCL reference.
+
 ## [0.35.0] - 2026-05-14
 
 ### Fixed

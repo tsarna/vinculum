@@ -36,7 +36,7 @@ block to safely rewrite BIND zone files in place.
 - **HCL Configuration** — Declarative configuration in HashiCorp Config Language (similar to Terraform), with constants, expressions, and assertions
 - **Publish/Subscribe Messaging** — One or more event buses with MQTT-style topic routing, wildcards, and parameter extraction
 - **Server Protocols** — HTTP(S), Vinculum WebSocket (VWS), plain WebSocket, Model Context Protocol (MCP), and Prometheus/OpenMetrics, with pluggable authentication (basic, OIDC, OAuth2)
-- **Client Protocols** — Kafka, MQTT, Redis/Valkey (pub/sub, streams, key-value), VWS (to other Vinculum instances), HTTP(S) (request/response), OpenAI / LLM, and OpenTelemetry (OTLP) export
+- **Client Protocols** — Kafka, MQTT, RabbitMQ (AMQP 0-9-1), Redis/Valkey (pub/sub, streams, key-value), VWS (to other Vinculum instances), HTTP(S) (request/response), OpenAI / LLM, and OpenTelemetry (OTLP) export
 - **Triggers** — A range of trigger types for time-, event-, and lifecycle-driven actions: cron, dynamic intervals with optional jitter, absolute / dynamic times, file-system events, OS signals, startup/shutdown, watchdogs, and watches over reactive values
 - **Conditions** — Named boolean primitives with temporal rules (activate/deactivate delays, hysteresis, retentive timing, latches, cooldown, inhibit), covering IEC 61131-3 timer and counter function-block behaviors and composable into pipelines
 - **State Machines** — Finite state machines with guarded transitions, reactive events, key-value storage, MQTT topic matching, and OpenTelemetry tracing; composable with conditions and watchable for reactive integration
@@ -182,6 +182,7 @@ A `server` block accepts inbound connections or requests over a particular proto
 | [OpenAI / LLM](client-llm.md) | [Yes](client-llm.md) | — | OpenAI and OpenAI-compatible LLM API client (used via the `call()` function) |
 | [OTLP](client-otlp.md) | [Yes](client-otlp.md) | — | OpenTelemetry Protocol exporter for traces and metrics (push-based) |
 | [Prometheus](server-metrics.md) | — | [Yes](server-metrics.md) | Prometheus / OpenMetrics exposition endpoint, standalone or mounted into an existing HTTP server |
+| [RabbitMQ](client-rabbitmq.md) | [Yes](client-rabbitmq.md) | — | AMQP 0-9-1 sender and receiver with exchanges, routing keys, queue topology, publisher confirms, and two-level recovery |
 | [Redis](client-redis.md) | [Yes](client-redis.md)[^infra] | — | Redis/Valkey connection manager; standalone, cluster, and sentinel modes |
 | [Redis KV](client-redis.md#client-redis_kv) | [Yes](client-redis.md#client-redis_kv) | — | Redis GET/SET/INCR/HGET/HSET behind the generic `get()`/`set()`/`increment()` interface |
 | [Redis Pub/Sub](client-redis.md#client-redis_pubsub) | [Yes](client-redis.md#client-redis_pubsub) | — | Redis channel PUBLISH/SUBSCRIBE/PSUBSCRIBE — MQTT-style fire-and-forget |

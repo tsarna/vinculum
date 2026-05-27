@@ -130,7 +130,6 @@ github.com/lestrrat-go/iter v1.0.2 h1:gMXo1q4c2pHmC3dn8LzRhJfP1ceCbgSiT9lUydIzlt
 github.com/lestrrat-go/iter v1.0.2/go.mod h1:Momfcq3AnRlRjI5b5O8/G5/BvpzrhoFTZcn06fEOPt4=
 github.com/lestrrat-go/jwx/v2 v2.1.6 h1:hxM1gfDILk/l5ylers6BX/Eq1m/pnxe9NBwW6lVfecA=
 github.com/lestrrat-go/jwx/v2 v2.1.6/go.mod h1:Y722kU5r/8mV7fYDifjug0r8FK8mZdw0K0GpJw/l8pU=
-github.com/lestrrat-go/jwx/v4 v4.0.2/go.mod h1:F2a0rSyXsqLAL0orBZGOXrzQGv018Tx4eiEWWYR7Yzo=
 github.com/lestrrat-go/option v1.0.1 h1:oAzP2fvZGQKWkvHa1/SAcFolBEca1oN+mQ7eooNBEYU=
 github.com/lestrrat-go/option v1.0.1/go.mod h1:5ZHFbivi4xwXxhxY9XHDe2FHo6/Z7WWmtT7T5nBBp3I=
 github.com/mitchellh/go-homedir v1.1.0 h1:lukF9ziXFxDFPkA1vsr5zpc1XuPDn/wFntq5mG+4E0Y=
@@ -159,6 +158,8 @@ github.com/prometheus/otlptranslator v1.0.0 h1:s0LJW/iN9dkIH+EnhiD3BlkkP5QVIUVEo
 github.com/prometheus/otlptranslator v1.0.0/go.mod h1:vRYWnXvI6aWGpsdY/mOT/cbeVRBlPWtBNDb7kGR3uKM=
 github.com/prometheus/procfs v0.20.1 h1:XwbrGOIplXW/AU3YhIhLODXMJYyC1isLFfYCsTEycfc=
 github.com/prometheus/procfs v0.20.1/go.mod h1:o9EMBZGRyvDrSPH1RqdxhojkuXstoe4UlK79eF5TGGo=
+github.com/rabbitmq/amqp091-go v1.11.0 h1:HxIctVm9Gid/Vtn706necmZ7Wj6pgGI2eqplRbEY8O8=
+github.com/rabbitmq/amqp091-go v1.11.0/go.mod h1:Hy4jKW5kQART1u+JkDTF9YYOQUHXqMuhrgxOEeS7G4o=
 github.com/redis/go-redis/v9 v9.19.0 h1:XPVaaPSnG6RhYf7p+rmSa9zZfeVAnWsH5h3lxthOm/k=
 github.com/redis/go-redis/v9 v9.19.0/go.mod h1:v/M13XI1PVCDcm01VtPFOADfZtHf8YW3baQf57KlIkA=
 github.com/robfig/cron/v3 v3.0.1 h1:WdRxkvbJztn8LMz/QEvLN5sBU+xKpSqwwUO1Pjr4qDs=
@@ -216,6 +217,8 @@ github.com/tsarna/vinculum-kafka v0.9.3 h1:UpJXVNqHek65XDKp+Rs1DS/TAm4ojqbixQsyl
 github.com/tsarna/vinculum-kafka v0.9.3/go.mod h1:VcBs4otnfkBzTH5rLbg9KoBGfjWVIFCcOwu0f3a2SP4=
 github.com/tsarna/vinculum-mqtt v0.7.2 h1:owdYrM4+h7JVSdGMWKKwhfO4V2MsrzQKg2WtBwoR/BQ=
 github.com/tsarna/vinculum-mqtt v0.7.2/go.mod h1:7cRRCJdwfKYgwg/uonQU26u7cOXxqaQZFSzQySACz88=
+github.com/tsarna/vinculum-rabbitmq v0.1.0 h1:/8EFGR+fOD44yDz0tlw1pEmmXSHTYDKKyLgEOhzBHXU=
+github.com/tsarna/vinculum-rabbitmq v0.1.0/go.mod h1:gjrHsCzqmIkN3rPO5QlR0wLtNWCzKia+fBuI4OPN32g=
 github.com/tsarna/vinculum-redis v0.2.1 h1:BRq+lRkA/Xu5gskIIBmihOTCfVpgTBVxqgYxaiMZlaU=
 github.com/tsarna/vinculum-redis v0.2.1/go.mod h1:bG1dSeii/u9mqjZ1VrcdHKI6DwkIxMaa48QdZf8xLaU=
 github.com/tsarna/vinculum-sns v0.2.0 h1:oJp3vOBL/pssZFmUgwjfoU/F++36Bp0LP5FBpPhJbRA=

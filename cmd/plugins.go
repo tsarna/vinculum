@@ -8,6 +8,7 @@ import (
 	_ "github.com/tsarna/vinculum/clients/http"
 	_ "github.com/tsarna/vinculum/clients/kafka"
 	_ "github.com/tsarna/vinculum/clients/mqtt"
+	_ "github.com/tsarna/vinculum/clients/rabbitmq"
 	_ "github.com/tsarna/vinculum/clients/openai"
 	_ "github.com/tsarna/vinculum/clients/otlp"
 	_ "github.com/tsarna/vinculum/clients/redis"
