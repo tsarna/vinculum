@@ -70,6 +70,18 @@ jobs:
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/develop' }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
+      - name: Docker metadata (build)
+        id: meta-build
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/vinculum-build
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
       - name: Build and push Alpine image
         uses: docker/build-push-action@v7
         with:
@@ -99,5 +111,17 @@ jobs:
             VERSION=${{ steps.meta.outputs.version }}
             COMMIT=${{ github.sha }}
             BUILD_TIME=${{ steps.build_time.outputs.time }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push plugin build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.build
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-build.outputs.tags }}
+          labels: ${{ steps.meta-build.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

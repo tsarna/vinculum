@@ -16,7 +16,8 @@
 12. [Protocols](#protocols)
 13. [Examples](#examples)
 14. [Observability](#observability)
-15. [Block Type Reference](#block-type-reference)
+15. [Container Images](#container-images)
+16. [Block Type Reference](#block-type-reference)
 
 ## Introduction
 
@@ -282,6 +283,15 @@ subscription "event_router" {
 ## Observability
 
 Vinculum propagates a context through the system as messages flow from sources through buses, transforms, and subscribers, so events received via one protocol retain their originating context as they're processed and forwarded. OpenTelemetry traces and metrics are emitted throughout, and can be exposed in Prometheus/OpenMetrics format via [`server "metrics"`](server-metrics.md) or pushed to an OTel collector via [`client "otlp"`](client-otlp.md). Application-defined metrics are declared with [`metric`](metric.md) blocks.
+
+## Container Images
+
+Vinculum is published as multi-arch container images on GitHub Container
+Registry: an alpine-based runtime image, a `FROM scratch` minimal variant,
+and a `vinculum-build` image for compiling Go plugins ABI-compatible with a
+specific release.
+
+See [container.md](container.md) for the full reference.
 
 ## Block Type Reference
 

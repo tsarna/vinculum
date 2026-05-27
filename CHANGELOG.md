@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`vinculum-build` container image**: New `ghcr.io/tsarna/vinculum-build` multi-arch image (linux/amd64, linux/arm64) for compiling Go plugins (`-buildmode=plugin` `.so` files) ABI-compatible with a matching Vinculum release. Built from the same `golang:1.26-alpine` toolchain as the runtime images, with `CGO_ENABLED=0` / `GOOS=linux` baked in and the Go module cache pre-populated from Vinculum's `go.sum`. Published alongside the runtime images on every release with matching tags (`:X.Y.Z`, `:X.Y`, `:X`, `:latest`, `:dev`). The plugin loader itself is not yet implemented; the image is published in preparation. See [doc/container.md](doc/container.md).
+
 ## [0.36.0] - 2026-05-27
 
 ### Added

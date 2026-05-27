@@ -1,0 +1,40 @@
+# syntax=docker/dockerfile:1
+#
+# Vinculum plugin build image.
+#
+# Provides an environment that is ABI-compatible with the matching Vinculum
+# release for building Go plugins (.so files loaded via -buildmode=plugin).
+#
+# Go plugins are highly version-sensitive: the Go toolchain version, the
+# versions of every shared dependency, and the build flags must all match
+# between the plugin and the host binary, or `plugin.Open` fails. This
+# image pins all of those to the same values used by the matching Vinculum
+# release.
+#
+#   docker build -f Dockerfile.build -t vinculum-build .
+#
+# Typical usage by a plugin author (matching tag MUST equal the Vinculum
+# release the plugin will be loaded into):
+#
+#   docker run --rm -v "$PWD":/plugin -w /plugin \
+#       ghcr.io/tsarna/vinculum-build:0.36.0 \
+#       go build -buildmode=plugin -trimpath -o myplugin.so .
+
+FROM golang:1.26-alpine
+
+RUN apk add --no-cache git ca-certificates-bundle
+
+# Match the build environment of the runtime images.
+ENV CGO_ENABLED=0 \
+    GOOS=linux
+
+# Pre-populate the module cache with Vinculum's pinned dependency set.
+# A plugin whose go.mod requires the matching `github.com/tsarna/vinculum`
+# version will resolve to these same transitive versions and reuse the
+# cache without network access.
+WORKDIR /vinculum-src
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Canonical working directory for bind-mounted plugin source.
+WORKDIR /plugin
