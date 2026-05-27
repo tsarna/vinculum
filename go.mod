@@ -44,7 +44,7 @@ require (
 	github.com/tsarna/vinculum-mqtt v0.7.2
 	github.com/tsarna/vinculum-rabbitmq v0.1.0
 	github.com/tsarna/vinculum-redis v0.2.1
-	github.com/tsarna/vinculum-sns v0.2.0
+	github.com/tsarna/vinculum-sns v0.3.0
 	github.com/tsarna/vinculum-sqs v0.2.0
 	github.com/tsarna/vinculum-vws v0.12.0
 	github.com/tsarna/vinculum-wire v0.2.0
