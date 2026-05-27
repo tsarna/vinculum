@@ -227,8 +227,8 @@ github.com/tsarna/vinculum-sqs v0.2.0 h1:YGWxjzl52VayaqVuIw/wV4fXOytWUFOfuLDJk3f
 github.com/tsarna/vinculum-sqs v0.2.0/go.mod h1:8J0ThDo3rbcz/sBn1xWHV4ZRXck11lwmEDBNdCNvOX0=
 github.com/tsarna/vinculum-vws v0.12.0 h1:2uq/natQN/ZxndykQ5B/3G8ta+8i53CGwu0s69F7Ptk=
 github.com/tsarna/vinculum-vws v0.12.0/go.mod h1:37ViJgo+t2+o4K67tsNbjc51o2CRNBkMfuId25UM1jI=
-github.com/tsarna/vinculum-wire v0.1.0 h1:GWvDcuYBYkceC/hzwUYUvMqFI+yThxEwbYmjYSQIQ18=
-github.com/tsarna/vinculum-wire v0.1.0/go.mod h1:hh64ALOi1PX+YfFpnKTFL/y0X79mvaDuTepRaiNHN7w=
+github.com/tsarna/vinculum-wire v0.2.0 h1:ltUPyzrPIWmrUFT1dPDcw1RWwiebx9b+w9i6uMCeyTw=
+github.com/tsarna/vinculum-wire v0.2.0/go.mod h1:hh64ALOi1PX+YfFpnKTFL/y0X79mvaDuTepRaiNHN7w=
 github.com/twmb/franz-go v1.21.2 h1:WrvV/spF48JzcRylqDQy02Vm6V6W4lhtD9Y4BOYNMu4=
 github.com/twmb/franz-go v1.21.2/go.mod h1:rfoMTnVk7107fhTGxfEKIHP/e7tPe6oyij/ywzO0czk=
 github.com/twmb/franz-go/pkg/kmsg v1.13.1 h1:fG5kItwysTk5UXqVwb64EpQEy3TydF3vYYK21nUQ+bI=
