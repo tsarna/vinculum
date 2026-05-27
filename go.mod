@@ -47,7 +47,7 @@ require (
 	github.com/tsarna/vinculum-sns v0.2.0
 	github.com/tsarna/vinculum-sqs v0.2.0
 	github.com/tsarna/vinculum-vws v0.12.0
-	github.com/tsarna/vinculum-wire v0.1.0
+	github.com/tsarna/vinculum-wire v0.2.0
 	github.com/twmb/franz-go v1.21.2
 	github.com/twmb/franz-go/plugin/kotel v1.6.0
 	github.com/yosida95/uritemplate/v3 v3.0.2
@@ -141,7 +141,7 @@ require (
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/tsarna/url-cty-funcs v0.1.0
-	github.com/tsarna/vinculum-fsm v0.3.1
+	github.com/tsarna/vinculum-fsm v0.4.0
 	github.com/zclconf/go-cty v1.18.1
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/mod v0.35.0 // indirect
