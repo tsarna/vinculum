@@ -114,9 +114,12 @@ func (config *Config) ctyToTransforms(expr hcl.Expression, vals cty.Value) (tran
 	return transforms, diags
 }
 
-func (config *Config) getTransformExprEvalCtx() *hcl.EvalContext {
-	ctx := config.evalCtx.NewChild()
-	ctx.Functions = map[string]function.Function{
+// builtinTransforms returns the built-in transform-DSL functions. This is
+// the single source of truth for built-in transform names; the collision
+// check in buildTransformPluginFunctions derives the built-in name set
+// from this map's keys.
+func (config *Config) builtinTransforms() map[string]function.Function {
+	return map[string]function.Function{
 		"add_topic_prefix":      AddTopicPrefixTransform,
 		"replace_in_topic":      ReplaceInTopicTransform,
 		"chain":                 ChainTransformsTransform,
@@ -131,7 +134,14 @@ func (config *Config) getTransformExprEvalCtx() *hcl.EvalContext {
 		"stop":                  StopTransforms,
 		"jq":                    config.makeJqTransform(),
 	}
+}
 
+func (config *Config) getTransformExprEvalCtx() *hcl.EvalContext {
+	ctx := config.evalCtx.NewChild()
+	ctx.Functions = config.builtinTransforms()
+	for name, fn := range config.transformPluginFuncs {
+		ctx.Functions[name] = fn
+	}
 	return ctx
 }
 

@@ -18,6 +18,7 @@ type ConfigBuilder struct {
 	sources       []any
 	features      map[string]string
 	blockHandlers map[string]BlockHandler
+	pluginPath    string
 }
 
 type Startable interface {
@@ -81,6 +82,13 @@ type Config struct {
 
 	MetricsServers map[string]MetricsRegistrar
 	OtlpClients    map[string]OtlpClient
+
+	// transformPluginFuncs holds functions contributed by registered transform
+	// plugins, merged into the transform-only eval context. Built once during
+	// Build() after the .vinit pass (so plugin-loaded transforms are seen);
+	// collisions with built-ins or between plugins are surfaced as diagnostics
+	// at that point.
+	transformPluginFuncs map[string]function.Function
 }
 
 func NewConfig() *ConfigBuilder {
@@ -98,6 +106,15 @@ func (c *ConfigBuilder) WithLogger(logger *zap.Logger) *ConfigBuilder {
 
 func (c *ConfigBuilder) WithSources(sources ...any) *ConfigBuilder {
 	c.sources = append(c.sources, sources...)
+	return c
+}
+
+// WithPluginPath sets the directory from which `plugin "<label>" { ... }`
+// blocks resolve their .so files. The empty string (default) means plugins
+// are not permitted: any `plugin` block encountered in a .vinit file will
+// produce a fatal diagnostic.
+func (c *ConfigBuilder) WithPluginPath(path string) *ConfigBuilder {
+	c.pluginPath = path
 	return c
 }
 
@@ -167,10 +184,27 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		}
 	}
 
+	// Pass 1: process .vinit files (plugin loading, etc.) before any .vcl
+	// parsing. Plugin-registered ambients, functions, and types are visible
+	// to the rest of Build() below.
+	if vinitDiags := processVinit(cb.sources, cb.pluginPath, cb.logger); vinitDiags.HasErrors() {
+		return nil, vinitDiags
+	}
+
 	bodies, diags := ParseConfigFiles(cb.sources...)
 	if diags.HasErrors() {
 		return nil, diags
 	}
+
+	// Build the merged transform-plugin function map now that plugins have
+	// had a chance to register. Collisions with built-in transform names or
+	// between two plugins surface as fatal diagnostics here.
+	transformPluginFuncs, transformPluginDiags := config.buildTransformPluginFunctions()
+	diags = diags.Extend(transformPluginDiags)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+	config.transformPluginFuncs = transformPluginFuncs
 
 	// Populate ambient values (env, sys, etc.) from registered providers
 	for _, e := range ambientProviders {

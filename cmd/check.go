@@ -15,10 +15,15 @@ var checkCmd = &cobra.Command{
 Loads and validates HCL configuration files without starting any services.
 Exits with a non-zero status if the configuration has errors.
 
+If any *.vinit bootstrap file under the configured paths declares a "plugin"
+block, --plugin-path must be set so the plugins can be loaded for validation.
+See doc/vinit.md and doc/plugins.md for details.
+
 Examples:
   vinculum check config.vcl
   vinculum check ./configs/
-  vinculum check config1.vcl config2.vcl ./more-configs/`,
+  vinculum check config1.vcl config2.vcl ./more-configs/
+  vinculum check --plugin-path /plugins ./configs/`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runCheck,
 }
@@ -29,6 +34,7 @@ func init() {
 	checkCmd.Flags().StringVarP(&logLevel, "log-level", "l", "info", "log level (debug, info, warn, error)")
 	checkCmd.Flags().StringVarP(&filePath, "file-path", "f", "", "base directory for file functions (enables file, fileexists, fileset functions)")
 	checkCmd.Flags().StringVarP(&writePath, "write-path", "w", "", "base directory for file write functions; must be under --file-path")
+	checkCmd.Flags().StringVar(&pluginPath, "plugin-path", "", "directory containing Go plugin .so files; required if any .vinit plugin block is present")
 }
 
 func runCheck(cmd *cobra.Command, args []string) error {
@@ -41,7 +47,8 @@ func runCheck(cmd *cobra.Command, args []string) error {
 
 	configBuilder := config.NewConfig().
 		WithLogger(logger).
-		WithSources(stringSliceToAnySlice(args)...)
+		WithSources(stringSliceToAnySlice(args)...).
+		WithPluginPath(pluginPath)
 
 	if filePath != "" {
 		configBuilder = configBuilder.WithFeature("readfiles", filePath)

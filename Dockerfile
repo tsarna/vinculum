@@ -27,11 +27,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
 FROM alpine:3.23
 
 RUN apk add --no-cache ca-certificates-bundle tzdata \
-    && mkdir -p /conf /data /data/write
+    && mkdir -p /conf /data /data/write /plugins
 
 COPY --from=builder /out/vinculum /vinculum
 
 USER 65534
 
 ENTRYPOINT ["/vinculum"]
-CMD ["serve", "-f", "/data", "-w", "/data/write", "/conf"]
+CMD ["serve", "-f", "/data", "-w", "/data/write", "--plugin-path", "/plugins", "/conf"]

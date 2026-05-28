@@ -17,7 +17,8 @@
 13. [Examples](#examples)
 14. [Observability](#observability)
 15. [Container Images](#container-images)
-16. [Block Type Reference](#block-type-reference)
+16. [Bootstrap and Plugins](#bootstrap-and-plugins)
+17. [Block Type Reference](#block-type-reference)
 
 ## Introduction
 
@@ -292,6 +293,18 @@ and a `vinculum-build` image for compiling Go plugins ABI-compatible with a
 specific release.
 
 See [container.md](container.md) for the full reference.
+
+## Bootstrap and Plugins
+
+Vinculum supports a separate **bootstrap** configuration file format,
+`.vinit`, processed before any `.vcl` file. Its primary use today is
+loading Go plugins (`.so` shared objects) that contribute additional
+functions, transforms, server types, client types, and so on — the same
+extension points used by in-tree subsystems.
+
+See [vinit.md](vinit.md) for the `.vinit` file format and
+[plugins.md](plugins.md) for the `plugin` block, the `--plugin-path`
+flag, and ABI-compatibility considerations.
 
 ## Block Type Reference
 

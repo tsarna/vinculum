@@ -28,6 +28,18 @@ func (cb *ConfigBuilder) GetBlocks(bodies []hcl.Body) (hcl.Blocks, hcl.Diagnosti
 }
 
 func ParseConfigFiles(sources ...any) ([]hcl.Body, hcl.Diagnostics) {
+	return parseFilesWithExt(".vcl", true, sources...)
+}
+
+// ParseVinitFiles enumerates *.vinit files from directory and embed.FS
+// sources, plus any string source whose path ends in ".vinit". Byte-slice
+// and []string sources are ignored — vinit content is always discovered
+// from files on disk (or an embedded FS), never from in-memory bytes.
+func ParseVinitFiles(sources ...any) ([]hcl.Body, hcl.Diagnostics) {
+	return parseFilesWithExt(".vinit", false, sources...)
+}
+
+func parseFilesWithExt(ext string, acceptBytes bool, sources ...any) ([]hcl.Body, hcl.Diagnostics) {
 	parser := hclparse.NewParser()
 	var diags hcl.Diagnostics
 	bodies := make([]hcl.Body, 0)
@@ -46,35 +58,48 @@ func ParseConfigFiles(sources ...any) ([]hcl.Body, hcl.Diagnostics) {
 			}
 
 			if info.IsDir() {
-				newBodies, newDiags := parseDirectory(parser, v)
+				newBodies, newDiags := parseDirectory(parser, v, ext)
 				diags = diags.Extend(newDiags)
 				if diags.HasErrors() {
 					return nil, diags
 				}
 				bodies = append(bodies, newBodies...)
-			} else {
+			} else if acceptBytes || strings.HasSuffix(v, ext) {
+				// When acceptBytes is true (.vcl pass), an explicit file
+				// path is parsed regardless of extension to preserve the
+				// original behavior. When false (.vinit pass), only files
+				// matching the extension are parsed.
 				file, parseDiags := parser.ParseHCLFile(v)
 				diags = diags.Extend(parseDiags)
 				bodies = append(bodies, file.Body)
 			}
 		case []byte:
+			if !acceptBytes {
+				continue
+			}
 			filename := fmt.Sprintf("<bytes@%p>", v)
 			body, parseDiags := parser.ParseHCL(v, filename)
 			diags = diags.Extend(parseDiags)
 			bodies = append(bodies, body.Body)
 		case embed.FS:
-			newBodies, newDiags := parseFS(parser, v)
+			newBodies, newDiags := parseFS(parser, v, ext)
 			diags = diags.Extend(newDiags)
 			if diags.HasErrors() {
 				return nil, diags
 			}
 			bodies = append(bodies, newBodies...)
 		case []string:
+			if !acceptBytes {
+				continue
+			}
 			for _, file := range v {
 				_, parseDiags := parser.ParseHCLFile(file)
 				diags = diags.Extend(parseDiags)
 			}
 		default:
+			if !acceptBytes {
+				continue
+			}
 			diags = diags.Append(&hcl.Diagnostic{
 				Severity: hcl.DiagError,
 				Summary:  "Invalid source type",
@@ -86,7 +111,7 @@ func ParseConfigFiles(sources ...any) ([]hcl.Body, hcl.Diagnostics) {
 	return bodies, diags
 }
 
-func parseDirectory(parser *hclparse.Parser, dir string) ([]hcl.Body, hcl.Diagnostics) {
+func parseDirectory(parser *hclparse.Parser, dir, ext string) ([]hcl.Body, hcl.Diagnostics) {
 	var diags hcl.Diagnostics
 	bodies := make([]hcl.Body, 0)
 
@@ -102,7 +127,7 @@ func parseDirectory(parser *hclparse.Parser, dir string) ([]hcl.Body, hcl.Diagno
 		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
 			return filepath.SkipDir
 		}
-		if !info.IsDir() && strings.HasSuffix(path, ".vcl") {
+		if !info.IsDir() && strings.HasSuffix(path, ext) {
 			file, parseDiags := parser.ParseHCLFile(path)
 			diags = diags.Extend(parseDiags)
 			bodies = append(bodies, file.Body)
@@ -122,7 +147,7 @@ func parseDirectory(parser *hclparse.Parser, dir string) ([]hcl.Body, hcl.Diagno
 	return bodies, diags
 }
 
-func parseFS(parser *hclparse.Parser, embedFS embed.FS) ([]hcl.Body, hcl.Diagnostics) {
+func parseFS(parser *hclparse.Parser, embedFS embed.FS, ext string) ([]hcl.Body, hcl.Diagnostics) {
 	var diags hcl.Diagnostics
 	bodies := make([]hcl.Body, 0)
 
@@ -135,7 +160,7 @@ func parseFS(parser *hclparse.Parser, embedFS embed.FS) ([]hcl.Body, hcl.Diagnos
 			})
 			return nil
 		}
-		if !d.IsDir() && strings.HasSuffix(path, ".vcl") {
+		if !d.IsDir() && strings.HasSuffix(path, ext) {
 			content, err := fs.ReadFile(embedFS, path)
 			if err != nil {
 				diags = diags.Append(&hcl.Diagnostic{

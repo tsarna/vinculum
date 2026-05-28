@@ -8,6 +8,8 @@ Swiss Army Knife for connecting systems: a few lines of config can bridge HTTP,
 WebSockets, MQTT-style pub/sub, cron scheduling, and more.
 
 Configuration files use the `.vcl` extension (Vinculum Configuration Language).
+A separate `.vinit` file format is processed before any `.vcl` to bootstrap the
+runtime — currently used to load Go shared-object plugins (`.so`).
 
 ---
 
@@ -25,6 +27,9 @@ User-facing documentation lives in `doc/`. Each file covers one topic:
 | `doc/server-mcp.md` | `server "mcp"`: resources, tools, prompts, MCP functions |
 | `doc/server-vws.md` | `server "vws"` and `client "vws"`: VWS protocol, allow_send, reconnect |
 | `doc/server-websocket.md` | `server "websocket"`: simple raw WebSocket push server |
+| `doc/vinit.md` | `.vinit` bootstrap file format, two-pass discovery, minimal eval context, `disabled` |
+| `doc/plugins.md` | `plugin` block, `--plugin-path`, ABI rules, container deployment |
+| `doc/container.md` | Published Docker images: `vinculum`, `vinculum:*-minimal`, `vinculum-build` |
 
 ---
 
@@ -44,9 +49,15 @@ config/         Core configuration parsing and all block implementations
   ctx.go        evaluation context builders (per handler type)
   dep.go        dependency graph + topological sort
   config.go     Config and ConfigBuilder types
-  parse.go      HCL file/directory/bytes parsing
+  parse.go      HCL file/directory/bytes parsing — `.vcl` and `.vinit` extensions
   transforms.go message transform functions
+  transformplugin.go    RegisterTransformPlugin + collision detection
+  vinit.go      .vinit pass-1 orchestration, minimal eval context, plugin block
+  plugin_common.go      PluginContext + entry-point type (all platforms)
+  plugin.go     Plugin loader (linux/darwin/freebsd build tag)
+  plugin_unsupported.go Plugin loader stub (other platforms)
   testdata/     .vcl fixtures for tests
+  testdata/plugins/     Fixture plugin source for integration test
 functions/      Built-in HCL functions (log, stdlib, jq, diff, mcp_*, etc.)
 internal/
   hclutil/      Shared HCL helpers (ContextObjectBuilder, capsule utilities)
@@ -198,6 +209,81 @@ server) implementations rather than duplicated per protocol:
 | `config/tls.go` | `TLSConfig` | TLS/mTLS config; provides `TLSClientConfig() (*tls.Config, error)` |
 
 Add to this table as new shared sub-blocks are defined.
+
+---
+
+## Architecture: Bootstrap and Plugins
+
+`.vinit` files are processed in a "pass 1" before any `.vcl` parsing. The
+pass is invoked at the very top of `ConfigBuilder.Build()`
+(`config/config.go`), before `ParseConfigFiles` and before ambient
+population, so plugin-registered contributions are visible to the rest of
+`Build()`.
+
+### Pipeline
+
+1. `Build()` calls `processVinit(sources, pluginPath, logger)`
+   (`config/vinit.go`).
+2. `ParseVinitFiles` walks the sources, filtering on `.vinit` extension.
+   It explicitly **skips `[]byte` and `[]string`** sources so test fixtures
+   that pass VCL content as bytes don't get treated as vinit.
+3. Each body is decoded against `vinitSchema` (closed schema, currently
+   only `plugin "<label>" { ... }`); unknown block types are fatal.
+4. For each `plugin` block: label is regex-validated, `disabled` is
+   evaluated against the minimal eval context (`env.*` + cty stdlib —
+   no const, no user functions, no plugin contributions), duplicates
+   are detected, and `loadPlugin` is invoked.
+5. `loadPlugin` (`config/plugin.go`, build-tagged
+   linux/darwin/freebsd) does `plugin.Open` → symbol lookup →
+   panic-recovered `VinculumPluginInit(*PluginContext) hcl.Diagnostics`
+   invocation.
+
+### Minimal `.vinit` eval context
+
+Built in `vinitEvalContext()` in `config/vinit.go`:
+
+- `env.<NAME>` — via `hclutil.EnvObject()` (the canonical env-to-cty
+  helper, shared with the `ambient` package's `env` provider).
+- Stdlib functions — looked up by name (`"stdlib"`) in the
+  `functionPlugins` registry. The stdlib FunctionPlugin's getter ignores
+  its `*Config` argument so passing `nil` is safe.
+
+### What plugins can register
+
+Plugins call the same `Register*` functions as in-tree subsystems:
+`RegisterFunctionPlugin`, `RegisterAmbientProvider`, `RegisterServerType`,
+`RegisterClientType`, `RegisterTriggerType`, `RegisterConditionSubtype`,
+`RegisterWireFormatType`, `RegisterEditorType`, and the new
+`RegisterTransformPlugin`. Adding entirely new top-level `.vcl` block
+types is not supported.
+
+### `RegisterTransformPlugin` + collision check
+
+Transform plugins are merged into the transform-only eval context at
+`Build()` time, not on every `transforms = [...]` evaluation. The
+single source of truth for built-in transform names is
+`(*Config).builtinTransforms()` in `config/transforms.go`;
+`buildTransformPluginFunctions()` in `config/transformplugin.go`
+derives the built-in name set from that map's keys, so adding a new
+built-in transform automatically extends the collision check.
+
+### Cross-platform PluginContext
+
+`PluginContext` lives in `config/plugin_common.go` with no build tag so
+plugin author code referencing `config.PluginContext` compiles on every
+platform. Only the *loader* is platform-gated.
+
+### Testing notes
+
+- `package config` (internal) tests use `withCleanTransformPlugins(t)`
+  in `config/transformplugin_test.go` to save/restore the process-global
+  `transformPlugins` slice across tests.
+- The integration test (`config/plugin_integration_test.go`, build tag
+  `integration`) exec's a real `go build`-produced `vinculum` binary
+  rather than loading the `.so` into the test binary itself — Go's
+  plugin loader rejects `.so` files built without `go test`'s
+  test-mode instrumentation as "different version of package X". The
+  workaround mirrors how production loads plugins.
 
 ---
 

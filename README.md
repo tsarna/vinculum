@@ -21,6 +21,7 @@ MacGyver together a solution with a few lines of configuration.
 - **State Machines** — Finite state machines with guarded transitions, reactive events, key-value storage, MQTT topic matching, and OpenTelemetry tracing; composable with conditions and watchable for reactive integration
 - **Transformations and Procedures** — JQ-based message transforms, structured-text `editor` blocks, and `procedure` blocks for small imperative helpers
 - **Built-in Functions** — A large standard library covering HTTP, files, templates, time, randomness, IDs, LLMs, sunrise/sunset, geographic calculartions, and more.
+- **Plugins** — Load Go shared-object plugins (`.so`) at startup to extend Vinculum with custom functions, transforms, server/client/trigger types, and more — using the same registration points as in-tree subsystems
 - **Observability** — Context propagation, OpenTelemetry tracing and metrics, and Prometheus exposition throughout
 
 ## Documentation

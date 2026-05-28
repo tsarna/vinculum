@@ -23,20 +23,26 @@ var serverCmd = &cobra.Command{
 The server will load HCL configuration files from the specified paths and start
 the event bus and other configured services.
 
+If any *.vinit bootstrap file under the configured paths declares a "plugin"
+block, --plugin-path must be set to a directory containing the corresponding
+.so files. See doc/vinit.md and doc/plugins.md for details.
+
 Examples:
-  vinculum server config.vcl
-  vinculum server ./configs/
-  vinculum server config1.vcl config2.vcl ./more-configs/
-  vinculum server -f /path/to/files config.vcl`,
+  vinculum serve config.vcl
+  vinculum serve ./configs/
+  vinculum serve config1.vcl config2.vcl ./more-configs/
+  vinculum serve -f /path/to/files config.vcl
+  vinculum serve --plugin-path /plugins ./configs/`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runServer,
 }
 
 var (
-	logLevel  string
-	filePath  string
-	writePath string
-	allowKill bool
+	logLevel   string
+	filePath   string
+	writePath  string
+	allowKill  bool
+	pluginPath string
 )
 
 func init() {
@@ -46,6 +52,7 @@ func init() {
 	serverCmd.Flags().StringVarP(&filePath, "file-path", "f", "", "base directory for file functions (enables file, fileexists, fileset functions)")
 	serverCmd.Flags().StringVarP(&writePath, "write-path", "w", "", "base directory for file write functions; must be under --file-path")
 	serverCmd.Flags().BoolVar(&allowKill, "allow-kill", false, "enable the kill function (feature \"allowkill\")")
+	serverCmd.Flags().StringVar(&pluginPath, "plugin-path", "", "directory containing Go plugin .so files; required if any .vinit plugin block is present")
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
@@ -66,7 +73,8 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	configBuilder := config.NewConfig().
 		WithLogger(logger).
-		WithSources(stringSliceToAnySlice(args)...)
+		WithSources(stringSliceToAnySlice(args)...).
+		WithPluginPath(pluginPath)
 
 	if filePath != "" {
 		configBuilder = configBuilder.WithFeature("readfiles", filePath)

@@ -129,5 +129,7 @@ FROM ghcr.io/tsarna/vinculum:0.36.0
 COPY myplugin.so /plugins/
 ```
 
-Plugin loading is not yet released; this image is published in
-preparation.
+See [plugins.md](plugins.md) for the `plugin` block syntax,
+`--plugin-path` semantics, and ABI-compatibility considerations, and
+[vinit.md](vinit.md) for the `.vinit` file format that declares
+plugins.
