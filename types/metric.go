@@ -190,7 +190,7 @@ func (m *GaugeMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, err
 		if delta != 0 {
 			m.inst.Add(ctx, delta, metric.WithAttributes(kvs...))
 		}
-		m.NotifyAll(ctx, cty.NumberFloatVal(old), value)
+		m.NotifyAll(ctx, m, cty.NumberFloatVal(old), value)
 		return value, nil
 	}
 	m.mu.Lock()
@@ -201,7 +201,7 @@ func (m *GaugeMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, err
 	if delta != 0 {
 		m.inst.Add(ctx, delta)
 	}
-	m.NotifyAll(ctx, cty.NumberFloatVal(old), value)
+	m.NotifyAll(ctx, m, cty.NumberFloatVal(old), value)
 	return value, nil
 }
 
@@ -227,7 +227,7 @@ func (m *GaugeMetric) Increment(ctx context.Context, args []cty.Value) (cty.Valu
 		cur := m.labelVals[key]
 		m.mu.Unlock()
 		m.inst.Add(ctx, f, metric.WithAttributes(kvs...))
-		m.NotifyAll(ctx, cty.NumberFloatVal(old), cty.NumberFloatVal(cur))
+		m.NotifyAll(ctx, m, cty.NumberFloatVal(old), cty.NumberFloatVal(cur))
 		return cty.NumberFloatVal(cur), nil
 	}
 	m.mu.Lock()
@@ -236,7 +236,7 @@ func (m *GaugeMetric) Increment(ctx context.Context, args []cty.Value) (cty.Valu
 	cur := m.noLabelVal
 	m.mu.Unlock()
 	m.inst.Add(ctx, f)
-	m.NotifyAll(ctx, cty.NumberFloatVal(old), cty.NumberFloatVal(cur))
+	m.NotifyAll(ctx, m, cty.NumberFloatVal(old), cty.NumberFloatVal(cur))
 	return cty.NumberFloatVal(cur), nil
 }
 
@@ -307,7 +307,7 @@ func (m *CounterMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, e
 		if delta > 0 {
 			m.inst.Add(ctx, delta, metric.WithAttributes(kvs...))
 		}
-		m.NotifyAll(ctx, cty.NumberFloatVal(old), cty.NumberFloatVal(newVal))
+		m.NotifyAll(ctx, m, cty.NumberFloatVal(old), cty.NumberFloatVal(newVal))
 		return value, nil
 	}
 	m.mu.Lock()
@@ -322,7 +322,7 @@ func (m *CounterMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, e
 	if delta > 0 {
 		m.inst.Add(ctx, delta)
 	}
-	m.NotifyAll(ctx, cty.NumberFloatVal(old), cty.NumberFloatVal(newVal))
+	m.NotifyAll(ctx, m, cty.NumberFloatVal(old), cty.NumberFloatVal(newVal))
 	return value, nil
 }
 
@@ -351,7 +351,7 @@ func (m *CounterMetric) Increment(ctx context.Context, args []cty.Value) (cty.Va
 		cur := m.labelVals[key]
 		m.mu.Unlock()
 		m.inst.Add(ctx, f, metric.WithAttributes(kvs...))
-		m.NotifyAll(ctx, cty.NumberFloatVal(old), cty.NumberFloatVal(cur))
+		m.NotifyAll(ctx, m, cty.NumberFloatVal(old), cty.NumberFloatVal(cur))
 		return cty.NumberFloatVal(cur), nil
 	}
 	m.mu.Lock()
@@ -360,7 +360,7 @@ func (m *CounterMetric) Increment(ctx context.Context, args []cty.Value) (cty.Va
 	cur := m.noLabelVal
 	m.mu.Unlock()
 	m.inst.Add(ctx, f)
-	m.NotifyAll(ctx, cty.NumberFloatVal(old), cty.NumberFloatVal(cur))
+	m.NotifyAll(ctx, m, cty.NumberFloatVal(old), cty.NumberFloatVal(cur))
 	return cty.NumberFloatVal(cur), nil
 }
 

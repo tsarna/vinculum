@@ -4,13 +4,15 @@ import (
 	"context"
 	"sync"
 
+	richcty "github.com/tsarna/rich-cty-types"
 	"github.com/zclconf/go-cty/cty"
 )
 
 type testChange struct {
-	ctx context.Context
-	old cty.Value
-	new cty.Value
+	ctx    context.Context
+	source richcty.Watchable
+	old    cty.Value
+	new    cty.Value
 }
 
 type testWatcher struct {
@@ -18,10 +20,10 @@ type testWatcher struct {
 	changes []testChange
 }
 
-func (w *testWatcher) OnChange(ctx context.Context, old, new cty.Value) {
+func (w *testWatcher) OnChange(ctx context.Context, source richcty.Watchable, old, new cty.Value) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.changes = append(w.changes, testChange{ctx, old, new})
+	w.changes = append(w.changes, testChange{ctx, source, old, new})
 }
 
 func (w *testWatcher) count() int {

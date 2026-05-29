@@ -68,7 +68,7 @@ func (v *Variable) Set(ctx context.Context, args []cty.Value) (cty.Value, error)
 	old := v.value
 	v.value = value
 	v.mu.Unlock()
-	v.NotifyAll(ctx, old, value)
+	v.NotifyAll(ctx, v, old, value)
 	return value, nil
 }
 
@@ -90,7 +90,24 @@ func (v *Variable) Increment(ctx context.Context, args []cty.Value) (cty.Value, 
 	old := v.value
 	v.value = newVal
 	v.mu.Unlock()
-	v.NotifyAll(ctx, old, newVal)
+	v.NotifyAll(ctx, v, old, newVal)
+	return newVal, nil
+}
+
+// Toggle flips a boolean value and returns the new value. Implements
+// richcty.Toggleable. The current value must be a non-null bool; extra args
+// are ignored.
+func (v *Variable) Toggle(ctx context.Context, _ []cty.Value) (cty.Value, error) {
+	v.mu.Lock()
+	if v.value.IsNull() || v.value.Type() != cty.Bool {
+		v.mu.Unlock()
+		return cty.NilVal, fmt.Errorf("toggle: current value is not a bool, got %s", v.value.Type().FriendlyName())
+	}
+	newVal := cty.BoolVal(!v.value.True())
+	old := v.value
+	v.value = newVal
+	v.mu.Unlock()
+	v.NotifyAll(ctx, v, old, newVal)
 	return newVal, nil
 }
 

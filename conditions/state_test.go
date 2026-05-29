@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	richcty "github.com/tsarna/rich-cty-types"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -109,7 +110,7 @@ type watcherCall struct {
 	new bool
 }
 
-func (w *capturingWatcher) OnChange(_ context.Context, old, new cty.Value) {
+func (w *capturingWatcher) OnChange(_ context.Context, _ richcty.Watchable, old, new cty.Value) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.calls = append(w.calls, watcherCall{old: old.True(), new: new.True()})

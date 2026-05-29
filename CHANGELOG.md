@@ -13,10 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`RegisterTransformPlugin`** registration API for plugins (or in-tree subsystems) that contribute message-transform DSL functions. Collisions with built-in transforms or between plugins are reported as fatal diagnostics at config build time.
 - **`vinculum-build` container image**: New `ghcr.io/tsarna/vinculum-build` multi-arch image (linux/amd64, linux/arm64) for compiling plugins ABI-compatible with a matching Vinculum release. Built from the same `golang:1.26-alpine` toolchain as the runtime images, with `CGO_ENABLED=0` / `GOOS=linux` baked in and the Go module cache pre-populated from Vinculum's `go.sum`. Published alongside the runtime images on every release with matching tags (`:X.Y.Z`, `:X.Y`, `:X`, `:latest`, `:dev`). See [doc/container.md](doc/container.md).
 - **Runtime container images** (`vinculum` and `vinculum:*-minimal`) now pre-create `/plugins/` and pass `--plugin-path /plugins` in the default `CMD`, so plugins can be loaded by dropping a `.so` into `/plugins/` and declaring it in a `.vinit`.
+- **`toggle()` on variables**: `var` blocks now implement `Toggleable` from `rich-cty-types` v0.2.0, so `toggle(var.x)` flips a boolean variable in place and returns the new value.
 
 ### Changed
 
 - The license has been changed to Apache-2.0
+- Bumped `rich-cty-types` to v0.2.0 and `vinculum-fsm` to v0.5.0. The new `Watcher.OnChange(ctx, source, old, new)` signature lets a single watcher disambiguate between multiple Watchables it has registered with. All in-tree watchers (reactive expressions, `trigger "watch"`, `trigger "watchdog"`, condition hooks) are adapted; the change is internal to vinculum but is a breaking change for any external Go code that registers a Watcher on a vinculum `Variable`, metric, condition state machine, or FSM `Instance`.
 
 ## [0.36.0] - 2026-05-27
 

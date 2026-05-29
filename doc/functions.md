@@ -822,6 +822,16 @@ with the same context-forwarding semantics as `set()`.
 - **Metric (no-label)**: `increment(metric.errors_total, 1)`.
 - **Metric (labeled)**: `increment(metric.requests_total, 1, {method = "POST"})`.
 
+#### `toggle([ctx,] thing)`
+
+Flips the boolean value of `thing` and returns the new value. The current
+value must be a non-null `bool`; any other type is a runtime error.
+
+- **Variable**: `toggle(var.enabled)`.
+
+`toggle()` also fires `OnChange` notifications on any registered Watchable
+watchers, with the same context-forwarding semantics as `set()`.
+
 #### `observe([ctx,] metric, value, labels?)`
 
 Records a single observation on a histogram metric. Only valid on `metric` values

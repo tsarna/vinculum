@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/hashicorp/hcl/v2"
+	richcty "github.com/tsarna/rich-cty-types"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/otel/trace"
@@ -51,7 +52,7 @@ func NewHookDispatcher(name string, hooks Hooks, config *cfg.Config, tp trace.Tr
 
 // OnChange implements richcty.Watcher. StateMachine already guarantees output
 // changes, so the defensive equal check is only for safety.
-func (h *HookDispatcher) OnChange(ctx context.Context, old, new cty.Value) {
+func (h *HookDispatcher) OnChange(ctx context.Context, _ richcty.Watchable, old, new cty.Value) {
 	if h == nil {
 		return
 	}

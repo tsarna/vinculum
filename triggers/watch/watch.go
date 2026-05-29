@@ -37,7 +37,7 @@ type WatchTrigger struct {
 
 // OnChange implements Watcher. It stores the new value and dispatches action
 // evaluation to a goroutine so as not to block the Set() caller.
-func (t *WatchTrigger) OnChange(ctx context.Context, oldValue, newValue cty.Value) {
+func (t *WatchTrigger) OnChange(ctx context.Context, _ richcty.Watchable, oldValue, newValue cty.Value) {
 	if t.stopped.Load() {
 		return
 	}

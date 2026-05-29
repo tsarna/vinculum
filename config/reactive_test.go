@@ -42,7 +42,7 @@ func (m *mockWatchable) Update(ctx context.Context, v cty.Value) {
 	old := m.value
 	m.value = v
 	m.mu.Unlock()
-	m.NotifyAll(ctx, old, v)
+	m.NotifyAll(ctx, m, old, v)
 }
 
 var mockCapsuleType = cty.CapsuleWithOps("mock_watchable",

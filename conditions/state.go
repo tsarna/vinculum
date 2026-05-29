@@ -404,7 +404,7 @@ func (sm *StateMachine) notifyAll(ctx context.Context, before, after cty.Value) 
 		before = cty.BoolVal(!before.True())
 		after = cty.BoolVal(!after.True())
 	}
-	sm.NotifyAll(ctx, before, after)
+	sm.NotifyAll(ctx, sm, before, after)
 }
 
 // Output returns the current boolean output (post-inversion). Safe for

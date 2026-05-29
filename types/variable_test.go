@@ -124,6 +124,55 @@ func TestVariableIncrementErrors(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestVariableToggle(t *testing.T) {
+	v := NewVariable(cty.True)
+
+	newVal, err := v.Toggle(bg, nil)
+	assert.NoError(t, err)
+	assert.True(t, newVal.RawEquals(cty.False))
+
+	newVal, err = v.Toggle(bg, nil)
+	assert.NoError(t, err)
+	assert.True(t, newVal.RawEquals(cty.True))
+}
+
+func TestVariableToggleErrors(t *testing.T) {
+	// Toggle on null fails
+	v := NewVariable(cty.NullVal(cty.DynamicPseudoType))
+	_, err := v.Toggle(bg, nil)
+	assert.Error(t, err)
+
+	// Toggle on non-bool fails
+	v = NewVariable(cty.NumberIntVal(1))
+	_, err = v.Toggle(bg, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "bool")
+}
+
+func TestVariableWatch_ToggleNotifiesOldAndNew(t *testing.T) {
+	v := NewVariable(cty.False)
+	w := &testWatcher{}
+	v.Watch(w)
+
+	_, err := v.Toggle(bg, nil)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 1, w.count())
+	c := w.get(0)
+	assert.True(t, c.old.RawEquals(cty.False))
+	assert.True(t, c.new.RawEquals(cty.True))
+}
+
+func TestVariableWatch_ToggleErrorNoNotify(t *testing.T) {
+	v := NewVariable(cty.NumberIntVal(5))
+	w := &testWatcher{}
+	v.Watch(w)
+
+	_, err := v.Toggle(bg, nil)
+	assert.Error(t, err)
+	assert.Equal(t, 0, w.count(), "failed Toggle must not notify watchers")
+}
+
 // --- richcty.Watchable tests ---
 
 func TestVariableWatch_SetNotifiesOldAndNew(t *testing.T) {

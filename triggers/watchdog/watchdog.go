@@ -107,7 +107,7 @@ func (t *WatchdogTrigger) Get(_ context.Context, _ []cty.Value) (cty.Value, erro
 
 // OnChange implements Watcher. It auto-feeds the watchdog whenever the watched
 // Watchable's value changes, equivalent to calling set(trigger.<name>, newValue).
-func (t *WatchdogTrigger) OnChange(ctx context.Context, _, newValue cty.Value) {
+func (t *WatchdogTrigger) OnChange(ctx context.Context, _ richcty.Watchable, _, newValue cty.Value) {
 	t.Set(ctx, []cty.Value{newValue}) //nolint:errcheck
 }
 

@@ -126,7 +126,7 @@ func (r *ReactiveExpr) Stop() {
 // expression is re-evaluated and the callback is invoked with the new value.
 // Evaluation errors are swallowed here (the previous value remains in effect
 // from the caller's perspective); config-time errors surface at Start().
-func (r *ReactiveExpr) OnChange(ctx context.Context, _, _ cty.Value) {
+func (r *ReactiveExpr) OnChange(ctx context.Context, _ richcty.Watchable, _, _ cty.Value) {
 	val, diags := r.Eval()
 	if diags.HasErrors() {
 		return
