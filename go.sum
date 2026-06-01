@@ -130,7 +130,6 @@ github.com/lestrrat-go/iter v1.0.2 h1:gMXo1q4c2pHmC3dn8LzRhJfP1ceCbgSiT9lUydIzlt
 github.com/lestrrat-go/iter v1.0.2/go.mod h1:Momfcq3AnRlRjI5b5O8/G5/BvpzrhoFTZcn06fEOPt4=
 github.com/lestrrat-go/jwx/v2 v2.1.6 h1:hxM1gfDILk/l5ylers6BX/Eq1m/pnxe9NBwW6lVfecA=
 github.com/lestrrat-go/jwx/v2 v2.1.6/go.mod h1:Y722kU5r/8mV7fYDifjug0r8FK8mZdw0K0GpJw/l8pU=
-github.com/lestrrat-go/jwx/v4 v4.0.2/go.mod h1:F2a0rSyXsqLAL0orBZGOXrzQGv018Tx4eiEWWYR7Yzo=
 github.com/lestrrat-go/option v1.0.1 h1:oAzP2fvZGQKWkvHa1/SAcFolBEca1oN+mQ7eooNBEYU=
 github.com/lestrrat-go/option v1.0.1/go.mod h1:5ZHFbivi4xwXxhxY9XHDe2FHo6/Z7WWmtT7T5nBBp3I=
 github.com/mitchellh/go-homedir v1.1.0 h1:lukF9ziXFxDFPkA1vsr5zpc1XuPDn/wFntq5mG+4E0Y=
@@ -216,8 +215,8 @@ github.com/tsarna/vinculum-fsm v0.5.0 h1:Mj55Nqz7GTzc1Wd/NjzFU6LtHn+VlW9oduW3lY0
 github.com/tsarna/vinculum-fsm v0.5.0/go.mod h1:1fpjr9HuYybpD0iWM0mQ4N9yvVvC9W4HZqrTCpheTRo=
 github.com/tsarna/vinculum-kafka v0.10.0 h1:w9EjuS1jaB0ZZGfFplY93gESlPey/cY+ltleLQ52rOw=
 github.com/tsarna/vinculum-kafka v0.10.0/go.mod h1:1SPjbRQjRAGHfACc8RFMlsspiHnKMY/G5sXH6qgUkYg=
-github.com/tsarna/vinculum-mqtt v0.7.2 h1:owdYrM4+h7JVSdGMWKKwhfO4V2MsrzQKg2WtBwoR/BQ=
-github.com/tsarna/vinculum-mqtt v0.7.2/go.mod h1:7cRRCJdwfKYgwg/uonQU26u7cOXxqaQZFSzQySACz88=
+github.com/tsarna/vinculum-mqtt v0.8.0 h1:/YgQOvmYyE3sP/9iusXXJ+ttxJ7wG9p3UhL4aWF7khk=
+github.com/tsarna/vinculum-mqtt v0.8.0/go.mod h1:Xnv8QajR0tcpetq9JjeJOOckAp/gGmyQJ3nlQ8zJ/Gs=
 github.com/tsarna/vinculum-rabbitmq v0.1.0 h1:/8EFGR+fOD44yDz0tlw1pEmmXSHTYDKKyLgEOhzBHXU=
 github.com/tsarna/vinculum-rabbitmq v0.1.0/go.mod h1:gjrHsCzqmIkN3rPO5QlR0wLtNWCzKia+fBuI4OPN32g=
 github.com/tsarna/vinculum-redis v0.2.1 h1:BRq+lRkA/Xu5gskIIBmihOTCfVpgTBVxqgYxaiMZlaU=

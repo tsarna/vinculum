@@ -21,7 +21,6 @@ require (
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/itchyny/gojq v0.12.19
 	github.com/lestrrat-go/jwx/v2 v2.1.6
-	github.com/lestrrat-go/jwx/v4 v4.0.2
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rabbitmq/amqp091-go v1.11.0
@@ -42,7 +41,7 @@ require (
 	github.com/tsarna/time-cty-funcs v0.2.1
 	github.com/tsarna/vinculum-bus v0.15.0
 	github.com/tsarna/vinculum-kafka v0.10.0
-	github.com/tsarna/vinculum-mqtt v0.7.2
+	github.com/tsarna/vinculum-mqtt v0.8.0
 	github.com/tsarna/vinculum-rabbitmq v0.1.0
 	github.com/tsarna/vinculum-redis v0.2.1
 	github.com/tsarna/vinculum-sns v0.3.0
