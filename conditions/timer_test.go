@@ -287,6 +287,87 @@ func TestTimerStartActiveLatched(t *testing.T) {
 	assert.Equal(t, "inactive", stateMust(t, cond))
 }
 
+func TestTimerToggleFlipsState(t *testing.T) {
+	c := buildConfig(t, timerMinimalVCL)
+	cond := c.CtyConditionMap["door_open"].EncapsulatedValue().(*TimerCondition)
+
+	require.Equal(t, "inactive", stateMust(t, cond))
+
+	out, err := cond.Toggle(context.Background(), nil)
+	require.NoError(t, err)
+	assert.True(t, out.True(), "toggle returns the new input value")
+	assert.Equal(t, "active", stateMust(t, cond))
+
+	out, err = cond.Toggle(context.Background(), nil)
+	require.NoError(t, err)
+	assert.False(t, out.True())
+	assert.Equal(t, "inactive", stateMust(t, cond))
+}
+
+func TestTimerToggleRejectedWhenInputDeclared(t *testing.T) {
+	c := buildConfig(t, timerComposedVCL)
+	fault := c.CtyConditionMap["system_fault"].EncapsulatedValue().(*TimerCondition)
+	_, err := fault.Toggle(context.Background(), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "has declared input")
+}
+
+func TestTimerToggleStartActiveFlipsToInactive(t *testing.T) {
+	// start_active = true sets stableInput = true at bootstrap; the first
+	// Toggle() must flip the input to false, not toggle "from false".
+	// Latched start_active means set(false) cannot deactivate it, but Toggle
+	// goes through the same submitInput path and similarly can't break a
+	// latch — the input flips to false but state stays active (parity with
+	// TestTimerStartActiveLatched's set(false) behavior).
+	c := buildConfig(t, timerStartActiveVCL)
+	cond := c.CtyConditionMap["fault"].EncapsulatedValue().(*TimerCondition)
+
+	for _, s := range c.Startables {
+		require.NoError(t, s.Start())
+	}
+	defer func() {
+		for _, s := range c.Stoppables {
+			_ = s.Stop()
+		}
+	}()
+
+	require.Equal(t, "active", stateMust(t, cond), "boot-active")
+
+	out, err := cond.Toggle(context.Background(), nil)
+	require.NoError(t, err)
+	assert.False(t, out.True(), "first toggle flips boot-true input to false")
+	assert.Equal(t, "active", stateMust(t, cond),
+		"latch holds through toggle's set(false) just as it does through set(false)")
+}
+
+func TestTimerToggleAfterTimeoutReassertion(t *testing.T) {
+	// Mirror of TestTimerTimeoutAllowsReassertion but using Toggle() instead
+	// of Set() — the reconcile-with-SM-rawInput path inside Toggle must catch
+	// the SM's post-timeout rawInput=false reset, so the toggle flips to true
+	// (re-activating), not to "the opposite of our stale stableInput".
+	clock := newFakeClock()
+	sm := NewStateMachine(Behavior{Timeout: 5 * time.Minute}, clock)
+	tc := &TimerCondition{
+		name:  "preempt",
+		sm:    sm,
+		clock: clock,
+	}
+
+	_, err := tc.Set(context.Background(), []cty.Value{cty.True})
+	require.NoError(t, err)
+	require.Equal(t, "active", stateMust(t, tc))
+
+	clock.Advance(5 * time.Minute)
+	require.Equal(t, "inactive", stateMust(t, tc), "timeout deactivated")
+
+	// At this point our wrapper's stableInput is stale (true), but
+	// sm.RawInput() is false. Toggle must reconcile and flip to true.
+	out, err := tc.Toggle(context.Background(), nil)
+	require.NoError(t, err)
+	assert.True(t, out.True(), "toggle should reconcile post-timeout reset and flip to true")
+	assert.Equal(t, "active", stateMust(t, tc), "re-activated by toggle")
+}
+
 func stateMust(t *testing.T, tc interface {
 	State(context.Context) (string, error)
 }) string {

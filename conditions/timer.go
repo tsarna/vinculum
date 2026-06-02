@@ -107,6 +107,32 @@ func (t *TimerCondition) Set(ctx context.Context, args []cty.Value) (cty.Value, 
 	return v, nil
 }
 
+// Toggle implements richcty.Toggleable. Equivalent to set(condition.x, !current),
+// flipping the bistable's input through the normal debounce + state-machine
+// path. Rejected when a declared input= expression is present (the condition is
+// then level-tracking, not bistable — same rule as Set). Extra args are
+// ignored. Returns the new input boolean.
+//
+// The basis for the flip is the post-debounce stableInput, reconciled against
+// the state machine's RawInput() first to pick up auto-resets from timeout or
+// Clear() (mirrors the reconcile in submitInput). All gating — activate_after,
+// deactivate_after, cooldown, latch, inhibit, invert — applies as for any
+// other input edge.
+func (t *TimerCondition) Toggle(ctx context.Context, _ []cty.Value) (cty.Value, error) {
+	if t.hasInputExpr {
+		return cty.NilVal, fmt.Errorf("condition %q has declared input; toggle() is not permitted", t.name)
+	}
+	t.mu.Lock()
+	if smRaw := t.sm.RawInput(); smRaw != t.stableInput {
+		t.stableInput = smRaw
+		t.rawInput = smRaw
+	}
+	newVal := !t.stableInput
+	t.mu.Unlock()
+	t.submitInput(ctx, newVal)
+	return cty.BoolVal(newVal), nil
+}
+
 // submitInput routes a raw boolean input through the debounce filter on its
 // way to the state machine. ctx is forwarded to the state machine (and thus
 // to watcher notifications) on direct transitions; asynchronous debounce

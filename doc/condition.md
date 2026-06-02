@@ -691,6 +691,7 @@ summary:
 | `get(condition.name)` → bool | all | Current boolean output |
 | `state(condition.name)` → string | all | Current internal state name |
 | `set(condition.name, value)` | timer (no declared `input`) | Provide the boolean input |
+| `toggle(condition.name)` → bool | timer (no declared `input`) | Flip the bistable's input; equivalent to `set(condition.name, !current)`. Returns the new input value |
 | `clear(condition.name)` | timer, threshold | Reset to inactive, release latch, discard retentive accumulation |
 | `increment(condition.name[, n])` | counter | Add `n` (default 1) to the count |
 | `decrement(condition.name[, n])` | counter | Subtract `n` (default 1) from the count |
