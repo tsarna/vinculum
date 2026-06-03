@@ -3,6 +3,12 @@
 # Minimal (scratch-based) Vinculum image.
 # Contains only: the static binary, CA certs, timezone data, and /etc/passwd.
 #
+# NOTE: this image does NOT support plugins. The binary is statically
+# linked (CGO_ENABLED=0) and scratch has no dynamic loader or libc, so it
+# cannot dlopen a plugin. Use the default (alpine) image if you need
+# plugins. The /plugins dir and --plugin-path flag below are harmless
+# unless a config actually declares a `plugin` block.
+#
 #   docker build -f Dockerfile.minimal -t vinculum:minimal .
 
 # ── Build stage ───────────────────────────────────────────────────────────────

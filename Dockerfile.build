@@ -17,15 +17,21 @@
 # release the plugin will be loaded into):
 #
 #   docker run --rm -v "$PWD":/plugin -w /plugin \
-#       ghcr.io/tsarna/vinculum-build:0.36.0 \
+#       ghcr.io/tsarna/vinculum-build:0.37.0 \
 #       go build -buildmode=plugin -trimpath -o myplugin.so .
 
 FROM golang:1.26-alpine
 
-RUN apk add --no-cache git ca-certificates-bundle
+# gcc + musl-dev provide the C toolchain cgo needs. `-buildmode=plugin`
+# always requires external (cgo) linking, so plugins cannot be built with
+# CGO_ENABLED=0 — and the default runtime image is built cgo-enabled to
+# match. (The scratch-based minimal image is static and cannot load
+# plugins; see doc/container.md.)
+RUN apk add --no-cache git ca-certificates-bundle gcc musl-dev
 
-# Match the build environment of the runtime images.
-ENV CGO_ENABLED=0 \
+# Match the build environment of the default (plugin-capable) runtime image:
+# cgo enabled, musl-linked.
+ENV CGO_ENABLED=1 \
     GOOS=linux
 
 # Pre-populate the module cache with Vinculum's pinned dependency set.

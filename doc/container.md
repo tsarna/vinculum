@@ -5,8 +5,8 @@ Vinculum publishes three container images to GitHub Container Registry under
 
 | Image | Purpose |
 |---|---|
-| [`ghcr.io/tsarna/vinculum`](#vinculum-alpine) | Default runtime image. Alpine-based. |
-| [`ghcr.io/tsarna/vinculum:*-minimal`](#vinculum-minimal) | Scratch-based runtime image. Smaller surface, no shell. |
+| [`ghcr.io/tsarna/vinculum`](#vinculum-alpine) | Default runtime image. Alpine-based, cgo-enabled — **supports plugins**. |
+| [`ghcr.io/tsarna/vinculum:*-minimal`](#vinculum-minimal) | Scratch-based runtime image. Smaller surface, no shell. Statically linked — **no plugin support**. |
 | [`ghcr.io/tsarna/vinculum-build`](#vinculum-build) | Build environment for compiling Go plugins (`.so`) ABI-compatible with a specific Vinculum release. |
 
 All three images are published for `linux/amd64` and `linux/arm64`.
@@ -32,6 +32,11 @@ For production deployments, pin to a specific patch version
 The default runtime image. Built from [`Dockerfile`](../Dockerfile) on an
 `alpine:3.23` base. Includes `ca-certificates-bundle` and `tzdata`. Runs as
 UID 65534 (`nobody`).
+
+This is the **plugin-capable** image: its binary is built cgo-enabled and
+dynamically linked against musl, so it can load Go plugins dropped into
+`/plugins`. (Plugins require a dynamically linked host; the minimal image
+cannot load them.)
 
 Mount points pre-created in the image:
 
@@ -66,6 +71,13 @@ same pre-created mount-point directories as the alpine image.
 Use this image when you want the smallest attack surface and don't need a
 shell, package manager, or any other tooling inside the container.
 
+**This image cannot load plugins.** The binary is statically linked
+(`CGO_ENABLED=0`) and `scratch` has no dynamic loader or libc, so
+`plugin.Open` (a `dlopen`) cannot work. The `/plugins` directory and the
+`--plugin-path` flag are present for parity but are inert unless a config
+declares a `plugin` block — in which case startup fails. Use the default
+(alpine) image if you need plugins.
+
 Tag suffix is `-minimal`, e.g. `ghcr.io/tsarna/vinculum:0.36.0-minimal`,
 `:latest-minimal`, `:dev-minimal`.
 
@@ -83,7 +95,12 @@ plugin and the host binary must agree on:
 - The Go toolchain version (down to the patch release)
 - Every shared module's version
 - Build flags (`-trimpath`, `-buildvcs`, build tags)
-- CGO state (both built with CGO enabled, or both disabled)
+- GOOS / GOARCH and the C library (both musl, as in the alpine images)
+
+cgo must be enabled on both sides: `-buildmode=plugin` requires external
+(cgo) linking, and the host must be dynamically linked to `dlopen` the
+plugin. This image and the default runtime image are both cgo-enabled to
+match. (The static minimal image cannot load plugins.)
 
 Any mismatch typically results in `plugin.Open` failing at load time. The
 `vinculum-build` image pins all of these to the same values used by the
@@ -96,8 +113,19 @@ into the matching binary.
 into.** `vinculum-build:0.36.0` produces plugins for `vinculum:0.36.0`.
 Mixing versions will likely fail to load.
 
-`:latest` and `:dev` exist but are only useful when you also run a
-matching `:latest` or `:dev` runtime image — moving targets on both sides.
+Your plugin's `go.mod` must also `require github.com/tsarna/vinculum` at
+the **exact same version** as the runtime image. The default runtime image
+is built by installing that versioned module (`go install …@vX.Y.Z`), and
+`-buildmode=plugin` bakes the module path+version into every package's
+build ID — so a plugin requiring a different version (or a `replace` to
+local source) loads with "different version of package …". For a tagged
+release, `require github.com/tsarna/vinculum vX.Y.Z`.
+
+`:latest` and `:dev` runtime images are built from a **commit
+pseudo-version**, not a clean tag. To build a plugin for them you must
+`require` that exact pseudo-version (run `vinculum version` in the image,
+or `go get github.com/tsarna/vinculum@<commit>`). For this reason plugins
+are best targeted at tagged releases.
 
 ### Usage
 
@@ -116,9 +144,10 @@ dependency set. If your plugin's `go.mod` requires the matching
 `github.com/tsarna/vinculum vX.Y.Z`, the transitive dependencies will be
 resolved from the cache without a network fetch.
 
-`CGO_ENABLED=0` and `GOOS=linux` are set in the image environment to match
-the runtime images. Do not override these unless you know what you're
-doing.
+`CGO_ENABLED=1` and `GOOS=linux` are set in the image environment to match
+the default (plugin-capable) runtime image. Plugins must be built
+cgo-enabled, so do not set `CGO_ENABLED=0` — `-buildmode=plugin` would
+fail with `requires external (cgo) linking, but cgo is not enabled`.
 
 ### Loading the plugin
 

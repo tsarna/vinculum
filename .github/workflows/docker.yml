@@ -40,6 +40,19 @@ jobs:
         id: build_time
         run: echo "time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
+      # The default (alpine) image installs the host binary as a versioned
+      # Go module so it is ABI-compatible with dependency-built plugins (see
+      # Dockerfile). Tag builds use the tag (vX.Y.Z); branch builds use the
+      # commit SHA, which resolves to a pseudo-version.
+      - name: Compute vinculum module ref
+        id: ref
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "ref=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
       # ── Tag strategy ─────────────────────────────────────────────────────
       # main      → :latest
       # develop   → :dev
@@ -95,6 +108,7 @@ jobs:
             VERSION=${{ steps.meta.outputs.version }}
             COMMIT=${{ github.sha }}
             BUILD_TIME=${{ steps.build_time.outputs.time }}
+            VINCULUM_REF=${{ steps.ref.outputs.ref }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

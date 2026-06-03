@@ -112,7 +112,17 @@ binary must agree on:
   Vinculum (most importantly, `github.com/tsarna/vinculum/config` and
   everything it transitively imports)
 - **Build flags** (`-trimpath`, `-buildvcs`, build tags)
-- **CGO state** (both built with CGO enabled, or both disabled)
+- **GOOS / GOARCH** and the **C library** the binaries link against
+
+**cgo must be enabled, on both sides.** `-buildmode=plugin` always forces
+external linking, so a plugin *cannot* be built with `CGO_ENABLED=0` — the
+build fails with `requires external (cgo) linking, but cgo is not enabled`.
+For the same reason the host binary must be cgo-enabled and dynamically
+linked: a statically linked host cannot `dlopen` a plugin at all. This is
+why the default (alpine) Vinculum image — which is built cgo-enabled — can
+load plugins, while the statically linked **minimal (scratch) image
+cannot**. The plugin and host must also share the same C library (both
+musl, as in the official alpine images).
 
 Any mismatch typically results in `plugin.Open` failing with an
 "different version of package X" diagnostic. There is no
