@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-06-02
+
 ### Added
 
 - **Plugin loading**: Vinculum can now load Go shared-object plugins (`.so`) at startup. Plugins are declared in `.vinit` bootstrap files (a new HCL configuration file format processed before any `.vcl`) and extend Vinculum with the same registration points used by in-tree subsystems — functions, transforms, server types, client types, trigger types, conditions, wire formats, and editors. A new `--plugin-path` CLI flag (defaulted to `/plugins` in the container image) tells the loader where to find the `.so` files. Linux, macOS, and FreeBSD are supported; the spec, `.vinit` semantics, and ABI rules are documented in [doc/vinit.md](doc/vinit.md) and [doc/plugins.md](doc/plugins.md).
