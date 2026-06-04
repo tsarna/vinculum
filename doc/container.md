@@ -130,14 +130,29 @@ are best targeted at tagged releases.
 ### Usage
 
 The image has no default `CMD`. Bind-mount your plugin source at `/plugin`
-and invoke `go build` yourself:
+and run the bundled **`vinculum-plugin-build`** wrapper:
 
 ```sh
 docker run --rm \
     -v "$PWD":/plugin -w /plugin \
-    ghcr.io/tsarna/vinculum-build:0.36.0 \
-    go build -buildmode=plugin -trimpath -o myplugin.so .
+    ghcr.io/tsarna/vinculum-build:0.37.0 \
+    vinculum-plugin-build -o myplugin.so .
 ```
+
+The wrapper removes the three common ways a plugin drifts out of ABI
+compatibility and would fail to load:
+
+- it forces the toolchain (`GOTOOLCHAIN=local`), `cgo`, and the required
+  build flags (`-buildmode=plugin -trimpath`) so you can't omit them;
+- it verifies your `go.mod` requires the **exact** `github.com/tsarna/vinculum`
+  version this image targets; and
+- it diffs your plugin's compiled dependency closure against Vinculum's
+  pinned versions and **fails the build** (with the offending modules
+  named) if any shared, compiled dependency differs — turning a cryptic
+  runtime `plugin.Open` failure into an actionable build error.
+
+You can still call `go build -buildmode=plugin -trimpath …` directly, but
+then those guarantees are on you.
 
 The image pre-populates the Go module cache with Vinculum's pinned
 dependency set. If your plugin's `go.mod` requires the matching

@@ -198,6 +198,36 @@ The summary, in case you already know what you're doing:
 - Build with the matching `vinculum-build` image so the resulting `.so`
   is ABI-compatible with the target Vinculum release.
 
+### Build contract
+
+To produce a `.so` that loads, three things must line up between your
+plugin and the runtime image. The `vinculum-build` image's
+`vinculum-plugin-build` wrapper enforces all three, so prefer it over a
+raw `go build`:
+
+1. **Exact vinculum version.** Your `go.mod` must
+   `require github.com/tsarna/vinculum vX.Y.Z` at the *same* version as the
+   runtime image (a tagged release; for `:latest`/`:dev` see
+   [container.md](container.md#vinculum-build)). The host is built from that
+   versioned module, and `-buildmode=plugin` bakes the module path+version
+   into every package's build ID.
+2. **Build flags and toolchain.** `-buildmode=plugin -trimpath`, cgo on,
+   and the same Go toolchain. The wrapper applies these for you.
+3. **No shared-dependency drift.** Do not require a shared dependency at a
+   version different from the one vinculum pins; a differing version of any
+   package compiled into both the plugin and the host fails to load. Run
+   `go mod tidy` after pinning vinculum and don't bump shared deps. The
+   wrapper diffs your compiled dependency closure against the release and
+   refuses to build on a mismatch, naming the offending modules.
+
+Build with the wrapper:
+
+```sh
+docker run --rm -v "$PWD":/plugin -w /plugin \
+    ghcr.io/tsarna/vinculum-build:X.Y.Z \
+    vinculum-plugin-build -o myplugin.so .
+```
+
 ## Limitations
 
 Plugins extend the existing extension points; they **cannot** add

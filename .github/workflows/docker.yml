@@ -53,6 +53,21 @@ jobs:
             echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           fi
 
+      # The image tag the post-push smoke gate will pull and test. For a tag
+      # build this is the semver without the leading "v" (matches the
+      # {{version}} tag produced by docker/metadata-action).
+      - name: Compute smoke-test image tag
+        id: smoke_tag
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            ref="${{ github.ref_name }}"
+            echo "tag=${ref#v}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
+            echo "tag=dev" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
       # ── Tag strategy ─────────────────────────────────────────────────────
       # main      → :latest
       # develop   → :dev
@@ -137,5 +152,50 @@ jobs:
           push: true
           tags: ${{ steps.meta-build.outputs.tags }}
           labels: ${{ steps.meta-build.outputs.labels }}
+          build-args: |
+            VINCULUM_VERSION=${{ steps.ref.outputs.ref }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+    outputs:
+      # The image tag to smoke-test (semver for tags, latest/dev for branches)
+      # and the go-installable vinculum ref the plugin must require.
+      image_tag: ${{ steps.smoke_tag.outputs.tag }}
+      vinculum_ref: ${{ steps.ref.outputs.ref }}
+
+  # Release gate: prove the just-pushed images can actually build and load a
+  # plugin via the documented container workflow. This runs after push and
+  # fails the run if the plugin does not load — catching cgo/ABI regressions
+  # before a release is treated as good. (amd64 only; same source as arm64.)
+  plugin-smoke:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+      VINCULUM_REF: ${{ needs.build-and-push.outputs.vinculum_ref }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build fixture plugin in the published vinculum-build image
+        run: |
+          set -euxo pipefail
+          mkdir -p out
+          cp -r testdata/plugin-smoke smoke
+          docker run --rm \
+            -v "$PWD/smoke":/plugin -w /plugin \
+            -v "$PWD/out":/out \
+            "ghcr.io/${{ env.IMAGE_NAME }}-build:${IMAGE_TAG}" sh -euc "
+              go mod edit -require=github.com/tsarna/vinculum@${VINCULUM_REF}
+              go mod tidy
+              vinculum-plugin-build -o /out/smoke.so .
+            "
+
+      - name: Load the plugin in the published runtime image
+        run: |
+          set -euxo pipefail
+          docker run --rm \
+            -v "$PWD/out/smoke.so":/plugins/smoke.so:ro \
+            -v "$PWD/smoke/conf":/conf:ro \
+            "ghcr.io/${{ env.IMAGE_NAME }}:${IMAGE_TAG}" \
+            check --plugin-path /plugins /conf

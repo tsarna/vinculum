@@ -1,0 +1,117 @@
+#!/bin/sh
+# vinculum-plugin-build — build a Vinculum plugin (.so) inside the
+# vinculum-build image with the exact toolchain, flags, and dependency
+# versions required for the resulting plugin to load into the matching
+# Vinculum release.
+#
+# Go plugins are ABI-fragile. `plugin.Open` compares per-package build IDs,
+# which fold in: the Go toolchain version, build flags (notably -trimpath),
+# and the version of every shared package. If any of those differ between
+# the plugin and the host binary, loading fails at runtime with a cryptic
+# "different version of package ..." error. This wrapper removes the three
+# common ways an author drifts out of ABI compatibility:
+#
+#   1. Toolchain  — pinned via GOTOOLCHAIN=local (the image's Go).
+#   2. Build flags — -buildmode=plugin -trimpath are always applied; cgo is
+#      forced on (a plugin host must be dynamically linked, and
+#      -buildmode=plugin requires external/cgo linking).
+#   3. Shared-dependency drift — the plugin's resolved module graph is
+#      compared against the Vinculum release this image was built for, and
+#      any version difference for a shared module is rejected *here*, as a
+#      clear build error, instead of surfacing later as a load failure.
+#
+# Usage (run from your plugin module directory, bind-mounted into the image):
+#
+#   docker run --rm -v "$PWD":/plugin -w /plugin \
+#       ghcr.io/tsarna/vinculum-build:X.Y.Z \
+#       vinculum-plugin-build -o myplugin.so .
+#
+# Any extra arguments are forwarded to `go build` (e.g. -o NAME.so and the
+# package to build, default ".").
+set -eu
+
+VINC_SRC="${VINCULUM_SRC:-/vinculum-src}"
+
+# 1 & 2: enforce the build environment.
+export CGO_ENABLED=1
+export GOOS="${GOOS:-linux}"
+export GOTOOLCHAIN="${GOTOOLCHAIN:-local}"
+
+mods_fmt='{{if .Version}}{{.Path}} {{.Version}}{{end}}'
+
+# The exact vinculum version this image targets (a tag like v1.2.3, or a
+# commit pseudo-version), resolved through the Go module system so a commit
+# ref and its pseudo-version compare equal.
+expected_vinc=$(go list -m -f '{{.Version}}' \
+    "github.com/tsarna/vinculum@${VINCULUM_VERSION:?VINCULUM_VERSION not set in image}")
+
+# The plugin's selected vinculum version.
+plug_vinc=$(go list -m -f '{{.Version}}' github.com/tsarna/vinculum 2>/dev/null || true)
+
+if [ -z "$plug_vinc" ]; then
+    echo "ERROR: this module does not require github.com/tsarna/vinculum." >&2
+    echo "Add: require github.com/tsarna/vinculum ${expected_vinc}" >&2
+    exit 1
+fi
+
+if [ "$plug_vinc" != "$expected_vinc" ]; then
+    echo "ERROR: wrong github.com/tsarna/vinculum version for this image." >&2
+    echo "  image expects: ${expected_vinc}" >&2
+    echo "  your go.mod:   ${plug_vinc}" >&2
+    echo "Pin the matching version in your go.mod, or use the vinculum-build" >&2
+    echo "image whose tag matches your dependency." >&2
+    exit 1
+fi
+
+# 3: shared-dependency drift. The Go plugin loader only compares packages
+# that are actually COMPILED INTO BOTH binaries, so the module *graph*
+# (`go list -m all`) is the wrong basis — it includes modules vinculum
+# pulls (CLI, otel, …) that a plugin never imports, producing false
+# positives. Instead diff the plugin's actual import closure (`go list
+# -deps`) against the versions vinculum selects. A plugin imports only
+# vinculum-ecosystem packages, so everything it compiles the host also
+# compiles; a version difference there is a genuine ABI mismatch.
+#
+# Determine the package(s) being built (default ".") from the forwarded
+# args so -deps reflects exactly what will be compiled. Skip flags, and
+# skip the value that follows -o. Pass other flag values with =VALUE form
+# (e.g. -tags=foo) so they aren't mistaken for packages.
+pkgs=""
+skip_next=""
+for a in "$@"; do
+    if [ -n "$skip_next" ]; then skip_next=""; continue; fi
+    case "$a" in
+        -o)  skip_next=1 ;;      # next arg is the output file
+        -*)  : ;;                # other flag (use -flag=value form)
+        *)   pkgs="$pkgs $a" ;;
+    esac
+done
+[ -n "$pkgs" ] || pkgs="."
+
+# vinculum's selected versions (= the host binary's versions).
+vinc_mods=$( cd "$VINC_SRC" && go list -m -f "$mods_fmt" all )
+# modules actually compiled into the plugin (its import closure).
+# shellcheck disable=SC2086
+plug_dep_mods=$(go list -deps -f \
+    '{{with .Module}}{{if not .Main}}{{.Path}} {{.Version}}{{end}}{{end}}' $pkgs \
+    | sort -u)
+
+drift=$(printf 'VINC\n%s\nPLUG\n%s\n' "$vinc_mods" "$plug_dep_mods" | awk '
+    $0 == "VINC" { sect = "v"; next }
+    $0 == "PLUG" { sect = "p"; next }
+    sect == "v" { v[$1] = $2; next }
+    sect == "p" && ($1 in v) && $2 != "" && v[$1] != $2 {
+        printf "  %s: vinculum=%s plugin=%s\n", $1, v[$1], $2
+    }
+')
+
+if [ -n "$drift" ]; then
+    echo "ERROR: shared dependency versions differ from Vinculum ${expected_vinc}." >&2
+    echo "These are compiled into both the plugin and the host and would fail" >&2
+    echo "to load (ABI mismatch). Align them in your go.mod (do not require a" >&2
+    echo "shared dependency at a version different from Vinculum's):" >&2
+    printf '%s\n' "$drift" >&2
+    exit 1
+fi
+
+exec go build -buildmode=plugin -trimpath "$@"

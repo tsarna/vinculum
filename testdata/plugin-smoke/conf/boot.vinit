@@ -1,0 +1,3 @@
+// Loaded by the release smoke gate. The label "smoke" makes Vinculum load
+// /plugins/smoke.so (the gate builds the fixture with `-o smoke.so`).
+plugin "smoke" {}
