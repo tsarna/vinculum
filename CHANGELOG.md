@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Container images can now actually build and load plugins** (0.37.0 shipped the plugin feature but the images could not use it). `-buildmode=plugin` always requires external (cgo) linking, and a statically linked host cannot `dlopen` a plugin — but the `vinculum-build` and runtime images were built with `CGO_ENABLED=0`. The `vinculum-build` image and the default (alpine) runtime image are now built **cgo-enabled** (with `gcc` + `musl-dev`, dynamically linked against musl). The scratch-based **minimal image remains statically linked and cannot load plugins** — this is now documented; its pre-created `/plugins` dir and `--plugin-path` flag are inert unless a config declares a `plugin` block.
+- **Plugin ABI identity**: the default runtime image now builds its host binary by installing the versioned module (`go install github.com/tsarna/vinculum@<ref>`) instead of `go build .` from the working tree. A plugin imports vinculum as a versioned dependency, and `-buildmode=plugin` bakes the module path+version into every package's build ID; a `go build .` host gave those packages "main-module" identity and dependency-built plugins failed to load with `different version of package …`. A new `VINCULUM_REF` build-arg selects the version (the release tag; a commit pseudo-version for `:latest`/`:dev`).
+
+### Added
+
+- **`vinculum-plugin-build` wrapper** bundled in the `vinculum-build` image. It removes the common ways a plugin drifts out of ABI compatibility: it forces the toolchain (`GOTOOLCHAIN=local`), cgo, and `-buildmode=plugin -trimpath`; verifies the plugin's `go.mod` requires the exact `github.com/tsarna/vinculum` version the image targets; and diffs the plugin's *compiled* dependency closure against the release's pinned versions, **failing the build with the offending modules named** instead of letting it surface as a runtime `plugin.Open` error. Usage: `vinculum-plugin-build -o myplugin.so .`. See [doc/plugins.md](doc/plugins.md#build-contract) and [doc/container.md](doc/container.md#vinculum-build).
+- **Release smoke gate**: the image-publishing workflow now builds a self-contained fixture plugin in the freshly published `vinculum-build` image and loads it in the freshly published runtime image (`vinculum check`), failing the run if the container plugin workflow does not work end to end. This guards against shipping a release where plugins cannot load.
+
+### Changed
+
+- **Plugin ABI documentation corrected**: `doc/plugins.md` and `doc/container.md` previously listed "CGO state (both enabled or both disabled)" as a valid choice — building a plugin with `CGO_ENABLED=0` is impossible (`-buildmode=plugin requires external (cgo) linking`). The docs now describe the real contract: cgo required on both sides, the host and plugin must reference the same `github.com/tsarna/vinculum` version, no shared-dependency drift, and the minimal image does not support plugins.
+
 ## [0.37.0] - 2026-06-02
 
 ### Added
