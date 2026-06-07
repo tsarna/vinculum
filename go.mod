@@ -46,7 +46,7 @@ require (
 	github.com/tsarna/vinculum-redis v0.3.0
 	github.com/tsarna/vinculum-sns v0.3.0
 	github.com/tsarna/vinculum-sqs v0.3.0
-	github.com/tsarna/vinculum-vws v0.12.0
+	github.com/tsarna/vinculum-vws v0.13.0
 	github.com/tsarna/vinculum-wire v0.2.0
 	github.com/twmb/franz-go v1.21.2
 	github.com/twmb/franz-go/plugin/kotel v1.6.0
