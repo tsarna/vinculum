@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-06-08
+
+### Added
+
+- **SQL clients (`client "sqlite"`)**: run SQL statements from a config via the existing polymorphic `get()` (exactly one row) and `call()` (general — any number of rows, modifying statements, and the result object) functions; no SQL-specific verbs. Supports named `query` sub-blocks with declared cardinality (`one`/`zero_or_one`/`many`/`exec`), positional (`?`) and named (`:name`) parameters, a result object (`rows`/`row`/`row_count`/`affected`/`last_insert_id`/`error`) where execution failures ride in `result.error` rather than raising, and column→cty type mapping (number/string/bool/`bytes`/`time`/decoded JSON/null). Built on `database/sql` + `sqlx`. SQLite requires a cgo-enabled build; on the minimal image `client "sqlite"` fails at config load with a clear "not compiled into this build" error. A companion `sql_must(result)` function fail-fasts on the error: it raises an evaluation error when `result.error` is non-null and otherwise returns the result unchanged, so it composes inline (`sql_must(call(...)).last_insert_id`). This is the first round of the SQL feature — the dialect-agnostic engine is in place and Postgres/MySQL are forthcoming. See [doc/client-sql.md](doc/client-sql.md).
+
+## [0.37.1] - 2026-06-04
+
 ### Fixed
 
 - **Container images can now actually build and load plugins** (0.37.0 shipped the plugin feature but the images could not use it). `-buildmode=plugin` always requires external (cgo) linking, and a statically linked host cannot `dlopen` a plugin — but the `vinculum-build` and runtime images were built with `CGO_ENABLED=0`. The `vinculum-build` image and the default (alpine) runtime image are now built **cgo-enabled** (with `gcc` + `musl-dev`, dynamically linked against musl). The scratch-based **minimal image remains statically linked and cannot load plugins** — this is now documented; its pre-created `/plugins` dir and `--plugin-path` flag are inert unless a config declares a `plugin` block.

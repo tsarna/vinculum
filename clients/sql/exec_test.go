@@ -1,0 +1,128 @@
+package sql
+
+import (
+	"testing"
+
+	"github.com/jmoiron/sqlx"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/zclconf/go-cty/cty"
+)
+
+// stubDialect lets the param-binding logic be tested without a real driver, so
+// these tests run in a minimal (CGO_ENABLED=0) build too.
+type stubDialect struct{ bind int }
+
+func (d stubDialect) DriverName() string                   { return "stub" }
+func (d stubDialect) DSN() string                          { return "" }
+func (d stubDialect) BindType() int                        { return d.bind }
+func (d stubDialect) Name() string                         { return "stub" }
+func (d stubDialect) ClassifyError(error) (string, string) { return "", "" }
+
+func newStubClient(bind int) *SQLClient {
+	return &SQLClient{dialect: stubDialect{bind: bind}}
+}
+
+func TestBindParamsEmpty(t *testing.T) {
+	c := newStubClient(sqlx.QUESTION)
+	sql, args, err := c.bindParams("SELECT 1", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "SELECT 1", sql)
+	assert.Empty(t, args)
+}
+
+func TestBindParamsPositionalQuestion(t *testing.T) {
+	c := newStubClient(sqlx.QUESTION)
+	sql, args, err := c.bindParams(
+		"SELECT * FROM t WHERE id = ? AND active = ?",
+		[]cty.Value{cty.NumberIntVal(42), cty.True},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "SELECT * FROM t WHERE id = ? AND active = ?", sql)
+	assert.Equal(t, []any{42, true}, args)
+}
+
+func TestBindParamsPositionalDollarRebind(t *testing.T) {
+	c := newStubClient(sqlx.DOLLAR)
+	sql, args, err := c.bindParams(
+		"SELECT * FROM t WHERE id = ?",
+		[]cty.Value{cty.NumberIntVal(7)},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "SELECT * FROM t WHERE id = $1", sql)
+	assert.Equal(t, []any{7}, args)
+}
+
+func TestBindParamsNamed(t *testing.T) {
+	c := newStubClient(sqlx.QUESTION)
+	params := cty.ObjectVal(map[string]cty.Value{
+		"id":     cty.NumberIntVal(42),
+		"active": cty.True,
+	})
+	sql, args, err := c.bindParams(
+		"SELECT * FROM t WHERE id = :id AND active = :active",
+		[]cty.Value{params},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "SELECT * FROM t WHERE id = ? AND active = ?", sql)
+	assert.Equal(t, []any{42, true}, args)
+}
+
+func TestBindParamsNamedRepeated(t *testing.T) {
+	c := newStubClient(sqlx.QUESTION)
+	params := cty.ObjectVal(map[string]cty.Value{"id": cty.NumberIntVal(5)})
+	sql, args, err := c.bindParams(
+		"SELECT * FROM t WHERE id = :id OR parent_id = :id",
+		[]cty.Value{params},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "SELECT * FROM t WHERE id = ? OR parent_id = ?", sql)
+	assert.Equal(t, []any{5, 5}, args)
+}
+
+func TestBindParamsMixingNamedWithPositional(t *testing.T) {
+	c := newStubClient(sqlx.QUESTION)
+	params := cty.ObjectVal(map[string]cty.Value{"id": cty.NumberIntVal(1)})
+	_, _, err := c.bindParams("SELECT * FROM t WHERE id = :id AND x = ?", []cty.Value{params})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mixes")
+}
+
+func TestBindParamsPositionalWithNamedPlaceholders(t *testing.T) {
+	c := newStubClient(sqlx.QUESTION)
+	_, _, err := c.bindParams("SELECT * FROM t WHERE id = :id", []cty.Value{cty.NumberIntVal(1)})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mixes")
+}
+
+func TestBindParamsNamedPlaceholdersNoParams(t *testing.T) {
+	c := newStubClient(sqlx.QUESTION)
+	_, _, err := c.bindParams("SELECT * FROM t WHERE id = :id", nil)
+	require.Error(t, err)
+}
+
+func TestBindParamsNullParam(t *testing.T) {
+	c := newStubClient(sqlx.QUESTION)
+	_, args, err := c.bindParams("INSERT INTO t VALUES (?)", []cty.Value{cty.NullVal(cty.String)})
+	require.NoError(t, err)
+	assert.Equal(t, []any{nil}, args)
+}
+
+func TestReturnsRows(t *testing.T) {
+	for _, tc := range []struct {
+		sql  string
+		want bool
+	}{
+		{"SELECT 1", true},
+		{"  select * from t", true},
+		{"WITH x AS (...) SELECT *", true},
+		{"VALUES (1)", true},
+		{"PRAGMA foreign_keys", true},
+		{"INSERT INTO t VALUES (1)", false},
+		{"UPDATE t SET x = 1", false},
+		{"DELETE FROM t", false},
+		{"CREATE TABLE t (id INTEGER)", false},
+	} {
+		assert.Equalf(t, tc.want, returnsRows(tc.sql), "sql=%q", tc.sql)
+	}
+}
