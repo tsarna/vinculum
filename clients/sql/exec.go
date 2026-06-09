@@ -146,6 +146,9 @@ func withTimeout(ctx context.Context, d time.Duration) (context.Context, context
 // it as a cty object. Zero or more-than-one rows is a Go error (get() implies
 // exactly one).
 func (c *SQLClient) getOneRow(ctx context.Context, rawSQL string, params []cty.Value, timeout time.Duration) (cty.Value, error) {
+	if c.db == nil {
+		return cty.NilVal, fmt.Errorf("sql client %q is not connected", c.Name)
+	}
 	bound, args, err := c.bindParams(rawSQL, params)
 	if err != nil {
 		return cty.NilVal, err
@@ -180,6 +183,9 @@ func (c *SQLClient) getOneRow(ctx context.Context, rawSQL string, params []cty.V
 // forceExec selects ExecContext (for named queries with cardinality "exec");
 // when nil, inline statements are classified by their leading keyword.
 func (c *SQLClient) callStmt(ctx context.Context, rawSQL string, params []cty.Value, timeout time.Duration, forceExec *bool) (cty.Value, error) {
+	if c.db == nil {
+		return cty.NilVal, fmt.Errorf("sql client %q is not connected", c.Name)
+	}
 	bound, args, err := c.bindParams(rawSQL, params)
 	if err != nil {
 		return cty.NilVal, err

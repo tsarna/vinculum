@@ -4,6 +4,9 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -103,6 +106,29 @@ func TestInlineLifecycle(t *testing.T) {
 	requireNoResultError(t, res)
 	assert.Equal(t, int64(3), intAttr(t, res, "row_count"))
 	assert.Equal(t, 3, res.GetAttr("rows").LengthInt())
+}
+
+// The default mode ("rw") must create the database file if it is missing —
+// SQLite's URI mode=rw does not create, so the dialect maps it to mode=rwc.
+func TestFileDatabaseCreatesIfMissing(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "state.db")
+	vcl := fmt.Sprintf(`
+client "sqlite" "db" {
+    path    = %q
+    pragmas = { journal_mode = "WAL", foreign_keys = "ON" }
+}
+`, dbPath)
+
+	_, c := buildClient(t, vcl)
+	requireNoResultError(t, call(t, c, "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)"))
+	requireNoResultError(t, call(t, c, "INSERT INTO t (v) VALUES (?)", cty.StringVal("hi")))
+
+	row, err := get(t, c, "SELECT v FROM t WHERE id = 1")
+	require.NoError(t, err)
+	assert.Equal(t, "hi", row.GetAttr("v").AsString())
+
+	_, statErr := os.Stat(dbPath)
+	require.NoError(t, statErr, "database file should have been created on disk")
 }
 
 func TestNamedAndPositionalParams(t *testing.T) {

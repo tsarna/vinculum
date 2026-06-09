@@ -83,21 +83,24 @@ func buildDSN(config *cfg.Config, block *hcl.Block, def *sqliteDef) (string, hcl
 		params = append(params, "cache=shared")
 	} else {
 		base = "file:" + path
-		mode := def.Mode
-		if mode == "" {
-			mode = "rw"
-		}
-		switch mode {
-		case "rw", "ro", "rwc":
+		// Map the documented modes to go-sqlite3 URI modes. "rw" creates the
+		// file if missing (per spec), which in SQLite's URI form is "rwc";
+		// "ro" opens read-only and errors if missing.
+		var uriMode string
+		switch def.Mode {
+		case "", "rw", "rwc":
+			uriMode = "rwc"
+		case "ro":
+			uriMode = "ro"
 		default:
 			return "", hcl.Diagnostics{{
 				Severity: hcl.DiagError,
 				Summary:  "Invalid sqlite mode",
-				Detail:   fmt.Sprintf("mode must be \"rw\", \"ro\", or \"rwc\"; got %q", mode),
+				Detail:   fmt.Sprintf("mode must be \"rw\", \"ro\", or \"rwc\"; got %q", def.Mode),
 				Subject:  &block.DefRange,
 			}}
 		}
-		params = append(params, "mode="+mode)
+		params = append(params, "mode="+uriMode)
 		if def.SharedCache {
 			params = append(params, "cache=shared")
 		}

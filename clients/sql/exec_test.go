@@ -1,6 +1,7 @@
 package sql
 
 import (
+	"context"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
@@ -106,6 +107,20 @@ func TestBindParamsNullParam(t *testing.T) {
 	_, args, err := c.bindParams("INSERT INTO t VALUES (?)", []cty.Value{cty.NullVal(cty.String)})
 	require.NoError(t, err)
 	assert.Equal(t, []any{nil}, args)
+}
+
+// A client whose Start() never ran (or failed) has a nil *sql.DB. Calls must
+// return a clean error rather than panic on the nil dereference.
+func TestNilDBReturnsErrorNotPanic(t *testing.T) {
+	c := newStubClient(sqlx.QUESTION) // db is nil
+
+	_, err := c.callStmt(context.Background(), "SELECT 1", nil, 0, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not connected")
+
+	_, err = c.getOneRow(context.Background(), "SELECT 1", nil, 0)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not connected")
 }
 
 func TestReturnsRows(t *testing.T) {
