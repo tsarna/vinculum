@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.1] - 2026-06-08
+
+### Fixed
+
+- **SQLite `mode = "rw"` now creates the database file when missing**, matching the documented behavior. SQLite's URI `mode=rw` opens read-write but does not create the file (only `rwc` does), so a file-based `client "sqlite"` failed at startup with `unable to open database file`. The dialect now maps the documented `rw`/`rwc` modes to SQLite's `rwc`, and `ro` to `ro`.
+- **SQL `call()` / `get()` no longer panic when the client failed to connect.** If `Start()` failed (e.g. an unwritable path), the connection pool handle was nil and a subsequent call dereferenced it; they now return a clear `sql client <name> is not connected` error.
+
 ## [0.38.0] - 2026-06-08
 
 ### Added

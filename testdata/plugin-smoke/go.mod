@@ -8,6 +8,6 @@ go 1.26.0
 
 require (
 	github.com/hashicorp/hcl/v2 v2.24.0
-	github.com/tsarna/vinculum v0.37.1
+	github.com/tsarna/vinculum v0.38.1
 	github.com/zclconf/go-cty v1.18.1
 )
