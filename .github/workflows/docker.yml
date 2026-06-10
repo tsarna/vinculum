@@ -69,9 +69,9 @@ jobs:
           fi
 
       # ── Tag strategy ─────────────────────────────────────────────────────
-      # main      → :latest
-      # develop   → :dev
-      # v1.2.3    → :1.2.3, :1.2, :1
+      # main      → :latest        (minimal: :latest-minimal)
+      # develop   → :dev           (minimal: :dev-minimal)
+      # v1.2.3    → :1.2.3, :1.2, :1  (minimal: :1.2.3-minimal, ...)
       - name: Docker metadata (alpine)
         id: meta
         uses: docker/metadata-action@v6
@@ -90,7 +90,7 @@ jobs:
         with:
           images: ghcr.io/${{ env.IMAGE_NAME }}
           flavor: |
-            suffix=-minimal
+            suffix=-minimal,onlatest=true
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

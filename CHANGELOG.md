@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`:latest` Docker tag now points to the standard image, not the minimal one.** The image-publishing workflow's minimal-image metadata applied its `-minimal` suffix to the semver tags but not to `latest` (docker/metadata-action skips the `latest` tag unless `onlatest=true`), so the minimal build pushed a bare `latest` that — being pushed after the standard image — clobbered it. Added `onlatest=true` so the minimal image publishes `latest-minimal` and `latest` reliably tracks the standard image.
+
 ## [0.38.1] - 2026-06-08
 
 ### Fixed
