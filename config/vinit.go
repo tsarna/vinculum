@@ -18,6 +18,7 @@ import (
 var vinitSchema = &hcl.BodySchema{
 	Blocks: []hcl.BlockHeaderSchema{
 		{Type: "plugin", LabelNames: []string{"label"}},
+		{Type: "git", LabelNames: []string{"label"}},
 	},
 }
 
@@ -86,6 +87,7 @@ func processVinit(sources []any, pluginPath string, logger *zap.Logger) hcl.Diag
 	evalCtx := vinitEvalContext()
 
 	var pluginBlocks []*hcl.Block
+	var gitBlocks []*hcl.Block
 	for _, body := range bodies {
 		content, contentDiags := body.Content(vinitSchema)
 		diags = diags.Extend(contentDiags)
@@ -93,6 +95,8 @@ func processVinit(sources []any, pluginPath string, logger *zap.Logger) hcl.Diag
 			switch block.Type {
 			case "plugin":
 				pluginBlocks = append(pluginBlocks, block)
+			case "git":
+				gitBlocks = append(gitBlocks, block)
 			}
 		}
 	}
@@ -100,9 +104,20 @@ func processVinit(sources []any, pluginPath string, logger *zap.Logger) hcl.Diag
 		return diags
 	}
 
+	// Process plugin blocks first (in source order) so any system-wide
+	// registration they perform is available before later bootstrap steps.
 	seen := make(map[string]hcl.Range)
 	for _, block := range pluginBlocks {
 		diags = diags.Extend(processPluginBlock(block, evalCtx, pluginPath, logger, seen))
+		if diags.HasErrors() {
+			return diags
+		}
+	}
+
+	// Then git blocks (in source order), with their own label namespace.
+	seenGit := make(map[string]hcl.Range)
+	for _, block := range gitBlocks {
+		diags = diags.Extend(processGitBlock(block, evalCtx, logger, seenGit))
 		if diags.HasErrors() {
 			return diags
 		}

@@ -29,6 +29,7 @@ User-facing documentation lives in `doc/`. Each file covers one topic:
 | `doc/server-websocket.md` | `server "websocket"`: simple raw WebSocket push server |
 | `doc/vinit.md` | `.vinit` bootstrap file format, two-pass discovery, minimal eval context, `disabled` |
 | `doc/plugins.md` | `plugin` block, `--plugin-path`, ABI rules, container deployment |
+| `doc/git.md` | `git` block: clone-and-materialize, HTTP/SSH auth, revision pinning, destination ownership |
 | `doc/container.md` | Published Docker images: `vinculum`, `vinculum:*-minimal`, `vinculum-build` |
 
 ---
@@ -52,7 +53,10 @@ config/         Core configuration parsing and all block implementations
   parse.go      HCL file/directory/bytes parsing — `.vcl` and `.vinit` extensions
   transforms.go message transform functions
   transformplugin.go    RegisterTransformPlugin + collision detection
-  vinit.go      .vinit pass-1 orchestration, minimal eval context, plugin block
+  vinit.go      .vinit pass-1 orchestration, minimal eval context, plugin + git block collection
+  git.go        git block decode structs + static validation (processGitBlock)
+  gitfetch.go   go-git clone/checkout + HTTP/SSH auth construction
+  gitmaterialize.go     subtree copy + destination ownership materialization
   plugin_common.go      PluginContext + entry-point type (all platforms)
   plugin.go     Plugin loader (linux/darwin/freebsd build tag)
   plugin_unsupported.go Plugin loader stub (other platforms)
@@ -227,8 +231,10 @@ population, so plugin-registered contributions are visible to the rest of
 2. `ParseVinitFiles` walks the sources, filtering on `.vinit` extension.
    It explicitly **skips `[]byte` and `[]string`** sources so test fixtures
    that pass VCL content as bytes don't get treated as vinit.
-3. Each body is decoded against `vinitSchema` (closed schema, currently
-   only `plugin "<label>" { ... }`); unknown block types are fatal.
+3. Each body is decoded against `vinitSchema` (closed schema:
+   `plugin "<label>"` and `git "<label>"`); unknown block types are fatal.
+   The single schema walk collects `plugin` and `git` blocks into separate
+   slices.
 4. For each `plugin` block: label is regex-validated, `disabled` is
    evaluated against the minimal eval context (`env.*` + cty stdlib —
    no const, no user functions, no plugin contributions), duplicates
@@ -237,6 +243,17 @@ population, so plugin-registered contributions are visible to the rest of
    linux/darwin/freebsd) does `plugin.Open` → symbol lookup →
    panic-recovered `VinculumPluginInit(*PluginContext) hcl.Diagnostics`
    invocation.
+6. **After all plugin blocks** (so plugin registrations are available
+   first), `git` blocks are processed in source order via
+   `processGitBlock` (`config/git.go`), each with its own duplicate-label
+   namespace. The git label carries no filesystem meaning, so it is *not*
+   regex-restricted. A non-disabled block is statically validated
+   (revision mutual-exclusion, fetch presence, `from` repo-escape, auth
+   consistency with the inferred transport) then cloned with go-git
+   (`config/gitfetch.go`) into a temp workdir and its subtrees copied to
+   their destinations (`config/gitmaterialize.go`). The feature is pure Go
+   (`CGO_ENABLED=0`-clean) so it works in the scratch minimal image —
+   unlike plugins, which need a dynamically linked host.
 
 ### Minimal `.vinit` eval context
 
