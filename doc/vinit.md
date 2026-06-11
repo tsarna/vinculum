@@ -3,8 +3,8 @@
 A `.vinit` file (Vinculum Init) is a configuration file processed
 **before** any `.vcl` file. It declares everything that must happen to
 prepare Vinculum's runtime before the regular VCL configuration can be
-parsed and evaluated — currently, that means loading
-[plugins](plugins.md).
+parsed and evaluated — currently, loading [plugins](plugins.md) and
+fetching configuration from a [git repository](git.md).
 
 `.vinit` files use HCL syntax but a **distinct, closed schema** from
 `.vcl`. They are not VCL: the set of allowed block types is small, and
@@ -30,7 +30,7 @@ in two passes over the same directory tree:
 
 | Pass | Extension | When | What it does |
 |---|---|---|---|
-| 1 | `*.vinit` | Before any VCL parsing | Loads plugins (and, in the future, other bootstrap concerns) |
+| 1 | `*.vinit` | Before any VCL parsing | Loads plugins, runs git fetches, and any other bootstrap |
 | 2 | `*.vcl`   | After bootstrap completes | Normal VCL parse → preprocess → process pipeline |
 
 **Snapshot rule.** Pass 1 enumerates `.vinit` files **once**, at the
@@ -54,6 +54,10 @@ order across all parsed files:
    within a file). Each plugin is loaded and given the opportunity to
    register functions, transforms, ambient context variables, server
    types, client types, and so on.
+2. **`git` blocks** — in source order. Each declared repository is cloned
+   and its content copied into the declared destination paths. Plugins
+   are processed first so any system-wide registration they perform is
+   available before git fetches run.
 
 Within a single block type, blocks are processed in source order. There
 is no dependency graph at the `.vinit` level; if you need ordering
@@ -107,10 +111,13 @@ Errors evaluating `disabled` are fatal and abort startup.
 
 ## Block Types
 
-Vinculum currently recognizes one `.vinit` block type:
+Vinculum currently recognizes these `.vinit` block types:
 
 - **`plugin "<label>" { ... }`** — load a Go plugin and let it register
   extensions. See [plugins.md](plugins.md).
+- **`git "<label>" { ... }`** — clone a remote repository and materialize
+  subtrees of it onto the local filesystem before VCL parsing. See
+  [git.md](git.md).
 
 Unknown block types in a `.vinit` file are a fatal error.
 
@@ -120,6 +127,7 @@ The default Docker image pre-creates these directories:
 
 ```
 /conf/         — base config directory (CMD passes /conf as a source)
+/conf/git/     — conventional destination for git fetches
 /plugins/      — conventional plugin location
 ```
 
@@ -136,6 +144,7 @@ exact layout is up to you.
 | Unknown block type in `.vinit` | Fatal |
 | `disabled` expression error | Fatal |
 | Plugin load failure | Fatal unless `disabled` (see [plugins.md](plugins.md)) |
+| Git fetch failure | Fatal unless `disabled` (see [git.md](git.md)) |
 
 Bootstrap is structurally pre-deployment: a misconfigured `.vinit`
 fails fast and loudly rather than letting Vinculum start in a

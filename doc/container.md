@@ -42,7 +42,8 @@ Mount points pre-created in the image:
 
 | Path | Purpose |
 |---|---|
-| `/conf` | Configuration directory (`.vcl` files) |
+| `/conf` | Configuration directory (`.vcl` and `.vinit` files) |
+| `/conf/git` | Conventional destination for [git fetches](git.md) |
 | `/data` | Read-only data directory (HTTP static files etc.) |
 | `/data/write` | Writable data directory |
 

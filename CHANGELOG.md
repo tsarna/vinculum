@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Git fetch (`git` bootstrap block)**: a new `.vinit` block that clones a remote git repository during startup pass 1 and materializes one or more subtrees of it onto the local filesystem **before** any `.vcl` is parsed — so configuration and assets can be driven by a pinned repository instead of being baked into the image or a configmap. The fetched `.vcl` is then discovered by the normal pipeline as if it had shipped in the image. Supports branch/tag/commit revision selection (with shallow `depth`, default 1; `0` for full history), submodule recursion, and per-subtree `fetch "<name>" { from = …, into = … }` destinations sharing a single clone. Authentication covers HTTPS (`token` PAT shorthand, or `username`/`password`) and SSH (`private_key`/`private_key_file` + `passphrase`, with `known_hosts` host-key verification or an explicit `insecure_ignore_host_key`); credentials typically come from `env.*` and are never logged. Each destination is fetch-owned: an absent or empty `into` is populated, while a non-empty one is refused unless `overwrite = true`. The client is implemented in **pure Go** ([`go-git`](https://github.com/go-git/go-git)), so the feature works in **every** published image — including the scratch-based minimal image, which has no `git` binary or shell — and stays `CGO_ENABLED=0`-clean. All fetch errors are fatal unless the block is `disabled`. See [doc/git.md](doc/git.md).
+
 ### Fixed
 
 - **`:latest` Docker tag now points to the standard image, not the minimal one.** The image-publishing workflow's minimal-image metadata applied its `-minimal` suffix to the semver tags but not to `latest` (docker/metadata-action skips the `latest` tag unless `onlatest=true`), so the minimal build pushed a bare `latest` that — being pushed after the standard image — clobbered it. Added `onlatest=true` so the minimal image publishes `latest-minimal` and `latest` reliably tracks the standard image.
