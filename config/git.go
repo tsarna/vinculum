@@ -105,7 +105,7 @@ func processGitBlock(
 
 	gitLogger := logger
 	if gitLogger != nil {
-		gitLogger = gitLogger.With(zap.String("git", def.Label))
+		gitLogger = gitLogger.With(zap.String("git_block", def.Label))
 	}
 
 	return cloneAndFetch(&def, gitLogger)

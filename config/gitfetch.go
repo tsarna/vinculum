@@ -81,7 +81,6 @@ func cloneRepo(def *GitDefinition, workdir string, logger *zap.Logger) hcl.Diagn
 
 	if logger != nil {
 		logger.Info("git clone starting",
-			zap.String("block", def.Label),
 			zap.String("repo", def.Repo),
 			zap.String("revision", revisionDesc(def)),
 			zap.Int("depth", depth))
@@ -104,7 +103,7 @@ func cloneRepo(def *GitDefinition, workdir string, logger *zap.Logger) hcl.Diagn
 	}
 
 	if logger != nil {
-		logger.Info("git clone complete", zap.String("block", def.Label), zap.String("repo", def.Repo))
+		logger.Info("git clone complete", zap.String("repo", def.Repo))
 	}
 
 	return nil
