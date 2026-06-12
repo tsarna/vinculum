@@ -125,7 +125,7 @@ jobs:
             BUILD_TIME=${{ steps.build_time.outputs.time }}
             VINCULUM_REF=${{ steps.ref.outputs.ref }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
 
       - name: Build and push minimal image
         uses: docker/build-push-action@v7
@@ -141,7 +141,7 @@ jobs:
             COMMIT=${{ github.sha }}
             BUILD_TIME=${{ steps.build_time.outputs.time }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
 
       - name: Build and push plugin build image
         uses: docker/build-push-action@v7
@@ -155,7 +155,7 @@ jobs:
           build-args: |
             VINCULUM_VERSION=${{ steps.ref.outputs.ref }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
 
     outputs:
       # The image tag to smoke-test (semver for tags, latest/dev for branches)
