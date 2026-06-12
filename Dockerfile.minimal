@@ -31,13 +31,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
     -o /out/vinculum .
 
 # Pre-create empty mount-point directories so Docker volumes work out of the box.
-# The image runs as UID 65534 (nobody), so the directories the runtime writes to
-# must be writable by that user: /conf/git (git-bootstrap fetch destination) and
-# /data/write are chowned to 65534; /tmp gets the conventional sticky 1777 (used
-# as the go-git clone work directory). Ownership is preserved by COPY --from.
-RUN mkdir -p /out/rootfs/conf /out/rootfs/conf/git /out/rootfs/data /out/rootfs/data/write /out/rootfs/plugins /out/rootfs/tmp \
-    && chmod 1777 /out/rootfs/tmp \
-    && chown 65534:65534 /out/rootfs/conf/git /out/rootfs/data/write
+# Permissions are set on the COPY into the scratch stage below (NOT here): a
+# chmod/chown in the builder stage does not survive `COPY --from`, which resets
+# copied directories to 0755 root. So just create the dirs here.
+RUN mkdir -p /out/rootfs/conf /out/rootfs/conf/git /out/rootfs/data /out/rootfs/data/write /out/rootfs/plugins /out/rootfs/tmp
 
 # ── Runtime stage (scratch) ───────────────────────────────────────────────────
 FROM scratch
@@ -52,11 +49,18 @@ COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /etc/passwd  /etc/passwd
 COPY --from=builder /etc/group   /etc/group
 
-# Pre-created mount-point directories
-COPY --from=builder /out/rootfs/conf    /conf
-COPY --from=builder /out/rootfs/data    /data
-COPY --from=builder /out/rootfs/plugins /plugins
-COPY --from=builder /out/rootfs/tmp     /tmp
+# Pre-created mount-point directories. The image runs as UID 65534 (nobody), so
+# the dirs the runtime writes to must be owned by / writable by that user. Set
+# perms with --chown/--chmod ON THE COPY (a builder-stage chmod is discarded by
+# COPY --from, which would leave them 0755 root):
+#   /conf (and /conf/git, the git-bootstrap fetch dest) + /data (and /data/write)
+#     → owned by 65534 so the runtime can create/write subtrees
+#   /tmp → sticky 1777 (go-git clone work directory)
+#   /plugins → left root-owned read-only (never written at runtime)
+COPY --from=builder --chown=65534:65534 /out/rootfs/conf    /conf
+COPY --from=builder --chown=65534:65534 /out/rootfs/data    /data
+COPY --from=builder                     /out/rootfs/plugins /plugins
+COPY --from=builder --chmod=1777        /out/rootfs/tmp     /tmp
 
 # The binary
 COPY --from=builder /out/vinculum /vinculum
