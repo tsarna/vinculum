@@ -43,6 +43,9 @@ test*.vcl
 smoke*.vcl
 x
 
+# Claude Code workflow scratch (todo.md, lessons.md)
+tasks/
+
 # Local MCP config
 .mcp.json
 
