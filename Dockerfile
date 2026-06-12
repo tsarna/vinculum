@@ -58,7 +58,8 @@ RUN go install -trimpath \
 FROM alpine:3.23
 
 RUN apk add --no-cache ca-certificates-bundle tzdata \
-    && mkdir -p /conf /conf/git /data /data/write /plugins
+    && mkdir -p /conf /conf/git /data /data/write /plugins \
+    && chown 65534:65534 /conf/git /data/write
 
 COPY --from=builder /go/bin/vinculum /vinculum
 

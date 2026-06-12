@@ -30,8 +30,14 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath \
       -X github.com/tsarna/vinculum/version.BuildTime=${BUILD_TIME}" \
     -o /out/vinculum .
 
-# Pre-create empty mount-point directories so Docker volumes work out of the box
-RUN mkdir -p /out/rootfs/conf /out/rootfs/conf/git /out/rootfs/data /out/rootfs/data/write /out/rootfs/plugins /out/rootfs/tmp
+# Pre-create empty mount-point directories so Docker volumes work out of the box.
+# The image runs as UID 65534 (nobody), so the directories the runtime writes to
+# must be writable by that user: /conf/git (git-bootstrap fetch destination) and
+# /data/write are chowned to 65534; /tmp gets the conventional sticky 1777 (used
+# as the go-git clone work directory). Ownership is preserved by COPY --from.
+RUN mkdir -p /out/rootfs/conf /out/rootfs/conf/git /out/rootfs/data /out/rootfs/data/write /out/rootfs/plugins /out/rootfs/tmp \
+    && chmod 1777 /out/rootfs/tmp \
+    && chown 65534:65534 /out/rootfs/conf/git /out/rootfs/data/write
 
 # ── Runtime stage (scratch) ───────────────────────────────────────────────────
 FROM scratch
