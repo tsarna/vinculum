@@ -12,7 +12,7 @@ server "metrics" "prometheus" {
 
 client "otlp" "otlp" {
     endpoint     = otlp_endpoint
-    service_name = "vinculum-voipms"
+    service_name = try(env.OTLP_SERVICE_NAME, "vinculum-voipms")
 
     disabled = (otlp_endpoint == "")
 }

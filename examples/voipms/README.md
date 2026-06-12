@@ -30,3 +30,8 @@ enable API access and generate credentials).
 
 Optional environment variable OTLP_URL configures push metrics via OTLP.
 If not set or empty, metrics are instead exposed via Prometheus on port 9090.
+
+Optional environment variable OTLP_SERVICE_NAME overrides the OTLP
+`service_name` (default `vinculum-voipms`) — useful when a deployment needs the
+emitted `service.name` (and the derived Prometheus `job` label) to match an
+existing convention.
