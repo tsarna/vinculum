@@ -13,6 +13,7 @@ MacGyver together a solution with a few lines of configuration.
 ## Key Features
 
 - **HCL Configuration** — Declarative configuration in HashiCorp Config Language (similar to Terraform), with constants, expressions, and assertions
+- **Git-Sourced Configuration** — Pull configuration (and static assets, MCP resource files, etc.) from a pinned revision of a git repository at startup, instead of baking it into the image — pure-Go, so it works even in the scratch-based minimal image
 - **Publish/Subscribe Messaging** — One or more event buses with MQTT-style topic routing, wildcards, and parameter extraction
 - **Server Protocols** — HTTP(S), Vinculum WebSocket (VWS), plain WebSocket, Model Context Protocol (MCP), and Prometheus/OpenMetrics, with pluggable authentication (basic, OIDC, OAuth2)
 - **Client Protocols** — HTTP(S), Kafka, MQTT, RabbitMQ (AMQP 0-9-1), Redis/Valkey (pub/sub, streams, key-value), AWS SQS, AWS SNS, VWS (to other Vinculum instances), OpenAI / LLM, and OpenTelemetry (OTLP) export
@@ -20,7 +21,7 @@ MacGyver together a solution with a few lines of configuration.
 - **Conditions** — Named boolean primitives with temporal rules (activate/deactivate delays, hysteresis, retentive timing, latches, cooldown, inhibit), covering IEC 61131-3 timer and counter function-block behaviors and composable into pipelines
 - **State Machines** — Finite state machines with guarded transitions, reactive events, key-value storage, MQTT topic matching, and OpenTelemetry tracing; composable with conditions and watchable for reactive integration
 - **Transformations and Procedures** — JQ-based message transforms, structured-text `editor` blocks, and `procedure` blocks for small imperative helpers
-- **Built-in Functions** — A large standard library covering HTTP, files, templates, time, randomness, IDs, LLMs, sunrise/sunset, geographic calculartions, and more.
+- **Built-in Functions** — A large standard library covering HTTP, files, templates, time, randomness, IDs, LLMs, sunrise/sunset, geographic calculations, and more.
 - **Plugins** — Load Go shared-object plugins (`.so`) at startup to extend Vinculum with custom functions, transforms, server/client/trigger types, and more — using the same registration points as in-tree subsystems
 - **Observability** — Context propagation, OpenTelemetry tracing and metrics, and Prometheus exposition throughout
 
