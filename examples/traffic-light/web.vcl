@@ -2,7 +2,7 @@ server "http" "traffic" {
     listen = ":8080"
 
     files "/traffic" {
-        directory = "/conf/html"
+        directory = try(env.HTML_DIR, "/conf/html")
     }
 
     handle "GET /{$}" {
