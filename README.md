@@ -17,6 +17,7 @@ MacGyver together a solution with a few lines of configuration.
 - **Publish/Subscribe Messaging** — One or more event buses with MQTT-style topic routing, wildcards, and parameter extraction
 - **Server Protocols** — HTTP(S), Vinculum WebSocket (VWS), plain WebSocket, Model Context Protocol (MCP), and Prometheus/OpenMetrics, with pluggable authentication (basic, OIDC, OAuth2)
 - **Client Protocols** — HTTP(S), Kafka, MQTT, RabbitMQ (AMQP 0-9-1), Redis/Valkey (pub/sub, streams, key-value), AWS SQS, AWS SNS, VWS (to other Vinculum instances), OpenAI / LLM, and OpenTelemetry (OTLP) export
+- **SQL Databases** — Query PostgreSQL, MySQL, and SQLite from config via the polymorphic `get()` / `call()` functions, with named queries, positional and named parameters, and structured result objects; Postgres and MySQL are pure-Go (no cgo)
 - **Triggers** — A range of trigger types for time-, event-, and lifecycle-driven actions: cron, dynamic intervals with optional jitter, absolute / dynamic times, file-system events, OS signals, startup/shutdown, watchdogs, and watches over reactive values
 - **Conditions** — Named boolean primitives with temporal rules (activate/deactivate delays, hysteresis, retentive timing, latches, cooldown, inhibit), covering IEC 61131-3 timer and counter function-block behaviors and composable into pipelines
 - **State Machines** — Finite state machines with guarded transitions, reactive events, key-value storage, MQTT topic matching, and OpenTelemetry tracing; composable with conditions and watchable for reactive integration

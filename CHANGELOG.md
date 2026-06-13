@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-06-13
+
 ### Added
 
 - **Postgres SQL client (`client "postgres"`)**: the second SQL dialect, sharing the engine, `query` sub-blocks, parameter syntax, result object, and `get()`/`call()` surface introduced for SQLite. Connect via a `dsn` or discrete `host`/`port`/`user`/`password`/`database`/`sslmode` fields, with an optional `search_path` and a `tls {}` block (mapped to libpq `sslrootcert`/`sslcert`/`sslkey`). Postgres SQLSTATE codes surface in `result.error.sqlstate`; `last_insert_id` is always null (use `RETURNING`). Built on the pure-Go `jackc/pgx/v5/stdlib` driver, so — unlike SQLite — it needs no cgo and is available in **every** published image, including the minimal one. See [doc/client-sql.md](doc/client-sql.md).
