@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Postgres SQL client (`client "postgres"`)**: the second SQL dialect, sharing the engine, `query` sub-blocks, parameter syntax, result object, and `get()`/`call()` surface introduced for SQLite. Connect via a `dsn` or discrete `host`/`port`/`user`/`password`/`database`/`sslmode` fields, with an optional `search_path` and a `tls {}` block (mapped to libpq `sslrootcert`/`sslcert`/`sslkey`). Postgres SQLSTATE codes surface in `result.error.sqlstate`; `last_insert_id` is always null (use `RETURNING`). Built on the pure-Go `jackc/pgx/v5/stdlib` driver, so — unlike SQLite — it needs no cgo and is available in **every** published image, including the minimal one. See [doc/client-sql.md](doc/client-sql.md).
+
+### Fixed
+
+- **Inline SQL with Postgres `::type` casts no longer fails as a phantom named parameter.** The `:name` placeholder detector matched the second colon of a `::` cast (e.g. `value::jsonb`), so a cast-using statement with no params or positional (`?`) params errored with *"statement uses :name placeholders but no parameters were supplied"*. Casts are now passed through untouched in those paths. (In a *named*-param statement, `sqlx` still collapses `::` to `:`; use `CAST(value AS type)` there — now documented.)
+
 ## [0.39.0] - 2026-06-12
 
 ### Added

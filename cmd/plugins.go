@@ -17,6 +17,7 @@ import (
 	_ "github.com/tsarna/vinculum/clients/rediskv"
 	_ "github.com/tsarna/vinculum/clients/redispubsub"
 	_ "github.com/tsarna/vinculum/clients/redisstream"
+	_ "github.com/tsarna/vinculum/clients/sql/postgres"
 	_ "github.com/tsarna/vinculum/clients/sql/sqlite"
 	_ "github.com/tsarna/vinculum/clients/vws"
 	_ "github.com/tsarna/vinculum/conditions"

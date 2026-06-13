@@ -14,10 +14,13 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// namedPlaceholderRe matches :name style placeholders. It is a deliberately
-// simple heuristic for the mixing-forms check; full placeholder parsing
-// (including string-literal awareness) is delegated to sqlx.
-var namedPlaceholderRe = regexp.MustCompile(`:[a-zA-Z_][a-zA-Z0-9_]*`)
+// namedPlaceholderRe matches :name style placeholders. The leading `(^|[^:])`
+// ensures a `::` sequence is not treated as a placeholder, so Postgres type
+// casts (`value::jsonb`, `x::int`) are not mistaken for `:name` parameters. It
+// is a deliberately simple heuristic for the mixing-forms check; full
+// placeholder parsing (including string-literal awareness) is delegated to sqlx,
+// which likewise treats `::` as an escaped literal colon.
+var namedPlaceholderRe = regexp.MustCompile(`(^|[^:]):[a-zA-Z_][a-zA-Z0-9_]*`)
 
 // queryLeadingKeywordRe extracts the first SQL keyword to decide, for inline
 // call(), whether a statement returns rows (Query) or not (Exec).

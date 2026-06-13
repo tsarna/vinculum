@@ -102,6 +102,38 @@ func TestBindParamsNamedPlaceholdersNoParams(t *testing.T) {
 	require.Error(t, err)
 }
 
+// Postgres `::type` casts must not be mistaken for :name placeholders. In the
+// no-param and positional paths the cast is passed through untouched (Rebind only
+// rewrites `?`), so these bind cleanly rather than failing with a spurious
+// "named placeholders" / "mixes" error.
+func TestBindParamsCastsAreNotNamedPlaceholders(t *testing.T) {
+	c := newStubClient(sqlx.DOLLAR)
+
+	// no params, inline casts (the case the smoke test hits)
+	sql, args, err := c.bindParams(`SELECT '{"k":"v"}'::jsonb AS j, '\x48'::bytea AS b`, nil)
+	require.NoError(t, err)
+	assert.Equal(t, `SELECT '{"k":"v"}'::jsonb AS j, '\x48'::bytea AS b`, sql)
+	assert.Empty(t, args)
+
+	// positional param alongside a cast
+	sql, args, err = c.bindParams("SELECT id::text FROM t WHERE id = ?", []cty.Value{cty.NumberIntVal(7)})
+	require.NoError(t, err)
+	assert.Equal(t, "SELECT id::text FROM t WHERE id = $1", sql)
+	assert.Equal(t, []any{7}, args)
+}
+
+// In the NAMED-param path, sqlx.Named treats `::` as an escaped literal colon and
+// collapses it to a single `:`, which breaks a Postgres `::type` cast. This test
+// pins that documented sqlx behavior so the limitation (use CAST(x AS type) in
+// named queries) is not silently regressed or "fixed" by accident.
+func TestBindParamsCastIsMangledInNamedPath(t *testing.T) {
+	c := newStubClient(sqlx.DOLLAR)
+	params := cty.ObjectVal(map[string]cty.Value{"id": cty.NumberIntVal(5)})
+	sql, _, err := c.bindParams("SELECT id::text FROM t WHERE id = :id", []cty.Value{params})
+	require.NoError(t, err)
+	assert.Equal(t, "SELECT id:text FROM t WHERE id = $1", sql) // note the single colon
+}
+
 func TestBindParamsNullParam(t *testing.T) {
 	c := newStubClient(sqlx.QUESTION)
 	_, args, err := c.bindParams("INSERT INTO t VALUES (?)", []cty.Value{cty.NullVal(cty.String)})

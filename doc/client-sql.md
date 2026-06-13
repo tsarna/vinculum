@@ -2,9 +2,10 @@
 
 SQL client blocks let a Vinculum config run SQL statements against a relational
 database. Three dialects are planned: `client "postgres"`, `client "mysql"`, and
-`client "sqlite"`. **This release ships `client "sqlite"`**; Postgres and MySQL
-are forthcoming and will share the same query sub-blocks, parameter syntax, and
-result shapes described here.
+`client "sqlite"`. **This release ships `client "sqlite"` and
+`client "postgres"`**; MySQL is forthcoming. All dialects share the same query
+sub-blocks, parameter syntax, and result shapes described here, differing only in
+their connection settings.
 
 SQL clients have no SQL-specific verbs. They participate in the existing
 polymorphic [`get()`](functions.md) and [`call()`](functions.md) functions:
@@ -67,6 +68,71 @@ client "sqlite" "state" {
 
 ---
 
+## `client "postgres" "<name>"`
+
+Pure Go (the `pgx` driver needs no cgo), so Postgres is available in both the
+full and minimal images.
+
+```hcl
+client "postgres" "appdb" {
+    # Connection — either a full DSN, or the discrete fields below. The DSN
+    # wins if both are given. Both the URL form ("postgres://...") and the
+    # libpq keyword/value form ("host=... dbname=...") are accepted.
+    dsn = "postgres://${env.PG_USER}:${env.PG_PASS}@db.internal:5432/app?sslmode=require"
+
+    # ── OR discrete fields (user and database are required when dsn is unset) ──
+    host     = "db.internal"          # default "localhost"
+    port     = 5432                   # default 5432
+    user     = env.PG_USER
+    password = env.PG_PASS
+    database = "appdb"
+    sslmode  = "require"              # disable | require | verify-ca | verify-full
+
+    # Default schema search path, applied per connection.
+    search_path = "myschema, public"
+
+    # TLS (mTLS / custom CA). Consulted with sslmode = verify-ca/verify-full;
+    # mapped to libpq sslrootcert/sslcert/sslkey. Relative paths resolve against
+    # the config directory.
+    tls {
+        ca_cert = "/etc/ssl/myca.pem"
+        cert    = "/etc/ssl/client.pem"
+        key     = "/etc/ssl/client.key"
+        # insecure_skip_verify has no libpq equivalent; for encryption without
+        # verification use sslmode = "require". Combining it with a verify-*
+        # sslmode is a config error.
+    }
+
+    # Pool tuning (see Pooling below).
+    max_open_conns     = 25
+    max_idle_conns     = 5
+    conn_max_lifetime  = "30m"
+    conn_max_idle_time = "5m"
+
+    statement_timeout  = "10s"
+
+    # Named queries (zero or more) — see below.
+    query "user_by_id" {
+        cardinality = "one"
+        sql         = "SELECT id, name, email FROM users WHERE id = :id"
+    }
+}
+```
+
+Postgres has no `last_insert_id`; that field is always `null`. To get a
+generated key, use `RETURNING` in the statement and read it from `.row`:
+
+```hcl
+result = call(ctx, client.appdb,
+    "INSERT INTO users (email) VALUES (?) RETURNING id", email)
+new_id = result.row.id
+```
+
+A `RETURNING` clause makes the statement produce rows, so a named query using it
+should declare `cardinality = "one"` (or `"many"`) rather than `"exec"`.
+
+---
+
 ## Named Query Sub-blocks
 
 A `query "name" { ... }` sub-block declares a reusable statement, exposed as
@@ -121,6 +187,13 @@ The argument after the target is interpreted by shape (SQL clients only):
 Mixing `?` and `:name` in one statement, or supplying the wrong parameter shape,
 is an evaluation error raised at the call site (not reported in
 `result.error`). A missing named key is also a call-site error.
+
+> **Postgres `::type` casts with named parameters.** A statement with **no
+> params or positional (`?`) params** may freely use the `value::type` cast
+> syntax. In a **named-param** statement, however, the placeholder parser treats
+> `::` as an escaped colon and collapses it to a single `:`, breaking the cast.
+> In named-param queries use the SQL-standard `CAST(value AS type)` form instead
+> (it also works in every other path and is dialect-portable).
 
 For a named query, the same params value is passed directly as the target's
 argument:
@@ -189,29 +262,35 @@ be configured.
 Result columns map to cty values primarily by the scanned value's type, using
 the column's declared type as a hint:
 
-| SQLite column         | cty result                    |
-|-----------------------|-------------------------------|
-| `INTEGER`             | `number`                      |
-| `REAL`, `NUMERIC`     | `number`                      |
-| `BOOLEAN`             | `bool`                        |
-| `TEXT`                | `string`                      |
-| `BLOB`                | `bytes` object                |
-| `DATETIME`/`DATE`     | `time`                        |
-| `JSON` (TEXT)         | decoded object/list/scalar    |
-| NULL                  | `null`                        |
+| cty result                 | SQLite columns               | Postgres columns                                            |
+|----------------------------|------------------------------|-------------------------------------------------------------|
+| number                     | `INTEGER`, `REAL`, `NUMERIC` | `smallint`, `integer`, `bigint`, `real`, `double precision` |
+| bool                       | `BOOLEAN`                    | `boolean`                                                   |
+| string                     | `TEXT`                       | `text`, `varchar`, `char`, `uuid`, `time`, `interval`       |
+| `bytes` object             | `BLOB`                       | `bytea`                                                     |
+| time                       | `DATETIME`, `DATE`           | `timestamp`, `timestamptz`, `date`                          |
+| decoded object/list/scalar | `JSON` (TEXT)                | `json`, `jsonb`                                             |
+| `null`                     | any NULL                     | any NULL                                                    |
 
 JSON columns are decoded to their underlying value; a value that fails to parse
-falls back to the raw string. Bound parameters use the inverse mapping: `null`
-binds SQL `NULL`, a `bytes` value binds a blob, a `time` value binds a
-timestamp, and numbers/strings/bools bind directly.
+falls back to the raw string. `numeric`/`decimal` columns are returned by the
+Postgres driver as strings (preserving exact precision) rather than `number`.
+Driver-specific types outside this table (Postgres arrays, ranges, enums, etc.)
+are returned as strings via the driver's default scan.
+
+Bound parameters use the inverse mapping: `null` binds SQL `NULL`, a `bytes`
+value binds a blob/`bytea`, a `time` value binds a timestamp, and
+numbers/strings/bools bind directly.
 
 ---
 
 ## Pooling
 
 SQL clients expose the standard `database/sql` pool knobs: `max_open_conns`,
-`max_idle_conns`, `conn_max_lifetime`, and `conn_max_idle_time`. SQLite defaults
-to `max_open_conns = 4`, `max_idle_conns = 4`, and unlimited lifetimes.
+`max_idle_conns`, `conn_max_lifetime`, and `conn_max_idle_time`. Defaults are
+dialect-flavored: SQLite uses `max_open_conns = 4`, `max_idle_conns = 4`;
+Postgres uses `max_open_conns = 25`, `max_idle_conns = 5`. Both default to
+unlimited connection lifetimes.
 
 When the inbound `ctx` carries a deadline (e.g. an HTTP request timeout), it is
 passed through to the database, and the effective per-statement timeout is the
