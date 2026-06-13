@@ -55,7 +55,7 @@ RUN go install -trimpath \
     "github.com/tsarna/vinculum@${VINCULUM_REF}"
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM alpine:3.23
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates-bundle tzdata \
     && mkdir -p /conf /conf/git /data /data/write /plugins \
