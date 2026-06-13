@@ -1,11 +1,10 @@
 # SQL Clients
 
 SQL client blocks let a Vinculum config run SQL statements against a relational
-database. Three dialects are planned: `client "postgres"`, `client "mysql"`, and
-`client "sqlite"`. **This release ships `client "sqlite"` and
-`client "postgres"`**; MySQL is forthcoming. All dialects share the same query
-sub-blocks, parameter syntax, and result shapes described here, differing only in
-their connection settings.
+database. Three dialects are supported: `client "postgres"`, `client "mysql"`,
+and `client "sqlite"`. All dialects share the same query sub-blocks, parameter
+syntax, and result shapes described here, differing only in their connection
+settings.
 
 SQL clients have no SQL-specific verbs. They participate in the existing
 polymorphic [`get()`](functions.md) and [`call()`](functions.md) functions:
@@ -130,6 +129,65 @@ new_id = result.row.id
 
 A `RETURNING` clause makes the statement produce rows, so a named query using it
 should declare `cardinality = "one"` (or `"many"`) rather than `"exec"`.
+
+---
+
+## `client "mysql" "<name>"`
+
+Pure Go (the `go-sql-driver/mysql` driver needs no cgo), so MySQL is available in
+both the full and minimal images.
+
+```hcl
+client "mysql" "appdb" {
+    # Connection — either a full DSN (the go-sql-driver form, NOT a URL), or the
+    # discrete fields below. The DSN wins if both are given.
+    dsn = "${env.MYSQL_USER}:${env.MYSQL_PASS}@tcp(db.internal:3306)/app"
+
+    # ── OR discrete fields (user and database are required when dsn is unset) ──
+    host     = "db.internal"          # default "localhost"
+    port     = 3306                   # default 3306
+    user     = env.MYSQL_USER
+    password = env.MYSQL_PASS
+    database = "appdb"
+
+    # TLS (mTLS / custom CA). Built from the shared tls block and registered with
+    # the driver. Relative paths resolve against the config directory.
+    tls {
+        enabled = true
+        ca_cert = "/etc/ssl/myca.pem"
+        cert    = "/etc/ssl/client.pem"
+        key     = "/etc/ssl/client.key"
+        # insecure_skip_verify = true   # encrypt without verifying the server cert
+    }
+
+    # Pool tuning (see Pooling below).
+    max_open_conns     = 25
+    max_idle_conns     = 5
+    conn_max_lifetime  = "30m"
+    conn_max_idle_time = "5m"
+
+    statement_timeout  = "10s"
+
+    query "user_by_id" {
+        cardinality = "one"
+        sql         = "SELECT id, name, email FROM users WHERE id = :id"
+    }
+}
+```
+
+`parseTime=true` and `loc=UTC` are forced (so `DATETIME`/`TIMESTAMP` columns map
+to `time` values rather than strings) unless you override them in an explicit
+`dsn`. Unlike Postgres, MySQL **does** populate `last_insert_id` from an
+`AUTO_INCREMENT` column after an `INSERT`, so an `"exec"` query is the idiomatic
+way to insert and read the new id:
+
+```hcl
+result = call(ctx, client.appdb, "INSERT INTO users (email) VALUES (?)", email)
+new_id = result.last_insert_id
+```
+
+The `tls` block requires `enabled = true`; an absent or disabled block leaves the
+connection unencrypted.
 
 ---
 
@@ -262,19 +320,20 @@ be configured.
 Result columns map to cty values primarily by the scanned value's type, using
 the column's declared type as a hint:
 
-| cty result                 | SQLite columns               | Postgres columns                                            |
-|----------------------------|------------------------------|-------------------------------------------------------------|
-| number                     | `INTEGER`, `REAL`, `NUMERIC` | `smallint`, `integer`, `bigint`, `real`, `double precision` |
-| bool                       | `BOOLEAN`                    | `boolean`                                                   |
-| string                     | `TEXT`                       | `text`, `varchar`, `char`, `uuid`, `time`, `interval`       |
-| `bytes` object             | `BLOB`                       | `bytea`                                                     |
-| time                       | `DATETIME`, `DATE`           | `timestamp`, `timestamptz`, `date`                          |
-| decoded object/list/scalar | `JSON` (TEXT)                | `json`, `jsonb`                                             |
-| `null`                     | any NULL                     | any NULL                                                    |
+| cty result                 | SQLite columns               | Postgres columns                                            | MySQL columns                                             |
+|----------------------------|------------------------------|-------------------------------------------------------------|-----------------------------------------------------------|
+| number                     | `INTEGER`, `REAL`, `NUMERIC` | `smallint`, `integer`, `bigint`, `real`, `double precision` | `tinyint`, `smallint`, `int`, `bigint`, `float`, `double` |
+| bool                       | `BOOLEAN`                    | `boolean`                                                   | — (use `tinyint`)                                         |
+| string                     | `TEXT`                       | `text`, `varchar`, `char`, `uuid`, `time`, `interval`       | `varchar`, `text`, `char`, `time`                         |
+| `bytes` object             | `BLOB`                       | `bytea`                                                     | `blob`, `varbinary`                                       |
+| time                       | `DATETIME`, `DATE`           | `timestamp`, `timestamptz`, `date`                          | `datetime`, `timestamp`, `date`                           |
+| decoded object/list/scalar | `JSON` (TEXT)                | `json`, `jsonb`                                             | `json`                                                    |
+| `null`                     | any NULL                     | any NULL                                                    | any NULL                                                  |
 
 JSON columns are decoded to their underlying value; a value that fails to parse
 falls back to the raw string. `numeric`/`decimal` columns are returned by the
-Postgres driver as strings (preserving exact precision) rather than `number`.
+Postgres and MySQL drivers as strings (preserving exact precision) rather than
+`number`. MySQL `tinyint(1)` columns surface as a `number` (0/1), not `bool`.
 Driver-specific types outside this table (Postgres arrays, ranges, enums, etc.)
 are returned as strings via the driver's default scan.
 
@@ -289,8 +348,8 @@ numbers/strings/bools bind directly.
 SQL clients expose the standard `database/sql` pool knobs: `max_open_conns`,
 `max_idle_conns`, `conn_max_lifetime`, and `conn_max_idle_time`. Defaults are
 dialect-flavored: SQLite uses `max_open_conns = 4`, `max_idle_conns = 4`;
-Postgres uses `max_open_conns = 25`, `max_idle_conns = 5`. Both default to
-unlimited connection lifetimes.
+Postgres and MySQL use `max_open_conns = 25`, `max_idle_conns = 5`. All default
+to unlimited connection lifetimes.
 
 When the inbound `ctx` carries a deadline (e.g. an HTTP request timeout), it is
 passed through to the database, and the effective per-statement timeout is the

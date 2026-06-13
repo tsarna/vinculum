@@ -190,7 +190,7 @@ A `server` block accepts inbound connections or requests over a particular proto
 | [Redis Pub/Sub](client-redis.md#client-redis_pubsub) | [Yes](client-redis.md#client-redis_pubsub) | — | Redis channel PUBLISH/SUBSCRIBE/PSUBSCRIBE — MQTT-style fire-and-forget |
 | [Redis Streams](client-redis.md#client-redis_stream) | [Yes](client-redis.md#client-redis_stream) | — | Redis Streams XADD/XREADGROUP with consumer groups, manual ack, reclaim, and dead-letter |
 | [SNS](client-sns.md) | [Sender](client-sns.md#client-sns_sender-name) | — | Publish bus events to an SNS topic, target ARN, or phone number; FIFO support |
-| [SQL](client-sql.md) | [SQLite](client-sql.md#client-sqlite-name)[^cgo] / [Postgres](client-sql.md#client-postgres-name) | — | Run SQL via `get()`/`call()` with named queries, parameters, and result objects; MySQL forthcoming |
+| [SQL](client-sql.md) | [SQLite](client-sql.md#client-sqlite-name)[^cgo] / [Postgres](client-sql.md#client-postgres-name) / [MySQL](client-sql.md#client-mysql-name) | — | Run SQL via `get()`/`call()` with named queries, parameters, and result objects |
 | [SQS](client-sqs.md) | [Sender](client-sqs.md#client-sqs_sender-name) / [Receiver](client-sqs.md#client-sqs_receiver-name) | — | Send bus events to an SQS queue or poll a queue and dispatch to the bus; FIFO support |
 | [VWS](server-vws.md) | [Yes](server-vws.md) | [Yes](server-vws.md) | Vinculum WebSocket Protocol — pub/sub over WebSockets between Vinculum instances |
 | [WebSocket](server-websocket.md) | — | [Yes](server-websocket.md) | Plain (raw) WebSocket server with bus integration and inbound/outbound transforms |
