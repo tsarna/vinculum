@@ -25,6 +25,7 @@ MacGyver together a solution with a few lines of configuration.
 - **Built-in Functions** — A large standard library covering HTTP, files, templates, time, randomness, IDs, LLMs, sunrise/sunset, geographic calculations, and more.
 - **Plugins** — Load Go shared-object plugins (`.so`) at startup to extend Vinculum with custom functions, transforms, server/client/trigger types, and more — using the same registration points as in-tree subsystems
 - **Observability** — Context propagation, OpenTelemetry tracing and metrics, and Prometheus exposition throughout
+- **Interactive REPL** — `serve -i` drops into a prompt that evaluates VCL expressions against the live, running configuration — read state, call functions, and send messages to real buses, with result history and tab completion
 
 ## Documentation
 

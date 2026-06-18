@@ -16,9 +16,10 @@
 12. [Protocols](#protocols)
 13. [Examples](#examples)
 14. [Observability](#observability)
-15. [Container Images](#container-images)
-16. [Bootstrap and Plugins](#bootstrap-and-plugins)
-17. [Block Type Reference](#block-type-reference)
+15. [Interactive REPL](#interactive-repl)
+16. [Container Images](#container-images)
+17. [Bootstrap and Plugins](#bootstrap-and-plugins)
+18. [Block Type Reference](#block-type-reference)
 
 ## Introduction
 
@@ -287,6 +288,22 @@ subscription "event_router" {
 ## Observability
 
 Vinculum propagates a context through the system as messages flow from sources through buses, transforms, and subscribers, so events received via one protocol retain their originating context as they're processed and forwarded. OpenTelemetry traces and metrics are emitted throughout, and can be exposed in Prometheus/OpenMetrics format via [`server "metrics"`](server-metrics.md) or pushed to an OTel collector via [`client "otlp"`](client-otlp.md). Application-defined metrics are declared with [`metric`](metric.md) blocks.
+
+## Interactive REPL
+
+Running `vinculum serve` with the `-i` / `--interactive` flag starts the server
+normally and then presents an interactive prompt instead of waiting for a
+termination signal. At the prompt you type VCL expressions and see them
+evaluated against the live, running configuration — reading state, calling
+functions, and sending messages to real buses.
+
+```
+vinculum serve -i config.vcl
+```
+
+See [repl.md](repl.md) for the full reference: result history (`_` / `_N`),
+session bindings, multi-line input, meta-commands, log control, and history /
+completion.
 
 ## Container Images
 

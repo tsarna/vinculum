@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Interactive REPL (`serve -i` / `--interactive`)**: after normal startup, instead of blocking on a termination signal, `vinculum serve` can present an interactive prompt that evaluates VCL **expressions** against the live, running configuration. Everything a handler action sees is available — `bus.*`, `server.*`, `client.*`, `env.*`, the full function library, and a working `ctx` — so you can read live state (`get(condition.x)`), drive the system by hand (`send(...)`, `publish(...)`), and inspect what a function returns before committing it to a `.vcl`. Results print in HCL/VCL style and are numbered into `_` and `_1`…`_N` (the prompt shows the index the next result will be bound to, so scrollback doubles as an index into the history); bare `NAME = EXPR` assignments and `:set` stash intermediate values; multi-line expressions continue at a `...` prompt; and `:help`, `:vars`, `:loglevel`/`:quiet`/`:logs` and friends control the session. Async runtime logs redraw cleanly around the prompt (console format on stderr; `:loglevel`/`:quiet` adjust verbosity live), and command history plus tab completion of top-level names are persisted across sessions. Requires a terminal; `Ctrl-C` cancels the current line while `:quit`/`Ctrl-D`/`SIGTERM` shut the server down. See [doc/repl.md](doc/repl.md).
+
 ## [0.40.0] - 2026-06-13
 
 ### Added

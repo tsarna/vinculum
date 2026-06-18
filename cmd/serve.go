@@ -9,9 +9,11 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/repl"
 	"github.com/tsarna/vinculum/version"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"golang.org/x/term"
 )
 
 // serverCmd represents the server command
@@ -27,22 +29,33 @@ If any *.vinit bootstrap file under the configured paths declares a "plugin"
 block, --plugin-path must be set to a directory containing the corresponding
 .so files. See doc/vinit.md and doc/plugins.md for details.
 
+At least one config file or directory is required, except with --interactive,
+which may be run with no config to explore ambient values and built-in
+functions in an empty environment.
+
 Examples:
   vinculum serve config.vcl
   vinculum serve ./configs/
   vinculum serve config1.vcl config2.vcl ./more-configs/
   vinculum serve -f /path/to/files config.vcl
-  vinculum serve --plugin-path /plugins ./configs/`,
-	Args: cobra.MinimumNArgs(1),
+  vinculum serve --plugin-path /plugins ./configs/
+  vinculum serve -i`,
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 && !interactive {
+			return fmt.Errorf("requires at least one config file or directory (or -i to start an interactive session with no config)")
+		}
+		return nil
+	},
 	RunE: runServer,
 }
 
 var (
-	logLevel   string
-	filePath   string
-	writePath  string
-	allowKill  bool
-	pluginPath string
+	logLevel    string
+	filePath    string
+	writePath   string
+	allowKill   bool
+	pluginPath  string
+	interactive bool
 )
 
 func init() {
@@ -53,14 +66,30 @@ func init() {
 	serverCmd.Flags().StringVarP(&writePath, "write-path", "w", "", "base directory for file write functions; must be under --file-path")
 	serverCmd.Flags().BoolVar(&allowKill, "allow-kill", false, "enable the kill function (feature \"allowkill\")")
 	serverCmd.Flags().StringVar(&pluginPath, "plugin-path", "", "directory containing Go plugin .so files; required if any .vinit plugin block is present")
+	serverCmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "after startup, present an interactive REPL instead of blocking on a signal (requires a terminal)")
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
-	// Setup logger
-	logger, err := setupLogger()
-	if err != nil {
-		return fmt.Errorf("failed to setup logger: %w", err)
+
+	if interactive && (!term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd()))) {
+		return fmt.Errorf("interactive mode (-i) requires a terminal on stdin and stdout")
+	}
+
+	// Interactive mode uses a console logger writing through a swappable sink so
+	// async runtime logs can redraw around the live prompt; non-interactive mode
+	// uses the JSON production logger.
+	var logger *zap.Logger
+	var logging *repl.Logging
+	if interactive {
+		logging = repl.NewInteractiveLogging(resolveLogLevel())
+		logger = logging.Logger
+	} else {
+		var err error
+		logger, err = setupLogger()
+		if err != nil {
+			return fmt.Errorf("failed to setup logger: %w", err)
+		}
 	}
 	defer logger.Sync()
 
@@ -105,11 +134,31 @@ func runServer(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if interactive {
+		// Present the REPL on the foreground goroutine instead of blocking on a
+		// signal. SIGINT is handled by the line editor (cancel current line);
+		// SIGTERM and :quit/EOF return from Run().
+		session := repl.New(cfg, logging, args)
+		if err := session.Run(); err != nil {
+			logger.Error("REPL error", zap.Error(err))
+		}
+		shutdown(cfg, logger)
+		return nil
+	}
+
 	// Wait for SIGINT or SIGTERM, then stop all stoppable components.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
+	shutdown(cfg, logger)
+	return nil
+}
+
+// shutdown runs the graceful teardown sequence shared by the signal path and
+// the REPL-exit path: PreStoppables then Stoppables, each in reverse
+// registration order so dependents stop before their dependencies.
+func shutdown(cfg *config.Config, logger *zap.Logger) {
 	logger.Info("Shutting down")
 	for i := len(cfg.PreStoppables) - 1; i >= 0; i-- {
 		if err := cfg.PreStoppables[i].PreStop(); err != nil {
@@ -121,38 +170,35 @@ func runServer(cmd *cobra.Command, args []string) error {
 			logger.Error("Failed to stop component", zap.Error(err))
 		}
 	}
-	return nil
+}
+
+// resolveLogLevel applies the -d/-v overrides to the --log-level flag and
+// returns the effective zap level. Shared by the production and interactive
+// logger builders.
+func resolveLogLevel() zapcore.Level {
+	level := logLevel
+	if GetDebug() {
+		level = "debug"
+	} else if GetVerbose() && level == "info" {
+		level = "debug"
+	}
+
+	switch strings.ToLower(level) {
+	case "debug":
+		return zap.DebugLevel
+	case "warn", "warning":
+		return zap.WarnLevel
+	case "error":
+		return zap.ErrorLevel
+	default:
+		return zap.InfoLevel
+	}
 }
 
 func setupLogger() (*zap.Logger, error) {
-	level := logLevel
-	debugFlag := GetDebug()
-	verboseFlag := GetVerbose()
-
-	// Override log level based on flags
-	if debugFlag {
-		level = "debug"
-	} else if verboseFlag && level == "info" {
-		level = "debug"
-	}
-
-	var zapLevel zap.AtomicLevel
-	switch strings.ToLower(level) {
-	case "debug":
-		zapLevel = zap.NewAtomicLevelAt(zap.DebugLevel)
-	case "info":
-		zapLevel = zap.NewAtomicLevelAt(zap.InfoLevel)
-	case "warn", "warning":
-		zapLevel = zap.NewAtomicLevelAt(zap.WarnLevel)
-	case "error":
-		zapLevel = zap.NewAtomicLevelAt(zap.ErrorLevel)
-	default:
-		zapLevel = zap.NewAtomicLevelAt(zap.InfoLevel)
-	}
-
 	config := zap.NewProductionConfig()
-	config.Level = zapLevel
-	config.Development = debugFlag
+	config.Level = zap.NewAtomicLevelAt(resolveLogLevel())
+	config.Development = GetDebug()
 
 	// Pin stacktrace to error level regardless of Development mode.
 	// zap's default promotes stacktraces to warn when Development=true, which
