@@ -17,15 +17,16 @@ so it can be referenced from `trigger "watch"`, composed into other
 conditions via `input = get(condition.other)`, or read imperatively from any
 expression with `get(condition.name)`.
 
-There are three subtypes, each answering a different question:
+There are four subtypes, each answering a different question:
 
 | Subtype | Input | Question |
 |---|---|---|
 | `condition "timer"` | Boolean (imperative or declared) | Apply temporal semantics to a boolean signal |
 | `condition "threshold"` | Numeric (declared expression) | Derive a boolean from a numeric value with hysteresis |
 | `condition "counter"` | Events (`increment()` / `decrement()` calls) | Produce a boolean when an event count reaches a preset |
+| `condition "flipflop"` | Booleans (declared "wire" expressions) | Edge-driven set/reset/toggle and gated/clocked sampling (T, SR, JK, D, D-latch) |
 
-All three share a common four-state model and a common set of behavioral
+All four share a common four-state model and a common set of behavioral
 attributes described below.
 
 ---
@@ -681,6 +682,162 @@ condition "counter" "batch_remaining" {
 
 ---
 
+## `condition "flipflop" "name"`
+
+A flipflop exposes the standard digital-logic bistables — T, SR, gated SR, D,
+D-latch, JK — through a uniform set of **wire** attributes. Each wire is a
+boolean expression watched reactively; the *combination* of wires declared
+names the variant. Use a flipflop when you need edge-driven state
+(toggle-on-press), multi-input set/reset, or sample-and-hold of one signal on
+the edge of another. (For purely temporal "active for N seconds" behavior, use
+`condition "timer"` instead — a flipflop responds to its inputs immediately.)
+
+### Wires
+
+Each wire must evaluate to a boolean; null / non-boolean values are logged to
+the user log and ignored. At least one of `set_on`, `reset_on`, `toggle_on`,
+or `set_from` must be declared.
+
+| Wire | Edge attribute | Effect |
+|---|---|---|
+| `set_on` | `set_edge` | On its edge, drive the output **true** |
+| `reset_on` | `reset_edge` | On its edge, drive the output **false** |
+| `toggle_on` | `toggle_edge` | On its edge, **flip** the output |
+| `set_from` + `gate_on` | `gate_edge` | Sample `set_from`'s level when the gate permits |
+
+**Event wires** (`set_on` / `reset_on` / `toggle_on`) fire on an *edge* of their
+expression. The edge attribute is `"rising"` (default), `"falling"`, or
+`"both"`:
+
+| Edge | Fires when |
+|---|---|
+| `"rising"` | previous evaluation was `false`, current is `true` |
+| `"falling"` | previous was `true`, current is `false` |
+| `"both"` | value changed in either direction |
+
+The **first evaluation** of every wire (at startup) only establishes the
+baseline and fires **no** edge — a source that happens to be asserting at boot
+will not spuriously drive the flipflop. Use `start_active` to boot the output
+true.
+
+**`set_from` + `gate_on`** implement the D variants. `set_from` is a *level*
+that is never edge-detected on its own; it is *sampled* when `gate_on` permits.
+The gate's `gate_edge` additionally accepts the level-sensitive modes `"high"`
+and `"low"`:
+
+- `"rising"` / `"falling"` / `"both"` — sample `set_from` on that edge of the
+  gate (edge-triggered **D flip-flop**).
+- `"high"` — while `gate_on` is true, the output tracks `set_from` reactively;
+  when the gate goes false the last sampled value is held (**D latch**,
+  active-high). `"low"` is the symmetric active-low latch.
+
+`gate_on` may also be declared **without** `set_from`, where it acts as an
+enable that gates the effective window of `set_on` / `reset_on` / `toggle_on`
+(the **gated SR / gated T** pattern — edges outside the window are ignored).
+`set_from` **without** `gate_on` is a configuration error.
+
+### Wire combinations and resulting variants
+
+| Wires declared | Variant |
+|---|---|
+| `toggle_on` only | T flip-flop |
+| `set_on` + `reset_on` | SR flip-flop |
+| `set_on` + `reset_on` + `toggle_on` | JK flip-flop |
+| `set_on` + `reset_on` + `gate_on` (level) | Gated SR |
+| `set_from` + `gate_on` (edge) | D flip-flop |
+| `set_from` + `gate_on` (level) | D latch |
+| `toggle_on` + `gate_on` (level) | Gated T |
+
+### Conflict resolution
+
+When one notification causes more than one wire to fire in the same evaluation
+(common when wires share an upstream source), the flipflop resolves to a single
+output value per this priority:
+
+1. **Gate first.** If `gate_on` is configured and its edge / level criterion is
+   not satisfied this cycle, the other wires are suppressed.
+2. **Set/Reset dominance.** If both `set_on` and `reset_on` fire, `dominant`
+   (`"reset"` default, or `"set"`) picks the winner.
+3. **Set/Reset over toggle.** A `set_on` / `reset_on` fire wins over `toggle_on`.
+4. **D-sample over toggle.** A `set_from` sample is applied before `toggle_on`.
+
+Conflict resolution is atomic only *within* a single notification — i.e. across
+wires sharing the source that fired. Two *different* sources changing
+"simultaneously" arrive as sequential notifications; `dominant` still resolves
+the eventual state, but a downstream watcher may briefly observe the
+intermediate value. Funnel inputs through a single derived source upstream if
+you need strict cross-input atomicity.
+
+### Flipflop-specific attribute
+
+#### `dominant`
+
+`"reset"` (default) or `"set"` — picks the winner when `set_on` and `reset_on`
+fire in the same cycle.
+
+### Attribute applicability
+
+Flipflop conditions support the common attributes `start_active`, `latch`,
+`invert`, `cooldown`, `inhibit`, and the lifecycle hooks. A latched flipflop
+ignores `reset_on`, gate drop-out, and `toggle_on` flips that would deactivate
+it until released with `clear()`.
+
+Flipflop conditions do **not** support the temporal attributes
+`activate_after`, `deactivate_after`, `timeout`, `retentive`, `debounce`, or
+`input =`. Debounce belongs on the signal-producing source upstream; for
+self-deactivating or continuous-level behavior use `condition "timer"`.
+
+### Flipflop examples
+
+T flip-flop — toggle a lamp on each button press:
+
+```hcl
+condition "flipflop" "lamp" {
+    toggle_on = get(condition.button)   # default toggle_edge = "rising"
+}
+```
+
+SR flip-flop — latching fault with operator reset (reset wins by default):
+
+```hcl
+condition "flipflop" "fault" {
+    set_on   = get(condition.high_temp) || get(condition.low_voltage)
+    reset_on = get(condition.operator_ack)
+}
+```
+
+D flip-flop — capture one signal on the rising edge of another:
+
+```hcl
+condition "flipflop" "captured_state" {
+    set_from  = get(condition.measured_high)
+    gate_on   = get(condition.clock_pulse)
+    gate_edge = "rising"
+}
+```
+
+D latch — output tracks the input while enable is high:
+
+```hcl
+condition "flipflop" "tracking" {
+    set_from  = get(metric.live_value_gt_threshold)
+    gate_on   = get(condition.enable)
+    gate_edge = "high"
+}
+```
+
+JK flip-flop — set, reset, and toggle in one:
+
+```hcl
+condition "flipflop" "mode" {
+    set_on    = get(condition.go_button)
+    reset_on  = get(condition.stop_button)
+    toggle_on = get(condition.flip_button)
+}
+```
+
+---
+
 ## Functions
 
 See [functions.md](functions.md#conditions) for the full reference. A short
@@ -690,9 +847,9 @@ summary:
 |---|---|---|
 | `get(condition.name)` → bool | all | Current boolean output |
 | `state(condition.name)` → string | all | Current internal state name |
-| `set(condition.name, value)` | timer (no declared `input`) | Provide the boolean input |
-| `toggle(condition.name)` → bool | timer (no declared `input`) | Flip the bistable's input; equivalent to `set(condition.name, !current)`. Returns the new input value |
-| `clear(condition.name)` | timer, threshold | Reset to inactive, release latch, discard retentive accumulation |
+| `set(condition.name, value)` | timer (no declared `input`), flipflop | Force the boolean output (honors latch / inhibit / cooldown) |
+| `toggle(condition.name)` → bool | timer (no declared `input`), flipflop | Flip the output; equivalent to `set(condition.name, !current)`. Returns the new value |
+| `clear(condition.name)` | timer, threshold, flipflop | Reset to inactive, release latch, discard retentive accumulation |
 | `increment(condition.name[, n])` | counter | Add `n` (default 1) to the count |
 | `decrement(condition.name[, n])` | counter | Subtract `n` (default 1) from the count |
 | `reset(condition.name)` | counter | Reset count to `initial`, release latch, return to inactive |

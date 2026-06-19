@@ -72,7 +72,7 @@ func (h *ConditionBlockHandler) Process(config *Config, block *hcl.Block) hcl.Di
 		return hcl.Diagnostics{&hcl.Diagnostic{
 			Severity: hcl.DiagError,
 			Summary:  "Unknown condition subtype",
-			Detail:   fmt.Sprintf("Unknown condition subtype: %q (expected timer, threshold, or counter)", subtype),
+			Detail:   fmt.Sprintf("Unknown condition subtype: %q (expected timer, threshold, counter, or flipflop)", subtype),
 			Subject:  &block.DefRange,
 		}}
 	}
