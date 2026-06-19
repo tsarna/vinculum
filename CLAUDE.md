@@ -21,6 +21,7 @@ User-facing documentation lives in `doc/`. Each file covers one topic:
 |---|---|
 | `doc/overview.md` | Introduction, concepts, table of contents |
 | `doc/config.md` | HCL syntax, variables, all block types (`bus`, `const`, `cron`, `function`, `jq`, `server`, `signals`, `subscription`) |
+| `doc/condition.md` | `condition` block subtypes (`timer`, `threshold`, `counter`, `flipflop`), four-state model, common attributes, lifecycle hooks |
 | `doc/functions.md` | Built-in callable functions (logging, messaging, data, MCP, file, HTTP) |
 | `doc/transforms.md` | Message transform pipeline DSL (`add_topic_prefix`, `jq`, `chain`, etc.) |
 | `doc/server-http.md` | `server "http"`: handle/files blocks, context vars, request functions |
@@ -38,45 +39,57 @@ User-facing documentation lives in `doc/`. Each file covers one topic:
 ## Repository Layout
 
 ```
-cmd/            CLI commands (server, publish, subscribe)
-config/         Core configuration parsing and all block implementations
+cmd/            CLI commands (serve, publish, subscribe, check, plugins, version)
+config/         Core config parsing, block registries, and shared block impls
   blocks.go     BlockHandler interface + registry (GetBlockHandlers)
-  server.go     Listener interface, BaseServer, ServerBlockHandler dispatch
-  http.go       server "http" implementation
-  vws.go        server "vws" and client "vws" implementations
-  websockets.go server "websocket" implementation
+  server.go     Listener/Startable/HandlerServer interfaces, BaseServer,
+                RegisterServerType registry + ServerBlockHandler dispatch
+  client.go     Client interface, RegisterClientType registry + ClientBlockHandler dispatch
+  trigger.go    Trigger interface + RegisterTriggerType registry
+  condition.go  Condition subtype registry (RegisterConditionSubtype)
   bus.go        bus block
   subs.go       subscription block
-  cron.go       cron block
-  ctx.go        evaluation context builders (per handler type)
-  dep.go        dependency graph + topological sort
   config.go     Config and ConfigBuilder types
+  dep.go        dependency graph + topological sort
   parse.go      HCL file/directory/bytes parsing — `.vcl` and `.vinit` extensions
   transforms.go message transform functions
   transformplugin.go    RegisterTransformPlugin + collision detection
-  vinit.go      .vinit pass-1 orchestration, minimal eval context, plugin + git block collection
+  vinit.go      .vinit pass-1 orchestration, minimal eval context, plugin + git collection
   git.go        git block decode structs + static validation (processGitBlock)
   gitfetch.go   go-git clone/checkout + HTTP/SSH auth construction
   gitmaterialize.go     subtree copy + destination ownership materialization
   plugin_common.go      PluginContext + entry-point type (all platforms)
   plugin.go     Plugin loader (linux/darwin/freebsd build tag)
   plugin_unsupported.go Plugin loader stub (other platforms)
-  testdata/     .vcl fixtures for tests
-  testdata/plugins/     Fixture plugin source for integration test
-functions/      Built-in HCL functions (log, stdlib, jq, diff, mcp_*, etc.)
-internal/
-  hclutil/      Shared HCL helpers (ContextObjectBuilder, capsule utilities)
-mcp/            MCP server implementation (server "mcp" block)
-  server.go     Server struct, New(), Start(), GetHandler()
-  resources.go  Resource + ResourceTemplate registration and handlers
-  tools.go      Tool registration and handlers
-  prompts.go    Prompt registration and handlers
-  context.go    Per-request eval context builders for each handler type
-  schema.go     JSON schema generation for tool input params
-  testdata/     .vcl fixtures for mcp tests
-platform/       OS signal handling
+  tls.go        shared TLS sub-block (TLSConfig)
+  fsm.go reactive.go procedure.go wireformat*.go auth.go ...  other block impls
+  testdata/     .vcl fixtures (incl. testdata/plugins/ for integration test)
+servers/        Server implementations (each registers via RegisterServerType in init())
+  http/         server "http"
+  vws/          server "vws"
+  websocket/    server "websocket" (low-level helper + config)
+  mcp/          server "mcp" — MCP protocol (server.go, resources.go, tools.go,
+                prompts.go, context.go, schema.go, auth.go)
+  metrics/      server "metrics"
+  auth/         shared HTTP auth middleware (basic, oauth2, oidc, custom)
+clients/        Client implementations (each registers via RegisterClientType in init())
+                http/ vws/ mqtt/ kafka/ rabbitmq/ redis*/ sns/ sqs/ aws/ sql/ llm/ openai/ otlp/
+triggers/       Trigger implementations: cron, at, after, interval, once, watch,
+                watchdog, signals, start, shutdown, file
+conditions/     Condition subtypes (threshold, counter, timer, state, hooks)
+procedure/      Procedure compiler/interpreter (ir, scope, signal, spec)
+editors/        Editor implementations (line)
+ambient/        Ambient providers (env, sys, httpstatus, boottime)
+functions/      Built-in HCL functions (log, stdlib, jq, diff, mcp_*, http, etc.)
+repl/           Interactive REPL (serve -i)
+hclutil/        Shared HCL helpers (ContextObjectBuilder, capsule/ctx/auth/env/tracing)
+internal/       Internal-only helpers
+types/          Rich object/capsule types (httprequest, httpresponse, metric, variable)
 transform/      Message transform pipeline types
-websockets/     Low-level WebSocket server helper
+platform/       OS signal handling
+version/        Build version info
+specs/          Design specs
+doc/            User-facing documentation
 ```
 
 ---
@@ -168,7 +181,7 @@ struct.
 
 ### Adding a new server type
 
-1. Create a file `config/<type>.go` (e.g., `config/mcp.go`).
+1. Create a package `servers/<type>/` (e.g., `servers/mcp/`).
 2. Define a definition struct decoded by `gohcl`:
    ```go
    type MyServerDefinition struct {
@@ -178,11 +191,11 @@ struct.
        // hcl:",remain" for sub-blocks
    }
    ```
-3. Define a server struct embedding `BaseServer`. Implement `Startable` if it runs
-   a goroutine; implement `HandlerServer` if it can be mounted under `server "http"`.
-4. Write `ProcessMyServerBlock(config *Config, block *hcl.Block, body hcl.Body) (Listener, hcl.Diagnostics)`.
-5. Add a `case "mytype":` to the switch in `ServerBlockHandler.Process()` in
-   `config/server.go`.
+3. Define a server struct embedding `cfg.BaseServer`. Implement `Startable` if it
+   runs a goroutine; implement `HandlerServer` if it can be mounted under `server "http"`.
+4. Write `ProcessMyServerBlock(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Listener, hcl.Diagnostics)`.
+5. Register it from an `init()`: `cfg.RegisterServerType("mytype", ProcessMyServerBlock)`.
+   `ServerBlockHandler.Process()` in `config/server.go` dispatches through that registry.
 
 Servers are stored in `config.Servers["type"]["name"]` and exposed to HCL
 expressions as `server.<name>` (a cty capsule value).
@@ -191,18 +204,21 @@ expressions as `server.<name>` (a cty capsule value).
 
 A server can implement `bus.Subscriber` from vinculum-bus to receive messages sent
 to it via `send(ctx, server.myserver, topic, payload)` or a `subscription` block
-with `subscriber = server.myserver`. See `vws.go` and `websockets.go` for examples.
+with `subscriber = server.myserver`. See `servers/vws/` and `servers/websocket/`
+for examples.
 
 ---
 
 ## Architecture: Clients
 
-Clients connect to external services. They follow the same pattern as servers:
+Clients connect to external services. They follow the same pattern as servers
+(one package per type under `clients/<type>/`):
 
 - Implement the `Client` interface
 - Stored in `config.Clients["type"]["name"]`
 - Exposed as `client.<name>` in HCL expressions
-- Add a `case` to `ClientBlockHandler.Process()` in `config/client.go`
+- Register from an `init()`: `cfg.RegisterClientType("mytype", ProcessMyClientBlock)`.
+  `ClientBlockHandler.Process()` in `config/client.go` dispatches through that registry.
 
 ### Shared sub-blocks
 
@@ -382,7 +398,7 @@ for contexts.
 
 | VCL Type | Object type var | Capsule type var | Source |
 |---|---|---|---|
-| `bytes` | `types.BytesObjectType` | `types.BytesCapsuleType` | `types/bytes.go` |
+| `bytes` | `bytescty.BytesObjectType` | `bytescty.BytesCapsuleType` | [github.com/tsarna/bytes-cty-type](https://github.com/tsarna/bytes-cty-type) (wired in `functions/bytes.go`) |
 | URL object | `urlcty.URLObjectType` | `urlcty.URLCapsuleType` | [github.com/tsarna/url-cty-funcs](https://github.com/tsarna/url-cty-funcs) |
 
 **How to implement a new rich object type:**
@@ -495,11 +511,11 @@ log to an external system.
 
 ### MCP Server
 
-The MCP (Model Context Protocol) server MVP is partially implemented in `mcp/`.
+The MCP (Model Context Protocol) server MVP is partially implemented in `servers/mcp/`.
 See `MCP-SPEC.md` (full spec) and `MCP-MVP.md` (MVP scope) for details.
 
 **What's implemented (MVP Phase 0–3):**
-- `server "mcp" "name"` block parsed in `config/mcp.go`, dispatched via `ServerBlockHandler`
+- `server "mcp" "name"` block parsed in `servers/mcp/`, dispatched via `ServerBlockHandler`
 - Streamable HTTP transport using `github.com/modelcontextprotocol/go-sdk`
 - Static and URI-template resources with action-based handlers
 - Tools with typed params and action-based handlers
