@@ -59,10 +59,69 @@ func TestCompleterDo(t *testing.T) {
 		t.Fatalf("Do(%q) suffixes = %v, want to contain \"s\"", string(line), runesToStrings(got))
 	}
 
-	// After a '.', nested completion is suppressed.
+	// After a '.', the final segment is completed against the base's attributes:
+	// "bus." → the bus names, replacing nothing (length 0).
 	dotLine := []rune("bus.")
-	if out, _ := c.Do(dotLine, len(dotLine)); out != nil {
-		t.Fatalf("Do after '.' = %v, want nil", runesToStrings(out))
+	got, length = c.Do(dotLine, len(dotLine))
+	if length != 0 {
+		t.Fatalf("Do after '.' length = %d, want 0", length)
+	}
+	if !slices.ContainsFunc(got, func(r []rune) bool { return string(r) == "main" }) {
+		t.Fatalf("Do(%q) = %v, want to contain \"main\"", string(dotLine), runesToStrings(got))
+	}
+}
+
+func TestNestedCompletions(t *testing.T) {
+	s, _, _ := newTestSession(t, `bus "alpha" {}`+"\n"+`bus "beta" {}`)
+
+	// Built-in namespace: bus names, with prefix filtering. (A default "main"
+	// bus also exists, so check membership rather than exact equality.)
+	allBuses := s.attrCompletions("bus", "")
+	if !slices.Contains(allBuses, "alpha") || !slices.Contains(allBuses, "beta") {
+		t.Fatalf(`attrCompletions("bus","") = %v, want to contain alpha and beta`, allBuses)
+	}
+	if got := s.attrCompletions("bus", "a"); !slices.Equal(got, []string{"alpha"}) {
+		t.Fatalf(`attrCompletions("bus","a") = %v, want [alpha]`, got)
+	}
+
+	// ctx attributes are available; the internal _ctx is hidden.
+	ctxAttrs := s.attrCompletions("ctx", "")
+	for _, want := range []string{"auth", "span_id", "trace_id"} {
+		if !slices.Contains(ctxAttrs, want) {
+			t.Errorf(`attrCompletions("ctx","") = %v, missing %q`, ctxAttrs, want)
+		}
+	}
+	if slices.Contains(ctxAttrs, "_ctx") {
+		t.Errorf("ctx completion leaked internal _ctx")
+	}
+
+	// A capsule value (a specific bus) has no completable attributes.
+	if got := s.attrCompletions("bus.alpha", ""); len(got) != 0 {
+		t.Errorf(`attrCompletions("bus.alpha","") = %v, want none`, got)
+	}
+
+	// Deep walk through nested objects via a session binding.
+	s.setBinding("m", `{outer = {inner = 1}}`)
+	if got := s.attrCompletions("m", ""); !slices.Equal(got, []string{"outer"}) {
+		t.Fatalf(`attrCompletions("m","") = %v, want [outer]`, got)
+	}
+	if got := s.attrCompletions("m.outer", ""); !slices.Equal(got, []string{"inner"}) {
+		t.Fatalf(`attrCompletions("m.outer","") = %v, want [inner]`, got)
+	}
+
+	// An unknown base resolves to nothing.
+	if got := s.attrCompletions("nope", ""); got != nil {
+		t.Errorf(`attrCompletions("nope","") = %v, want nil`, got)
+	}
+}
+
+func TestNestedEnvCompletion(t *testing.T) {
+	t.Setenv("REPL_COMPLETION_PROBE", "x")
+	s, _, _ := newTestSession(t, `bus "main" {}`)
+
+	got := s.attrCompletions("env", "REPL_COMPLETION")
+	if !slices.Contains(got, "REPL_COMPLETION_PROBE") {
+		t.Fatalf(`attrCompletions("env","REPL_COMPLETION") = %v, missing the probe var`, got)
 	}
 }
 

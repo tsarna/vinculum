@@ -181,7 +181,11 @@ arrows and `Ctrl-R` reverse search work as in a normal shell.
 
 Tab completion completes the word under the cursor against built-in namespaces
 (`bus`, `server`, `client`, `env`, …), function names, your session bindings,
-and the `:` meta-commands.
+and the `:` meta-commands. After a `.` it completes the next segment against the
+attributes of whatever the leading path resolves to — so `env.<Tab>` lists
+environment variables, `bus.<Tab>` lists bus names, `ctx.<Tab>` lists `auth` /
+`trace_id` / `span_id`, and it works at any depth through nested objects and
+maps.
 
 ## `ctx` and tracing
 
