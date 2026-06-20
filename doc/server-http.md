@@ -171,7 +171,7 @@ Inside a `handle` action expression, the incoming request is available as
 | `ctx.request.method` | string | HTTP method (`"GET"`, `"POST"`, etc.) |
 | `ctx.request.url` | url object | Parsed request URL (see URL object attributes below) |
 | `ctx.request.host` | string | `Host` header value |
-| `ctx.request.remote_addr` | string | Client IP address and port |
+| `ctx.request.remote_addr` | string | Client IP address and port (or the real client IP when [`real_ip`](#real-client-ip-real_ip) is configured) |
 | `ctx.request.proto` | string | Protocol string (e.g. `"HTTP/1.1"`) |
 | `ctx.request.proto_major` | number | Major protocol version |
 | `ctx.request.proto_minor` | number | Minor protocol version |
@@ -372,6 +372,53 @@ Block-level `auth` (on `handle` or `files`) overrides the server-level `auth`.
 On success, the authenticated identity is available as `ctx.auth` in the `action` expression.
 See [Authentication](server-auth.md) for the full reference including all modes
 (`basic`, `oidc`, `oauth2`, `custom`, `none`) and the `ctx.auth` object shape.
+
+---
+
+## Real Client IP (`real_ip`)
+
+When the server runs behind a reverse proxy or load balancer (e.g. Traefik,
+nginx, an ELB), the TCP peer is the proxy, not the client — so
+`ctx.request.remote_addr` and the request log would show the proxy's address.
+The `real_ip` block recovers the original client address from a forwarded
+header, equivalent to nginx's `real_ip` module:
+
+```hcl
+server "http" "main" {
+    listen = ":8080"
+
+    real_ip {
+        trusted_proxies = ["10.0.0.0/8"]    # required: trusted proxy networks
+        header          = "X-Forwarded-For" # optional, this is the default
+        recursive       = true              # optional, default false
+    }
+
+    files "/static" { directory = "./web" }
+}
+```
+
+- `trusted_proxies` (required) — a list of CIDRs or bare IPs. The forwarded
+  header is honored **only when the immediate peer is in this set**; a request
+  arriving directly from an untrusted address keeps its real peer address, so a
+  client cannot spoof its IP by sending a forwarded header.
+- `header` (optional, default `X-Forwarded-For`) — the header to read. Any
+  header works; a single-value header like `X-Real-IP` is just the
+  one-element case.
+- `recursive` (optional, default `false`) — with a chain of proxies, walk the
+  header **right-to-left, skipping trusted addresses**, and use the first
+  untrusted address as the client (nginx `real_ip_recursive on`). With
+  `false`, the rightmost address is used (correct for a single proxy hop).
+
+When a substitution applies, `r.RemoteAddr` is rewritten **before** tracing,
+logging, auth, and action evaluation run, so `ctx.request.remote_addr`, the
+`remote_addr` request-log field, and any auth/rate-limiting all see the real
+client. (nginx parity: `set_real_ip_from` → `trusted_proxies`, `real_ip_header`
+→ `header`, `real_ip_recursive` → `recursive`.)
+
+> **HTTP→HTTPS redirects:** when TLS is terminated at the proxy, vinculum only
+> sees plain HTTP and cannot dispatch on the URL scheme. Perform scheme
+> redirects at the proxy edge (e.g. Traefik's `redirectScheme` middleware) —
+> the proxy is the TLS terminator and the natural place for it.
 
 ---
 

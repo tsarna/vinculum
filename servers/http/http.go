@@ -34,12 +34,16 @@ type HttpServer struct {
 	// otlpClient is resolved at config parse time; may be nil.
 	otlpClient    cfg.OtlpClient
 	meterProvider otelmetric.MeterProvider // nil = no HTTP metrics
+
+	// realIP rewrites RemoteAddr from a forwarded header when set; may be nil.
+	realIP *realIPResolver
 }
 
 type HttpServerDefinition struct {
 	Listen      string                  `hcl:"listen"`
 	TLS         *cfg.TLSConfig          `hcl:"tls,block"`
 	Auth        *cfg.AuthConfig         `hcl:"auth,block"`
+	RealIP      *realIPConfig           `hcl:"real_ip,block"`
 	Tracing     hcl.Expression          `hcl:"tracing,optional"`
 	Metrics     hcl.Expression          `hcl:"metrics,optional"`
 	DefRange    hcl.Range               `hcl:",def_range"`
@@ -114,6 +118,16 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 		return nil, metricsDiags
 	}
 
+	// Compile the real_ip block (trusted-proxy / forwarded-header handling).
+	var realIP *realIPResolver
+	if serverDef.RealIP != nil {
+		var realIPDiags hcl.Diagnostics
+		realIP, realIPDiags = compileRealIP(serverDef.RealIP)
+		if realIPDiags.HasErrors() {
+			return nil, realIPDiags
+		}
+	}
+
 	server := &HttpServer{
 		Logger: config.Logger,
 		BaseServer: cfg.BaseServer{
@@ -122,6 +136,7 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 		},
 		otlpClient:    otlpClient,
 		meterProvider: mp,
+		realIP:        realIP,
 	}
 
 	mux := http.NewServeMux()
@@ -339,6 +354,13 @@ func (h *HttpServer) Start() error {
 	)
 	h.Server.Handler = tracedHandler
 
+	// Resolve the real client IP from a forwarded header before anything else
+	// runs, so tracing, logging, auth, and ctx.request.remote_addr all see the
+	// corrected address.
+	if h.realIP != nil {
+		h.Server.Handler = h.realIP.wrap(h.Server.Handler)
+	}
+
 	go func() {
 		h.Logger.Info("Starting HTTP server", zap.String("name", h.Name), zap.String("addr", h.Server.Addr))
 		var err error
@@ -424,6 +446,7 @@ func (l *loggingMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		zap.String("method", r.Method),
 		zap.String("route", l.route),
 		zap.String("path", r.URL.Path),
+		zap.String("remote_addr", r.RemoteAddr),
 		zap.Int("status", status),
 		zap.Float64("duration_ms", durationMs),
 		zap.Int("bytes", sw.bytes),
