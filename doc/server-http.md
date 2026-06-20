@@ -46,14 +46,64 @@ Exactly one of `action` or `handler` must be specified.
 
 ### Route Patterns
 
-Routes use [Go 1.22 `http.ServeMux` pattern syntax](https://pkg.go.dev/net/http#hdr-Patterns):
+Routes use [Go 1.22 `http.ServeMux` pattern syntax](https://pkg.go.dev/net/http#hdr-Patterns).
+The full grammar is `[METHOD ][HOST]/[PATH]`:
+
+- **METHOD** (optional) — followed by a single space; `GET` also matches `HEAD`.
+- **HOST** (optional) — the text immediately before the first `/`; an exact host
+  match with **no wildcards**. See [Virtual Hosts](#virtual-hosts).
+- **PATH** — begins at the first `/`.
+
+Examples:
 
 - `GET /api/status` — match only GET requests to an exact path
 - `POST /api/events` — match only POST requests
 - `/api/` — match any method and any path under `/api/` (trailing slash = subtree)
 - `/{$}` — match only the exact path `/` (the `{$}` anchor prevents subtree matching)
 - `/items/{id}` — capture a path segment; accessible as `ctx.request.path.id`
+- `api.example.com/v1/items/{id}` — scope the route to a specific host
+- `GET api.example.com/v1/items/{id}` — method **and** host together
 - `{method} /path` — placeholder in the method position is not standard; use a specific method or omit for any method
+
+### Virtual Hosts
+
+A host in the pattern scopes the route to that `Host` header, so one listener can
+serve several hosts (name-based virtual hosting):
+
+```hcl
+server "http" "main" {
+    listen = ":8080"
+
+    handle "api.example.com/v1/items/{id}" {
+        action = ctx.request.path.id
+    }
+
+    files "cdn.example.com/static" {
+        directory = "./web/static"
+    }
+
+    # Host-less = default / catch-all for any other Host
+    handle "GET /health" {
+        action = "ok"
+    }
+}
+```
+
+- **Host-less routes are the default.** A pattern with no host matches all hosts,
+  so a host-less `handle`/`files` acts as the catch-all for hosts with no
+  specific route.
+- **Exact host match only.** No wildcard or suffix matching (`*.example.com` is
+  not supported — a `ServeMux` limitation). For wildcard/suffix needs, route to a
+  host-less handler and branch on `ctx.request.host` inside the action; the two
+  approaches compose.
+- **Specific beats general.** `api.example.com/v1/x` wins over `/v1/x` for that
+  host; other hosts fall through to the host-less route.
+- **Do not include a port** in the host segment.
+- `files` understands the same host prefix; a method token in a `files` label is
+  a configuration error (a file server serves GET/HEAD only).
+
+Serving multiple hosts over **HTTPS** requires a certificate covering every host
+(multi-SAN) or SNI-based selection — see [TLS](#tls).
 
 ### `action` Expression
 
@@ -95,7 +145,10 @@ files "/static" {
 ```
 
 - `urlpath` (label) — URL path prefix. A trailing slash is added automatically.
-  Requests under this prefix are served from `directory`.
+  Requests under this prefix are served from `directory`. The label may be
+  prefixed with a host to scope the static tree to that `Host`
+  (`"cdn.example.com/static"`) — see [Virtual Hosts](#virtual-hosts). A method
+  token is **not** allowed here (a file server serves GET/HEAD only).
 - `directory` — filesystem path to the directory to serve. Relative paths are
   resolved against the `--file-path` base directory.
 - `disabled` — if true, this block is skipped
@@ -325,6 +378,12 @@ See [Authentication](server-auth.md) for the full reference including all modes
 ## TLS
 
 Add a `tls {}` sub-block to serve HTTPS instead of plain HTTP. See [TLS configuration](config.md#tls) for the full attribute reference.
+
+> **Virtual hosts over HTTPS:** name-based [virtual hosting](#virtual-hosts) is a
+> routing concern, separate from TLS. To serve several hosts over HTTPS from one
+> listener, the certificate must cover every host (a multi-SAN certificate) or use
+> SNI-based certificate selection. The single `tls` block here presents one
+> certificate; per-host certificate selection is not currently supported.
 
 ```hcl
 server "http" "secure" {

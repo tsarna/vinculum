@@ -131,12 +131,23 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 			continue
 		}
 
-		if strings.Contains(file.UrlPath, " ") {
+		method, host, rawPath, ok := splitPattern(file.UrlPath)
+		if !ok {
 			return nil, hcl.Diagnostics{
 				&hcl.Diagnostic{
 					Severity: hcl.DiagError,
 					Summary:  "Invalid URL path",
-					Detail:   fmt.Sprintf("Invalid urlpath: %s", file.UrlPath),
+					Detail:   fmt.Sprintf("files urlpath must contain a path starting with \"/\": %s", file.UrlPath),
+					Subject:  &file.DefRange,
+				},
+			}
+		}
+		if method != "" {
+			return nil, hcl.Diagnostics{
+				&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "Method not allowed on files block",
+					Detail:   fmt.Sprintf("a method is not allowed on a files block (a file server serves GET/HEAD only): %s", file.UrlPath),
 					Subject:  &file.DefRange,
 				},
 			}
@@ -158,7 +169,12 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 			dir = filepath.Join(config.BaseDir, dir)
 		}
 
-		path := strings.TrimSuffix(file.UrlPath, "/") + "/"
+		// StripPrefix uses the path portion only, since the request URL never
+		// contains the host. The mux is registered with the host-qualified
+		// pattern so ServeMux scopes the route to that host; a host-less block
+		// (host == "") registers a path-only pattern that matches all hosts.
+		urlPath := strings.TrimSuffix(rawPath, "/") + "/"
+		pattern := host + urlPath
 
 		if file.Auth != nil {
 			if authDiags := cfg.ValidateAuthConfig(file.Auth); authDiags.HasErrors() {
@@ -167,13 +183,15 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 		}
 
 		effectiveAuth := resolveAuth(serverDef.Auth, file.Auth)
-		var inner http.Handler = http.StripPrefix(path, http.FileServer(http.Dir(dir)))
+		var inner http.Handler = http.StripPrefix(urlPath, http.FileServer(http.Dir(dir)))
 		inner, diags = wrapWithAuth(inner, effectiveAuth, serverName, config, &file.DefRange)
 		if diags.HasErrors() {
 			return nil, diags
 		}
-		inner = newLoggingMiddleware(config.Logger, path, inner)
-		mux.Handle(path, inner)
+		inner = newLoggingMiddleware(config.Logger, pattern, inner)
+		if diags := safeMuxHandle(mux, pattern, inner, file.DefRange); diags.HasErrors() {
+			return nil, diags
+		}
 	}
 
 	for _, handlerDef := range serverDef.Handlers {
@@ -229,7 +247,9 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 			return nil, diags
 		}
 		inner = newLoggingMiddleware(config.Logger, handlerDef.Route, inner)
-		mux.Handle(handlerDef.Route, inner)
+		if diags := safeMuxHandle(mux, handlerDef.Route, inner, handlerDef.DefRange); diags.HasErrors() {
+			return nil, diags
+		}
 	}
 
 	server.Server = &http.Server{

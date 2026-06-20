@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Virtual hosts on `server "http"`**: a `handle` or `files` block can now be scoped to a specific `Host` by prefixing its route/urlpath label with a host, using Go 1.22's `[METHOD ][HOST]/[PATH]` `http.ServeMux` pattern grammar — so one listener can serve `api.example.com`, `cdn.example.com`, and a host-less catch-all from a single `server` block. Host matching is exact (no wildcards — a `ServeMux` limitation; branch on `ctx.request.host` for suffix/wildcard needs), more-specific patterns win, and a host-less route remains the default for any unmatched host, so existing configs are unchanged. `files` learned the host prefix (the host scopes the mux registration while `StripPrefix` still uses the path portion only) and rejects a method token (a file server serves GET/HEAD only). Serving multiple hosts over HTTPS still requires a multi-SAN certificate or SNI selection — a separate TLS concern. See [doc/server-http.md](doc/server-http.md#virtual-hosts).
+
+### Fixed
+
+- **Malformed or conflicting `server "http"` route patterns now produce a config diagnostic instead of crashing.** `http.ServeMux.Handle` panics on an invalid pattern or a duplicate registration; both the `handle` and `files` registration paths now recover that panic and report it as an `hcl` error anchored to the offending block.
+
 ## [0.41.0] - 2026-06-19
 
 ### Added
