@@ -9,8 +9,10 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	cfg "github.com/tsarna/vinculum/config"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -25,12 +27,16 @@ type ServerConfig struct {
 	TLSConfig     *tls.Config
 	Auth          *cfg.AuthConfig
 	OtlpClient    cfg.OtlpClient
-	MeterProvider otelmetric.MeterProvider
-	ParentEvalCtx *hcl.EvalContext
-	Logger        *zap.Logger
-	Resources     []ResourceDef
-	Tools         []ToolDef
-	Prompts       []PromptDef
+	// TracerProvider, when set, overrides the tracer provider used for
+	// MCP-method spans. When nil, it is derived from OtlpClient (else the
+	// global provider). Primarily a test injection point.
+	TracerProvider oteltrace.TracerProvider
+	MeterProvider  otelmetric.MeterProvider
+	ParentEvalCtx  *hcl.EvalContext
+	Logger         *zap.Logger
+	Resources      []ResourceDef
+	Tools          []ToolDef
+	Prompts        []PromptDef
 }
 
 // Server is a vinculum MCP server. It wraps the MCP SDK server and handles
@@ -45,6 +51,8 @@ type Server struct {
 	httpHandler   http.Handler
 	logger        *zap.Logger
 	parentEvalCtx *hcl.EvalContext
+	tracer        oteltrace.Tracer
+	metrics       *mcpMetrics
 }
 
 // New creates a new MCP server from the given configuration.
@@ -68,6 +76,17 @@ func New(scfg ServerConfig) (*Server, error) {
 		Version: serverVersion,
 	}, nil)
 
+	// Resolve the tracer provider for MCP-method spans: explicit override,
+	// else the configured OTLP client, else the global provider (which is the
+	// no-op provider when tracing is not configured).
+	tp := scfg.TracerProvider
+	if tp == nil && scfg.OtlpClient != nil {
+		tp = scfg.OtlpClient.GetTracerProvider()
+	}
+	if tp == nil {
+		tp = otel.GetTracerProvider()
+	}
+
 	s := &Server{
 		name:          scfg.Name,
 		listen:        scfg.Listen,
@@ -76,7 +95,13 @@ func New(scfg ServerConfig) (*Server, error) {
 		sdkServer:     sdkSrv,
 		logger:        scfg.Logger,
 		parentEvalCtx: scfg.ParentEvalCtx,
+		tracer:        tp.Tracer(instrumentationScope),
+		metrics:       newMCPMetrics(scfg.MeterProvider),
 	}
+
+	// Instrument every inbound MCP request/notification with a span and the
+	// operation-duration metric, following the OTel MCP semantic conventions.
+	sdkSrv.AddReceivingMiddleware(s.instrumentMiddleware())
 
 	registerResources(s, scfg.Resources)
 

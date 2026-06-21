@@ -27,7 +27,8 @@ server "mcp" "name" {
 - `path` — URL path to mount the MCP endpoint on
 - `server_name` / `server_version` — reported to clients during capability negotiation
 - `disabled` — if true, the server block is skipped entirely
-- `metrics` — optional reference to a `server "metrics"` or `client "otlp"` block to enable HTTP server metrics on the standalone listener (auto-wired when there is only one metrics backend)
+- `tracing` — optional reference to a `client "otlp"` block for OpenTelemetry tracing (auto-wired when there is exactly one OTLP client). See [Observability](#observability).
+- `metrics` — optional reference to a `server "metrics"` or `client "otlp"` block for metrics (auto-wired when there is only one metrics backend). See [Observability](#observability).
 - `tls` — optional sub-block to enable HTTPS; standalone mode only. See [TLS](#tls) below.
 
 The server uses the [Streamable HTTP transport](https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/transports/#streamable-http)
@@ -310,6 +311,76 @@ server "http" "main" {
 
 The MCP endpoint is then reachable at `http://host:8080/mcp/`. This is useful
 when you want to serve MCP alongside other HTTP routes on a single port.
+
+---
+
+## Observability
+
+The MCP server emits OpenTelemetry traces and metrics conforming to the
+[OpenTelemetry GenAI/MCP semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai/tree/main/model/mcp).
+Tracing and metrics backends are wired with the `tracing` and `metrics`
+attributes, using the same resolution rules as [`server "http"`](server-http.md):
+
+```hcl
+client "otlp" "telemetry" {
+    endpoint = "http://collector:4318"
+}
+
+server "mcp" "tools" {
+    listen  = ":9000"
+    tracing = client.telemetry   # optional; auto-wired if it's the only OTLP client
+    metrics = client.telemetry   # optional; auto-wired if it's the only metrics backend
+    ...
+}
+```
+
+When there is exactly one OTLP client (for `tracing`) or one metrics backend
+(`server "metrics"` or `client "otlp"`, for `metrics`), the attribute may be
+omitted and is auto-wired. With no backend configured, instrumentation is a
+no-op.
+
+### Two layers of telemetry
+
+- **HTTP transport** — incoming W3C trace context is extracted and an HTTP
+  server span (`POST /…`) plus standard HTTP server metrics are produced by
+  `otelhttp`. This happens in **both** standalone mode and when mounted under a
+  `server "http"` block (in the mounted case the parent HTTP server provides it).
+- **MCP protocol** — every inbound MCP request/notification produces an
+  `mcp.server` span (child of the HTTP span) and an
+  `mcp.server.operation.duration` metric. This works identically in standalone
+  and mounted mode.
+
+### `mcp.server` span
+
+Span kind is `server`. The name is `{method} {target}`, where `target` is the
+tool or prompt name when applicable, otherwise just `{method}` (e.g.
+`tools/call get_weather`, `prompts/get summary`, `resources/read`). The resource
+URI is **not** included in the name to keep span-name cardinality low.
+
+| Attribute | When set |
+|---|---|
+| `mcp.method.name` | always (`tools/call`, `resources/read`, `prompts/get`, `initialize`, `tools/list`, …) |
+| `gen_ai.tool.name` | tool calls |
+| `gen_ai.operation.name` (`execute_tool`) | tool calls |
+| `gen_ai.prompt.name` | prompt gets |
+| `mcp.resource.uri` | resource reads |
+| `mcp.session.id` | when the session has an id |
+| `network.transport` (`tcp`), `network.protocol.name` (`http`) | always |
+| `error.type` | on failure — `tool_error` when a tool returns an error result, otherwise `_OTHER` |
+
+The span status is set to `ERROR` whenever `error.type` is present.
+
+### `mcp.server.operation.duration` metric
+
+A histogram (unit: seconds) recording how long each inbound MCP operation took.
+Its attributes are the low-cardinality subset of the span attributes:
+`mcp.method.name`, `gen_ai.tool.name`, `gen_ai.operation.name`,
+`gen_ai.prompt.name`, `network.transport`, `network.protocol.name`, and
+`error.type` (on failure). The session id and resource URI are intentionally
+omitted to avoid metric-cardinality blowups.
+
+> Session-lifetime metrics (`mcp.server.session.duration`) are not yet emitted —
+> the underlying MCP SDK does not expose a session-disconnect hook.
 
 ---
 

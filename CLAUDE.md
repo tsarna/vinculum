@@ -522,6 +522,14 @@ See `MCP-SPEC.md` (full spec) and `MCP-MVP.md` (MVP scope) for details.
 - Prompts with params and action-based handlers
 - `mcp_image()`, `mcp_error()`, `mcp_usermessage()`, `mcp_assistantmessage()` — available globally in all action expressions (not just MCP handlers)
 - Unit tests for all three handler types using in-process SDK client
+- Observability (`servers/mcp/observability.go`): OTel tracing + metrics
+  conforming to the GenAI/MCP semantic conventions. An SDK receiving middleware
+  (`Server.AddReceivingMiddleware`) emits an `mcp.server` span and the
+  `mcp.server.operation.duration` histogram per inbound request/notification —
+  transport-independent, so identical in standalone and HTTP-mounted modes. The
+  HTTP transport itself is separately wrapped with `otelhttp`. `tracing` /
+  `metrics` block attributes resolve like `server "http"`. Session-duration
+  metrics are deferred (no SDK session-disconnect hook in go-sdk v1.6.1).
 
 **Key design decisions:**
 - `mcp_*` functions live in `functions/mcp.go` and are included in `GetFunctions()` so bus subscriptions and other handlers can construct MCP values for future async support
