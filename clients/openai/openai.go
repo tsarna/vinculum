@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
@@ -15,6 +17,10 @@ import (
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -31,6 +37,7 @@ type OpenAIClientDefinition struct {
 	Timeout        hcl.Expression `hcl:"timeout,optional"`
 	MaxInputLength *int           `hcl:"max_input_length,optional"`
 	Tracing        hcl.Expression `hcl:"tracing,optional"`
+	Metrics        hcl.Expression `hcl:"metrics,optional"`
 	DefRange       hcl.Range      `hcl:",def_range"`
 }
 
@@ -40,6 +47,10 @@ type OpenAIClient struct {
 	openaiClient   *openailib.Client
 	maxInputLength *int
 	tracerProvider trace.TracerProvider
+	tracer         trace.Tracer
+	metrics        *openaiMetrics
+	serverAddress  string
+	serverPort     int
 }
 
 func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Client, hcl.Diagnostics) {
@@ -73,6 +84,11 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		return nil, tracingDiags
 	}
 
+	meterProvider, metricsDiags := cfg.ResolveMeterProvider(config, clientDef.Metrics)
+	if metricsDiags.HasErrors() {
+		return nil, metricsDiags
+	}
+
 	var otelOpts []otelhttp.Option
 	if tracerProvider != nil {
 		otelOpts = append(otelOpts, otelhttp.WithTracerProvider(tracerProvider))
@@ -104,6 +120,16 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		temperature = &t
 	}
 
+	// Derive a tracer for the gen_ai.inference span (always present; no-op when
+	// tracing is not configured). The HTTP-level otelhttp transport span will
+	// nest under it.
+	tp := tracerProvider
+	if tp == nil {
+		tp = otel.GetTracerProvider()
+	}
+
+	serverAddress, serverPort := serverAddrPort(openaiCfg.BaseURL)
+
 	c := &OpenAIClient{
 		BaseClient: llm.BaseClient{
 			BaseClient:  cfg.BaseClient{Name: block.Labels[1], DefRange: clientDef.DefRange},
@@ -114,9 +140,35 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		openaiClient:   openailib.NewClientWithConfig(openaiCfg),
 		maxInputLength: clientDef.MaxInputLength,
 		tracerProvider: tracerProvider,
+		tracer:         tp.Tracer(instrumentationScope),
+		metrics:        newOpenAIMetrics(meterProvider),
+		serverAddress:  serverAddress,
+		serverPort:     serverPort,
 	}
 
 	return c, nil
+}
+
+// serverAddrPort extracts the host and port from the configured base URL for
+// use as server.address / server.port telemetry attributes. Returns ("", 0)
+// when the URL cannot be parsed.
+func serverAddrPort(rawURL string) (string, int) {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Hostname() == "" {
+		return "", 0
+	}
+	port := 0
+	if p := u.Port(); p != "" {
+		port, _ = strconv.Atoi(p)
+	} else {
+		switch u.Scheme {
+		case "https":
+			port = 443
+		case "http":
+			port = 80
+		}
+	}
+	return u.Hostname(), port
 }
 
 func (c *OpenAIClient) Call(ctx context.Context, args []cty.Value) (cty.Value, error) {
@@ -165,11 +217,82 @@ func (c *OpenAIClient) Call(ctx context.Context, args []cty.Value) (cty.Value, e
 		req.Temperature = *c.Temperature
 	}
 
+	// Start a gen_ai.inference client span (OTel GenAI semantic conventions).
+	// The otelhttp transport span for the underlying HTTP POST nests under it.
+	reqAttrs := []attribute.KeyValue{
+		attribute.String(attrGenAIOperationName, operationChat),
+		attribute.String(attrGenAIProviderName, providerOpenAI),
+		attribute.String(attrGenAIRequestModel, req.Model),
+	}
+	if c.serverAddress != "" {
+		reqAttrs = append(reqAttrs, attribute.String(attrServerAddress, c.serverAddress))
+		if c.serverPort != 0 {
+			reqAttrs = append(reqAttrs, attribute.Int(attrServerPort, c.serverPort))
+		}
+	}
+	if req.MaxTokens > 0 {
+		reqAttrs = append(reqAttrs, attribute.Int(attrGenAIRequestMaxTokens, req.MaxTokens))
+	}
+	if req.Temperature != 0 {
+		reqAttrs = append(reqAttrs, attribute.Float64(attrGenAIRequestTemperature, float64(req.Temperature)))
+	}
+
+	ctx, span := c.tracer.Start(ctx, operationChat+" "+req.Model,
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(reqAttrs...),
+	)
+
+	start := time.Now()
 	resp, err := c.openaiClient.CreateChatCompletion(ctx, req)
+	elapsed := time.Since(start).Seconds()
+
+	// Low-cardinality metric attributes shared by duration and token usage.
+	metricAttrs := []attribute.KeyValue{
+		attribute.String(attrGenAIOperationName, operationChat),
+		attribute.String(attrGenAIProviderName, providerOpenAI),
+		attribute.String(attrGenAIRequestModel, req.Model),
+	}
+	if c.serverAddress != "" {
+		metricAttrs = append(metricAttrs, attribute.String(attrServerAddress, c.serverAddress))
+		if c.serverPort != 0 {
+			metricAttrs = append(metricAttrs, attribute.Int(attrServerPort, c.serverPort))
+		}
+	}
+
 	if err != nil {
 		code, msg := extractOpenAIError(err)
+		span.SetAttributes(attribute.String(attrErrorType, code))
+		span.SetStatus(codes.Error, msg)
+		span.End()
+		c.metrics.opDuration.Record(ctx, elapsed,
+			otelmetric.WithAttributes(withAttrs(metricAttrs, attribute.String(attrErrorType, code))...))
 		return llm.ErrorResponse(code, msg), nil
 	}
+
+	// Enrich span and metric attributes with response details.
+	if resp.Model != "" {
+		metricAttrs = append(metricAttrs, attribute.String(attrGenAIResponseModel, resp.Model))
+		span.SetAttributes(attribute.String(attrGenAIResponseModel, resp.Model))
+	}
+	if resp.ID != "" {
+		span.SetAttributes(attribute.String(attrGenAIResponseID, resp.ID))
+	}
+	span.SetAttributes(
+		attribute.Int(attrGenAIUsageInputTokens, resp.Usage.PromptTokens),
+		attribute.Int(attrGenAIUsageOutputTokens, resp.Usage.CompletionTokens),
+	)
+	if len(resp.Choices) > 0 {
+		span.SetAttributes(attribute.StringSlice(attrGenAIFinishReasons,
+			[]string{string(resp.Choices[0].FinishReason)}))
+	}
+
+	c.metrics.opDuration.Record(ctx, elapsed, otelmetric.WithAttributes(metricAttrs...))
+	c.metrics.tokenUsage.Record(ctx, int64(resp.Usage.PromptTokens),
+		otelmetric.WithAttributes(withAttrs(metricAttrs, attribute.String(attrGenAITokenType, tokenTypeInput))...))
+	c.metrics.tokenUsage.Record(ctx, int64(resp.Usage.CompletionTokens),
+		otelmetric.WithAttributes(withAttrs(metricAttrs, attribute.String(attrGenAITokenType, tokenTypeOutput))...))
+
+	span.End()
 
 	if len(resp.Choices) == 0 {
 		return llm.ErrorResponse("empty_response", "LLM returned no choices"), nil

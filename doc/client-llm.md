@@ -41,6 +41,11 @@ client "openai" "name" {
     # without making an API call.
     max_input_length = 8000
 
+    # Optional: OpenTelemetry backends (see Observability below). Both
+    # auto-wire when there is a single OTLP client / metrics backend.
+    tracing = client.otlp     # client "otlp" block
+    metrics = client.otlp     # client "otlp" or server "metrics" block
+
     disabled = false  # optional
 }
 ```
@@ -166,22 +171,54 @@ Error response shape:
 
 ---
 
-## Distributed Tracing
+## Observability
 
-When a `client "otlp"` block is configured, every `call()` to an OpenAI client
-automatically creates a child OTel span for the outgoing HTTP request. No
-`tracing =` attribute is needed — the client uses the global `TracerProvider`
-set by `client "otlp"`.
+The OpenAI client emits OpenTelemetry traces and metrics conforming to the
+[OpenTelemetry GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai/tree/main/model/gen-ai).
+Backends are selected with the `tracing` and `metrics` attributes, using the
+same resolution rules as the rest of Vinculum: when there is exactly one OTLP
+client (`tracing`) or one metrics backend (`metrics`), the attribute may be
+omitted and is auto-wired; with none configured, instrumentation is a no-op.
 
-The span covers the full round-trip to the LLM API (request send through
-response receive). It is a child of whatever span is active when `call()` is
-invoked — so if `call()` is used inside an HTTP handler action, the LLM span
-will appear nested under the inbound request span in your trace viewer.
+### Tracing
 
-`ctx.trace_id` / `ctx.span_id` are available in `action` expressions and
-reflect the enclosing trigger or request span, not the individual LLM call span.
+Every `call()` creates a `gen_ai.inference` client span named
+`chat {model}` (e.g. `chat gpt-4o`). The span covers the full round-trip to the
+LLM API, and the low-level HTTP request span (from `otelhttp`) nests beneath it.
+The `gen_ai` span is itself a child of whatever span is active when `call()` is
+invoked, so an LLM call inside an HTTP handler nests under the inbound request
+span in your trace viewer.
 
-See [client "otlp"](client-otlp.md) for full tracing configuration.
+Span attributes (GenAI semconv):
+
+| Attribute | Value |
+|---|---|
+| `gen_ai.operation.name` | `chat` |
+| `gen_ai.provider.name` | `openai` |
+| `gen_ai.request.model` | requested model |
+| `gen_ai.request.max_tokens`, `gen_ai.request.temperature` | when set |
+| `gen_ai.response.model`, `gen_ai.response.id` | from the response |
+| `gen_ai.response.finish_reasons` | e.g. `["stop"]` |
+| `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | token counts |
+| `server.address`, `server.port` | from `base_url` |
+| `error.type` | on failure (HTTP status code, e.g. `401`) |
+
+The span status is set to `ERROR` on a failed call.
+
+`ctx.trace_id` / `ctx.span_id` are available in `action` expressions and reflect
+the enclosing trigger or request span, not the individual LLM call span.
+
+### Metrics
+
+- **`gen_ai.client.operation.duration`** — histogram (seconds) of call latency,
+  attributed by `gen_ai.operation.name`, `gen_ai.provider.name`,
+  `gen_ai.request.model`, `gen_ai.response.model`, `server.address`/`server.port`,
+  and `error.type` (on failure).
+- **`gen_ai.client.token.usage`** — histogram (`{token}`) of tokens consumed,
+  recorded once per `gen_ai.token.type` (`input` and `output`) with the same
+  attributes.
+
+See [client "otlp"](client-otlp.md) for backend configuration.
 
 ---
 
