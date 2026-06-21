@@ -38,6 +38,7 @@ func newObsClient(baseURL string, tp oteltrace.TracerProvider, mp otelmetric.Met
 		openaiClient:  openailib.NewClientWithConfig(ocfg),
 		tracer:        tp.Tracer(instrumentationScope),
 		metrics:       newOpenAIMetrics(mp),
+		provider:      providerOpenAI,
 		serverAddress: addr,
 		serverPort:    port,
 	}
@@ -176,6 +177,63 @@ func TestObservability_ChatSuccess(t *testing.T) {
 	}
 	assert.Equal(t, int64(10), byType["input"])
 	assert.Equal(t, int64(5), byType["output"])
+}
+
+func TestObservability_ConfigurableProvider(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(openAIResponseJSON("Hi!", "llama-3.3-70b", "stop"))
+	}))
+	defer srv.Close()
+
+	exporter, tp, reader, mp := newObsProviders(t)
+	c := newObsClient(srv.URL+"/", tp, mp)
+	c.provider = "groq" // as set by `provider = "groq"` in config
+
+	_, err := c.Call(context.Background(), []cty.Value{buildTestRequest("", "Hello")})
+	require.NoError(t, err)
+
+	span := findSpan(t, exporter.GetSpans(), "chat gpt-4o-mini")
+	provider, _ := attrValue(span.Attributes, attrGenAIProviderName)
+	assert.Equal(t, "groq", provider.AsString())
+
+	dps := histogramDataPoints(t, reader, "gen_ai.client.operation.duration")
+	require.Len(t, dps, 1)
+	mProvider, _ := attrValue(dps[0].Attributes.ToSlice(), attrGenAIProviderName)
+	assert.Equal(t, "groq", mProvider.AsString())
+}
+
+// TestObservability_ProviderDefault verifies the provider defaults to "openai"
+// when the config attribute is omitted (exercises the config path).
+func TestObservability_ProviderDefault(t *testing.T) {
+	vcl := []byte(`
+client "openai" "gpt" {
+    api_key = "test-key"
+    model   = "gpt-4o-mini"
+}
+`)
+	config, diags := cfg.NewConfig().WithSources(vcl).WithLogger(newTestLogger(t)).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	c := config.Clients["openai"]["gpt"].(*OpenAIClient)
+	assert.Equal(t, "openai", c.provider)
+}
+
+// TestObservability_ProviderFromConfig verifies `provider =` flows into the client.
+func TestObservability_ProviderFromConfig(t *testing.T) {
+	vcl := []byte(`
+client "openai" "llm" {
+    api_key  = "test-key"
+    model    = "llama-3.3-70b"
+    provider = "groq"
+    base_url = "https://api.groq.com/openai/v1"
+}
+`)
+	config, diags := cfg.NewConfig().WithSources(vcl).WithLogger(newTestLogger(t)).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	c := config.Clients["openai"]["llm"].(*OpenAIClient)
+	assert.Equal(t, "groq", c.provider)
+	assert.Equal(t, "api.groq.com", c.serverAddress)
+	assert.Equal(t, 443, c.serverPort)
 }
 
 func TestObservability_ChatAPIError(t *testing.T) {

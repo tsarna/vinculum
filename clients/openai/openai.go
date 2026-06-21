@@ -31,6 +31,7 @@ func init() {
 type OpenAIClientDefinition struct {
 	APIKey         string         `hcl:"api_key"`
 	Model          string         `hcl:"model"`
+	Provider       string         `hcl:"provider,optional"`
 	BaseURL        hcl.Expression `hcl:"base_url,optional"`
 	MaxTokens      *int           `hcl:"max_tokens,optional"`
 	Temperature    *float64       `hcl:"temperature,optional"`
@@ -49,6 +50,7 @@ type OpenAIClient struct {
 	tracerProvider trace.TracerProvider
 	tracer         trace.Tracer
 	metrics        *openaiMetrics
+	provider       string
 	serverAddress  string
 	serverPort     int
 }
@@ -130,6 +132,14 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 
 	serverAddress, serverPort := serverAddrPort(openaiCfg.BaseURL)
 
+	// gen_ai.provider.name defaults to "openai" (the API shape) but is
+	// configurable so OpenAI-compatible endpoints can report their real
+	// provider (e.g. "groq", "mistral_ai", "x_ai").
+	provider := clientDef.Provider
+	if provider == "" {
+		provider = providerOpenAI
+	}
+
 	c := &OpenAIClient{
 		BaseClient: llm.BaseClient{
 			BaseClient:  cfg.BaseClient{Name: block.Labels[1], DefRange: clientDef.DefRange},
@@ -142,6 +152,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		tracerProvider: tracerProvider,
 		tracer:         tp.Tracer(instrumentationScope),
 		metrics:        newOpenAIMetrics(meterProvider),
+		provider:       provider,
 		serverAddress:  serverAddress,
 		serverPort:     serverPort,
 	}
@@ -221,7 +232,7 @@ func (c *OpenAIClient) Call(ctx context.Context, args []cty.Value) (cty.Value, e
 	// The otelhttp transport span for the underlying HTTP POST nests under it.
 	reqAttrs := []attribute.KeyValue{
 		attribute.String(attrGenAIOperationName, operationChat),
-		attribute.String(attrGenAIProviderName, providerOpenAI),
+		attribute.String(attrGenAIProviderName, c.provider),
 		attribute.String(attrGenAIRequestModel, req.Model),
 	}
 	if c.serverAddress != "" {
@@ -249,7 +260,7 @@ func (c *OpenAIClient) Call(ctx context.Context, args []cty.Value) (cty.Value, e
 	// Low-cardinality metric attributes shared by duration and token usage.
 	metricAttrs := []attribute.KeyValue{
 		attribute.String(attrGenAIOperationName, operationChat),
-		attribute.String(attrGenAIProviderName, providerOpenAI),
+		attribute.String(attrGenAIProviderName, c.provider),
 		attribute.String(attrGenAIRequestModel, req.Model),
 	}
 	if c.serverAddress != "" {

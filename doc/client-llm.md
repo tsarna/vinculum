@@ -23,6 +23,11 @@ client "openai" "name" {
     # Default: "https://api.openai.com/v1"
     base_url = "https://api.groq.com/openai/v1"
 
+    # Optional: provider name reported as gen_ai.provider.name in telemetry.
+    # Default: "openai". Set to the real upstream when using a compatible
+    # endpoint, e.g. "groq", "mistral_ai", "x_ai", "deepseek", "perplexity".
+    provider = "groq"
+
     # Optional: default max tokens for responses
     # If unset, the provider default applies
     max_tokens = 4096
