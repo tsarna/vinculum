@@ -369,6 +369,19 @@ server "http" "api" {
 Block-level `auth` (on `handle` or `files`) overrides the server-level `auth`.
 `auth "none" {}` explicitly disables inherited auth for a route.
 
+An `auth` block also accepts an optional `disabled` attribute. When it evaluates
+to `true` the block is parsed but inert — exactly as if it were absent (so a
+server-level block falls back to no auth, and mode-specific required fields like
+`credentials` are not validated). Because the expression sees `env.*`, a single
+environment variable can both supply the credential and toggle auth on/off:
+
+```hcl
+auth "basic" {
+    disabled    = try(env.WEB_PASSWORD, "") == ""   # off when the var is unset
+    credentials = { admin = try(env.WEB_PASSWORD, "") }
+}
+```
+
 On success, the authenticated identity is available as `ctx.auth` in the `action` expression.
 See [Authentication](server-auth.md) for the full reference including all modes
 (`basic`, `oidc`, `oauth2`, `custom`, `none`) and the `ctx.auth` object shape.
@@ -408,6 +421,10 @@ server "http" "main" {
   header **right-to-left, skipping trusted addresses**, and use the first
   untrusted address as the client (nginx `real_ip_recursive on`). With
   `false`, the rightmost address is used (correct for a single proxy hop).
+- `disabled` (optional, default `false`) — when `true` the block is parsed but
+  inert (no header rewrite, and `trusted_proxies` is not required). Since the
+  expression sees `env.*`, one variable can both supply the trusted proxies and
+  toggle the feature: `disabled = try(env.TRUSTED_PROXIES, "") == ""`.
 
 When a substitution applies, `r.RemoteAddr` is rewritten **before** tracing,
 logging, auth, and action evaluation run, so `ctx.request.remote_addr`, the

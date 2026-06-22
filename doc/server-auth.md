@@ -41,6 +41,24 @@ server "http" "api" {
 
 On `server "mcp"` and `server "metrics"`, a single `auth` block applies to the whole server.
 
+### `disabled`
+
+Any `auth` block (in any mode) accepts an optional `disabled` attribute. When it
+evaluates to `true` the block is parsed but inert — treated exactly as if it were
+absent (a server-level block falls back to no auth) and its mode-specific required
+fields are not validated. The expression sees `env.*`, so one environment variable
+can both supply a credential and toggle auth on/off:
+
+```hcl
+auth "basic" {
+    disabled    = try(env.WEB_PASSWORD, "") == ""   # unset ⇒ no auth
+    credentials = { admin = try(env.WEB_PASSWORD, "") }
+}
+```
+
+This differs from `auth "none"`, which is an explicit, unconditional opt-out used
+to override an inherited server-level block.
+
 ---
 
 ## `ctx.auth` Object

@@ -63,12 +63,12 @@ func NewAuthMiddleware(authenticator Authenticator, evalCtx *hcl.EvalContext, lo
 }
 
 // BuildAuthenticator constructs an Authenticator from the given AuthConfig.
-// Returns nil, nil when ac is nil or ac.Mode == "none" (no authentication).
-// The serverName is used as the default Basic auth realm when not specified.
-// evalCtx is the global configuration eval context, used for evaluating
-// static expressions (e.g. credentials maps) at construction time if needed.
+// Returns nil, nil when ac is nil, ac.Disabled, or ac.Mode == "none" (no
+// authentication). The serverName is used as the default Basic auth realm when
+// not specified. evalCtx is the global configuration eval context, used for
+// evaluating static expressions (e.g. credentials maps) at construction time if needed.
 func BuildAuthenticator(ac *cfg.AuthConfig, serverName string, evalCtx *hcl.EvalContext) (Authenticator, error) {
-	if ac == nil || ac.Mode == "none" {
+	if ac == nil || ac.Disabled || ac.Mode == "none" {
 		return nil, nil
 	}
 

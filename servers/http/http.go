@@ -119,8 +119,10 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 	}
 
 	// Compile the real_ip block (trusted-proxy / forwarded-header handling).
+	// A disabled block is inert — skip compilation so its required-field checks
+	// (e.g. trusted_proxies) don't fire when the feature is env-toggled off.
 	var realIP *realIPResolver
-	if serverDef.RealIP != nil {
+	if serverDef.RealIP != nil && !serverDef.RealIP.Disabled {
 		var realIPDiags hcl.Diagnostics
 		realIP, realIPDiags = compileRealIP(serverDef.RealIP)
 		if realIPDiags.HasErrors() {

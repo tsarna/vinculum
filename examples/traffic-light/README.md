@@ -53,9 +53,18 @@ The configuration is split across small topical files; Vinculum loads every
 | [web.vcl](web.vcl) | HTTP server (static files, `/api/traffic/status` JSON endpoint, mounted VWS) and the VWS WebSocket server |
 | [html/](html/) | The single-page web UI (vanilla HTML/CSS/JS) |
 
-The web UI is served from `env.HTML_DIR` (default `/conf/html`) — set
-`HTML_DIR` to point at the `html/` directory wherever it lives in your
-deployment (e.g. a path materialized by a [`.vinit` git fetch](../../doc/git.md)).
+## Environment variables
+
+The example is deploy-time configurable through `TRAFFIC_`-prefixed environment
+variables. Each one both supplies a value and toggles its feature — leaving it
+unset turns the feature off (the relevant block sets `disabled = true`):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `TRAFFIC_HTML_DIR` | `/conf/html` | Directory the web UI is served from — point it at the `html/` directory wherever it lives (e.g. a path materialized by a [`.vinit` git fetch](../../doc/git.md)). |
+| `TRAFFIC_TRUSTED_PROXIES` | _unset → `real_ip` disabled_ | Comma-separated proxy CIDRs/IPs to trust for [`real_ip`](../../doc/server-http.md#real-client-ip-real_ip). When set, the original client address is recovered from `X-Forwarded-For`. |
+| `TRAFFIC_WEB_PASSWORD` | _unset → auth disabled_ | Basic-auth password gating the whole server. Set it to require a login. |
+| `TRAFFIC_WEB_USER` | `admin` | Basic-auth username (only meaningful when `TRAFFIC_WEB_PASSWORD` is set). |
 
 ## Bus topics
 

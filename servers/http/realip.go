@@ -17,6 +17,7 @@ type realIPConfig struct {
 	TrustedProxies []string  `hcl:"trusted_proxies"`
 	Header         string    `hcl:"header,optional"`
 	Recursive      bool      `hcl:"recursive,optional"`
+	Disabled       bool      `hcl:"disabled,optional"`
 	DefRange       hcl.Range `hcl:",def_range"`
 }
 

@@ -27,6 +27,9 @@ var authCustomVCL []byte
 //go:embed testdata/auth_none_files.vcl
 var authNoneFilesVCL []byte
 
+//go:embed testdata/auth_disabled.vcl
+var authDisabledVCL []byte
+
 func basicAuthHeader(username, password string) string {
 	creds := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
 	return "Basic " + creds
@@ -78,6 +81,23 @@ func TestBasicAuth_CorrectCredentials(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	assert.Equal(t, "alice", string(body))
+}
+
+// --- auth "basic" disabled ---
+
+// TestBasicAuth_Disabled confirms a disabled basic-auth block (with no
+// credentials) parses without diagnostics and leaves requests unauthenticated.
+func TestBasicAuth_Disabled(t *testing.T) {
+	srv := buildHTTPServer(t, authDisabledVCL)
+	req := httptest.NewRequest(http.MethodGet, "/whoami", nil)
+	w := httptest.NewRecorder()
+	srv.Server.Handler.ServeHTTP(w, req)
+
+	resp := w.Result()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "ok", string(body))
 }
 
 // --- auth "none" overriding server-level auth ---

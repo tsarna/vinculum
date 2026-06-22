@@ -20,6 +20,12 @@ import (
 type AuthConfig struct {
 	Mode string `hcl:",label"` // "basic" | "oidc" | "oauth2" | "custom" | "none"
 
+	// disabled — when true the block is parsed but inert, exactly as if it were
+	// absent (server-level auth) or "none" (block-level). Mode-specific required
+	// fields are not validated. Typically driven by an env expression so a single
+	// var can both supply credentials and toggle auth on/off.
+	Disabled bool `hcl:"disabled,optional"`
+
 	// basic — realm shown in WWW-Authenticate header; defaults to server name
 	Realm string `hcl:"realm,optional"`
 	// basic — map(string) expression; username → plaintext password
@@ -64,6 +70,12 @@ type AuthConfig struct {
 // present and that no conflicting options were set. Returns HCL diagnostics on error.
 func ValidateAuthConfig(ac *AuthConfig) hcl.Diagnostics {
 	var diags hcl.Diagnostics
+
+	// A disabled block is inert; skip mode-specific required-field validation so
+	// an env-toggled block (e.g. basic auth with no credentials when off) is valid.
+	if ac.Disabled {
+		return nil
+	}
 
 	add := func(summary, detail string) {
 		diags = append(diags, &hcl.Diagnostic{

@@ -190,3 +190,34 @@ func TestRealIPEndToEnd(t *testing.T) {
 		t.Errorf("untrusted peer: remote_addr = %q, want 203.0.113.9:5000", got)
 	}
 }
+
+// realIPDisabledSource mirrors how the traffic-light example env-toggles real_ip:
+// disabled = true with an empty trusted_proxies list. The required-field check
+// must be skipped so the config still builds, and no resolver is installed.
+const realIPDisabledSource = `
+server "http" "main" {
+  listen = "127.0.0.1:0"
+
+  real_ip {
+    disabled        = true
+    trusted_proxies = []
+  }
+
+  handle "/ip" {
+    action = ctx.request.remote_addr
+  }
+}
+`
+
+// TestRealIPDisabled confirms a disabled real_ip block parses (despite empty
+// trusted_proxies) and produces no resolver, so RemoteAddr is left untouched.
+func TestRealIPDisabled(t *testing.T) {
+	c, diags := cfg.NewConfig().WithSources([]byte(realIPDisabledSource)).WithLogger(zap.NewNop()).Build()
+	if diags.HasErrors() {
+		t.Fatalf("build: %v", diags)
+	}
+	srv := c.Servers["http"]["main"].(*HttpServer)
+	if srv.realIP != nil {
+		t.Fatalf("expected no realIP resolver when disabled, got %#v", srv.realIP)
+	}
+}
