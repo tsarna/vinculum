@@ -31,6 +31,28 @@ Required environment variables: `ZONES_DIR` (path to the directory containing
 BIND zone files) and one `PASS_<ZONE>_<HOST>` variable per credential, as
 referenced from the `auth "basic"` block in the example.
 
+### [weather-mcp.vcl](weather-mcp.vcl)
+
+A [`server "mcp"`](../doc/server-mcp.md) that exposes live weather data to an
+MCP client (Claude Desktop, Claude Code, etc.) as tools, a templated resource,
+and a prompt. It wraps the free, no-API-key [Open-Meteo](https://open-meteo.com)
+service, so it runs with no environment variables or credentials. Demonstrates:
+
+- `server "mcp"` with `tool`, a templated `resource`, and a `prompt` block,
+  mounted under a [`server "http"`](../doc/server-http.md) block so each MCP
+  call appears in the HTTP request log
+- [`client "http"`](../doc/client-http.md) wrapping a third-party JSON API,
+  with `function`/`jq` blocks factoring the geocode→forecast flow out of the
+  handler actions so each request resolves the place once and calls the network
+  once
+- `cond()` for lazy branching — HCL's own `a ? b : c` eagerly evaluates *both*
+  branches, so a side-effecting not-found path needs `cond()`
+- `mcp_error()` for tool failures vs. a plain string for a resource
+
+Run it with `vinculum serve examples/weather-mcp.vcl`, then point an MCP client
+at `http://localhost:9000/mcp`. See the comments at the top of the file for the
+client config and example prompts.
+
 ### [traffic-light/](traffic-light/)
 
 A simulated four-way traffic intersection: a multi-file configuration combining
