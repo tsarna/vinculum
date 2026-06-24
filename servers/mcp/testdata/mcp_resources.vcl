@@ -12,6 +12,6 @@ server "mcp" "test" {
     resource "info://{section}" {
         name        = "Info"
         description = "Info by section"
-        action      = "section: ${ctx.section}"
+        action      = "section: ${ctx.args.section}"
     }
 }

@@ -67,12 +67,13 @@ resource "status://current" {
 
 ### Templated URI
 
-Curly-brace placeholders in the URI are extracted and made available as `ctx.<name>`:
+Curly-brace placeholders in the URI are extracted and made available under
+`ctx.args.<name>` (consistent with tool and prompt arguments):
 
 ```hcl
 resource "db://records/{table}/{id}" {
     name   = "Record"
-    action = jsonencode(dbquery(ctx.table, ctx.id))
+    action = jsonencode(dbquery(ctx.args.table, ctx.args.id))
 }
 ```
 
@@ -82,7 +83,8 @@ resource "db://records/{table}/{id}" {
 |---|---|
 | `ctx.server_name` | Name of the MCP server |
 | `ctx.uri` | The fully resolved URI of the request |
-| `ctx.<name>` | Value of each `{name}` placeholder in a templated URI |
+| `ctx.args` | Object containing all `{name}` placeholders from a templated URI (empty for a static URI) |
+| `ctx.args.<name>` | Value of a specific `{name}` placeholder in a templated URI |
 
 ---
 
@@ -405,7 +407,7 @@ server "mcp" "assistant_tools" {
         name        = "Documentation"
         description = "Fetch a documentation page by name"
         mime_type   = "text/markdown"
-        action      = file("./docs/${ctx.page}.md")
+        action      = file("./docs/${ctx.args.page}.md")
     }
 
     tool "ping" {

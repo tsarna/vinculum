@@ -15,13 +15,21 @@ func buildResourceEvalContext(
 	serverName, uri string,
 	templateVars map[string]string,
 ) (*hcl.EvalContext, error) {
-	b := hclutil.NewEvalContext(goCtx).
-		WithStringAttribute("server_name", serverName).
-		WithStringAttribute("uri", uri)
-	for k, v := range templateVars {
-		b = b.WithStringAttribute(k, v)
+	var argsVal cty.Value
+	if len(templateVars) == 0 {
+		argsVal = cty.EmptyObjectVal
+	} else {
+		m := make(map[string]cty.Value, len(templateVars))
+		for k, v := range templateVars {
+			m[k] = cty.StringVal(v)
+		}
+		argsVal = cty.ObjectVal(m)
 	}
-	return b.BuildEvalContext(parent)
+	return hclutil.NewEvalContext(goCtx).
+		WithStringAttribute("server_name", serverName).
+		WithStringAttribute("uri", uri).
+		WithAttribute("args", argsVal).
+		BuildEvalContext(parent)
 }
 
 // buildToolEvalContext builds a per-request eval context for a tool handler.

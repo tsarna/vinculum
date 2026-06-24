@@ -206,13 +206,13 @@ server "mcp" "weather" {
     server_version = "1.0.0"
 
     # Current weather for a place, addressable as a resource URI.
-    # The {place} placeholder arrives as ctx.place.
+    # The {place} placeholder arrives as ctx.args.place.
     resource "weather://current/{place}" {
         name        = "Current weather"
         description = "Current conditions for a named place, e.g. weather://current/Tokyo"
         mime_type   = "text/plain"
 
-        action = current_weather_text(ctx, ctx.place, geocode(ctx, ctx.place))
+        action = current_weather_text(ctx, ctx.args.place, geocode(ctx, ctx.args.place))
     }
 
     tool "current_weather" {

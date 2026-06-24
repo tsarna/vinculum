@@ -116,7 +116,7 @@ func TestResourceTemplateURIVars(t *testing.T) {
 		{
 			URI:      "info://{section}",
 			Name:     "Info",
-			Action:   parseExpr(t, `"section: ${ctx.section}"`),
+			Action:   parseExpr(t, `"section: ${ctx.args.section}"`),
 			Template: tmpl,
 		},
 	}, nil, nil)
