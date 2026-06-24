@@ -14,6 +14,9 @@
 #
 # Then ask: "What's the weather in Reykjavik?" or "Pack for 3 days in Oslo."
 #
+# Optional: export OpenTelemetry traces and metrics by pointing at a collector:
+#   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 vinculum serve examples/weather-mcp.vcl
+#
 # Demonstrates:
 #   - server "mcp" with tools, a templated resource, and a prompt, mounted under
 #     a server "http" block (so each MCP call shows up in the HTTP request log)
@@ -26,6 +29,8 @@
 #   - returning an empty list as a "not found" sentinel: user functions reject
 #     null arguments, so geocode() returns a (zero-or-one) list rather than null
 #   - mcp_error() for tool-level failures vs. a plain string for a resource
+#   - an optional, env-toggled client "otlp" that the HTTP and MCP servers
+#     auto-wire to for traces and metrics
 
 # ── HTTP clients ──────────────────────────────────────────────────────────────
 
@@ -40,6 +45,28 @@ client "http" "geocoding" {
 client "http" "openmeteo" {
     base_url = "https://api.open-meteo.com/v1/"
     timeout  = "10s"
+}
+
+# ── Telemetry (optional) ──────────────────────────────────────────────────────
+#
+# OpenTelemetry export, off by default. Set OTEL_EXPORTER_OTLP_ENDPOINT to an
+# OTLP/HTTP collector to enable it; leave it unset and this client is `disabled`,
+# so the instrumentation below is a no-op and the example stays zero-config.
+# (env.* only contains variables that are actually set, so the unset case is
+# read with try(env.X, "") to avoid an "unsupported attribute" error.)
+#
+# Because this is the only client "otlp" and it sets default_metrics, the HTTP
+# server and the mounted MCP server auto-wire to it for both traces and metrics
+# — no explicit tracing=/metrics= attributes needed. Each MCP call then produces
+# an HTTP server span, a child mcp.server span, and the
+# mcp.server.operation.duration metric; the outbound Open-Meteo calls nest as
+# client spans under it.
+
+client "otlp" "telemetry" {
+    disabled        = try(env.OTEL_EXPORTER_OTLP_ENDPOINT, "") == ""
+    endpoint        = try(env.OTEL_EXPORTER_OTLP_ENDPOINT, "")
+    service_name    = "weather-mcp"
+    default_metrics = true
 }
 
 # ── WMO weather-code descriptions ─────────────────────────────────────────────

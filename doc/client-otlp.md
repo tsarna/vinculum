@@ -62,6 +62,7 @@ client "otlp" "tracer" {
 
 | Attribute            | Required | Description                                                                  |
 |----------------------|----------|------------------------------------------------------------------------------|
+| `disabled`           | no       | When `true`, the client is skipped entirely (no exporters, not registered, not auto-wired). Required attributes are not validated, so the block can hold placeholders. Often driven by an env var, e.g. `disabled = try(env.OTEL_EXPORTER_OTLP_ENDPOINT, "") == ""`. |
 | `endpoint`           | yes      | Base URL of the OTLP/HTTP collector (e.g. `"http://localhost:4318"`)         |
 | `service_name`       | yes      | Service name recorded on every span and metric                               |
 | `service_version`    | no       | Service version recorded on every span and metric                            |
