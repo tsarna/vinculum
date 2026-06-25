@@ -28,6 +28,10 @@ client "otlp" "tracer" {
     # client "otlp" block it is always the default regardless of this flag.
     default = false             # optional
 
+    # Copy these baggage entries onto every locally-started span as
+    # attributes named exactly these keys. See doc/baggage.md.
+    record_baggage = ["tenant_id", "user_id"]   # optional, default []
+
     # --- Metrics ---
 
     # Separate endpoint for metric export (defaults to endpoint).
@@ -68,6 +72,7 @@ client "otlp" "tracer" {
 | `service_version`    | no       | Service version recorded on every span and metric                            |
 | `sampling_ratio`     | no       | Head-based sampling ratio for new root spans (default `1.0`)                 |
 | `default`            | no       | Mark as the default tracing backend for auto-wiring                          |
+| `record_baggage`     | no       | `list(string)` of [baggage](baggage.md) keys to copy onto every span as attributes (default `[]`); see [Projecting baggage onto spans](baggage.md#projecting-baggage-onto-spans) |
 | `metric_endpoint`    | no       | Separate endpoint for metric export (defaults to `endpoint`)                 |
 | `metric_interval`    | no       | Push interval for periodic metric export (default `"60s"`)                   |
 | `include_go_metrics` | no       | Include Go runtime metrics (default `true`)                                  |

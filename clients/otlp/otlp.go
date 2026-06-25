@@ -12,7 +12,9 @@ import (
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
+	"go.opentelemetry.io/contrib/processors/baggagecopy"
 	"go.opentelemetry.io/otel"
+	otelbaggage "go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -37,6 +39,7 @@ type otlpClientDefinition struct {
 	SamplingRatio  *float64       `hcl:"sampling_ratio,optional"`
 	Default        bool           `hcl:"default,optional"`
 	Headers        hcl.Expression `hcl:"headers,optional"`
+	RecordBaggage  []string       `hcl:"record_baggage,optional"`
 	TLS            *cfg.TLSConfig `hcl:"tls,block"`
 	DefRange       hcl.Range      `hcl:",def_range"`
 
@@ -56,6 +59,7 @@ type OtlpClientImpl struct {
 	serviceVersion string
 	samplingRatio  float64
 	headers        map[string]string
+	recordBaggage  []string
 	tlsConfig      *cfg.TLSConfig
 	baseDir        string
 	isDefault      bool
@@ -136,11 +140,25 @@ func (c *OtlpClientImpl) buildProviders() error {
 		samplingRatio = c.samplingRatio
 	}
 
-	c.tracerProvider = sdktrace.NewTracerProvider(
+	tpOpts := []sdktrace.TracerProviderOption{
 		sdktrace.WithBatcher(traceExporter),
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(samplingRatio))),
-	)
+	}
+	// Project selected baggage entries onto every locally-started span as
+	// attributes named exactly those keys.
+	if len(c.recordBaggage) > 0 {
+		allow := make(map[string]struct{}, len(c.recordBaggage))
+		for _, k := range c.recordBaggage {
+			allow[k] = struct{}{}
+		}
+		filter := func(m otelbaggage.Member) bool {
+			_, ok := allow[m.Key()]
+			return ok
+		}
+		tpOpts = append(tpOpts, sdktrace.WithSpanProcessor(baggagecopy.NewSpanProcessor(filter)))
+	}
+	c.tracerProvider = sdktrace.NewTracerProvider(tpOpts...)
 
 	// --- Metric provider ---
 	metricEndpoint := c.metricEndpoint
@@ -249,6 +267,20 @@ func process(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Client, h
 		samplingRatio = *def.SamplingRatio
 	}
 
+	// Validate record_baggage keys at parse time.
+	for _, k := range def.RecordBaggage {
+		if k == "" {
+			return nil, hcl.Diagnostics{
+				&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "Invalid record_baggage key",
+					Detail:   fmt.Sprintf("client \"otlp\" %q: record_baggage contains an empty key", name),
+					Subject:  def.DefRange.Ptr(),
+				},
+			}
+		}
+	}
+
 	metricInterval := 60 * time.Second
 	if def.MetricInterval != nil {
 		d, err := time.ParseDuration(*def.MetricInterval)
@@ -285,6 +317,7 @@ func process(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Client, h
 		serviceVersion:   def.ServiceVersion,
 		samplingRatio:    samplingRatio,
 		headers:          headers,
+		recordBaggage:    def.RecordBaggage,
 		tlsConfig:        def.TLS,
 		baseDir:          config.BaseDir,
 		isDefault:        def.Default,

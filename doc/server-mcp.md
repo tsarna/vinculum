@@ -17,6 +17,10 @@ server "mcp" "name" {
         ...
     }
 
+    baggage {                      # optional
+        ...
+    }
+
     resource ...
     tool ...
     prompt ...
@@ -30,6 +34,7 @@ server "mcp" "name" {
 - `tracing` — optional reference to a `client "otlp"` block for OpenTelemetry tracing (auto-wired when there is exactly one OTLP client). See [Observability](#observability).
 - `metrics` — optional reference to a `server "metrics"` or `client "otlp"` block for metrics (auto-wired when there is only one metrics backend). See [Observability](#observability).
 - `tls` — optional sub-block to enable HTTPS; standalone mode only. See [TLS](#tls) below.
+- `baggage` — optional sub-block controlling which inbound [baggage](baggage.md) keys are trusted. Inbound baggage is **stripped by default**; see [Server-side trust filtering](baggage.md#server-side-trust-filtering). A server mounted under an HTTP server inherits that server's filter.
 
 The server uses the [Streamable HTTP transport](https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/transports/#streamable-http)
 (MCP spec 2025-03-26).

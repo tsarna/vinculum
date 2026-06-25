@@ -37,18 +37,22 @@ type HttpServer struct {
 
 	// realIP rewrites RemoteAddr from a forwarded header when set; may be nil.
 	realIP *realIPResolver
+
+	// baggageFilter strips/limits inbound baggage when set; may be nil.
+	baggageFilter *hclutil.BaggageFilterConfig
 }
 
 type HttpServerDefinition struct {
-	Listen      string                  `hcl:"listen"`
-	TLS         *cfg.TLSConfig          `hcl:"tls,block"`
-	Auth        *cfg.AuthConfig         `hcl:"auth,block"`
-	RealIP      *realIPConfig           `hcl:"real_ip,block"`
-	Tracing     hcl.Expression          `hcl:"tracing,optional"`
-	Metrics     hcl.Expression          `hcl:"metrics,optional"`
-	DefRange    hcl.Range               `hcl:",def_range"`
-	StaticFiles []staticFilesDefinition `hcl:"files,block"`
-	Handlers    []handlerDefinition     `hcl:"handle,block"`
+	Listen      string                       `hcl:"listen"`
+	TLS         *cfg.TLSConfig               `hcl:"tls,block"`
+	Auth        *cfg.AuthConfig              `hcl:"auth,block"`
+	RealIP      *realIPConfig                `hcl:"real_ip,block"`
+	Tracing     hcl.Expression               `hcl:"tracing,optional"`
+	Metrics     hcl.Expression               `hcl:"metrics,optional"`
+	Baggage     *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
+	DefRange    hcl.Range                    `hcl:",def_range"`
+	StaticFiles []staticFilesDefinition      `hcl:"files,block"`
+	Handlers    []handlerDefinition          `hcl:"handle,block"`
 }
 
 type staticFilesDefinition struct {
@@ -84,6 +88,10 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 		if authDiags := cfg.ValidateAuthConfig(serverDef.Auth); authDiags.HasErrors() {
 			return nil, authDiags
 		}
+	}
+
+	if baggageDiags := serverDef.Baggage.Validate(); baggageDiags.HasErrors() {
+		return nil, baggageDiags
 	}
 
 	httpServers, ok := config.Servers["http"]
@@ -139,6 +147,7 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 		otlpClient:    otlpClient,
 		meterProvider: mp,
 		realIP:        realIP,
+		baggageFilter: serverDef.Baggage,
 	}
 
 	mux := http.NewServeMux()
@@ -348,8 +357,12 @@ func (h *HttpServer) Start() error {
 		otelhttp.WithServerName(h.Name),
 	)
 
+	// Wrap the mux with the baggage filter (if configured) INSIDE otelhttp, so it
+	// runs after the W3C propagator extracts baggage but before any handler.
+	inner := h.baggageFilter.Middleware(h.Logger, h.Server.Handler)
+
 	// Wrap the entire mux with otelhttp for tracing.
-	tracedHandler := otelhttp.NewHandler(h.Server.Handler, "",
+	tracedHandler := otelhttp.NewHandler(inner, "",
 		append(otelOpts, otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 			return r.Method + " " + r.URL.Path
 		}))...,

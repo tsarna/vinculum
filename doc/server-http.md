@@ -11,6 +11,10 @@ server "http" "name" {
         ...
     }
 
+    baggage {            # optional
+        ...
+    }
+
     handle "route" {
         ...
     }
@@ -24,6 +28,7 @@ server "http" "name" {
 - `listen` — address and port to listen on (e.g. `":8080"`, `"127.0.0.1:9090"`)
 - `disabled` — if true, the server block is skipped entirely
 - `tls` — optional sub-block to enable HTTPS; see [TLS](#tls) below
+- `baggage` — optional sub-block controlling which inbound [baggage](baggage.md) keys are trusted. Inbound baggage is **stripped by default**; see [Server-side trust filtering](baggage.md#server-side-trust-filtering).
 
 The server is available in expressions as `server.<name>`.
 

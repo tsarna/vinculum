@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/hclutil"
 )
 
 // McpServer wraps an mcp.Server and implements the config Listener, Startable,
@@ -28,19 +29,20 @@ func (s *McpServer) Start() error {
 // HCL struct definitions for the "server mcp" block
 
 type McpServerDefinition struct {
-	Listen        string                  `hcl:"listen,optional"`
-	Path          string                  `hcl:"path,optional"`
-	ServerName    string                  `hcl:"server_name,optional"`
-	ServerVersion string                  `hcl:"server_version,optional"`
-	Disabled      bool                    `hcl:"disabled,optional"`
-	Tracing       hcl.Expression          `hcl:"tracing,optional"`
-	Metrics       hcl.Expression          `hcl:"metrics,optional"`
-	TLS           *cfg.TLSConfig          `hcl:"tls,block"`
-	Auth          *cfg.AuthConfig         `hcl:"auth,block"`
-	DefRange      hcl.Range               `hcl:",def_range"`
-	Resources     []mcpResourceDefinition `hcl:"resource,block"`
-	Tools         []mcpToolDefinition     `hcl:"tool,block"`
-	Prompts       []mcpPromptDefinition   `hcl:"prompt,block"`
+	Listen        string                       `hcl:"listen,optional"`
+	Path          string                       `hcl:"path,optional"`
+	ServerName    string                       `hcl:"server_name,optional"`
+	ServerVersion string                       `hcl:"server_version,optional"`
+	Disabled      bool                         `hcl:"disabled,optional"`
+	Tracing       hcl.Expression               `hcl:"tracing,optional"`
+	Metrics       hcl.Expression               `hcl:"metrics,optional"`
+	TLS           *cfg.TLSConfig               `hcl:"tls,block"`
+	Auth          *cfg.AuthConfig              `hcl:"auth,block"`
+	Baggage       *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
+	DefRange      hcl.Range                    `hcl:",def_range"`
+	Resources     []mcpResourceDefinition      `hcl:"resource,block"`
+	Tools         []mcpToolDefinition          `hcl:"tool,block"`
+	Prompts       []mcpPromptDefinition        `hcl:"prompt,block"`
 }
 
 type mcpResourceDefinition struct {
@@ -128,6 +130,10 @@ func ProcessMcpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody h
 		}
 	}
 
+	if baggageDiags := def.Baggage.Validate(); baggageDiags.HasErrors() {
+		return nil, baggageDiags
+	}
+
 	var tlsCfg *tls.Config
 	if def.TLS != nil {
 		if def.Listen == "" {
@@ -174,6 +180,7 @@ func ProcessMcpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody h
 		Auth:          def.Auth,
 		OtlpClient:    otlpClient,
 		MeterProvider: mp,
+		BaggageFilter: def.Baggage,
 		ParentEvalCtx: config.EvalCtx(),
 		Logger:        config.Logger,
 		Resources:     resources,

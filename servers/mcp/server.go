@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	cfg "github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/hclutil"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -32,6 +33,7 @@ type ServerConfig struct {
 	// global provider). Primarily a test injection point.
 	TracerProvider oteltrace.TracerProvider
 	MeterProvider  otelmetric.MeterProvider
+	BaggageFilter  *hclutil.BaggageFilterConfig
 	ParentEvalCtx  *hcl.EvalContext
 	Logger         *zap.Logger
 	Resources      []ResourceDef
@@ -53,6 +55,7 @@ type Server struct {
 	parentEvalCtx *hcl.EvalContext
 	tracer        oteltrace.Tracer
 	metrics       *mcpMetrics
+	baggageFilter *hclutil.BaggageFilterConfig
 }
 
 // New creates a new MCP server from the given configuration.
@@ -97,6 +100,7 @@ func New(scfg ServerConfig) (*Server, error) {
 		parentEvalCtx: scfg.ParentEvalCtx,
 		tracer:        tp.Tracer(instrumentationScope),
 		metrics:       newMCPMetrics(scfg.MeterProvider),
+		baggageFilter: scfg.BaggageFilter,
 	}
 
 	// Instrument every inbound MCP request/notification with a span and the
@@ -142,7 +146,10 @@ func New(scfg ServerConfig) (*Server, error) {
 			)),
 			otelhttp.WithServerName(scfg.Name),
 		)
-		s.httpHandler = otelhttp.NewHandler(s.httpHandler, "",
+		// Filter inbound baggage INSIDE otelhttp, so it runs after the W3C
+		// propagator extracts baggage but before any handler.
+		inner := s.baggageFilter.Middleware(s.logger, s.httpHandler)
+		s.httpHandler = otelhttp.NewHandler(inner, "",
 			append(otelOpts, otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 				return r.Method + " " + r.URL.Path
 			}))...,

@@ -24,6 +24,7 @@ User-facing documentation lives in `doc/`. Each file covers one topic:
 | `doc/condition.md` | `condition` block subtypes (`timer`, `threshold`, `counter`, `flipflop`), four-state model, common attributes, lifecycle hooks |
 | `doc/functions.md` | Built-in callable functions (logging, messaging, data, MCP, file, HTTP) |
 | `doc/transforms.md` | Message transform pipeline DSL (`add_topic_prefix`, `jq`, `chain`, etc.) |
+| `doc/baggage.md` | OTel `ctx.baggage`: read/write/delete, secure-by-default `baggage {}` trust filtering, `record_baggage` span projection |
 | `doc/server-http.md` | `server "http"`: handle/files blocks, context vars, request functions |
 | `doc/server-mcp.md` | `server "mcp"`: resources, tools, prompts, MCP functions |
 | `doc/server-vws.md` | `server "vws"` and `client "vws"`: VWS protocol, allow_send, reconnect |

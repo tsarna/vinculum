@@ -287,7 +287,7 @@ subscription "event_router" {
 
 ## Observability
 
-Vinculum propagates a context through the system as messages flow from sources through buses, transforms, and subscribers, so events received via one protocol retain their originating context as they're processed and forwarded. OpenTelemetry traces and metrics are emitted throughout, and can be exposed in Prometheus/OpenMetrics format via [`server "metrics"`](server-metrics.md) or pushed to an OTel collector via [`client "otlp"`](client-otlp.md). Application-defined metrics are declared with [`metric`](metric.md) blocks.
+Vinculum propagates a context through the system as messages flow from sources through buses, transforms, and subscribers, so events received via one protocol retain their originating context as they're processed and forwarded. OpenTelemetry traces and metrics are emitted throughout, and can be exposed in Prometheus/OpenMetrics format via [`server "metrics"`](server-metrics.md) or pushed to an OTel collector via [`client "otlp"`](client-otlp.md). Application-defined metrics are declared with [`metric`](metric.md) blocks. [OpenTelemetry Baggage](baggage.md) — request-scoped key/value pairs that ride the trace — is readable and writable from config as `ctx.baggage`; inbound baggage is stripped by default and can be projected onto spans.
 
 ## Interactive REPL
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	richcty "github.com/tsarna/rich-cty-types"
+	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	"go.opentelemetry.io/otel/trace"
@@ -68,6 +69,10 @@ func (e *EvalContextBuilder) WithFunctions(functions map[string]function.Functio
 func (e *EvalContextBuilder) BuildEvalContext(parent *hcl.EvalContext) (*hcl.EvalContext, error) {
 	// Auto-include ctx.auth from Go context (populated by auth middleware, or null).
 	e.b.WithAttribute("auth", AuthValueFromContext(e.b.Ctx))
+
+	// Auto-include ctx.baggage, a capsule sharing the same context pointer as
+	// _ctx so set()/clear() on it are observed by later send()/http_*() calls.
+	e.b.WithAttribute("baggage", types.NewBaggageCapsule(e.b.ContextPointer()))
 
 	// Auto-include ctx.trace_id / ctx.span_id from the active OTel span.
 	// Prefer a locally-started span; fall back to the remote span context
