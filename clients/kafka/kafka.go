@@ -69,6 +69,7 @@ type ConsumerDefinition struct {
 	QueueSize     *int                          `hcl:"queue_size,optional"`
 	CommitMode    string                        `hcl:"commit_mode,optional"`
 	DLQTopic      string                        `hcl:"dlq_topic,optional"`
+	Baggage       *hclutil.BaggageFilterConfig  `hcl:"baggage,block"`
 	Subscriptions []TopicSubscriptionDefinition `hcl:"subscription,block"`
 	DefRange      hcl.Range                     `hcl:",def_range"`
 }
@@ -727,6 +728,10 @@ func buildConsumerSpec(config *cfg.Config, clientName string, def ConsumerDefini
 
 	spec.dlqTopic = def.DLQTopic
 
+	if baggageDiags := def.Baggage.Validate(); baggageDiags.HasErrors() {
+		return spec, baggageDiags
+	}
+
 	subscriber, diags := cfg.SubscriberSource{
 		Subscriber: def.Subscriber,
 		Action:     def.Action,
@@ -736,7 +741,11 @@ func buildConsumerSpec(config *cfg.Config, clientName string, def ConsumerDefini
 	if diags.HasErrors() {
 		return spec, diags
 	}
-	spec.subscriber = subscriber
+
+	// Strip untrusted inbound baggage at this external boundary before it reaches
+	// the action. Secure by default: a nil baggage block strips everything; opt
+	// in with baggage { passthrough | allow | deny }.
+	spec.subscriber = cfg.NewBaggageFilterSubscriber(def.Baggage, subscriber, config.Logger)
 
 	if len(def.Subscriptions) == 0 {
 		return spec, hcl.Diagnostics{{

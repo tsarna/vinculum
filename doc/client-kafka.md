@@ -185,6 +185,10 @@ receiver "main" {
   commit_mode  = "after_process"   # after_process | periodic | manual — default: after_process
   dlq_topic    = "vinculum.dlq"    # optional: dead-letter queue topic
 
+  baggage {                        # optional; inbound baggage stripped by default
+    allow = ["tenant_id"]
+  }
+
   subscription "sensor.readings" {
     vinculum_topic = "sensor/${ctx.fields.deviceId}/reading"
   }
@@ -255,6 +259,16 @@ record preserves the original key and value, and adds the following headers:
 
 The offset is committed only after a successful DLQ send. If the DLQ send
 itself fails, the record is not committed and will be redelivered.
+
+### `baggage`
+
+Inbound Kafka message [baggage](baggage.md) is untrusted input, so each receiver
+**strips it by default** before it reaches the action or downstream
+re-propagation. Add an optional `baggage {}` block to opt into trusting upstream
+baggage — `passthrough = true`, `allow = [...]`, or `deny = [...]`. See
+[Server-side trust filtering](baggage.md#server-side-trust-filtering) for the
+full attribute set. The block is per-receiver. (Trace continuity is unaffected;
+only baggage key/value pairs are filtered.)
 
 ### `subscription "<kafka-topic>"`
 
