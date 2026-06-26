@@ -76,20 +76,21 @@ type RMQTopicDefinition struct {
 }
 
 type RMQReceiverDefinition struct {
-	Name                       string                      `hcl:",label"`
-	Queue                      string                      `hcl:"queue"`
-	Subscriber                 hcl.Expression              `hcl:"subscriber,optional"`
-	Action                     hcl.Expression              `hcl:"action,optional"`
-	Transforms                 hcl.Expression              `hcl:"transforms,optional"`
-	QueueSize                  *int                        `hcl:"queue_size,optional"`
-	Prefetch                   *int                        `hcl:"prefetch,optional"`
-	Exclusive                  *bool                       `hcl:"exclusive,optional"`
-	AutoAck                    *bool                       `hcl:"auto_ack,optional"`
-	Declare                    *RMQQueueDeclareDefinition  `hcl:"declare,block"`
-	Bindings                   []RMQBindingDefinition      `hcl:"binding,block"`
-	Subscriptions              []RMQSubscriptionDefinition `hcl:"subscription,block"`
-	DefaultRoutingKeyTransform string                      `hcl:"default_routing_key_transform,optional"`
-	DefRange                   hcl.Range                   `hcl:",def_range"`
+	Name                       string                       `hcl:",label"`
+	Queue                      string                       `hcl:"queue"`
+	Subscriber                 hcl.Expression               `hcl:"subscriber,optional"`
+	Action                     hcl.Expression               `hcl:"action,optional"`
+	Transforms                 hcl.Expression               `hcl:"transforms,optional"`
+	QueueSize                  *int                         `hcl:"queue_size,optional"`
+	Prefetch                   *int                         `hcl:"prefetch,optional"`
+	Exclusive                  *bool                        `hcl:"exclusive,optional"`
+	AutoAck                    *bool                        `hcl:"auto_ack,optional"`
+	Baggage                    *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
+	Declare                    *RMQQueueDeclareDefinition   `hcl:"declare,block"`
+	Bindings                   []RMQBindingDefinition       `hcl:"binding,block"`
+	Subscriptions              []RMQSubscriptionDefinition  `hcl:"subscription,block"`
+	DefaultRoutingKeyTransform string                       `hcl:"default_routing_key_transform,optional"`
+	DefRange                   hcl.Range                    `hcl:",def_range"`
 }
 
 type RMQQueueDeclareDefinition struct {
@@ -123,16 +124,16 @@ type builtSenderSpec struct {
 }
 
 type builtReceiverSpec struct {
-	name              string
-	queue             string
-	subscriber        bus.Subscriber
-	subscriptions     []rmqreceiver.Subscription
-	defaultXform      rmqreceiver.DefaultRoutingKeyTransform
-	prefetch          int
-	exclusive         bool
-	autoAck           bool
-	declare           *rmqreceiver.Declare
-	bindings          []rmqreceiver.Binding
+	name          string
+	queue         string
+	subscriber    bus.Subscriber
+	subscriptions []rmqreceiver.Subscription
+	defaultXform  rmqreceiver.DefaultRoutingKeyTransform
+	prefetch      int
+	exclusive     bool
+	autoAck       bool
+	declare       *rmqreceiver.Declare
+	bindings      []rmqreceiver.Binding
 }
 
 // ─── Sender proxy ────────────────────────────────────────────────────────────
@@ -561,6 +562,10 @@ func buildReceiverSpec(config *cfg.Config, clientName string, def RMQReceiverDef
 	}
 	spec.defaultXform = xform
 
+	if baggageDiags := def.Baggage.Validate(); baggageDiags.HasErrors() {
+		return spec, baggageDiags
+	}
+
 	subscriber, sDiags := cfg.SubscriberSource{
 		Subscriber: def.Subscriber,
 		Action:     def.Action,
@@ -570,7 +575,11 @@ func buildReceiverSpec(config *cfg.Config, clientName string, def RMQReceiverDef
 	if sDiags.HasErrors() {
 		return spec, sDiags
 	}
-	spec.subscriber = subscriber
+
+	// Strip untrusted inbound baggage at this external boundary before it reaches
+	// the action. Secure by default: a nil baggage block strips everything; opt
+	// in with baggage { passthrough | allow | deny }.
+	spec.subscriber = cfg.NewBaggageFilterSubscriber(def.Baggage, subscriber, config.Logger)
 
 	if def.Declare != nil {
 		d := rmqreceiver.Declare{

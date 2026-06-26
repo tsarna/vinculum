@@ -295,6 +295,11 @@ receiver "main" {
   exclusive = false  # exclusive consumer (default: false)
   auto_ack  = false  # ack before OnEvent returns (default: false = manual ack)
 
+  # Optional; inbound baggage is stripped by default. See doc/baggage.md.
+  baggage {
+    allow = ["tenant_id"]
+  }
+
   # Optional queue declaration.
   # If absent: vinculum does a passive declare to verify the queue exists at startup.
   # If present: vinculum declares the queue (creating it if missing) on every connect.
@@ -334,6 +339,7 @@ receiver "main" {
 | `prefetch` | number | `10` | AMQP `basic.qos` prefetch count — unacked messages the broker may push before waiting for acks. `0` is unlimited and dangerous (the broker pushes the whole queue at once). |
 | `exclusive` | bool | `false` | Exclusive consumer — only one consumer may be active on the queue at a time. Prevents horizontal scaling; leave `false` for competing consumers across instances. |
 | `auto_ack` | bool | `false` | When `true`, the broker considers a message delivered as soon as it is written to the socket (lossy on crash). Default `false` = manual ack after `subscriber.OnEvent` returns without error. |
+| `baggage` | block | strip all | Optional [baggage](baggage.md) trust filter. Inbound baggage is **stripped by default** before it reaches the action; opt in with `passthrough`/`allow`/`deny`. Per-receiver. See [Server-side trust filtering](baggage.md#server-side-trust-filtering). |
 | `default_routing_key_transform` | string | `"dot_to_slash"` | Fallback when no `subscription` matches. See below. |
 
 ### `subscriber` / `action` / `transforms` / `queue_size`
