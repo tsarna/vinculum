@@ -308,8 +308,8 @@ github.com/tsarna/vinculum-vws v0.13.0 h1:mlP7oIyPVhQ1YQdNOa8lL3O0jMv/T3DvDEk/EJ
 github.com/tsarna/vinculum-vws v0.13.0/go.mod h1:hOPMHCjyNbAUAUSdu3Sd+7SOVYoIj1ndCDeKNzSOgKw=
 github.com/tsarna/vinculum-wire v0.2.1 h1:SnbCkVDrlvAb4eTx428E0HYQMCIO6PLzHo9nuxRzCVg=
 github.com/tsarna/vinculum-wire v0.2.1/go.mod h1:hh64ALOi1PX+YfFpnKTFL/y0X79mvaDuTepRaiNHN7w=
-github.com/twmb/franz-go v1.21.3 h1:q9Mo8ri+OwBQBjKqrerNCqNWJlJnUDe2qnYsj2V3hdI=
-github.com/twmb/franz-go v1.21.3/go.mod h1:rfoMTnVk7107fhTGxfEKIHP/e7tPe6oyij/ywzO0czk=
+github.com/twmb/franz-go v1.21.4 h1:skglTjGHOHHKxVdUG3A563gynBDhvSWFBBHXKOOMS8M=
+github.com/twmb/franz-go v1.21.4/go.mod h1:rfoMTnVk7107fhTGxfEKIHP/e7tPe6oyij/ywzO0czk=
 github.com/twmb/franz-go/pkg/kadm v1.18.0 h1:WRf/LZmDdcDXwX7WMbtDU++v+b3NzYh2bCGoPMmzirw=
 github.com/twmb/franz-go/pkg/kadm v1.18.0/go.mod h1:XeLhGoLXLFzK8/ryv5FfpxPxGwj4oFEGpPJMB/x6KDE=
 github.com/twmb/franz-go/pkg/kfake v0.0.0-20260625163649-cec2eb18edeb h1:qU0wwaYwSxo5qJ/x97e2LAysWbShyQcj+tfxRFor0jg=

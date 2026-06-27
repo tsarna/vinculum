@@ -55,7 +55,7 @@ require (
 	github.com/tsarna/vinculum-sqs v0.3.0
 	github.com/tsarna/vinculum-vws v0.13.0
 	github.com/tsarna/vinculum-wire v0.2.1
-	github.com/twmb/franz-go v1.21.3
+	github.com/twmb/franz-go v1.21.4
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260625163649-cec2eb18edeb
 	github.com/twmb/franz-go/plugin/kotel v1.6.0
 	github.com/yosida95/uritemplate/v3 v3.0.2
