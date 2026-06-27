@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-06-27
+
 ### Added
 
 - **OpenTelemetry Baggage in VCL (`ctx.baggage`)**: [W3C Baggage](https://opentelemetry.io/docs/specs/otel/baggage/) — key/value pairs propagated alongside a trace — is now readable and writable from action expressions. `ctx.baggage` is a capsule that plugs into the existing generic functions: `get(ctx.baggage)` returns all entries as a `map(string)` (materialized only on demand), `get(ctx.baggage, key[, default])` reads one, `set(ctx.baggage, key, value)` / `set(ctx.baggage, {…})` add or overwrite (a `null` value removes a key), `delete(ctx.baggage[, key])` removes one or all, `clear(ctx.baggage)` drops everything, and `length()` / `tostring()` give the entry count and the W3C header encoding. Writes derive a new context and store it back through the same pointer the handler's `ctx` already carries, so a `set()` early in an `action = [...]` list is seen by every later `send()`, `http_*()`, or Kafka/MQTT publish — they inject the updated baggage into outbound headers with no extra plumbing. Available in every context that exposes `ctx` (HTTP/MCP handlers, subscriptions, triggers, client receive handlers, `on_connect`/`on_disconnect`, …). Baggage entry *properties* (the `;key=value` metadata tail) are preserved on pass-through but not exposed to VCL. Keys/values are validated per the W3C spec, surfacing an evaluation error on a rejected entry.
