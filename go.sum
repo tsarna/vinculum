@@ -188,7 +188,6 @@ github.com/lestrrat-go/iter v1.0.2 h1:gMXo1q4c2pHmC3dn8LzRhJfP1ceCbgSiT9lUydIzlt
 github.com/lestrrat-go/iter v1.0.2/go.mod h1:Momfcq3AnRlRjI5b5O8/G5/BvpzrhoFTZcn06fEOPt4=
 github.com/lestrrat-go/jwx/v2 v2.1.6 h1:hxM1gfDILk/l5ylers6BX/Eq1m/pnxe9NBwW6lVfecA=
 github.com/lestrrat-go/jwx/v2 v2.1.6/go.mod h1:Y722kU5r/8mV7fYDifjug0r8FK8mZdw0K0GpJw/l8pU=
-github.com/lestrrat-go/jwx/v4 v4.0.2/go.mod h1:F2a0rSyXsqLAL0orBZGOXrzQGv018Tx4eiEWWYR7Yzo=
 github.com/lestrrat-go/option v1.0.1 h1:oAzP2fvZGQKWkvHa1/SAcFolBEca1oN+mQ7eooNBEYU=
 github.com/lestrrat-go/option v1.0.1/go.mod h1:5ZHFbivi4xwXxhxY9XHDe2FHo6/Z7WWmtT7T5nBBp3I=
 github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw=
@@ -302,8 +301,8 @@ github.com/tsarna/vinculum-redis v0.3.0 h1:XY4gD3P8HtEly5LxtB+r3HXLYMy/rdegYSZhi
 github.com/tsarna/vinculum-redis v0.3.0/go.mod h1:ZX5+1nCphgLGb5s3UVOnJ+zsRvDRVDX+X6eUc/R/Bvk=
 github.com/tsarna/vinculum-sns v0.3.0 h1:ZGlD0OiC6RqiemLPDkrq3EBoCSb8zaeAMz8vbjZwQy8=
 github.com/tsarna/vinculum-sns v0.3.0/go.mod h1:sumJOAQKwbBEtE9tnp/AHXDpXjsv2w+wWHkG32b+Joc=
-github.com/tsarna/vinculum-sqs v0.3.0 h1:4kRuGR8niV3E9JF6hV6wPZakrWwKHc8NDK9lR84/MaQ=
-github.com/tsarna/vinculum-sqs v0.3.0/go.mod h1:4P0iVvdb2rQHwexCwSRzQBUzotUKs0Lxdu3jvi03hm0=
+github.com/tsarna/vinculum-sqs v0.3.1 h1:RmJHWEay7+5WY1eWIr0xjPzZEE1oOL0zUVieNrvDa/E=
+github.com/tsarna/vinculum-sqs v0.3.1/go.mod h1:Zl5przX4OAx01thJzLbT3rJZ7Ums+isWSR57a3EFVA8=
 github.com/tsarna/vinculum-vws v0.13.0 h1:mlP7oIyPVhQ1YQdNOa8lL3O0jMv/T3DvDEk/EJYyw/M=
 github.com/tsarna/vinculum-vws v0.13.0/go.mod h1:hOPMHCjyNbAUAUSdu3Sd+7SOVYoIj1ndCDeKNzSOgKw=
 github.com/tsarna/vinculum-wire v0.2.1 h1:SnbCkVDrlvAb4eTx428E0HYQMCIO6PLzHo9nuxRzCVg=

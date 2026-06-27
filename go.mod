@@ -26,7 +26,6 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lestrrat-go/jwx/v2 v2.1.6
-	github.com/lestrrat-go/jwx/v4 v4.0.2
 	github.com/mattn/go-sqlite3 v1.14.47
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/prometheus/client_golang v1.23.2
@@ -52,7 +51,7 @@ require (
 	github.com/tsarna/vinculum-rabbitmq v0.1.0
 	github.com/tsarna/vinculum-redis v0.3.0
 	github.com/tsarna/vinculum-sns v0.3.0
-	github.com/tsarna/vinculum-sqs v0.3.0
+	github.com/tsarna/vinculum-sqs v0.3.1
 	github.com/tsarna/vinculum-vws v0.13.0
 	github.com/tsarna/vinculum-wire v0.2.1
 	github.com/twmb/franz-go v1.21.4
