@@ -181,9 +181,12 @@ client "redis_pubsub" "rps" {
 ### Trace context
 
 Redis pub/sub has no header mechanism and no ratified OTel convention, so
-trace context is **not** propagated. Subscribers start a fresh root
-`SpanKindConsumer` span per delivered message. If end-to-end tracing is
-required, encode `traceparent` into the payload yourself.
+trace context **and [baggage](baggage.md)** are **not** propagated. Subscribers
+start a fresh root `SpanKindConsumer` span per delivered message, and
+`ctx.baggage` is always empty for a pub/sub-received message (there is nothing
+to strip, so no `baggage {}` block applies here). If end-to-end tracing or
+baggage is required, use `redis_stream` (which carries both as entry fields) or
+encode the values into the payload yourself.
 
 ---
 
@@ -228,6 +231,9 @@ client "redis_stream" "rs" {
     # top-level `subscription` block — see config.md#subscription).
     # transforms = [ jq(".payload") ]
     # queue_size = 100
+
+    # Optional; inbound baggage is stripped by default. See doc/baggage.md.
+    # baggage { allow = ["tenant_id"] }
 
     batch_size     = 10
     block_timeout  = "2s"
@@ -306,12 +312,17 @@ original.
 
 ### Trace context
 
-The producer injects `traceparent`/`tracestate` as reserved stream entry
-fields. The consumer extracts them and attaches the producer context as a
-span **link** on a fresh-root consumer span (`trace.WithNewRoot` +
+The producer injects `traceparent`/`tracestate` (and `baggage`) as reserved
+stream entry fields. The consumer extracts them and attaches the producer
+context as a span **link** on a fresh-root consumer span (`trace.WithNewRoot` +
 `trace.WithLinks`). This avoids marathon traces when a persistent entry
 is consumed minutes or hours after production, while still letting a
 trace UI navigate producer → consumer.
+
+Inbound [baggage](baggage.md) is carried onto the action context but, as
+untrusted input, is **stripped by default**; opt into trusting it per consumer
+with a `baggage {}` block (`passthrough`/`allow`/`deny`). See
+[Server-side trust filtering](baggage.md#server-side-trust-filtering).
 
 ---
 

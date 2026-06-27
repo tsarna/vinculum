@@ -171,14 +171,19 @@ action evaluation begins, so dropped entries never appear in `ctx.baggage` and
 are not re-injected on outbound calls made during that handler. It is supported
 on these inbound surfaces, each taking the same `baggage {}` block:
 
-| Surface                                              | Granularity                                                   |
-|------------------------------------------------------|---------------------------------------------------------------|
-| [`server "http"`](server-http.md)                    | per server                                                    |
-| [`server "mcp"`](server-mcp.md)                      | per server (mounted under HTTP inherits that server's filter) |
-| [`client "kafka"`](client-kafka.md) `receiver`       | per receiver                                                  |
-| [`client "rabbitmq"`](client-rabbitmq.md) `receiver` | per receiver                                                  |
-| [`client "mqtt"`](client-mqtt.md) `receiver`         | per receiver                                                  |
-| [`client "sqs_receiver"`](client-sqs.md)             | per client                                                    |
+| Surface                                               | Granularity                                                   |
+|-------------------------------------------------------|---------------------------------------------------------------|
+| [`server "http"`](server-http.md)                     | per server                                                    |
+| [`server "mcp"`](server-mcp.md)                       | per server (mounted under HTTP inherits that server's filter) |
+| [`client "kafka"`](client-kafka.md) `receiver`        | per receiver                                                  |
+| [`client "rabbitmq"`](client-rabbitmq.md) `receiver`  | per receiver                                                  |
+| [`client "mqtt"`](client-mqtt.md) `receiver`          | per receiver                                                  |
+| [`client "sqs_receiver"`](client-sqs.md)              | per client                                                    |
+| [`client "redis_stream"`](client-redis.md) `consumer` | per consumer                                                  |
+
+Transports without a header/metadata mechanism cannot carry baggage at all, so
+there is nothing to filter and no `baggage {}` block applies — notably
+[`client "redis_pubsub"`](client-redis.md) (Redis pub/sub has no headers).
 
 A public edge needs **no block at all** to be safe — the default already strips
 everything. Add a block only to *loosen* the default for trusted peers:

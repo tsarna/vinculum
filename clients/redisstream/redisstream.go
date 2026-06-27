@@ -41,28 +41,29 @@ type RedisStreamDefinition struct {
 }
 
 type ConsumerDef struct {
-	Name             string         `hcl:",label"`
-	Stream           hcl.Expression `hcl:"stream"`
-	Group            string         `hcl:"group"`
-	ConsumerName     hcl.Expression `hcl:"consumer_name,optional"`
-	VinculumTopic    hcl.Expression `hcl:"vinculum_topic,optional"`
-	Subscriber       hcl.Expression `hcl:"subscriber,optional"`
-	Action           hcl.Expression `hcl:"action,optional"`
-	Transforms       hcl.Expression `hcl:"transforms,optional"`
-	QueueSize        *int           `hcl:"queue_size,optional"`
-	BatchSize        *int64         `hcl:"batch_size,optional"`
-	BlockTimeout     hcl.Expression `hcl:"block_timeout,optional"`
-	AutoAck          *bool          `hcl:"auto_ack,optional"`
-	GroupCreate      string         `hcl:"group_create,optional"`
-	PayloadField     *string        `hcl:"payload_field,optional"`
-	TopicField       *string        `hcl:"topic_field,optional"`
-	ContentTypeField *string        `hcl:"content_type_field,optional"`
-	FieldsMode       string         `hcl:"fields_mode,optional"`
-	ReclaimPending   *bool          `hcl:"reclaim_pending,optional"`
-	ReclaimMinIdle   hcl.Expression `hcl:"reclaim_min_idle,optional"`
-	DeadLetterStream string         `hcl:"dead_letter_stream,optional"`
-	DeadLetterAfter  *int64         `hcl:"dead_letter_after,optional"`
-	DefRange         hcl.Range      `hcl:",def_range"`
+	Name             string                       `hcl:",label"`
+	Stream           hcl.Expression               `hcl:"stream"`
+	Group            string                       `hcl:"group"`
+	ConsumerName     hcl.Expression               `hcl:"consumer_name,optional"`
+	VinculumTopic    hcl.Expression               `hcl:"vinculum_topic,optional"`
+	Subscriber       hcl.Expression               `hcl:"subscriber,optional"`
+	Action           hcl.Expression               `hcl:"action,optional"`
+	Transforms       hcl.Expression               `hcl:"transforms,optional"`
+	QueueSize        *int                         `hcl:"queue_size,optional"`
+	Baggage          *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
+	BatchSize        *int64                       `hcl:"batch_size,optional"`
+	BlockTimeout     hcl.Expression               `hcl:"block_timeout,optional"`
+	AutoAck          *bool                        `hcl:"auto_ack,optional"`
+	GroupCreate      string                       `hcl:"group_create,optional"`
+	PayloadField     *string                      `hcl:"payload_field,optional"`
+	TopicField       *string                      `hcl:"topic_field,optional"`
+	ContentTypeField *string                      `hcl:"content_type_field,optional"`
+	FieldsMode       string                       `hcl:"fields_mode,optional"`
+	ReclaimPending   *bool                        `hcl:"reclaim_pending,optional"`
+	ReclaimMinIdle   hcl.Expression               `hcl:"reclaim_min_idle,optional"`
+	DeadLetterStream string                       `hcl:"dead_letter_stream,optional"`
+	DeadLetterAfter  *int64                       `hcl:"dead_letter_after,optional"`
+	DefRange         hcl.Range                    `hcl:",def_range"`
 }
 
 type ProducerDef struct {
@@ -433,6 +434,10 @@ func makeStreamFunc(config *cfg.Config, expr hcl.Expression) stream.StreamFunc {
 }
 
 func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, clientName string, def ConsumerDef, wf wire.WireFormat, mp metric.MeterProvider, tp trace.TracerProvider) (*stream.RedisStreamConsumer, hcl.Diagnostics) {
+	if baggageDiags := def.Baggage.Validate(); baggageDiags.HasErrors() {
+		return nil, baggageDiags
+	}
+
 	target, diags := cfg.SubscriberSource{
 		Subscriber: def.Subscriber,
 		Action:     def.Action,
@@ -442,6 +447,11 @@ func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, cli
 	if diags.HasErrors() {
 		return nil, diags
 	}
+
+	// Strip untrusted inbound baggage at this external boundary before it reaches
+	// the action. Secure by default: a nil baggage block strips everything; opt
+	// in with baggage { passthrough | allow | deny }.
+	target = cfg.NewBaggageFilterSubscriber(def.Baggage, target, config.Logger)
 
 	streamVal, sDiags := def.Stream.Value(config.EvalCtx())
 	if sDiags.HasErrors() {
