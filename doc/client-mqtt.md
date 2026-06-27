@@ -239,6 +239,11 @@ receiver "main" {
   handle_retained  = true      # deliver retained messages (default: true)
   shared_group     = ""        # MQTT 5 shared subscription group name
 
+  # Optional; inbound baggage is stripped by default. See doc/baggage.md.
+  baggage {
+    allow = ["tenant_id"]
+  }
+
   subscription "sensors/+deviceId/data" {
     vinculum_topic = "sensor/${ctx.fields.deviceId}/reading"  # HCL expression
     qos            = 1    # overrides receiver-level qos for this subscription
@@ -283,6 +288,17 @@ When set, each `topic_subscription` is registered as
 clients in the group — only one instance receives each message. This is the
 MQTT equivalent of Kafka consumer groups and the correct pattern for
 horizontally scaling vinculum.
+
+### `baggage`
+
+Inbound MQTT message [baggage](baggage.md) (W3C key/value pairs carried in MQTT 5
+user properties) is untrusted input, so each receiver **strips it by default**
+before it reaches the action or downstream re-propagation. Add an optional
+`baggage {}` block to opt into trusting upstream baggage — `passthrough = true`,
+`allow = [...]`, or `deny = [...]`. See
+[Server-side trust filtering](baggage.md#server-side-trust-filtering) for the
+full attribute set. The block is per-receiver. (Trace continuity is unaffected;
+only baggage key/value pairs are filtered.)
 
 ### `subscription "<mqtt-topic>"`
 

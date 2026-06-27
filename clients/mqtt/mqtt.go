@@ -84,16 +84,17 @@ type MQTTTopicMappingDef struct {
 }
 
 type MQTTSubscriberDef struct {
-	Name           string                     `hcl:",label"`
-	Subscriber     hcl.Expression             `hcl:"subscriber,optional"`
-	Action         hcl.Expression             `hcl:"action,optional"`
-	Transforms     hcl.Expression             `hcl:"transforms,optional"`
-	QueueSize      *int                       `hcl:"queue_size,optional"`
-	QoS            *int                       `hcl:"qos,optional"`
-	HandleRetained *bool                      `hcl:"handle_retained,optional"`
-	SharedGroup    string                     `hcl:"shared_group,optional"`
-	Subscriptions  []MQTTTopicSubscriptionDef `hcl:"subscription,block"`
-	DefRange       hcl.Range                  `hcl:",def_range"`
+	Name           string                       `hcl:",label"`
+	Subscriber     hcl.Expression               `hcl:"subscriber,optional"`
+	Action         hcl.Expression               `hcl:"action,optional"`
+	Transforms     hcl.Expression               `hcl:"transforms,optional"`
+	QueueSize      *int                         `hcl:"queue_size,optional"`
+	QoS            *int                         `hcl:"qos,optional"`
+	HandleRetained *bool                        `hcl:"handle_retained,optional"`
+	SharedGroup    string                       `hcl:"shared_group,optional"`
+	Baggage        *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
+	Subscriptions  []MQTTTopicSubscriptionDef   `hcl:"subscription,block"`
+	DefRange       hcl.Range                    `hcl:",def_range"`
 }
 
 type MQTTTopicSubscriptionDef struct {
@@ -652,6 +653,10 @@ func buildSubscriberSpec(config *cfg.Config, clientName string, def MQTTSubscrib
 		spec.handleRetained = *def.HandleRetained
 	}
 
+	if baggageDiags := def.Baggage.Validate(); baggageDiags.HasErrors() {
+		return spec, baggageDiags
+	}
+
 	subscriber, diags := cfg.SubscriberSource{
 		Subscriber: def.Subscriber,
 		Action:     def.Action,
@@ -661,7 +666,11 @@ func buildSubscriberSpec(config *cfg.Config, clientName string, def MQTTSubscrib
 	if diags.HasErrors() {
 		return spec, diags
 	}
-	spec.subscriber = subscriber
+
+	// Strip untrusted inbound baggage at this external boundary before it reaches
+	// the action. Secure by default: a nil baggage block strips everything; opt
+	// in with baggage { passthrough | allow | deny }.
+	spec.subscriber = cfg.NewBaggageFilterSubscriber(def.Baggage, subscriber, config.Logger)
 
 	if len(def.Subscriptions) == 0 {
 		return spec, hcl.Diagnostics{{

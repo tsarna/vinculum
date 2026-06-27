@@ -177,6 +177,7 @@ on these inbound surfaces, each taking the same `baggage {}` block:
 | [`server "mcp"`](server-mcp.md)                      | per server (mounted under HTTP inherits that server's filter) |
 | [`client "kafka"`](client-kafka.md) `receiver`       | per receiver                                                  |
 | [`client "rabbitmq"`](client-rabbitmq.md) `receiver` | per receiver                                                  |
+| [`client "mqtt"`](client-mqtt.md) `receiver`         | per receiver                                                  |
 
 A public edge needs **no block at all** to be safe — the default already strips
 everything. Add a block only to *loosen* the default for trusted peers:
