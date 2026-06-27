@@ -157,6 +157,9 @@ client "sqs_receiver" "tasks" {
     # transforms = [ jq(".payload") ]
     # queue_size = 100
 
+    # Optional; inbound baggage is stripped by default. See doc/baggage.md.
+    # baggage { allow = ["tenant_id"] }
+
     # Vinculum topic for received messages (default: queue name from URL)
     vinculum_topic = "tasks/incoming"
     # Dynamic: vinculum_topic = "sqs/${ctx.fields[\"type\"]}"
@@ -190,6 +193,7 @@ client "sqs_receiver" "tasks" {
 | `action` | expression | Inline action expression. Exactly one of `subscriber` or `action`. |
 | `transforms` | list | Transform pipeline applied to each message before delivery. See [subscription](config.md#subscription). |
 | `queue_size` | int | If set, wraps delivery in an async background queue of this depth. See [subscription](config.md#subscription). |
+| `baggage` | block | Optional [baggage](baggage.md) trust filter. Inbound baggage is **stripped by default** before it reaches the action; opt in with `passthrough`/`allow`/`deny`. See [Server-side trust filtering](baggage.md#server-side-trust-filtering). |
 | `vinculum_topic` | expression | Vinculum topic for dispatched messages. Default: queue name from URL. |
 | `wait_time` | duration | Long-poll wait time (0--20s). Default: `"20s"`. |
 | `max_messages` | int | Messages per poll (1--10). Default: 10. |

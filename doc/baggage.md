@@ -178,6 +178,7 @@ on these inbound surfaces, each taking the same `baggage {}` block:
 | [`client "kafka"`](client-kafka.md) `receiver`       | per receiver                                                  |
 | [`client "rabbitmq"`](client-rabbitmq.md) `receiver` | per receiver                                                  |
 | [`client "mqtt"`](client-mqtt.md) `receiver`         | per receiver                                                  |
+| [`client "sqs_receiver"`](client-sqs.md)             | per client                                                    |
 
 A public edge needs **no block at all** to be safe — the default already strips
 everything. Add a block only to *loosen* the default for trusted peers:

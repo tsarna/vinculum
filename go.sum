@@ -304,6 +304,8 @@ github.com/tsarna/vinculum-sns v0.3.0 h1:ZGlD0OiC6RqiemLPDkrq3EBoCSb8zaeAMz8vbjZ
 github.com/tsarna/vinculum-sns v0.3.0/go.mod h1:sumJOAQKwbBEtE9tnp/AHXDpXjsv2w+wWHkG32b+Joc=
 github.com/tsarna/vinculum-sqs v0.3.0 h1:4kRuGR8niV3E9JF6hV6wPZakrWwKHc8NDK9lR84/MaQ=
 github.com/tsarna/vinculum-sqs v0.3.0/go.mod h1:4P0iVvdb2rQHwexCwSRzQBUzotUKs0Lxdu3jvi03hm0=
+github.com/tsarna/vinculum-sqs v0.3.1 h1:RmJHWEay7+5WY1eWIr0xjPzZEE1oOL0zUVieNrvDa/E=
+github.com/tsarna/vinculum-sqs v0.3.1/go.mod h1:Zl5przX4OAx01thJzLbT3rJZ7Ums+isWSR57a3EFVA8=
 github.com/tsarna/vinculum-vws v0.13.0 h1:mlP7oIyPVhQ1YQdNOa8lL3O0jMv/T3DvDEk/EJYyw/M=
 github.com/tsarna/vinculum-vws v0.13.0/go.mod h1:hOPMHCjyNbAUAUSdu3Sd+7SOVYoIj1ndCDeKNzSOgKw=
 github.com/tsarna/vinculum-wire v0.2.1 h1:SnbCkVDrlvAb4eTx428E0HYQMCIO6PLzHo9nuxRzCVg=

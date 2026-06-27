@@ -9,9 +9,9 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
 	sqsreceiver "github.com/tsarna/vinculum-sqs/receiver"
+	wire "github.com/tsarna/vinculum-wire"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
-	wire "github.com/tsarna/vinculum-wire"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -21,23 +21,24 @@ func init() {
 
 // SQSReceiverDefinition is the HCL schema for `client "sqs_receiver" "<name>"`.
 type SQSReceiverDefinition struct {
-	AWS               hcl.Expression `hcl:"aws,optional"`
-	Region            string         `hcl:"region,optional"`
-	QueueURL          hcl.Expression `hcl:"queue_url"`
-	Subscriber        hcl.Expression `hcl:"subscriber,optional"`
-	Action            hcl.Expression `hcl:"action,optional"`
-	Transforms        hcl.Expression `hcl:"transforms,optional"`
-	QueueSize         *int           `hcl:"queue_size,optional"`
-	VinculumTopic     hcl.Expression `hcl:"vinculum_topic,optional"`
-	WaitTime          hcl.Expression `hcl:"wait_time,optional"`
-	MaxMessages       *int           `hcl:"max_messages,optional"`
-	VisibilityTimeout hcl.Expression `hcl:"visibility_timeout,optional"`
-	AutoDelete        *bool          `hcl:"auto_delete,optional"`
-	Concurrency       *int           `hcl:"concurrency,optional"`
-	WireFormat        hcl.Expression `hcl:"wire_format,optional"`
-	Metrics           hcl.Expression `hcl:"metrics,optional"`
-	Tracing           hcl.Expression `hcl:"tracing,optional"`
-	DefRange          hcl.Range      `hcl:",def_range"`
+	AWS               hcl.Expression               `hcl:"aws,optional"`
+	Region            string                       `hcl:"region,optional"`
+	QueueURL          hcl.Expression               `hcl:"queue_url"`
+	Subscriber        hcl.Expression               `hcl:"subscriber,optional"`
+	Action            hcl.Expression               `hcl:"action,optional"`
+	Transforms        hcl.Expression               `hcl:"transforms,optional"`
+	QueueSize         *int                         `hcl:"queue_size,optional"`
+	Baggage           *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
+	VinculumTopic     hcl.Expression               `hcl:"vinculum_topic,optional"`
+	WaitTime          hcl.Expression               `hcl:"wait_time,optional"`
+	MaxMessages       *int                         `hcl:"max_messages,optional"`
+	VisibilityTimeout hcl.Expression               `hcl:"visibility_timeout,optional"`
+	AutoDelete        *bool                        `hcl:"auto_delete,optional"`
+	Concurrency       *int                         `hcl:"concurrency,optional"`
+	WireFormat        hcl.Expression               `hcl:"wire_format,optional"`
+	Metrics           hcl.Expression               `hcl:"metrics,optional"`
+	Tracing           hcl.Expression               `hcl:"tracing,optional"`
+	DefRange          hcl.Range                    `hcl:",def_range"`
 }
 
 // SQSReceiverClient wraps an SQSReceiver for vinculum config integration.
@@ -101,6 +102,10 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 		return nil, tpDiags
 	}
 
+	if baggageDiags := def.Baggage.Validate(); baggageDiags.HasErrors() {
+		return nil, baggageDiags
+	}
+
 	// Resolve subscriber / action (+ optional transforms / async queue).
 	target, subDiags := cfg.SubscriberSource{
 		Subscriber: def.Subscriber,
@@ -111,6 +116,11 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 	if subDiags.HasErrors() {
 		return nil, subDiags
 	}
+
+	// Strip untrusted inbound baggage at this external boundary before it reaches
+	// the action. Secure by default: a nil baggage block strips everything; opt
+	// in with baggage { passthrough | allow | deny }.
+	target = cfg.NewBaggageFilterSubscriber(def.Baggage, target, config.Logger)
 
 	// Resolve wire format.
 	var wf wire.WireFormat = wire.Auto
