@@ -26,7 +26,6 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lestrrat-go/jwx/v2 v2.1.6
-	github.com/lestrrat-go/jwx/v4 v4.0.2
 	github.com/mattn/go-sqlite3 v1.14.47
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/prometheus/client_golang v1.23.2
@@ -56,7 +55,7 @@ require (
 	github.com/tsarna/vinculum-vws v0.13.0
 	github.com/tsarna/vinculum-wire v0.2.1
 	github.com/twmb/franz-go v1.21.4
-	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260625163649-cec2eb18edeb
+	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260701043000-9f09ef644bc1
 	github.com/twmb/franz-go/plugin/kotel v1.7.0
 	github.com/yosida95/uritemplate/v3 v3.0.2
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.69.0
