@@ -15,6 +15,9 @@ func init() {
 	cfg.RegisterFunctionPlugin("mcp", func(_ *cfg.Config) map[string]function.Function {
 		return GetMcpFunctions()
 	})
+	// Make the mcp_result capsule (returned by mcp_*() functions) nameable in
+	// .cty type annotations.
+	cfg.RegisterFunctyType("mcp_result", MCPResultCapsuleType)
 }
 
 // MCPResult holds typed return values from MCP action expressions.

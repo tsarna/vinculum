@@ -188,7 +188,6 @@ github.com/lestrrat-go/iter v1.0.2 h1:gMXo1q4c2pHmC3dn8LzRhJfP1ceCbgSiT9lUydIzlt
 github.com/lestrrat-go/iter v1.0.2/go.mod h1:Momfcq3AnRlRjI5b5O8/G5/BvpzrhoFTZcn06fEOPt4=
 github.com/lestrrat-go/jwx/v2 v2.1.6 h1:hxM1gfDILk/l5ylers6BX/Eq1m/pnxe9NBwW6lVfecA=
 github.com/lestrrat-go/jwx/v2 v2.1.6/go.mod h1:Y722kU5r/8mV7fYDifjug0r8FK8mZdw0K0GpJw/l8pU=
-github.com/lestrrat-go/jwx/v4 v4.0.2/go.mod h1:F2a0rSyXsqLAL0orBZGOXrzQGv018Tx4eiEWWYR7Yzo=
 github.com/lestrrat-go/option v1.0.1 h1:oAzP2fvZGQKWkvHa1/SAcFolBEca1oN+mQ7eooNBEYU=
 github.com/lestrrat-go/option v1.0.1/go.mod h1:5ZHFbivi4xwXxhxY9XHDe2FHo6/Z7WWmtT7T5nBBp3I=
 github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw=
@@ -270,6 +269,8 @@ github.com/tsarna/barcode-cty-func v0.1.0 h1:N7Dyf8MBWUiKlW+GRr3iCgbxbDv8GZhHvah
 github.com/tsarna/barcode-cty-func v0.1.0/go.mod h1:QGoeJGHMmhnXlwq02MZTf1QYXQPn+hF2h5mMuCFXT90=
 github.com/tsarna/bytes-cty-type v0.1.0 h1:dBveIfYfRq0HLWJD1tIOGYpOPkr/hbpLT9LveeJDXkI=
 github.com/tsarna/bytes-cty-type v0.1.0/go.mod h1:VQLOD8UALXwqZdRSM8A1nqCKGqh62Pz77BCKNjYvKYQ=
+github.com/tsarna/functy v0.4.0 h1:slhUA94fPH0U+YixV9EUqE8ApgdKVZTOaE7gJ8oV05E=
+github.com/tsarna/functy v0.4.0/go.mod h1:CbfbHZl+W5sg20wa881dFmRCf1LDemw5Gzqn4O4YCVA=
 github.com/tsarna/geo-cty-funcs v0.2.0 h1:PQq71LleI+X0CxG1FHSl2u4i5+7V5I+maGZUjp4WXkY=
 github.com/tsarna/geo-cty-funcs v0.2.0/go.mod h1:rxTXAOILIiZL3g41aIoiFQsEPxi0K0Oo7HrVXzSTa9c=
 github.com/tsarna/go-structdiff v0.2.1 h1:SD30U/azJB85tH9dgNu4qVOA2bPie9e1l5EvJodMaD8=
@@ -280,8 +281,8 @@ github.com/tsarna/hcl-jqfunc v0.1.4 h1:RM6XtbsB/+vBmt3xyHrFcUQ9CBtoTyvH+f8cThFt4
 github.com/tsarna/hcl-jqfunc v0.1.4/go.mod h1:68xhvtbrJJLOd4uYbnkKlFSxgoGaaZhWEnxuuOMTA5I=
 github.com/tsarna/rand-cty-funcs v0.1.1 h1:tYdl899CbqkkVAH62mvSCPhEg6CIp1tbthe8j8g/2fU=
 github.com/tsarna/rand-cty-funcs v0.1.1/go.mod h1:AgSFyrU3oypFIUgmWWEkjBWz7lXrV+2gpW87ef6mx2U=
-github.com/tsarna/rich-cty-types v0.3.0 h1:Z47Df3iSpGA+etByeItBWG58iaTQ+FswynK81iQJMr4=
-github.com/tsarna/rich-cty-types v0.3.0/go.mod h1:CFQPkG2Ghc5mHIFyFLA1kHs51QLXbuIKuypdhX9dbAo=
+github.com/tsarna/rich-cty-types v0.4.0 h1:3UqExVy5cbWrBtOyt3vg2XPOCHXfaLD/ycKaQVLqX7E=
+github.com/tsarna/rich-cty-types v0.4.0/go.mod h1:CFQPkG2Ghc5mHIFyFLA1kHs51QLXbuIKuypdhX9dbAo=
 github.com/tsarna/sqid-cty-funcs v0.1.0 h1:q8Dt1l8u8t1hVIs40Iz7sgeaTPrxwX07q9IaEYjaBhs=
 github.com/tsarna/sqid-cty-funcs v0.1.0/go.mod h1:QDOjQrrV85hpg2dMVZk7VYw1YL0RZ+26uurRCZAtqWc=
 github.com/tsarna/time-cty-funcs v0.2.1 h1:MHz0UYQe/EUDu2dVH5ZnBT44d4eDjsEsNeHk/rsj1Qo=
@@ -298,14 +299,10 @@ github.com/tsarna/vinculum-mqtt v0.8.1 h1:UjnVLweZwRqUu4Cg9ETnu8ucwdH3aaT9BDK4GZ
 github.com/tsarna/vinculum-mqtt v0.8.1/go.mod h1:xa/H3Wik5n/7Wq3YQcMz5nIj/64TaXj5btVEHVZSnlU=
 github.com/tsarna/vinculum-rabbitmq v0.1.0 h1:/8EFGR+fOD44yDz0tlw1pEmmXSHTYDKKyLgEOhzBHXU=
 github.com/tsarna/vinculum-rabbitmq v0.1.0/go.mod h1:gjrHsCzqmIkN3rPO5QlR0wLtNWCzKia+fBuI4OPN32g=
-github.com/tsarna/vinculum-redis v0.3.0 h1:XY4gD3P8HtEly5LxtB+r3HXLYMy/rdegYSZhi8Yon8M=
-github.com/tsarna/vinculum-redis v0.3.0/go.mod h1:ZX5+1nCphgLGb5s3UVOnJ+zsRvDRVDX+X6eUc/R/Bvk=
 github.com/tsarna/vinculum-redis v0.3.1 h1:NFmSbo5+p57HNxqB5fkSBsoWP8SvpUmAQsO3CETNm5w=
 github.com/tsarna/vinculum-redis v0.3.1/go.mod h1:AfzMVAYgPhYkm9vGtjELqQb+Cvxo03g9WpmOIraHdKQ=
 github.com/tsarna/vinculum-sns v0.3.0 h1:ZGlD0OiC6RqiemLPDkrq3EBoCSb8zaeAMz8vbjZwQy8=
 github.com/tsarna/vinculum-sns v0.3.0/go.mod h1:sumJOAQKwbBEtE9tnp/AHXDpXjsv2w+wWHkG32b+Joc=
-github.com/tsarna/vinculum-sqs v0.3.0 h1:4kRuGR8niV3E9JF6hV6wPZakrWwKHc8NDK9lR84/MaQ=
-github.com/tsarna/vinculum-sqs v0.3.0/go.mod h1:4P0iVvdb2rQHwexCwSRzQBUzotUKs0Lxdu3jvi03hm0=
 github.com/tsarna/vinculum-sqs v0.3.1 h1:RmJHWEay7+5WY1eWIr0xjPzZEE1oOL0zUVieNrvDa/E=
 github.com/tsarna/vinculum-sqs v0.3.1/go.mod h1:Zl5przX4OAx01thJzLbT3rJZ7Ums+isWSR57a3EFVA8=
 github.com/tsarna/vinculum-vws v0.13.0 h1:mlP7oIyPVhQ1YQdNOa8lL3O0jMv/T3DvDEk/EJYyw/M=

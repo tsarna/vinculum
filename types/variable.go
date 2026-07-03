@@ -12,13 +12,24 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
+// TypeConstraint enforces a type on a variable's value. It is satisfied
+// structurally by functy's TypeConstraint (functy.TypeConstraint), so the config
+// layer can hand a resolved functy type constraint to a Variable without this
+// package importing functy. Coerce converts/validates a value (returning the
+// value to store, or an error); Cty exposes the underlying type; String names it.
+type TypeConstraint interface {
+	Coerce(cty.Value) (cty.Value, error)
+	Cty() cty.Type
+	String() string
+}
+
 // Variable is a mutable, goroutine-safe value container.
 type Variable struct {
 	mu sync.RWMutex
 	richcty.WatchableMixin
-	value    cty.Value
-	typeName string // empty means untyped; if set, enforced on Set()
-	nullable bool   // if false, null values are rejected by Set()
+	value      cty.Value
+	constraint TypeConstraint // nil means untyped; if set, enforced on Set()
+	nullable   bool           // if false, null values are rejected by Set()
 }
 
 func NewVariable(initial cty.Value) *Variable {
@@ -26,13 +37,33 @@ func NewVariable(initial cty.Value) *Variable {
 }
 
 // NewTypedVariable creates a Variable that enforces values match the given type
-// friendly name (e.g. "number", "string", "bool"). An empty typeName means untyped.
+// friendly name (e.g. "number", "string", "bool") by exact-name equality. An
+// empty typeName means untyped. Prefer SetConstraint with a resolved
+// TypeConstraint for the full type grammar; this constructor preserves the
+// legacy string-name behavior.
 func NewTypedVariable(initial cty.Value, typeName string) *Variable {
-	return &Variable{value: initial, typeName: typeName, nullable: true}
+	v := &Variable{value: initial, nullable: true}
+	if typeName != "" {
+		v.constraint = friendlyNameConstraint{typeName}
+	}
+	return v
 }
 
-func (v *Variable) SetNullable(b bool)   { v.nullable = b }
-func (v *Variable) SetTypeName(s string) { v.typeName = s }
+func (v *Variable) SetNullable(b bool)             { v.nullable = b }
+func (v *Variable) SetConstraint(c TypeConstraint) { v.constraint = c }
+
+// friendlyNameConstraint enforces a value's type by exact friendly-name equality,
+// preserving the legacy behavior of NewTypedVariable / the old string typeName.
+type friendlyNameConstraint struct{ name string }
+
+func (c friendlyNameConstraint) Coerce(v cty.Value) (cty.Value, error) {
+	if v.Type().FriendlyName() != c.name {
+		return cty.NilVal, fmt.Errorf("type mismatch: variable expects %s, got %s", c.name, v.Type().FriendlyName())
+	}
+	return v, nil
+}
+func (c friendlyNameConstraint) Cty() cty.Type  { return cty.DynamicPseudoType }
+func (c friendlyNameConstraint) String() string { return c.name }
 
 // Get returns the current value, or the default (args[0]) if null. Implements richcty.Gettable.
 func (v *Variable) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
@@ -59,10 +90,12 @@ func (v *Variable) Set(ctx context.Context, args []cty.Value) (cty.Value, error)
 		if !v.nullable {
 			return cty.NilVal, fmt.Errorf("variable is not nullable")
 		}
-	} else if v.typeName != "" {
-		if value.Type().FriendlyName() != v.typeName {
-			return cty.NilVal, fmt.Errorf("type mismatch: variable expects %s, got %s", v.typeName, value.Type().FriendlyName())
+	} else if v.constraint != nil {
+		coerced, err := v.constraint.Coerce(value)
+		if err != nil {
+			return cty.NilVal, err
 		}
+		value = coerced
 	}
 	v.mu.Lock()
 	old := v.value

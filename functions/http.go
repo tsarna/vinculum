@@ -1344,7 +1344,7 @@ var HTTPMustFunc = function.New(&function.Spec{
 		respVal := args[0]
 		wrapper, ok := types.GetHTTPClientResponseFromValue(respVal)
 		if !ok {
-			return cty.NilVal, fmt.Errorf("http_must: first argument must be an httpclientresponse value")
+			return cty.NilVal, fmt.Errorf("http_must: first argument must be an http_client_response value")
 		}
 
 		// Default: any 2xx.

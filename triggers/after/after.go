@@ -115,7 +115,7 @@ func (t *AfterTrigger) run() {
 		actionErr = diags
 		t.err = diags
 		t.config.UserLogger.Error("after trigger: action error",
-			zap.String("name", t.name), zap.Error(diags))
+			zap.String("name", t.name), t.config.ActionError(diags))
 	} else {
 		t.result = val
 		t.config.Logger.Debug("after trigger: action completed",

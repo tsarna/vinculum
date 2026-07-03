@@ -21,13 +21,13 @@ type HTTPResponseWrapper struct {
 }
 
 // HTTPResponseCapsuleType is the cty capsule type for HTTPResponseWrapper values.
-var HTTPResponseCapsuleType = cty.CapsuleWithOps("httpresponse", reflect.TypeOf(HTTPResponseWrapper{}), &cty.CapsuleOps{
+var HTTPResponseCapsuleType = cty.CapsuleWithOps("http_response", reflect.TypeOf(HTTPResponseWrapper{}), &cty.CapsuleOps{
 	GoString: func(val interface{}) string {
 		r := val.(*HTTPResponseWrapper)
-		return fmt.Sprintf("httpresponse(%d)", r.Status)
+		return fmt.Sprintf("http_response(%d)", r.Status)
 	},
 	TypeGoString: func(_ reflect.Type) string {
-		return "httpresponse"
+		return "http_response"
 	},
 })
 
@@ -68,7 +68,7 @@ func BuildHTTPResponseObject(r *HTTPResponseWrapper) cty.Value {
 	})
 }
 
-// GetHTTPResponseFromValue extracts an *HTTPResponseWrapper from an httpresponse capsule
+// GetHTTPResponseFromValue extracts an *HTTPResponseWrapper from an http_response capsule
 // or an object with a _capsule attribute.
 func GetHTTPResponseFromValue(val cty.Value) (*HTTPResponseWrapper, bool) {
 	enc, err := richcty.GetCapsuleFromValue(val)

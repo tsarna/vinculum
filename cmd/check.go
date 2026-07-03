@@ -68,6 +68,8 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	reportWarnings(diags)
+
 	if diags.HasErrors() {
 		return diags
 	}

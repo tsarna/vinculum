@@ -129,7 +129,7 @@ func (a *AtAction) Run() {
 
 	value, diags := a.action.Value(evalCtx)
 	if diags.HasErrors() {
-		a.config.UserLogger.Error("Error executing action", zap.Error(diags))
+		a.config.UserLogger.Error("Error executing action", a.config.ActionError(diags))
 		stopSpan(diags)
 		return
 	}

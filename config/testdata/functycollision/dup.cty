@@ -1,0 +1,5 @@
+// A functy function whose name collides with a built-in (`send`), which must be
+// reported by GetFunctions as a duplicate/reserved-name error.
+func send(x: string) -> string {
+    return x
+}

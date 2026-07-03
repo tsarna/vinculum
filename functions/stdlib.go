@@ -6,7 +6,6 @@ import (
 	"github.com/hashicorp/go-cty-funcs/encoding"
 	"github.com/hashicorp/go-cty-funcs/filesystem"
 	"github.com/hashicorp/go-cty-funcs/uuid"
-	"github.com/hashicorp/hcl/v2/ext/tryfunc"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
@@ -123,11 +122,5 @@ func GetStandardLibraryFunctions() map[string]function.Function {
 		// UUID functions
 		"uuidv4": uuid.V4Func,
 		"uuidv5": uuid.V5Func,
-
-		// can() from tryfunc. Note: "try" is registered by the misc plugin with
-		// a single-eval implementation — upstream tryfunc.TryFunc evaluates the
-		// selected expression twice (once in Type for inference, once in Impl),
-		// which is a footgun for side-effectful VCL expressions.
-		"can": tryfunc.CanFunc,
 	}
 }

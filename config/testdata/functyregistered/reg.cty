@@ -1,0 +1,5 @@
+// Uses a type contributed via RegisterFunctyType from the test (test_reg). A bare
+// parse proves the registry hook feeds newFunctyParser.
+func uses_registered(x: test_reg) -> string {
+    return "ok"
+}

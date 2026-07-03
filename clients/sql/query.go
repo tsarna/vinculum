@@ -7,8 +7,18 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
+	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 )
+
+func init() {
+	// Make the sql client's specific type and its named-query capsule
+	// (client.<db> and client.<db>.<query>) nameable in .cty type annotations.
+	// sql_client is an open type because client.<db> is a rich object, not a bare
+	// capsule (see IsSQLClient).
+	cfg.RegisterFunctyOpenType("sql_client", IsSQLClient)
+	cfg.RegisterFunctyType("sql_query", queryCapsuleType)
+}
 
 // QueryDef is a `query "name" { ... }` sub-block inside a SQL client block.
 type QueryDef struct {

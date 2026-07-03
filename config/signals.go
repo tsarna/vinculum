@@ -32,6 +32,10 @@ type SignalActionHandler struct {
 	SigChannel     chan os.Signal
 	AddedStartable bool
 	TracerProvider trace.TracerProvider
+	// FunctyFiles is the .cty file map for rendering functy throws from a signal
+	// action, set from the Config during Build(). Nil when there are no .cty
+	// sources (the diagnostic writer tolerates a nil map).
+	FunctyFiles map[string]*hcl.File
 }
 
 func NewSignalActionHandler(logger, userLogger *zap.Logger) *SignalActionHandler {
@@ -126,7 +130,7 @@ func (sa *SignalActionHandler) Start() error {
 					_, stopSpan := hclutil.StartTriggerSpan(context.Background(), sa.TracerProvider, "signal", platformSig.String())
 					result, diags := sigExpr.Value(evalCtx)
 					if diags.HasErrors() {
-						sa.UserLogger.Error("Error executing signal action", zap.Error(diags))
+						sa.UserLogger.Error("Error executing signal action", actionErrorField(diags, sa.FunctyFiles))
 						stopSpan(diags)
 					} else {
 						stopSpan(nil)

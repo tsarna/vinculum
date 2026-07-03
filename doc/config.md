@@ -4,6 +4,11 @@ Vinculum is configured using [HashiCorp Configuration Language (HCL)](https://gi
 the same language used by Terraform. Configuration is typically split across one or
 more `.vcl` files in a directory.
 
+A directory may also contain [functy](functy.md) (`.cty`) files: their functions and
+top-level `var`/`const` declarations join the same namespace and evaluation context as
+the `.vcl` files. functy is a more expressive alternative to `function`, `jq`, and the
+deprecated `procedure` block. See [functy.md](functy.md).
+
 ## HCL Syntax
 
 ```hcl
@@ -322,6 +327,9 @@ Defines a callable function using an imperative body with variable assignments,
 conditionals, loops, and switch/case. See [procedure.md](procedure.md) for the
 full reference.
 
+> **Deprecated** in favor of [functy (`.cty`) files](functy.md); loading a `procedure`
+> block emits a deprecation warning and the block will be removed in a future release.
+
 ```hcl
 procedure "name" {
     spec {
@@ -488,7 +496,7 @@ subscription "from_upstream" {
 
 ```hcl
 var "name" {
-    type     = "typename"  # optional; if set, enforces value type
+    type     = typespec    # optional; if set, enforces value type
     nullable = bool        # optional; default true; if false, null is rejected
     value    = expression  # optional; defaults to null
 }
@@ -504,10 +512,16 @@ from concurrent subscription handlers and cron jobs.
 The optional `value` attribute sets the initial value at startup. If omitted, the
 variable starts as `null`.
 
-The optional `type` attribute constrains the variable to values of a specific type.
-The value must be a string matching the cty type's friendly name, such as `"number"`,
-`"string"`, or `"bool"`. If set, any attempt to `set()` the variable to an
-incompatible type returns an error.
+The optional `type` attribute constrains the variable to values of a specific type,
+using the [functy](functy.md#types) type grammar as a **type spec**: `type = number`,
+`type = list(string)`, `type = object({ host = string, port = number })`, or a
+host-registered named type such as `type = bus`. If set, any attempt to `set()` the
+variable to an incompatible value returns an error (the value is coerced where the
+grammar allows).
+
+The older quoted-string form — `type = "number"` — still works for backwards
+compatibility but is **deprecated** and emits a warning; write the unquoted type spec
+instead.
 
 The optional `nullable` attribute controls whether `null` is a valid value. It
 defaults to `true`. If set to `false`, any attempt to `set()` the variable to `null`

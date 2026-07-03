@@ -10,16 +10,17 @@
 6. [Configuration Language](#configuration-language)
 7. [Built-in Functions](#built-in-functions)
 8. [Message Transforms](#message-transforms)
-9. [Procedures](#procedures)
-10. [Editors](#editors)
-11. [Metrics](#metrics)
-12. [Protocols](#protocols)
-13. [Examples](#examples)
-14. [Observability](#observability)
-15. [Interactive REPL](#interactive-repl)
-16. [Container Images](#container-images)
-17. [Bootstrap and Plugins](#bootstrap-and-plugins)
-18. [Block Type Reference](#block-type-reference)
+9. [functy (`.cty` files)](#functy-cty-files)
+10. [Procedures](#procedures)
+11. [Editors](#editors)
+12. [Metrics](#metrics)
+13. [Protocols](#protocols)
+14. [Examples](#examples)
+15. [Observability](#observability)
+16. [Interactive REPL](#interactive-repl)
+17. [Container Images](#container-images)
+18. [Bootstrap and Plugins](#bootstrap-and-plugins)
+19. [Block Type Reference](#block-type-reference)
 
 ## Introduction
 
@@ -153,7 +154,15 @@ Subscriptions can declare a pipeline of transforms that run on each message befo
 
 See [transforms.md](transforms.md) for the full reference.
 
+## functy (`.cty` files)
+
+A configuration directory may contain [functy](functy.md) (`.cty`) source files alongside its `.vcl` files. functy is a small expression/statement language with real syntax for functions, typed locals, reassignment, branching, loops, `try`/`catch`, and structured errors. Its `func` declarations and top-level `var`/`const` bindings fold into the same namespace and evaluation context as the `.vcl` files, and its type annotations can name Vinculum's own types (`bus`, `client`, `ctx`, …). It is a more expressive alternative to `function`, `jq`, and the (now deprecated) `procedure` block.
+
+See [functy.md](functy.md) for the full reference.
+
 ## Procedures
+
+> **Deprecated** in favor of [functy (`.cty`) files](functy.md); loading a `procedure` block emits a deprecation warning and the block will be removed in a future release. See [Deprecated Features](deprecations.md).
 
 A `procedure` block defines a callable function with a small imperative body — locals, conditionals (`if`/`elif`), loops (`while`, `for`), and `return`. Procedures are compiled at config load time and can be called from any expression. They're useful when a piece of logic is awkward to express as a single HCL expression but doesn't warrant building a Go plugin.
 

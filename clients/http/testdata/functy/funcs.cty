@@ -1,0 +1,9 @@
+// accept requires the specific http_client type; accept_any the generic client
+// open type. Both must accept an http client value (an HTTPClientCapsuleType).
+func accept(c: http_client) -> string {
+    return "ok"
+}
+
+func accept_any(c: client) -> string {
+    return "ok"
+}

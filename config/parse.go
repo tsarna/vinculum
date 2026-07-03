@@ -124,7 +124,10 @@ func parseDirectory(parser *hclparse.Parser, dir, ext string) ([]hcl.Body, hcl.D
 			})
 			return nil
 		}
-		if info.IsDir() && strings.HasPrefix(info.Name(), ".") {
+		// Skip dot-directories, but never the walk root itself: walking "." (or
+		// "./") visits the root first with Name() == ".", which would otherwise
+		// SkipDir the entire tree and silently load nothing.
+		if info.IsDir() && path != dir && strings.HasPrefix(info.Name(), ".") {
 			return filepath.SkipDir
 		}
 		if !info.IsDir() && strings.HasSuffix(path, ext) {

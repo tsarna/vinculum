@@ -1,0 +1,7 @@
+// A functy function whose assert fails for non-positive input. Called from a VCL
+// expression, the uncaught throw should render against this .cty line with the
+// operand detail (n = -3).
+func boom(n: number) -> string {
+    assert(n > 0, "must be positive")
+    return "ok"
+}

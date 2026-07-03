@@ -70,6 +70,17 @@ func extractProcedureFunctions(bodies []hcl.Body, config *Config, evalCtxFn func
 			}
 
 			allFuncs[name] = fn
+
+			// The procedure block is deprecated in favor of functy (.cty) files.
+			// Non-fatal; surfaced via the CLI's warning reporting.
+			diags = diags.Append(&hcl.Diagnostic{
+				Severity: hcl.DiagWarning,
+				Summary:  "Deprecated procedure block",
+				Detail: fmt.Sprintf(
+					"procedure %q uses the deprecated `procedure` block; port it to a functy (.cty) file (see doc/functy.md). The `procedure` block will be removed in a future release.",
+					name),
+				Subject: block.DefRange.Ptr(),
+			})
 		}
 	}
 

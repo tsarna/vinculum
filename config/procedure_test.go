@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"testing"
 
+	"github.com/hashicorp/hcl/v2"
 	"go.uber.org/zap"
 )
 
@@ -80,6 +81,25 @@ func TestProcedureBasic(t *testing.T) {
 	_, diags := NewConfig().WithSources(procedureBasicVCL).WithLogger(procTestLogger(t)).Build()
 	if diags.HasErrors() {
 		t.Fatal(diags)
+	}
+}
+
+// TestProcedureDeprecationWarning verifies that a procedure block still works but
+// emits a non-fatal deprecation warning pointing to functy.
+func TestProcedureDeprecationWarning(t *testing.T) {
+	_, diags := NewConfig().WithSources(procedureBasicVCL).WithLogger(procTestLogger(t)).Build()
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+
+	found := false
+	for _, d := range diags {
+		if d.Severity == hcl.DiagWarning && d.Summary == "Deprecated procedure block" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a procedure deprecation warning, got: %v", diags)
 	}
 }
 

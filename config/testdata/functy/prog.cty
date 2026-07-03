@@ -1,0 +1,37 @@
+// functions callable from VCL and from each other.
+
+// greet calls prefix (declared below), proving cross-.cty namespace sharing and
+// late binding — prefix is resolved from the shared eval context at call time.
+func greet(name: string) -> string {
+    return "${prefix()}${name}"
+}
+
+func prefix() -> string {
+    return "hi "
+}
+
+// Functions whose parameters are typed with host-registered capsule types. Their
+// mere successful parse proves RegisterType took effect; if `bus`/`duration` were
+// unknown, ParseAll would fail.
+func on_bus(b: bus, name: string) -> string {
+    return name
+}
+
+func wait_for(d: duration, name: string) -> string {
+    return name
+}
+
+// `subscriber` is an open type matching any capsule implementing bus.Subscriber
+// (a bus, client, FSM, …). A bare parse proves RegisterOpenType("subscriber", …).
+func notify(s: subscriber, name: string) -> string {
+    return name
+}
+
+// Rich object and raw-capsule types from the types/ package.
+func handle(req: http_request, resp: http_response) -> string {
+    return req.method
+}
+
+func inspect(r: http_client_response, b: baggage, m: metric) -> number {
+    return r.status
+}

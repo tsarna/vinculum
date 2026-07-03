@@ -493,7 +493,7 @@ func (h *httpAction) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	val, diags := h.actionExpr.Value(evalCtx)
 	if diags.HasErrors() {
-		h.config.UserLogger.Error("Error executing action", zap.Error(diags))
+		h.config.UserLogger.Error("Error executing action", h.config.ActionError(diags))
 		http.Error(w, diags.Error(), http.StatusInternalServerError)
 		return
 	}

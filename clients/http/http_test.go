@@ -398,11 +398,42 @@ func TestHTTPClient_SatisfiesHTTPCallable(t *testing.T) {
 
 // ── CtyValue ─────────────────────────────────────────────────────────────────
 
-func TestHTTPClient_CtyValue_IsClientCapsule(t *testing.T) {
+func TestHTTPClient_CtyValue_IsHTTPClientCapsule(t *testing.T) {
 	config := loadConfig(t, `
 client "http" "api" {}
 `)
 	v, ok := config.CtyClientMap["api"]
 	require.True(t, ok)
-	assert.Equal(t, cfg.ClientCapsuleType, v.Type())
+	// The http client carries its own specific capsule type (nameable as
+	// "http_client" in .cty), distinct from the generic client capsule.
+	assert.Equal(t, HTTPClientCapsuleType, v.Type())
+	// It still extracts as a config.Client (GetClientFromCapsule is now
+	// interface-based) and satisfies the generic "client" open type.
+	c, err := cfg.GetClientFromCapsule(v)
+	require.NoError(t, err)
+	assert.NotNil(t, c)
+	assert.NoError(t, cfg.IsClient(v))
+}
+
+// TestFunctyHTTPClientType proves the specific "http_client" type and the generic
+// "client" open type are registered (both .cty functions parse — an unknown type
+// would fail ParseAll) and that an http client value carries exactly the type the
+// http_client annotation enforces by identity.
+func TestFunctyHTTPClientType(t *testing.T) {
+	config, diags := cfg.NewConfig().
+		WithSources("testdata/functy").
+		WithLogger(newTestLogger(t)).
+		Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+
+	_, ok := config.Functions["accept"]
+	assert.True(t, ok, "accept (http_client-typed param) should be registered")
+	_, ok = config.Functions["accept_any"]
+	assert.True(t, ok, "accept_any (client-typed param) should be registered")
+
+	// The value the http_client annotation would receive is exactly
+	// HTTPClientCapsuleType (identity match) and also satisfies the client type.
+	v := config.CtyClientMap["api"]
+	assert.Equal(t, HTTPClientCapsuleType, v.Type())
+	assert.NoError(t, cfg.IsClient(v))
 }

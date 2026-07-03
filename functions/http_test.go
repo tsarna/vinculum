@@ -2097,10 +2097,10 @@ func TestHTTPMust_BinaryBody_NoContentType_DefaultsToText(t *testing.T) {
 }
 
 func TestHTTPMust_NotAResponse(t *testing.T) {
-	// Passing something that isn't an httpclientresponse should fail.
+	// Passing something that isn't an http_client_response should fail.
 	_, err := callMust(t, cty.StringVal("not a response"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "httpclientresponse")
+	assert.Contains(t, err.Error(), "http_client_response")
 }
 
 func TestHTTPMust_NullExpected_DefaultsTo2xx(t *testing.T) {

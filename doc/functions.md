@@ -30,7 +30,8 @@ All logging functions return `true`.
 - `patch(target, patch)`: Apply a diff (as produced by `diff`) to `target` and return the patched result. Both `target` and `patch` must be objects/maps.
 - `jsonencode(value)`: Encode a value as a JSON string.
 - `jsondecode(json_string)`: Parse a JSON string and return the decoded value.
-- `typeof(value)`: Return a string describing the type of `value` (e.g. `"string"`, `"number"`, `"bool"`, `"object"`).
+- `typeof(value)`: Return a value's type in functy's type-annotation grammar, so it round-trips as a type spec — e.g. `"string"`, `"number"`, `"bool"`, `"list(string)"`, `"object({ a = string })"`, or a capsule/rich-object's name (`"bytes"`, `"ctx"`). A bare `null` is `"any"`.
+- `typekind(value)`: Return just the top-level kind of a value — `"string"`, `"number"`, `"bool"`, `"list"`, `"set"`, `"map"`, `"object"`, `"tuple"`, `"any"`, or a capsule's name — dropping element/attribute detail. Use it for dispatch where `typeof`'s full form is too specific.
 - `tostring(value)`: Convert a value to a string. For plain scalars this behaves as the standard type conversion. For rich VCL types (`bytes`, URL objects, and future capsule types) it returns the natural string representation — e.g. `tostring(b)` gives the UTF-8 content of a `bytes` value, and `tostring(u)` gives the canonical URL string of a URL object.
 - `length(value)`: Return the length of a value. For strings, lists, maps, and sets this behaves as the standard function. For `bytes` values it returns the byte count.
 
@@ -988,10 +989,14 @@ trigger "cron" "daily_report" {
 
 ### Control Flow
 
-- `error(message)`: Abort evaluation with the given error message. Useful for asserting preconditions in expressions.
+These are functy's standard-library builtins (shared with standalone `functy`), available anywhere vinculum evaluates an expression.
+
+- `error(value)`: Raise an error from expression position — the expression form of a `throw`. `value` may be a string or an object (`error({ message = "...", code = 403 })`). It composes with `try`/`catch` and carries a source range. Example: `coalesce(config.host, error("host is required"))`.
+- `assert(cond, message?)`: Raise a catchable error when `cond` is false; on success returns `true`. The condition is received unevaluated, so a surfaced error underlines exactly what failed and captures the referenced variables (e.g. detail `n = -3`). The optional `message` (string or object) is evaluated only on failure. Example: `assert(port > 0, "port must be positive")`.
 - `cond(c1, r1, c2, r2, ..., else)`: Lazy multi-branch conditional. Takes an odd number of arguments (at least 3). Each `(c_i, r_i)` pair is a condition/result; the trailing argument is the `else`. Conditions are evaluated in order; the result paired with the first truthy condition is returned (and evaluated). If no condition is truthy, the `else` is returned. **Only the selected branch is evaluated** — unselected conditions, results, and the else are untouched — making `cond()` safe for side-effectful branches (unlike HCL's `?:` ternary, which evaluates both sides greedily). The return type is dynamic, since each branch may be of a different type. Example: `cond(level == "error", log_error(msg), level == "warn", log_warn(msg), log_info(msg))` dispatches to exactly one log call based on `level` — the other two are never invoked.
 - `switch(on, v1, r1, v2, r2, ..., default?)`: Switch dispatch on a single value. `on` is evaluated exactly once; each case-value `vN` is then evaluated in order and compared to `on` for equality. On the first match, the paired `rN` is evaluated and returned. If no case matches, the optional trailing `default` is evaluated and returned; if `default` is omitted (i.e. the total argument count is odd) and no case matched, `switch()` errors at call time. Case values past the matching arm are not evaluated, nor are unselected results. Equality is strict: a number `200` does not match the string `"200"`. Cleaner than the equivalent `cond()` form because `on` is named once. Example: `switch(level, "error", log_error(msg), "warn", log_warn(msg), log_info(msg))` is the cond example above rewritten as a switch.
-- `try(expr1, expr2, ...)`: Evaluate each expression in order; return the value of the first one that evaluates without error. If all expressions error, `try()` itself errors with the accumulated diagnostics. **Each expression is evaluated at most once.** This is vinculum's single-evaluation variant and differs from the stock HCL `try()` (from `hcl/v2/ext/tryfunc`) — the upstream implementation evaluates the selected expression twice (once for return-type inference, once for the actual value), which is a hazard for side-effectful arguments like `try(send(ctx, ...), ...)`. The trade-off for single-evaluation is that vinculum's `try()` has a dynamic return type rather than the concrete unified type of its branches. (The related `can(expr)` function evaluates its argument exactly once in both vinculum and upstream, since it always returns `bool`.)
+- `try(expr1, expr2, ...)`: Evaluate each expression in order; return the value of the first one that evaluates without error. If all expressions error, `try()` itself errors with the accumulated diagnostics. **Each expression is evaluated at most once.** This is vinculum's single-evaluation variant and differs from the stock HCL `try()` (from `hcl/v2/ext/tryfunc`) — the upstream implementation evaluates the selected expression twice (once for return-type inference, once for the actual value), which is a hazard for side-effectful arguments like `try(send(ctx, ...), ...)`. The trade-off for single-evaluation is that vinculum's `try()` has a dynamic return type rather than the concrete unified type of its branches.
+- `can(expr)`: Return whether `expr` evaluates without error, as a `bool`. Useful to guard an expression that may fail — e.g. `can(jsondecode(s))`.
 
 ### Messaging
 
@@ -1007,7 +1012,7 @@ trigger "cron" "daily_report" {
 
 ### HTTP Response Functions
 
-These functions are globally available and build `httpresponse` values. The return value
+These functions are globally available and build `http_response` values. The return value
 of a `handle` action expression is used as the HTTP response — no separate "write" call
 is needed. See [`server "http"`](server-http.md#response) for full details.
 
@@ -1033,7 +1038,7 @@ set_header("Authorization", basicauth("alice", "s3cr3t"))
 These functions make outbound HTTP requests from action expressions. They
 mirror the methods of `net/http` and are loosely modeled on the JavaScript
 `fetch()` API: a small set of verbs take a URL, an optional body, and an
-options object, and return a rich `httpclientresponse` object.
+options object, and return a rich `http_client_response` object.
 
 The second argument is either a configured `client.<name>` (an
 [`client "http"`](client-http.md) capsule) or `null` to use built-in
@@ -1052,7 +1057,7 @@ header precedence, and the response object shape.
 | `http_patch(ctx, client, url[, body[, opts]])` | yes | no |
 | `http_request(ctx, client, method, url[, body[, opts]])` | yes | depends on method |
 
-The return value is an `httpclientresponse` object with materialized
+The return value is an `http_client_response` object with materialized
 attributes (`status`, `status_text`, `ok`, `redirected`, `final_url`,
 `proto`, `headers`, `content_length`, `content_type`, `body`) and `get()`
 keys for body access (`body`, `body_bytes`, `body_json`) and per-name

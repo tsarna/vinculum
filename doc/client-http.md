@@ -240,7 +240,7 @@ dynamic:
 
 ### Return value
 
-Every verb function returns an `httpclientresponse` rich object — see
+Every verb function returns an `http_client_response` rich object — see
 *Response object* below.
 
 If the request cannot be sent (DNS failure, connection refused, TLS error,
@@ -360,7 +360,7 @@ Merge rules, in precedence order:
 
 ## Response object
 
-The return value of every verb function is an `httpclientresponse` rich
+The return value of every verb function is an `http_client_response` rich
 object. Static attributes are materialized for direct access; a small set
 of `get()` keys cover the body and other expensive operations.
 

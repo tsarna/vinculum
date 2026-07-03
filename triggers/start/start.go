@@ -44,7 +44,7 @@ func (t *startTrigger) PostStart() error {
 	value, diags := t.expr.Value(evalCtx)
 	if diags.HasErrors() {
 		t.config.UserLogger.Error("start trigger: action error",
-			zap.String("name", t.name), zap.Error(diags))
+			zap.String("name", t.name), t.config.ActionError(diags))
 		stopSpan(diags)
 		return nil
 	}

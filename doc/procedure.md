@@ -1,5 +1,14 @@
 # Procedure Blocks
 
+> **Deprecated.** The `procedure` block is superseded by [functy (`.cty`
+> files)](functy.md) and will be removed in a future release. functy is a real
+> statement language without HCL's limitations (statement-level side effects,
+> reassignment, unquoted conditions, typed locals, `try`/`catch`, …). Loading a
+> configuration that contains a `procedure` block emits a deprecation warning; port
+> such blocks to `.cty` functions. This page documents the existing block for as long
+> as it remains supported. See [Deprecated Features](deprecations.md) for the full list
+> and timelines.
+
 `procedure` blocks compile into callable functions that provide a limited imperative
 escape hatch for computations that need intermediate bindings or branching. They are
 processed early during configuration loading — alongside `function`, `jq`, and `editor`

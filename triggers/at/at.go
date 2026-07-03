@@ -362,7 +362,7 @@ func (t *AtTrigger) fire() {
 		actionErr = diags
 		val = cty.NilVal
 		t.config.UserLogger.Error("at trigger: action error",
-			zap.String("name", t.name), zap.Error(actionErr))
+			zap.String("name", t.name), t.config.ActionError(diags))
 	} else {
 		t.config.Logger.Debug("at trigger: action completed",
 			zap.String("name", t.name), zap.Any("result", val))

@@ -279,6 +279,12 @@ func (a *ActionSubscriber) OnEvent(ctx context.Context, topic string, message an
 
 	_, diags := a.ActionExpr.Value(evalCtx)
 	if diags.HasErrors() {
+		// A functy throw carries .cty source context the bus's generic error
+		// handling cannot render; surface it here through UserLogger. Ordinary
+		// errors are left to the caller (the bus) to avoid double-logging.
+		if _, ok := functyThrownError(diags); ok {
+			a.Config.UserLogger.Error("subscription action error", a.Config.ActionError(diags))
+		}
 		return diags
 	}
 
@@ -310,6 +316,17 @@ func GetSubscriberFromCapsule(val cty.Value) (bus.Subscriber, error) {
 		}
 	}
 	return nil, fmt.Errorf("expected Subscriber capsule, got %s", val.Type().FriendlyName())
+}
+
+// IsSubscriber reports whether val is a capsule whose encapsulated value
+// implements bus.Subscriber (a bus, client, FSM, subscriber capsule, etc.). It
+// returns nil when so, else the error from GetSubscriberFromCapsule. It backs the
+// functy "subscriber" open type (RegisterOpenType), naming any such value in a
+// .cty annotation while passing it through untouched. Null is handled by the
+// constraint before the predicate runs.
+func IsSubscriber(val cty.Value) error {
+	_, err := GetSubscriberFromCapsule(val)
+	return err
 }
 
 func GetSubscriberFromExpression(config *Config, subscriberExpr hcl.Expression) (bus.Subscriber, hcl.Diagnostics) {

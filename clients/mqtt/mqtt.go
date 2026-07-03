@@ -794,7 +794,7 @@ func makeLifecycleHook(config *cfg.Config, expr hcl.Expression) func(ctx context
 		}
 		_, diags := expr.Value(evalCtx)
 		if diags.HasErrors() {
-			config.UserLogger.Error("mqtt lifecycle hook: eval failed", zap.Error(diags))
+			config.UserLogger.Error("mqtt lifecycle hook: eval failed", config.ActionError(diags))
 		}
 	}
 }

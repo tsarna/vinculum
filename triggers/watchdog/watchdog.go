@@ -185,7 +185,7 @@ func (t *WatchdogTrigger) fire() bool {
 	val, diags := t.actionExpr.Value(evalCtx)
 	if diags.HasErrors() {
 		t.config.UserLogger.Error("watchdog trigger: action error",
-			zap.String("name", t.name), zap.Error(diags))
+			zap.String("name", t.name), t.config.ActionError(diags))
 		stopSpan(diags)
 		return false
 	}

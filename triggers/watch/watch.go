@@ -90,7 +90,7 @@ func (t *WatchTrigger) dispatch(ctx context.Context, oldValue, newValue cty.Valu
 	val, diags := t.actionExpr.Value(evalCtx)
 	if diags.HasErrors() {
 		t.config.UserLogger.Error("watch trigger: action error",
-			zap.String("name", t.name), zap.Error(diags))
+			zap.String("name", t.name), t.config.ActionError(diags))
 		stopSpan(diags)
 		return
 	}

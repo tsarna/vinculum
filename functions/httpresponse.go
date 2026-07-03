@@ -113,7 +113,7 @@ var HTTPRedirectFunc = function.New(&function.Spec{
 })
 
 // HTTPErrorFunc implements http_error(status, message).
-// Returns an httpresponse value marked as an error with the given status and plain-text body.
+// Returns an http_response value marked as an error with the given status and plain-text body.
 var HTTPErrorFunc = function.New(&function.Spec{
 	Description: "Builds an HTTP error response with the given status code and message body",
 	Params: []function.Parameter{
@@ -135,7 +135,7 @@ var HTTPErrorFunc = function.New(&function.Spec{
 })
 
 // AddHeaderFunc implements addheader(response, name, value).
-// Returns a new httpresponse with the given header appended (multi-value safe).
+// Returns a new http_response with the given header appended (multi-value safe).
 var AddHeaderFunc = function.New(&function.Spec{
 	Description: "Returns a new response with the given header value appended",
 	Params: []function.Parameter{
@@ -147,7 +147,7 @@ var AddHeaderFunc = function.New(&function.Spec{
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 		orig, ok := types.GetHTTPResponseFromValue(args[0])
 		if !ok {
-			return cty.NilVal, fmt.Errorf("addheader: first argument must be an httpresponse value")
+			return cty.NilVal, fmt.Errorf("addheader: first argument must be an http_response value")
 		}
 		r := cloneResponse(orig)
 		r.Headers.Add(textproto.CanonicalMIMEHeaderKey(args[1].AsString()), args[2].AsString())
@@ -156,7 +156,7 @@ var AddHeaderFunc = function.New(&function.Spec{
 })
 
 // RemoveHeaderFunc implements removeheader(response, name).
-// Returns a new httpresponse with all values for the given header removed.
+// Returns a new http_response with all values for the given header removed.
 var RemoveHeaderFunc = function.New(&function.Spec{
 	Description: "Returns a new response with all values for the given header removed",
 	Params: []function.Parameter{
@@ -167,7 +167,7 @@ var RemoveHeaderFunc = function.New(&function.Spec{
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 		orig, ok := types.GetHTTPResponseFromValue(args[0])
 		if !ok {
-			return cty.NilVal, fmt.Errorf("removeheader: first argument must be an httpresponse value")
+			return cty.NilVal, fmt.Errorf("removeheader: first argument must be an http_response value")
 		}
 		r := cloneResponse(orig)
 		r.Headers.Del(args[1].AsString())

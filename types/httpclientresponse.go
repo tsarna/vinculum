@@ -48,16 +48,16 @@ type HTTPClientResponseWrapper struct {
 
 // HTTPClientResponseCapsuleType is the cty capsule type for
 // HTTPClientResponseWrapper values.
-var HTTPClientResponseCapsuleType = cty.CapsuleWithOps("httpclientresponse", reflect.TypeOf(HTTPClientResponseWrapper{}), &cty.CapsuleOps{
+var HTTPClientResponseCapsuleType = cty.CapsuleWithOps("http_client_response", reflect.TypeOf(HTTPClientResponseWrapper{}), &cty.CapsuleOps{
 	GoString: func(val interface{}) string {
 		w := val.(*HTTPClientResponseWrapper)
 		if w.R == nil {
-			return "httpclientresponse(<nil>)"
+			return "http_client_response(<nil>)"
 		}
-		return fmt.Sprintf("httpclientresponse(%d %s)", w.R.StatusCode, w.R.Status)
+		return fmt.Sprintf("http_client_response(%d %s)", w.R.StatusCode, w.R.Status)
 	},
 	TypeGoString: func(_ reflect.Type) string {
-		return "httpclientresponse"
+		return "http_client_response"
 	},
 })
 
@@ -130,7 +130,7 @@ func BuildHTTPClientResponseObject(w *HTTPClientResponseWrapper) cty.Value {
 }
 
 // GetHTTPClientResponseFromValue extracts an *HTTPClientResponseWrapper from
-// an httpclientresponse capsule or an object with a _capsule attribute.
+// an http_client_response capsule or an object with a _capsule attribute.
 func GetHTTPClientResponseFromValue(val cty.Value) (*HTTPClientResponseWrapper, bool) {
 	enc, err := richcty.GetCapsuleFromValue(val)
 	if err != nil {
@@ -178,23 +178,23 @@ func (w *HTTPClientResponseWrapper) responseContentType() string {
 }
 
 // Get implements richcty.Gettable, supporting dynamic field access on
-// httpclientresponse values.
+// http_client_response values.
 func (w *HTTPClientResponseWrapper) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
 	if len(args) == 0 {
-		return cty.NilVal, fmt.Errorf("httpclientresponse get: field argument required")
+		return cty.NilVal, fmt.Errorf("http_client_response get: field argument required")
 	}
 	if args[0].Type() != cty.String {
-		return cty.NilVal, fmt.Errorf("httpclientresponse get: field argument must be a string")
+		return cty.NilVal, fmt.Errorf("http_client_response get: field argument must be a string")
 	}
 
 	field := args[0].AsString()
 
 	requireKey := func() (string, error) {
 		if len(args) < 2 {
-			return "", fmt.Errorf("httpclientresponse get: %q requires a key argument", field)
+			return "", fmt.Errorf("http_client_response get: %q requires a key argument", field)
 		}
 		if args[1].Type() != cty.String {
-			return "", fmt.Errorf("httpclientresponse get: %q key must be a string", field)
+			return "", fmt.Errorf("http_client_response get: %q key must be a string", field)
 		}
 		return args[1].AsString(), nil
 	}
@@ -203,29 +203,29 @@ func (w *HTTPClientResponseWrapper) Get(_ context.Context, args []cty.Value) (ct
 	case "body":
 		data, err := w.readBody()
 		if err != nil {
-			return cty.NilVal, fmt.Errorf("httpclientresponse get body: %w", err)
+			return cty.NilVal, fmt.Errorf("http_client_response get body: %w", err)
 		}
 		return cty.StringVal(string(data)), nil
 
 	case "body_bytes":
 		data, err := w.readBody()
 		if err != nil {
-			return cty.NilVal, fmt.Errorf("httpclientresponse get body_bytes: %w", err)
+			return cty.NilVal, fmt.Errorf("http_client_response get body_bytes: %w", err)
 		}
 		return bytescty.BuildBytesObject(data, w.responseContentType()), nil
 
 	case "body_json":
 		data, err := w.readBody()
 		if err != nil {
-			return cty.NilVal, fmt.Errorf("httpclientresponse get body_json: reading body: %w", err)
+			return cty.NilVal, fmt.Errorf("http_client_response get body_json: reading body: %w", err)
 		}
 		ty, err := ctyjson.ImpliedType(data)
 		if err != nil {
-			return cty.NilVal, fmt.Errorf("httpclientresponse get body_json: invalid JSON: %w", err)
+			return cty.NilVal, fmt.Errorf("http_client_response get body_json: invalid JSON: %w", err)
 		}
 		val, err := ctyjson.Unmarshal(data, ty)
 		if err != nil {
-			return cty.NilVal, fmt.Errorf("httpclientresponse get body_json: %w", err)
+			return cty.NilVal, fmt.Errorf("http_client_response get body_json: %w", err)
 		}
 		return val, nil
 
@@ -263,14 +263,14 @@ func (w *HTTPClientResponseWrapper) Get(_ context.Context, args []cty.Value) (ct
 			return cty.NilVal, err
 		}
 		if w.R == nil {
-			return cty.NilVal, fmt.Errorf("httpclientresponse get cookie: no response")
+			return cty.NilVal, fmt.Errorf("http_client_response get cookie: no response")
 		}
 		for _, c := range w.R.Cookies() {
 			if c.Name == name {
 				return convertCookieObject(c), nil
 			}
 		}
-		return cty.NilVal, fmt.Errorf("httpclientresponse get cookie: no cookie named %q", name)
+		return cty.NilVal, fmt.Errorf("http_client_response get cookie: no cookie named %q", name)
 
 	case "cookies":
 		if w.R == nil {
@@ -288,7 +288,7 @@ func (w *HTTPClientResponseWrapper) Get(_ context.Context, args []cty.Value) (ct
 
 	default:
 		return cty.NilVal, fmt.Errorf(
-			"httpclientresponse get: unknown field %q (valid: body, body_bytes, body_json, header, header_all, cookie, cookies)",
+			"http_client_response get: unknown field %q (valid: body, body_bytes, body_json, header, header_all, cookie, cookies)",
 			field,
 		)
 	}

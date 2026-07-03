@@ -407,7 +407,7 @@ func (t *IntervalTrigger) run() {
 			actionErr = actionDiags
 			actionVal = cty.NilVal
 			t.config.UserLogger.Error("interval trigger: action error",
-				zap.String("name", t.name), zap.Error(actionErr))
+				zap.String("name", t.name), t.config.ActionError(actionDiags))
 		} else {
 			t.config.Logger.Debug("interval trigger: action completed",
 				zap.String("name", t.name), zap.Int64("run_count", runCount), zap.Any("result", actionVal))

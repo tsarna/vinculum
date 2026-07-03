@@ -23,13 +23,13 @@ type HTTPRequestWrapper struct {
 }
 
 // HTTPRequestCapsuleType is the cty capsule type for HTTPRequestWrapper values.
-var HTTPRequestCapsuleType = cty.CapsuleWithOps("httprequest", reflect.TypeOf(HTTPRequestWrapper{}), &cty.CapsuleOps{
+var HTTPRequestCapsuleType = cty.CapsuleWithOps("http_request", reflect.TypeOf(HTTPRequestWrapper{}), &cty.CapsuleOps{
 	GoString: func(val interface{}) string {
 		w := val.(*HTTPRequestWrapper)
-		return fmt.Sprintf("httprequest(%s %s)", w.R.Method, w.R.URL.String())
+		return fmt.Sprintf("http_request(%s %s)", w.R.Method, w.R.URL.String())
 	},
 	TypeGoString: func(_ reflect.Type) string {
-		return "httprequest"
+		return "http_request"
 	},
 })
 
@@ -99,16 +99,16 @@ func NewHTTPRequestCapsule(r *http.Request) cty.Value {
 	return cty.CapsuleVal(HTTPRequestCapsuleType, &HTTPRequestWrapper{R: r})
 }
 
-// GetHTTPRequestFromValue extracts a *http.Request from an httprequest capsule or
+// GetHTTPRequestFromValue extracts a *http.Request from an http_request capsule or
 // an object with a _capsule attribute.
 func GetHTTPRequestFromValue(val cty.Value) (*http.Request, error) {
 	enc, err := richcty.GetCapsuleFromValue(val)
 	if err != nil {
-		return nil, fmt.Errorf("expected httprequest value: %w", err)
+		return nil, fmt.Errorf("expected http_request value: %w", err)
 	}
 	w, ok := enc.(*HTTPRequestWrapper)
 	if !ok {
-		return nil, fmt.Errorf("expected httprequest, got %T", enc)
+		return nil, fmt.Errorf("expected http_request, got %T", enc)
 	}
 	return w.R, nil
 }
@@ -210,13 +210,13 @@ func convertCookieObject(cookie *http.Cookie) cty.Value {
 	})
 }
 
-// Get implements richcty.Gettable, supporting dynamic field access on httprequest values.
+// Get implements richcty.Gettable, supporting dynamic field access on http_request values.
 func (w *HTTPRequestWrapper) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
 	if len(args) == 0 {
-		return cty.NilVal, fmt.Errorf("httprequest get: field argument required")
+		return cty.NilVal, fmt.Errorf("http_request get: field argument required")
 	}
 	if args[0].Type() != cty.String {
-		return cty.NilVal, fmt.Errorf("httprequest get: field argument must be a string")
+		return cty.NilVal, fmt.Errorf("http_request get: field argument must be a string")
 	}
 
 	field := args[0].AsString()
@@ -224,10 +224,10 @@ func (w *HTTPRequestWrapper) Get(_ context.Context, args []cty.Value) (cty.Value
 	// helpers for requiring a string key arg
 	requireKey := func() (string, error) {
 		if len(args) < 2 {
-			return "", fmt.Errorf("httprequest get: %q requires a key argument", field)
+			return "", fmt.Errorf("http_request get: %q requires a key argument", field)
 		}
 		if args[1].Type() != cty.String {
-			return "", fmt.Errorf("httprequest get: %q key must be a string", field)
+			return "", fmt.Errorf("http_request get: %q key must be a string", field)
 		}
 		return args[1].AsString(), nil
 	}
@@ -236,14 +236,14 @@ func (w *HTTPRequestWrapper) Get(_ context.Context, args []cty.Value) (cty.Value
 	case "body":
 		data, err := io.ReadAll(w.R.Body)
 		if err != nil {
-			return cty.NilVal, fmt.Errorf("httprequest get body: %w", err)
+			return cty.NilVal, fmt.Errorf("http_request get body: %w", err)
 		}
 		return cty.StringVal(string(data)), nil
 
 	case "body_bytes":
 		data, err := io.ReadAll(w.R.Body)
 		if err != nil {
-			return cty.NilVal, fmt.Errorf("httprequest get body_bytes: %w", err)
+			return cty.NilVal, fmt.Errorf("http_request get body_bytes: %w", err)
 		}
 		mediaType := ""
 		if ct := w.R.Header.Get("Content-Type"); ct != "" {
@@ -256,15 +256,15 @@ func (w *HTTPRequestWrapper) Get(_ context.Context, args []cty.Value) (cty.Value
 	case "body_json":
 		data, err := io.ReadAll(w.R.Body)
 		if err != nil {
-			return cty.NilVal, fmt.Errorf("httprequest get body_json: reading body: %w", err)
+			return cty.NilVal, fmt.Errorf("http_request get body_json: reading body: %w", err)
 		}
 		ty, err := ctyjson.ImpliedType(data)
 		if err != nil {
-			return cty.NilVal, fmt.Errorf("httprequest get body_json: invalid JSON: %w", err)
+			return cty.NilVal, fmt.Errorf("http_request get body_json: invalid JSON: %w", err)
 		}
 		val, err := ctyjson.Unmarshal(data, ty)
 		if err != nil {
-			return cty.NilVal, fmt.Errorf("httprequest get body_json: %w", err)
+			return cty.NilVal, fmt.Errorf("http_request get body_json: %w", err)
 		}
 		return val, nil
 
@@ -310,7 +310,7 @@ func (w *HTTPRequestWrapper) Get(_ context.Context, args []cty.Value) (cty.Value
 
 	default:
 		return cty.NilVal, fmt.Errorf(
-			"httprequest get: unknown field %q (valid: body, body_bytes, body_json, header, header_all, cookie, post_form_value)",
+			"http_request get: unknown field %q (valid: body, body_bytes, body_json, header, header_all, cookie, post_form_value)",
 			field,
 		)
 	}

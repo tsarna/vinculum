@@ -343,7 +343,7 @@ func (t *FileTrigger) dispatch(eventPath, eventStr string) {
 		actionErr = actionDiags
 		actionVal = cty.NilVal
 		t.config.UserLogger.Error("file trigger: action error",
-			zap.String("name", t.name), zap.String("event_path", eventPath), zap.Error(actionErr))
+			zap.String("name", t.name), zap.String("event_path", eventPath), t.config.ActionError(actionDiags))
 	} else {
 		t.config.Logger.Debug("file trigger: action completed",
 			zap.String("name", t.name), zap.String("event_path", eventPath))

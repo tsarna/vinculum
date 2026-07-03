@@ -55,11 +55,11 @@ type Config struct {
 	// source location and stack are noise rather than signal.
 	UserLogger *zap.Logger
 	Functions  map[string]function.Function
-	Constants map[string]cty.Value
-	evalCtx   *hcl.EvalContext
-	Features  map[string]string
-	BaseDir   string
-	WriteDir  string
+	Constants  map[string]cty.Value
+	evalCtx    *hcl.EvalContext
+	Features   map[string]string
+	BaseDir    string
+	WriteDir   string
 
 	SigActions       *SignalActionHandler
 	Startables       []Startable
@@ -89,6 +89,12 @@ type Config struct {
 	// collisions with built-ins or between plugins are surfaced as diagnostics
 	// at that point.
 	transformPluginFuncs map[string]function.Function
+
+	// functyState holds the parsed .cty (functy) artifacts: compiled functions
+	// merge into the shared function namespace, and top-level var/const
+	// declarations (Consts/Vars) are folded into Vinculum's own const/var pools
+	// during block preprocessing. Nil when no .cty sources were provided.
+	functyState *functyState
 }
 
 func NewConfig() *ConfigBuilder {
@@ -160,9 +166,9 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		CtyConditionMap:  make(map[string]cty.Value),
 		CtyFsmMap:        make(map[string]cty.Value),
 		CtyVarMap:        make(map[string]cty.Value),
-		TriggerDefRanges:  make(map[string]hcl.Range),
-		CtyWireFormatMap:  make(map[string]cty.Value),
-		MetricsServers:    make(map[string]MetricsRegistrar),
+		TriggerDefRanges: make(map[string]hcl.Range),
+		CtyWireFormatMap: make(map[string]cty.Value),
+		MetricsServers:   make(map[string]MetricsRegistrar),
 	}
 
 	// Validate write-path is under file-path
@@ -192,6 +198,18 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	}
 
 	bodies, diags := ParseConfigFiles(cb.sources...)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	// Build the functy parser (configured with Vinculum's named types) up front,
+	// so its type resolver is available to VCL `var` type constraints even when
+	// no .cty sources are present. Collect functy (.cty) sources from the same
+	// source set; they are parsed and compiled below, alongside the .vcl user
+	// functions.
+	config.functyState = newFunctyState()
+	functySources, functyDiags := collectFunctySources(cb.sources)
+	diags = diags.Extend(functyDiags)
 	if diags.HasErrors() {
 		return nil, diags
 	}
@@ -244,6 +262,24 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		functions[name] = fn
 	}
 
+	// Compile functy (.cty) functions and merge them into the same user-function
+	// map, so GetFunctions collision-checks them against builtins and each other.
+	// Compiled functions capture evalCtxFn for late binding, exactly like
+	// procedures. The parsed result is retained on config.functyState for later
+	// phases (top-level var/const folding).
+	functyFuncs, addDiags := config.functyState.compile(functySources, evalCtxFn)
+	diags = diags.Extend(addDiags)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+	// Share the .cty file map with the signal handler so a functy throw from a
+	// signal action renders with source context (it has no *Config reference).
+	config.SigActions.FunctyFiles = config.functyFileMap()
+
+	for name, fn := range functyFuncs {
+		functions[name] = fn
+	}
+
 	config.Functions, addDiags = config.GetFunctions(functions)
 	diags = diags.Extend(addDiags)
 	if diags.HasErrors() {
@@ -277,6 +313,16 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	}
 	if diags.HasErrors() {
 		return nil, diags
+	}
+
+	// Evaluate functy top-level var initializers now (consts are resolved by the
+	// FinishPreprocessing pass above), so functy var values are in place before
+	// the Process phase where consumers (asserts, subscriptions) read var.<name>.
+	if vh, ok := blockHandlers["var"].(*VariableBlockHandler); ok {
+		diags = diags.Extend(vh.setFunctyVarValues(config))
+		if diags.HasErrors() {
+			return nil, diags
+		}
 	}
 
 	// Collect metrics backend block IDs so metric blocks without an explicit

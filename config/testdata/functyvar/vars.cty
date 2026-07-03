@@ -1,0 +1,5 @@
+// Top-level functy vars: a typed one initialized from a VCL const (base), and an
+// untyped one. Both become mutable var.<name> values indistinguishable from a VCL
+// `var` block.
+var counter: number = base
+var label = "start"

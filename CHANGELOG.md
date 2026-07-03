@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **functy (`.cty` files)**: a configuration directory may now contain [functy](https://github.com/tsarna/functy) source files (`.cty`) alongside its `.vcl` files. functy is a small expression/statement language with real syntax for functions, typed locals, reassignment, branching, loops, `try`/`catch`, and structured errors — a more expressive alternative to `function`, `jq`, and the `procedure` block. Its top-level `func` declarations join the same user-function namespace, and its top-level `var`/`const` bindings fold into Vinculum's own var/const pools (a functy `const` may reference a VCL `const` and vice versa in any order; a functy `var` becomes a mutable `var.<name>`). Type annotations can name Vinculum's capsule and rich-object types (`bus`, `server`, `client`, `subscriber`, `variable`, `time`, `duration`, `url`, `bytes`, `baggage`, `metric`, `wire_format`, `ctx`, `http_request`/`http_response`/`http_client_response`, `http_client`, `sql_client`/`sql_query`, `mcp_result`), and the same type grammar backs the `var` block's `type` attribute. An uncaught throw or failed `assert` inside a `.cty` function called from VCL is rendered against the offending `.cty` line (with `assert` operand detail) through the user log. See [doc/functy.md](doc/functy.md).
+- **functy standard library**: adopting functy's stdlib adds the `typekind`, `assert`, and `can` builtins (alongside the existing `typeof`, `cond`, `switch`, `error`, `try`), available anywhere Vinculum evaluates an expression. See [doc/functions.md](doc/functions.md#control-flow).
+- **The `var` block `type` attribute accepts a type spec**, not just a quoted string: `type = number`, `type = list(string)`, `type = object({ host = string, port = number })`, or a host-registered named type such as `type = bus`. Enforcement now coerces where the grammar allows. See [doc/config.md](doc/config.md#var).
+- **Configuration warnings are now surfaced by `vinculum check` and `vinculum serve`.** Non-fatal warning diagnostics (deprecations, duration-precision loss, etc.) were previously computed but silently dropped — the commands acted only on errors. They are now printed to stderr.
+
+### Changed
+
+- **`typeof()` returns functy's type-annotation grammar** (e.g. `list(string)`, `object({ a = string })`) rather than the cty friendly name (`list of string`), so its output round-trips as a type spec. The `error()` builtin now raises a structured, catchable error. Both are now provided by functy's standard library, replacing Vinculum's overlapping copies.
+
+### Deprecated
+
+- **The `procedure` block** is superseded by functy (`.cty` files) and will be removed in a future release. Loading a configuration that contains a `procedure` block emits a deprecation warning. See [doc/functy.md](doc/functy.md) and [doc/procedure.md](doc/procedure.md).
+- **The quoted-string form of the `var` block's `type` attribute** (`type = "number"`) is deprecated in favor of the unquoted type spec (`type = number`); it still works but emits a warning.
+
+### Fixed
+
+- **`vinculum check .` / `serve .` from inside a configuration directory loaded nothing** and reported the (empty) config as valid. The directory walk visited the walk root first with name `.`, which the skip-hidden-directories check treated as a dot-directory and skipped, discarding the whole tree. The walk root is now excluded from that check; hidden subdirectories are still skipped.
+
 ## [0.42.0] - 2026-06-27
 
 ### Added

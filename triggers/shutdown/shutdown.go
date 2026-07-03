@@ -61,7 +61,7 @@ func (a *ShutdownTriggerAction) PreStop() error {
 
 	value, addDiags := a.action.Value(evalCtx)
 	if addDiags.HasErrors() {
-		a.config.UserLogger.Error("Error executing shutdown trigger", zap.String("name", a.name), zap.Error(addDiags))
+		a.config.UserLogger.Error("Error executing shutdown trigger", zap.String("name", a.name), a.config.ActionError(addDiags))
 		stopSpan(addDiags)
 		return nil
 	}

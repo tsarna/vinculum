@@ -26,7 +26,6 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lestrrat-go/jwx/v2 v2.1.6
-	github.com/lestrrat-go/jwx/v4 v4.0.2
 	github.com/mattn/go-sqlite3 v1.14.47
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/prometheus/client_golang v1.23.2
@@ -38,12 +37,13 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/tsarna/barcode-cty-func v0.1.0
+	github.com/tsarna/functy v0.4.0
 	github.com/tsarna/geo-cty-funcs v0.2.0
 	github.com/tsarna/go-structdiff v0.2.1
 	github.com/tsarna/go2cty2go v0.1.3
 	github.com/tsarna/hcl-jqfunc v0.1.4
 	github.com/tsarna/rand-cty-funcs v0.1.1
-	github.com/tsarna/rich-cty-types v0.3.0
+	github.com/tsarna/rich-cty-types v0.4.0
 	github.com/tsarna/sqid-cty-funcs v0.1.0
 	github.com/tsarna/time-cty-funcs v0.2.1
 	github.com/tsarna/vinculum-bus v0.15.1

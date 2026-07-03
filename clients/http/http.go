@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
+	"reflect"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
@@ -19,7 +20,26 @@ import (
 
 func init() {
 	cfg.RegisterClientType("http", process)
+	// Make the http client's specific capsule nameable as "http_client" in .cty
+	// annotations. It is a closed (identity) type — client.<name> for an http
+	// client is a bare HTTPClientCapsuleType capsule, not a rich object, so
+	// identity suffices (and closed types are usable in more positions than open
+	// ones currently). The generic "client" open type also matches it.
+	cfg.RegisterFunctyType("http_client", HTTPClientCapsuleType)
 }
+
+// HTTPClientCapsuleType is the client-specific capsule type for an *HTTPClient,
+// so client.<name> for an http client carries a distinct type nameable as
+// "http_client" in .cty annotations. The http verb functions extract through the
+// structural HTTPCallable interface, not this type, so they are unaffected.
+var HTTPClientCapsuleType = cty.CapsuleWithOps("http_client", reflect.TypeOf((*HTTPClient)(nil)).Elem(), &cty.CapsuleOps{
+	GoString: func(val any) string {
+		return fmt.Sprintf("http_client(%p)", val)
+	},
+	TypeGoString: func(_ reflect.Type) string {
+		return "http_client"
+	},
+})
 
 // ─── HCL schema ──────────────────────────────────────────────────────────────
 
@@ -115,7 +135,7 @@ var (
 // CtyValue exposes the client as a generic client capsule. There is no nested
 // object structure for HTTP clients, unlike bus-backed clients.
 func (c *HTTPClient) CtyValue() cty.Value {
-	return cfg.NewClientCapsule(c)
+	return cty.CapsuleVal(HTTPClientCapsuleType, c)
 }
 
 // BaseURL returns the client's configured base URL, or nil if none.

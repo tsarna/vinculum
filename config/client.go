@@ -6,6 +6,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
+	richcty "github.com/tsarna/rich-cty-types"
 	bus "github.com/tsarna/vinculum-bus"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -211,18 +212,33 @@ func NewClientCapsule(client Client) cty.Value {
 	return cty.CapsuleVal(ClientCapsuleType, client)
 }
 
-// GetClientFromCapsule extracts a Client from a cty capsule value.
+// GetClientFromCapsule extracts a Client from a cty capsule value. Any capsule
+// whose encapsulated value implements Client is accepted (the generic client
+// capsule, or a client-specific capsule like http_client/sql_client), mirroring
+// GetSubscriberFromCapsule — so client-specific capsule types dispatch here too.
 func GetClientFromCapsule(val cty.Value) (Client, error) {
-	if val.Type() != ClientCapsuleType {
-		return nil, fmt.Errorf("expected Client capsule, got %s", val.Type().FriendlyName())
+	if val.Type().IsCapsuleType() {
+		if client, ok := val.EncapsulatedValue().(Client); ok {
+			return client, nil
+		}
 	}
+	return nil, fmt.Errorf("expected Client capsule, got %s", val.Type().FriendlyName())
+}
 
-	encapsulated := val.EncapsulatedValue()
-	client, ok := encapsulated.(Client)
-	if !ok {
-		return nil, fmt.Errorf("encapsulated value is not a Client, got %T", encapsulated)
+// IsClient reports whether val is (or carries under a _capsule attribute) a
+// capsule whose encapsulated value implements Client. It backs the functy
+// "client" open type, matching the generic client capsule, client-specific
+// capsules (http_client/sql_client), and rich client objects (e.g. the sql client
+// object) alike. Null is handled by the constraint before the predicate runs.
+func IsClient(val cty.Value) error {
+	enc, err := richcty.GetCapsuleFromValue(val)
+	if err != nil {
+		return err
 	}
-	return client, nil
+	if _, ok := enc.(Client); !ok {
+		return fmt.Errorf("expected a client, got %T", enc)
+	}
+	return nil
 }
 
 func GetClientFromExpression(config *Config, clientExpr hcl.Expression) (Client, hcl.Diagnostics) {

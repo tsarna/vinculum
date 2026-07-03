@@ -1,0 +1,5 @@
+// A functy const referencing a VCL const (vcl_base, declared in consts.vcl),
+// and a typed functy const. Consts resolve across both surfaces regardless of
+// source order.
+const doubled: number = vcl_base * 2
+const greeting = "hi"
