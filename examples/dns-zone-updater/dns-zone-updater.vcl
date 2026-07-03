@@ -38,37 +38,11 @@ server "http" "dns_webhook" {
     }
 }
 
-procedure "update_dns" {
-    spec {
-        params {
-            ctx = required
-            username = required
-            zone = required
-            host = required
-            ip = required  
-            disabled = required
-        }
-    }
-    
-    expected_username = "${zone}/${host}"
-    if "username != expected_username || ip == \"\"" {
-        return = http_response(http_status.Forbidden, "Forbidden")
-    }
+# The update_dns() function called by the handlers above lives in
+# dns-zone-updater.cty (functy). Any .cty file in this directory shares the same
+# namespace as the .vcl files, so functy functions are callable from VCL
+# expressions just like built-ins.
 
-    file_changed = update_zone_record(ctx, "${env.ZONES_DIR}/${zone}.zone", host, ip, disabled)
-    if "file_changed" {
-        # You could add other logic here, eg publish a message to MQTT, send an SMS, etc.
-
-        _ = log_info("Updated DNS record", {
-            host = "${host}.${zone}", new_ip=ip, enabled = !disabled
-        })
-
-        return = http_response(http_status.OK, "good ${ip}")
-    }
-
-    return = http_response(http_status.OK, "nochg ${ip}")
-}
- 
 # A line editor is a more declarative way of specifying a function to update a file line-by-line
 # This creates the function update_zone_record(filepath, recordname, ipaddr, disabled)
 

@@ -3,22 +3,7 @@ metric "gauge" "voipms.sipaccount.registered" {
     label_names = ["account_id"]
 }
 
-procedure "voipms_scrape_sip_accounts" {
-    spec {
-        params {
-            ctx = required
-        }
-    }
-
-    registrations = voipms_get_all_registrations(ctx)
-    range "reg" "registrations" {
-        labels = { account_id = reg.account }
-        _ = [
-            log_info("sip_account", {labels=labels}),
-            set(metric.voipms_sipaccount_registered, 1, labels),
-        ]
-    }
-}
+# voipms_scrape_sip_accounts() lives in voipms-sip.cty (functy).
 
 trigger "interval" "sipaccounts" {
     delay         = "4m"

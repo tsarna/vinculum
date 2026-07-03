@@ -1,0 +1,34 @@
+// HTTP wrappers for the VoIP.ms REST API.
+//
+// Each call resolves against the client.voipms client defined in voipms-api.vcl,
+// asks for JSON, and returns the relevant slice of the response body.
+
+func voipms_get_balance(ctx: ctx, callstats) {
+    return http_must(http_get(ctx, client.voipms, "?method=getBalance", {
+        as = "json", query = {advanced = callstats}
+    })).body.balance
+}
+
+func voipms_get_clients(ctx: ctx) {
+    return http_must(http_get(ctx, client.voipms, "?method=getClients", {
+        as = "json"
+    })).body.clients
+}
+
+func voipms_get_client_threshold(ctx: ctx, client_id) {
+    return http_must(http_get(ctx, client.voipms, "?method=getClientThreshold", {
+        as = "json", query = {client = client_id}
+    })).body.threshold_information
+}
+
+func voipms_get_all_registrations(ctx: ctx) {
+    return http_must(http_get(ctx, client.voipms, "?method=getRegistrationStatus", {
+        as = "json"
+    })).body.registrations
+}
+
+func voipms_get_reseller_balance(ctx: ctx, client_id) {
+    return http_must(http_get(ctx, client.voipms, "?method=getResellerBalance", {
+        as = "json", query = {client = client_id}
+    })).body.balance
+}

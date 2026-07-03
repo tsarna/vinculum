@@ -1,0 +1,10 @@
+// Scrape the reseller balance and update the gauges/counters declared in
+// voipms-balance.vcl.
+
+func voipms_scrape_balance_metrics(ctx: ctx) {
+    var balance = voipms_get_balance(ctx, true)
+    log_debug("balance", {balance = balance})
+    set(metric.voipms_balance, tonumber(balance.current_balance))
+    set(metric.voipms_calls, balance.calls_total)
+    set(metric.voipms_spent, floor(tonumber(balance.spent_total)))
+}

@@ -1,0 +1,16 @@
+// Scrape per-client balance, threshold, and call counts, setting the labeled
+// metrics declared in voipms-clients.vcl. The loop variable is named `cust` to
+// avoid shadowing the `client.*` namespace.
+
+func voipms_scrape_client_metrics(ctx: ctx) {
+    var clients = voipms_get_clients(ctx)
+    for cust in clients {
+        var labels = {client_id = cust.client, client_email = cust.email}
+        var balance = voipms_get_reseller_balance(ctx, cust.client)
+        var thresh = voipms_get_client_threshold(ctx, cust.client)
+        log_debug("clients", {labels = labels, balance = balance, thresh = thresh})
+        set(metric.voipms_client_balance, tonumber(balance.current_balance), labels)
+        set(metric.voipms_client_threshold, tonumber(thresh.threshold), labels)
+        set(metric.voipms_client_calls, balance.calls_total, labels)
+    }
+}

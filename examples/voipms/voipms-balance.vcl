@@ -10,21 +10,7 @@ metric "counter" "voipms.spent" {
     help = "Total spent by reseller on VoIP.ms"
 }
 
-procedure "voipms_scrape_balance_metrics" {
-    spec {
-        params {
-            ctx = required
-        }
-    }
-
-    balance = voipms_get_balance(ctx, true)
-    _ = [
-        log_debug("balance", {balance=balance}),
-        set(metric.voipms_balance, tonumber(balance.current_balance)),
-        set(metric.voipms_calls, balance.calls_total),
-        set(metric.voipms_spent, floor(tonumber(balance.spent_total)))
-    ]
-}
+# voipms_scrape_balance_metrics() lives in voipms-balance.cty (functy).
 
 trigger "interval" "balance" {
     delay         = "1h"

@@ -8,15 +8,17 @@ documentation.
 
 ## Examples
 
-### [dns-zone-updater.vcl](dns-zone-updater.vcl)
+### [dns-zone-updater/](dns-zone-updater/)
 
 A dynamic DNS service that exposes a small HTTP API for updating BIND zone
 files in place. Demonstrates:
 
 - [`server "http"`](../doc/server-http.md) with route handlers and
   [basic authentication](../doc/server-auth.md)
-- A [`procedure`](../doc/procedure.md) block that encapsulates the update logic
-  and authorizes callers based on their authenticated username
+- A [functy (`.cty`)](../doc/functy.md) function that encapsulates the update
+  logic and authorizes callers based on their authenticated username, sitting in
+  a `.cty` file alongside the `.vcl` and callable from the handlers like a
+  built-in
 - An [`editor "line"`](../doc/editor.md) block that performs idempotent,
   locked, line-by-line edits on a zone file (header timestamp, SOA serial bump,
   A-record replace), using "incidental" edits that don't, on their own, count
@@ -31,7 +33,7 @@ Required environment variables: `ZONES_DIR` (path to the directory containing
 BIND zone files) and one `PASS_<ZONE>_<HOST>` variable per credential, as
 referenced from the `auth "basic"` block in the example.
 
-### [weather-mcp.vcl](weather-mcp.vcl)
+### [weather-mcp/](weather-mcp/)
 
 A [`server "mcp"`](../doc/server-mcp.md) that exposes live weather data to an
 MCP client (Claude Desktop, Claude Code, etc.) as tools, a templated resource,
@@ -52,7 +54,7 @@ service, so it runs with no environment variables or credentials. Demonstrates:
   HTTP and MCP servers auto-wire to for OpenTelemetry traces and metrics — set
   `OTEL_EXPORTER_OTLP_ENDPOINT` to enable it, leave it unset to stay zero-config
 
-Run it with `vinculum serve examples/weather-mcp.vcl`, then point an MCP client
+Run it with `vinculum serve examples/weather-mcp/`, then point an MCP client
 at `http://localhost:9000/mcp`. See the comments at the top of the file for the
 client config and example prompts.
 
@@ -72,7 +74,8 @@ state changes over a WebSocket. A running instance is available at
 ### [voipms/](voipms/)
 
 A Prometheus exporter for the [VoIP.ms](https://voip.ms) REST API, split across
-multiple `.vcl` files. Demonstrates `client "http"` wrapping a third-party JSON
-API, labeled `metric` gauges and counters populated from `procedure` blocks,
-`trigger "interval"` scrapes with jitter, and a `server "metrics"` Prometheus
-endpoint. See [voipms/README.md](voipms/README.md) for details.
+multiple `.vcl` and [functy `.cty`](../doc/functy.md) files. Demonstrates
+`client "http"` wrapping a third-party JSON API, labeled `metric` gauges and
+counters populated from functy scrape functions, `trigger "interval"` scrapes
+with jitter, and a `server "metrics"` Prometheus endpoint. See
+[voipms/README.md](voipms/README.md) for details.

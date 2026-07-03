@@ -1,0 +1,22 @@
+// update_dns authorizes a Dynamic DNS request and applies it to the zone file.
+// It is callable from the `server "http"` handlers in dns-zone-updater.vcl
+// exactly like a built-in function.
+
+func update_dns(ctx: ctx, username: string, zone: string, host: string, ip: string, disabled: bool) -> http_response {
+    var expected_username = "${zone}/${host}"
+    if username != expected_username || ip == "" {
+        return http_response(http_status.Forbidden, "Forbidden")
+    }
+
+    // update_zone_record is the editor "line" block defined in the .vcl file.
+    var file_changed = update_zone_record(ctx, "${env.ZONES_DIR}/${zone}.zone", host, ip, disabled)
+    if file_changed {
+        // You could add other logic here, eg publish a message to MQTT, send an SMS, etc.
+        log_info("Updated DNS record", {
+            host = "${host}.${zone}", new_ip = ip, enabled = !disabled
+        })
+        return http_response(http_status.OK, "good ${ip}")
+    }
+
+    return http_response(http_status.OK, "nochg ${ip}")
+}
