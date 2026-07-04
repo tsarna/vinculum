@@ -3,30 +3,36 @@
 // Each call resolves against the client.voipms client defined in voipms-api.vcl,
 // asks for JSON, and returns the relevant slice of the response body.
 
+// Reseller account balance. Pass callstats = true to include call statistics
+// (calls_total, spent_total) in the response.
 func voipms_get_balance(ctx: ctx, callstats) {
     return http_must(http_get(ctx, client.voipms, "?method=getBalance", {
         as = "json", query = {advanced = callstats}
     })).body.balance
 }
 
+// All sub-accounts (clients) of the reseller.
 func voipms_get_clients(ctx: ctx) {
     return http_must(http_get(ctx, client.voipms, "?method=getClients", {
         as = "json"
     })).body.clients
 }
 
+// A single client's balance-threshold configuration.
 func voipms_get_client_threshold(ctx: ctx, client_id) {
     return http_must(http_get(ctx, client.voipms, "?method=getClientThreshold", {
         as = "json", query = {client = client_id}
     })).body.threshold_information
 }
 
+// Registration status of every SIP account.
 func voipms_get_all_registrations(ctx: ctx) {
     return http_must(http_get(ctx, client.voipms, "?method=getRegistrationStatus", {
         as = "json"
     })).body.registrations
 }
 
+// A single client sub-account's balance, including call statistics.
 func voipms_get_reseller_balance(ctx: ctx, client_id) {
     return http_must(http_get(ctx, client.voipms, "?method=getResellerBalance", {
         as = "json", query = {client = client_id}

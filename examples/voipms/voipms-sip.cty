@@ -1,5 +1,4 @@
 // Scrape SIP account registration status and set a labeled gauge per account.
-
 func voipms_scrape_sip_accounts(ctx: ctx) {
     var registrations = voipms_get_all_registrations(ctx)
     for reg in registrations {

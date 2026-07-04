@@ -1,8 +1,14 @@
 // update_dns authorizes a Dynamic DNS request and applies it to the zone file.
 // It is callable from the `server "http"` handlers in dns-zone-updater.vcl
 // exactly like a built-in function.
-
-func update_dns(ctx: ctx, username: string, zone: string, host: string, ip: string, disabled: bool) -> http_response {
+func update_dns(
+    ctx: ctx,          // handler context (request state, baggage, …)
+    username: string,  // authenticated Basic-auth user; must equal "<zone>/<host>"
+    zone: string,      // target DNS zone, from the request path
+    host: string,      // hostname within the zone to update
+    ip: string,        // new A-record address; "" is rejected as a bad request
+    disabled: bool,    // true comments the record out instead of setting it
+) -> http_response {
     var expected_username = "${zone}/${host}"
     if username != expected_username || ip == "" {
         return http_response(http_status.Forbidden, "Forbidden")

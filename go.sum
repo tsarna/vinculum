@@ -269,8 +269,8 @@ github.com/tsarna/barcode-cty-func v0.1.0 h1:N7Dyf8MBWUiKlW+GRr3iCgbxbDv8GZhHvah
 github.com/tsarna/barcode-cty-func v0.1.0/go.mod h1:QGoeJGHMmhnXlwq02MZTf1QYXQPn+hF2h5mMuCFXT90=
 github.com/tsarna/bytes-cty-type v0.1.0 h1:dBveIfYfRq0HLWJD1tIOGYpOPkr/hbpLT9LveeJDXkI=
 github.com/tsarna/bytes-cty-type v0.1.0/go.mod h1:VQLOD8UALXwqZdRSM8A1nqCKGqh62Pz77BCKNjYvKYQ=
-github.com/tsarna/functy v0.4.0 h1:slhUA94fPH0U+YixV9EUqE8ApgdKVZTOaE7gJ8oV05E=
-github.com/tsarna/functy v0.4.0/go.mod h1:CbfbHZl+W5sg20wa881dFmRCf1LDemw5Gzqn4O4YCVA=
+github.com/tsarna/functy v0.5.0 h1:3lR1sOkTaL/T5cB0CUqutWZXDyhv8g3abBbBcoqFXnM=
+github.com/tsarna/functy v0.5.0/go.mod h1:CbfbHZl+W5sg20wa881dFmRCf1LDemw5Gzqn4O4YCVA=
 github.com/tsarna/geo-cty-funcs v0.2.0 h1:PQq71LleI+X0CxG1FHSl2u4i5+7V5I+maGZUjp4WXkY=
 github.com/tsarna/geo-cty-funcs v0.2.0/go.mod h1:rxTXAOILIiZL3g41aIoiFQsEPxi0K0Oo7HrVXzSTa9c=
 github.com/tsarna/go-structdiff v0.2.1 h1:SD30U/azJB85tH9dgNu4qVOA2bPie9e1l5EvJodMaD8=
