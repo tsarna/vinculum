@@ -330,14 +330,25 @@ platform. Only the *loader* is platform-gated.
 assert "name" { condition = expr }
 bus "name" { queue_size = 1000 }
 client "type" "name" { ... }
+condition "type" "name" { ... }
 const { name = expr; ... }
-cron "name" { at "schedule" "label" { action = expr } }
+editor "type" "name" { ... }
+fsm "name" { ... }
 function "name" { params = [a, b]; result = expr }
 jq "name" { params = [a]; query = ".field" }
+metric "type" "name" { ... }
+procedure "name" { spec { ... }; ...; return = expr }
 server "type" "name" { ... }
-signals { SIGHUP = expr }
 subscription "name" { target = bus.x; topics = [...]; action = expr }
+trigger "type" "name" { ... }   # incl. trigger "cron", trigger "signals", trigger "at", ...
+var "name" { value = expr }     # mutable; exposed as var.<name>
+wire_format "type" "name" { ... }
 ```
+
+`cron` and `signals` are **not** top-level blocks; they are trigger types
+(`trigger "cron" "name"`, `trigger "signals" "name"`). `function`, `jq`, `editor`,
+and `procedure` are function-definition blocks extracted early in `Build()`
+(before general block processing); the rest are processed via `GetBlockHandlers()`.
 
 ### Built-in variables
 
