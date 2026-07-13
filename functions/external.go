@@ -22,6 +22,11 @@ func init() {
 	cfg.RegisterFunctionPlugin("generic", func(_ *cfg.Config) map[string]function.Function {
 		return richcty.GetGenericFunctions()
 	})
+	// The real signatures of those functions. Each takes an optional *leading*
+	// context, which cty cannot express — it can only make trailing parameters
+	// optional — so from cty metadata alone the whole family reads as
+	// `get(thing, ...args)`. These declarations are what help() shows instead.
+	cfg.RegisterFunctyExterns(richcty.ExternsFilename, richcty.Externs())
 	cfg.RegisterFunctionPlugin("random", func(_ *cfg.Config) map[string]function.Function {
 		return randcty.GetRandomFunctions()
 	})

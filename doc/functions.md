@@ -998,6 +998,28 @@ These are functy's standard-library builtins (shared with standalone `functy`), 
 - `try(expr1, expr2, ...)`: Evaluate each expression in order; return the value of the first one that evaluates without error. If all expressions error, `try()` itself errors with the accumulated diagnostics. **Each expression is evaluated at most once.** This is vinculum's single-evaluation variant and differs from the stock HCL `try()` (from `hcl/v2/ext/tryfunc`) — the upstream implementation evaluates the selected expression twice (once for return-type inference, once for the actual value), which is a hazard for side-effectful arguments like `try(send(ctx, ...), ...)`. The trade-off for single-evaluation is that vinculum's `try()` has a dynamic return type rather than the concrete unified type of its branches.
 - `can(expr)`: Return whether `expr` evaluates without error, as a `bool`. Useful to guard an expression that may fail — e.g. `can(jsondecode(s))`.
 
+### Reflection
+
+Available anywhere vinculum evaluates an expression, and most useful at the [REPL](repl.md).
+
+- `help(name?)`: With a name, return a human-readable summary of that function — its signature, description, and per-parameter documentation. With no argument, return the sorted names of every available function, as a directory to explore with `help(name)`. Returns `null` if there is no such function.
+- `doc(name)`: Return just a function's description. `null` if there is no such function; `""` if it exists but is undocumented.
+
+`help()` shows a function's **real** signature, which is not always the one cty can express. A cty function may only make its *trailing* parameters optional, so the generic capability functions below — `get`, `set`, `count`, `increment`, `observe`, and the rest, which all take an *optional leading* `ctx` — must fake it with a variadic, and would otherwise reflect uselessly as `get(thing, ...args)`. They ship declarations of what they actually accept, and `help()` uses those:
+
+```console
+> help("get")
+get(ctx?: ctx, thing, fallback?, *args) -> any
+
+Read a thing's current value.
+
+Parameters:
+  ctx?       request context
+  thing      the thing to read (must be Gettable)
+  fallback?  Conventionally the value to return when the thing has none. …
+  *args      further arguments, interpreted by the thing
+```
+
 ### Messaging
 
 - `send(ctx, subscriber, topic, payload, fields?)`: Publish a message to a bus or other subscriber. `fields` is an optional map of string metadata attached to the event. Returns `true`.

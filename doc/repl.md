@@ -54,7 +54,32 @@ Type any VCL expression and press Enter:
 
 Results print in HCL/VCL style — the way you would write the value in a `.vcl`
 file. Rich runtime objects that have no literal form (buses, servers, clients,
-`bytes`, …) print a short typed summary instead.
+`bytes`, …) print a short typed summary instead. A multi-line string prints as a
+heredoc, so that its lines read as lines.
+
+## Finding your way around: `help()`
+
+`help()` with no argument lists every function available; `help("name")` explains one
+— its signature, what it does, and what each parameter is for. `doc("name")` returns
+just the description. See [functions.md](functions.md#reflection).
+
+```console
+1> help("count")
+<<EOT
+count(ctx?: ctx, thing) -> number
+
+How many times something has happened — a counter's running total. Distinct from
+length(), which is how many elements a collection holds.
+
+Parameters:
+  ctx?   request context
+  thing  the thing to count (must be Countable)
+EOT
+```
+
+The signature shown is the function's real one, which is not always the one its cty
+type can express — `count` above genuinely takes an optional *leading* `ctx`, which a
+cty signature has no way to say.
 
 The number in the prompt is the index the **next** result will be bound to: at
 `3>` a successful, non-null result becomes `_3` (see

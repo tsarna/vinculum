@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`help()` and `doc()` — reflection over Vinculum's function set.** `help("f")` returns a function's signature, description, and per-parameter docs; with no argument it lists every callable name. `doc("f")` returns just the description. Both are available wherever Vinculum evaluates an expression, and in particular in the REPL (`serve -i`), where `help()` is now the way to find your way around the function set.
+
+  `help()` shows the *real* signature of a host function, not the one cty can express. A cty function may only make its **trailing** parameters optional, so the generic capability family — `get`, `set`, `count`, `increment`, `observe`, … — which takes an optional **leading** context, has to fake it with a variadic and reflects as the useless `get(thing, ...args)`. Those functions now ship declarations of what they actually accept, and `help()` prefers them:
+
+  ```console
+  > help("get")
+  get(ctx?: ctx, thing, fallback?, *args) -> any
+
+  Read a thing's current value.
+
+  Parameters:
+    ctx?       request context
+    thing      the thing to read (must be Gettable)
+    fallback?  Conventionally the value to return when the thing has none. …
+    *args      further arguments, interpreted by the thing
+  ```
+
+- **`RegisterFunctyExterns(filename, src)`** — a package that contributes a function plugin can register a `//functy:extern` source declaring the true signatures of the functions it provides, alongside the plugin itself. Unlike the function-plugin registry, extern names are checked for collisions: two packages declaring the same name is an error, as is a user `.cty` function that collides with one.
+
 - **functy (`.cty` files)**: a configuration directory may now contain [functy](https://github.com/tsarna/functy) source files (`.cty`) alongside its `.vcl` files. functy is a small expression/statement language with real syntax for functions, typed locals, reassignment, branching, loops, `try`/`catch`, and structured errors — a more expressive alternative to `function`, `jq`, and the `procedure` block. Its top-level `func` declarations join the same user-function namespace, and its top-level `var`/`const` bindings fold into Vinculum's own var/const pools (a functy `const` may reference a VCL `const` and vice versa in any order; a functy `var` becomes a mutable `var.<name>`). Type annotations can name Vinculum's capsule and rich-object types (`bus`, `server`, `client`, `subscriber`, `variable`, `time`, `duration`, `url`, `bytes`, `baggage`, `metric`, `wire_format`, `ctx`, `http_request`/`http_response`/`http_client_response`, `http_client`, `sql_client`/`sql_query`, `mcp_result`), and the same type grammar backs the `var` block's `type` attribute. An uncaught throw or failed `assert` inside a `.cty` function called from VCL is rendered against the offending `.cty` line (with `assert` operand detail) through the user log. See [doc/functy.md](doc/functy.md).
 - **functy standard library**: adopting functy's stdlib adds the `typekind`, `assert`, and `can` builtins (alongside the existing `typeof`, `cond`, `switch`, `error`, `try`), available anywhere Vinculum evaluates an expression. See [doc/functions.md](doc/functions.md#control-flow).
 - **The `var` block `type` attribute accepts a type spec**, not just a quoted string: `type = number`, `type = list(string)`, `type = object({ host = string, port = number })`, or a host-registered named type such as `type = bus`. Enforcement now coerces where the grammar allows. See [doc/config.md](doc/config.md#var).

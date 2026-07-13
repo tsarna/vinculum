@@ -50,6 +50,40 @@ func RegisterFunctyOpenType(name string, pred func(cty.Value) error) {
 	registeredFunctyTypes = append(registeredFunctyTypes, functyTypeRegistration{name: name, pred: pred, open: true})
 }
 
+type functyExternRegistration struct {
+	filename string
+	src      []byte
+}
+
+// registeredFunctyExterns holds the //functy:extern sources contributed via
+// RegisterFunctyExterns, applied when the parser is built during Build().
+var registeredFunctyExterns []functyExternRegistration
+
+// RegisterFunctyExterns registers a //functy:extern source declaring the *real*
+// signatures of functions a package contributes as a function plugin. Call it from
+// the same init() that registers the plugin, so the declarations sit next to the
+// functions they describe.
+//
+// It exists because a cty function's own metadata often cannot describe it. cty can
+// only make a *trailing* parameter optional, so a function taking an optional
+// leading context — the whole rich-cty-types get/set/count family — has to fake it
+// with a variadic, and reflects uselessly as `get(thing, ...args)`. An extern states
+// what the function actually accepts, so help() and editor tooling can show it.
+//
+// The source must carry the //functy:extern directive itself. It is not compiled and
+// declares nothing callable; it only documents functions the host already provides.
+// Note that functy checks extern names for collisions, which the function-plugin
+// registry does not: two packages declaring an extern for the same name is an error,
+// as is an extern that collides with a user's .cty function.
+//
+//	cfg.RegisterFunctionPlugin("generic", func(*cfg.Config) map[string]function.Function {
+//	    return richcty.GetGenericFunctions()
+//	})
+//	cfg.RegisterFunctyExterns(richcty.ExternsFilename, richcty.Externs())
+func RegisterFunctyExterns(filename string, src []byte) {
+	registeredFunctyExterns = append(registeredFunctyExterns, functyExternRegistration{filename: filename, src: src})
+}
+
 // functyState holds the parsed .cty artifacts kept on Config for reuse across
 // build phases: the parsed Result (functions, and top-level var/const decls
 // folded into Vinculum's pools), the raw sources (for rendering functy errors
@@ -171,6 +205,13 @@ func newFunctyParser() *functy.Parser {
 		}
 	}
 
+	// Extern declarations contributed by the same leaf packages: the real signatures
+	// of the cty functions they provide. After the types, so the names those
+	// signatures use (`ctx`, `time`, …) are already registered.
+	for _, e := range registeredFunctyExterns {
+		p.RegisterExterns(e.src, e.filename)
+	}
+
 	return p
 }
 
@@ -197,15 +238,19 @@ func (s *functyState) resolver() *functy.TypeResolver {
 // finalized after compilation. The parsed Result (functions plus top-level
 // var/const decls, folded into Vinculum's pools later) is retained on the state.
 // The function map is nil when there are no .cty sources.
+//
+// It parses even when there are no .cty sources at all: the Result still carries the
+// host externs registered on the parser (RegisterFunctyExterns), and help() needs
+// them whether or not the user wrote any functy of their own.
 func (s *functyState) compile(sources []functy.Source, evalCtxFn func() *hcl.EvalContext) (map[string]function.Function, hcl.Diagnostics) {
 	s.sources = sources
-	if len(sources) == 0 {
-		return nil, nil
-	}
 
-	// Cache the filename→bytes map once for runtime functy-error rendering.
-	s.files = make(map[string]*hcl.File, len(sources))
-	for _, src := range sources {
+	// Cache the filename→bytes map once for runtime functy-error rendering. The
+	// extern sources are included so a diagnostic pointing into a package's embedded
+	// externs — which was never read from disk here — still renders with a snippet.
+	externSources := s.parser.ExternSources()
+	s.files = make(map[string]*hcl.File, len(sources)+len(externSources))
+	for _, src := range append(externSources, sources...) {
 		s.files[src.Filename] = &hcl.File{Bytes: src.Bytes}
 	}
 
