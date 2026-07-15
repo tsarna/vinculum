@@ -3,7 +3,7 @@ module github.com/tsarna/vinculum
 go 1.26.0
 
 require (
-	github.com/tsarna/bytes-cty-type v0.1.0
+	github.com/tsarna/bytes-cty-type v0.2.0
 	go.uber.org/zap v1.28.0
 )
 
@@ -35,14 +35,14 @@ require (
 	github.com/sosodev/duration v1.4.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
-	github.com/tsarna/barcode-cty-func v0.1.0
+	github.com/tsarna/barcode-cty-func v0.2.0
 	github.com/tsarna/functy v0.9.0
 	github.com/tsarna/geo-cty-funcs v0.2.0
 	github.com/tsarna/go-structdiff v0.2.1
 	github.com/tsarna/go2cty2go v0.1.3
 	github.com/tsarna/hcl-jqfunc v0.1.4
 	github.com/tsarna/rand-cty-funcs v0.1.1
-	github.com/tsarna/rich-cty-types v0.4.0
+	github.com/tsarna/rich-cty-types v0.5.1
 	github.com/tsarna/sqid-cty-funcs v0.1.0
 	github.com/tsarna/time-cty-funcs v0.2.1
 	github.com/tsarna/vinculum-bus v0.15.1

@@ -267,10 +267,10 @@ github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/
 github.com/stretchr/testify v1.7.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/tsarna/barcode-cty-func v0.1.0 h1:N7Dyf8MBWUiKlW+GRr3iCgbxbDv8GZhHvahFPkNbIvM=
-github.com/tsarna/barcode-cty-func v0.1.0/go.mod h1:QGoeJGHMmhnXlwq02MZTf1QYXQPn+hF2h5mMuCFXT90=
-github.com/tsarna/bytes-cty-type v0.1.0 h1:dBveIfYfRq0HLWJD1tIOGYpOPkr/hbpLT9LveeJDXkI=
-github.com/tsarna/bytes-cty-type v0.1.0/go.mod h1:VQLOD8UALXwqZdRSM8A1nqCKGqh62Pz77BCKNjYvKYQ=
+github.com/tsarna/barcode-cty-func v0.2.0 h1:VQFRNxsbupEHzzDe4Enc4PvpIL46OSUOaJS6Uy35WXY=
+github.com/tsarna/barcode-cty-func v0.2.0/go.mod h1:Yliu/R9drI5Kp0bBUyHqYnX60It1UdMxpl/qtotKhJI=
+github.com/tsarna/bytes-cty-type v0.2.0 h1:eVK3/ArRqyLWjEtWuzPgSWTO06QYxfxTZPW0/eaPnnY=
+github.com/tsarna/bytes-cty-type v0.2.0/go.mod h1:6mccxA2V3RLoOkntV5La6GkURL2vtBYaZegmksLopow=
 github.com/tsarna/functy v0.9.0 h1:pi4PtrbeaqIxvvVxK2W5Qm7fbzfYbulasy4A9bB9Q1A=
 github.com/tsarna/functy v0.9.0/go.mod h1:WcNFcTpvRc0qJtliKPMCe/VXhI5flBwap/Ako0Kuv/c=
 github.com/tsarna/geo-cty-funcs v0.2.0 h1:PQq71LleI+X0CxG1FHSl2u4i5+7V5I+maGZUjp4WXkY=
@@ -283,8 +283,8 @@ github.com/tsarna/hcl-jqfunc v0.1.4 h1:RM6XtbsB/+vBmt3xyHrFcUQ9CBtoTyvH+f8cThFt4
 github.com/tsarna/hcl-jqfunc v0.1.4/go.mod h1:68xhvtbrJJLOd4uYbnkKlFSxgoGaaZhWEnxuuOMTA5I=
 github.com/tsarna/rand-cty-funcs v0.1.1 h1:tYdl899CbqkkVAH62mvSCPhEg6CIp1tbthe8j8g/2fU=
 github.com/tsarna/rand-cty-funcs v0.1.1/go.mod h1:AgSFyrU3oypFIUgmWWEkjBWz7lXrV+2gpW87ef6mx2U=
-github.com/tsarna/rich-cty-types v0.4.0 h1:3UqExVy5cbWrBtOyt3vg2XPOCHXfaLD/ycKaQVLqX7E=
-github.com/tsarna/rich-cty-types v0.4.0/go.mod h1:CFQPkG2Ghc5mHIFyFLA1kHs51QLXbuIKuypdhX9dbAo=
+github.com/tsarna/rich-cty-types v0.5.1 h1:C1NtseqKtw9zYDzGIc8QJtUEjjc2KDkzAJ7RdNklO9Q=
+github.com/tsarna/rich-cty-types v0.5.1/go.mod h1:F0cK50wpbbz+oJKdBfJy3ioqYXRfvoHbgJ3mJisbeAc=
 github.com/tsarna/sqid-cty-funcs v0.1.0 h1:q8Dt1l8u8t1hVIs40Iz7sgeaTPrxwX07q9IaEYjaBhs=
 github.com/tsarna/sqid-cty-funcs v0.1.0/go.mod h1:QDOjQrrV85hpg2dMVZk7VYw1YL0RZ+26uurRCZAtqWc=
 github.com/tsarna/time-cty-funcs v0.2.1 h1:MHz0UYQe/EUDu2dVH5ZnBT44d4eDjsEsNeHk/rsj1Qo=
