@@ -1,3 +1,3 @@
 trigger "signals" "main" {
-    SIGUSR1 = log_info("got signal", {signal = ctx.signal})
+    SIGUSR1 = log::info("got signal", {signal = ctx.signal})
 }

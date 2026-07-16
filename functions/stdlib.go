@@ -73,10 +73,14 @@ func GetStandardLibraryFunctions() map[string]function.Function {
 		"jsondecode": stdlib.JSONDecodeFunc,
 		"jsonencode": stdlib.JSONEncodeFunc,
 
-		// Date/time functions
+		// Date/time functions.
+		//
+		// These are the flat, string-in/string-out HCL builtins. The `time` plugin adds
+		// the capsule-typed `time::*` and `duration::*` families alongside them:
+		// `timeadd` takes RFC 3339 strings and returns one, while `time::add` takes (or
+		// parses) a `time` and a `duration` and returns a `time`.
 		"formatdate": stdlib.FormatDateFunc,
-		// Note: "timeadd" is registered via GetTimeFunctions() with an upgraded
-		// implementation that also accepts capsule types while remaining backward-compatible.
+		"timeadd":    stdlib.TimeAddFunc,
 
 		// Type conversion functions (using MakeToFunc)
 		// Note: "tostring" is registered via the generic plugin with an enhanced
@@ -111,7 +115,12 @@ func GetStandardLibraryFunctions() map[string]function.Function {
 		// Encoding functions (additional - these override stdlib versions if any exist)
 		// Note: base64encode and base64decode are provided by the bytes plugin with
 		// enhanced implementations that support the bytes capsule type.
-		"urlencode": encoding.URLEncodeFunc,
+		//
+		// urlencode is percent-encoding's flat HCL builtin. It is also registered as
+		// `url::encode` so that it pairs symmetrically with `url::decode` (from the url
+		// plugin), whose family url-cty-funcs namespaced under url::.
+		"urlencode":   encoding.URLEncodeFunc,
+		"url::encode": encoding.URLEncodeFunc,
 
 		// Filesystem functions
 		"abspath":    filesystem.AbsPathFunc,

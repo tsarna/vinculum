@@ -1,7 +1,7 @@
 trigger "signals" "first" {
-    SIGUSR1 = log_info("first handler", {})
+    SIGUSR1 = log::info("first handler", {})
 }
 
 trigger "signals" "second" {
-    SIGUSR1 = log_info("second handler", {})
+    SIGUSR1 = log::info("second handler", {})
 }

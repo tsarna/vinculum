@@ -21,8 +21,8 @@ the client argument and the verb function will use a built-in default.
 
 ```hcl
 trigger "start" "ping" {
-    action = log_info("ping result", {
-        status = http_get(ctx, null, "https://example.com/ping").status,
+    action = log::info("ping result", {
+        status = http::get(ctx, null, "https://example.com/ping").status,
     })
 }
 ```
@@ -50,14 +50,14 @@ client "http" "github" {
 
 # A handler somewhere uses the client by relative path:
 handle "GET /repos/{name}" {
-    action = http_must(http_get(ctx, client.github, "/repos/tsarna/${ctx.request.path.name}"))
+    action = http::must(http::get(ctx, client.github, "/repos/tsarna/${ctx.request.path.name}"))
 }
 ```
 
 ### POST with auto-serialized JSON body
 
 ```hcl
-http_post(ctx, client.api, "/widgets", {
+http::post(ctx, client.api, "/widgets", {
     name  = "frobnicator"
     color = "blue"
 })
@@ -66,7 +66,7 @@ http_post(ctx, client.api, "/widgets", {
 ### POST with explicit body bytes and per-call options
 
 ```hcl
-http_post(ctx, client.api, "/upload",
+http::post(ctx, client.api, "/upload",
     filebytes("/tmp/photo.jpg", "image/jpeg"),
     {
         headers = { "X-Upload-Source" = "vinculum" }
@@ -108,7 +108,7 @@ client "http" "<name>" {
     # Action expression evaluated lazily to produce the Authorization
     # header value. May call any function, including http_*() against
     # this same client (an OAuth-token-from-same-host pattern).
-    auth              = basicauth(env.USER, env.PASS)
+    auth              = http::basic_auth(env.USER, env.PASS)
     auth_max_lifetime = "55m"   # optional: re-evaluate at least this often
     auth_max_failures = 5
 
@@ -206,20 +206,20 @@ global function namespace alongside the other built-ins.
 
 | Function | Body? | Idempotent (per RFC) |
 |---|---|---|
-| `http_get(ctx, client, url[, opts])` | no | yes |
-| `http_head(ctx, client, url[, opts])` | no | yes |
-| `http_options(ctx, client, url[, opts])` | no | yes |
-| `http_delete(ctx, client, url[, opts])` | no | yes |
-| `http_post(ctx, client, url[, body[, opts]])` | yes | no |
-| `http_put(ctx, client, url[, body[, opts]])` | yes | yes |
-| `http_patch(ctx, client, url[, body[, opts]])` | yes | no |
+| `http::get(ctx, client, url[, opts])` | no | yes |
+| `http::head(ctx, client, url[, opts])` | no | yes |
+| `http::options(ctx, client, url[, opts])` | no | yes |
+| `http::delete(ctx, client, url[, opts])` | no | yes |
+| `http::post(ctx, client, url[, body[, opts]])` | yes | no |
+| `http::put(ctx, client, url[, body[, opts]])` | yes | yes |
+| `http::patch(ctx, client, url[, body[, opts]])` | yes | no |
 
 A generic form is also provided for unusual methods or when the method is
 dynamic:
 
 | Function | Description |
 |---|---|
-| `http_request(ctx, client, method, url[, body[, opts]])` | Generic; useful for `PROPFIND`, `MKCOL`, etc., or when the method is computed. |
+| `http::request(ctx, client, method, url[, body[, opts]])` | Generic; useful for `PROPFIND`, `MKCOL`, etc., or when the method is computed. |
 
 ### Argument semantics
 
@@ -248,7 +248,7 @@ context canceled, retries exhausted on a network error), the function
 **raises an HCL error** — the same mechanism used by `error()`.
 HTTP-level non-2xx responses do **not** raise: a `404` is
 just a response with `status = 404`, the same as `fetch()`'s behavior. Use
-[`http_must()`](#http_must) when you want a non-2xx response to fail loudly.
+[`http::must()`](#http_must) when you want a non-2xx response to fail loudly.
 
 ---
 
@@ -269,7 +269,7 @@ on the call or the client block override it (see *Header precedence*).
 
 > Body-less verbs (`GET`, `HEAD`, `OPTIONS`, `DELETE`) have no body slot in
 > their signature. To send a body with one of those methods (yes, `DELETE`
-> *can* technically carry a body), use `http_request(ctx, client, "DELETE",
+> *can* technically carry a body), use `http::request(ctx, client, "DELETE",
 > url, body, opts)`.
 
 ---
@@ -292,7 +292,7 @@ The `opts` argument is an object literal. All keys are optional.
 | `body_limit` | number | Maximum bytes to read from the response body. Default unlimited. |
 | `otel` | object | Object with a `propagate` boolean: per-call OTel header propagation override. |
 
-The `as` option is a convenience: `http_get(ctx, c, url, { as = "json" }).body`
+The `as` option is a convenience: `http::get(ctx, c, url, { as = "json" }).body`
 gives a directly usable cty value with no `get()` round-trip.
 
 ---
@@ -339,10 +339,10 @@ client "http" "weather" {
 }
 
 # Sends: GET /v1/forecast?api_key=secret&zip=02139
-http_get(ctx, client.weather, "forecast", { query = { zip = "02139" } })
+http::get(ctx, client.weather, "forecast", { query = { zip = "02139" } })
 
 # Sends: GET /v1/forecast?api_key=secret&zip=02139
-http_get(ctx, client.weather, "forecast?zip=02139")
+http::get(ctx, client.weather, "forecast?zip=02139")
 ```
 
 Merge rules, in precedence order:
@@ -432,7 +432,7 @@ upstream's token lifetime is well-known and fixed.
 
 ```hcl
 client "http" "azure" {
-    auth              = basicauth(env.USER, env.PASS)
+    auth              = http::basic_auth(env.USER, env.PASS)
     auth_max_lifetime = "55m"   # tokens last 60m, refresh 5m early
 }
 ```
@@ -466,7 +466,7 @@ client "http" "azure" {
     # fetch a token. Reentrancy suppression (see below) prevents an
     # infinite loop.
     auth = "Bearer ${get(
-        http_post(ctx, client.azure, "/${env.TENANT_ID}/oauth2/v2.0/token",
+        http::post(ctx, client.azure, "/${env.TENANT_ID}/oauth2/v2.0/token",
             {
                 client_id     = env.CLIENT_ID
                 client_secret = env.CLIENT_SECRET
@@ -591,9 +591,9 @@ The verb function's `opts.retry` accepts:
 - an inline block — override the client's retry policy
 
 ```hcl
-http_get(ctx, client.api, "/data", { retry = false })
+http::get(ctx, client.api, "/data", { retry = false })
 
-http_get(ctx, client.api, "/data", {
+http::get(ctx, client.api, "/data", {
     retry = {
         max_attempts  = 5
         initial_delay = "1s"
@@ -628,13 +628,13 @@ client "http" "api" {
 }
 
 # Login response sets a session cookie; the jar stores it.
-http_post(ctx, client.api, "/login", { user = "alice", pass = "..." })
+http::post(ctx, client.api, "/login", { user = "alice", pass = "..." })
 
 # Subsequent calls automatically include the session cookie.
-http_get(ctx, client.api, "/me")
+http::get(ctx, client.api, "/me")
 
 # A per-call cookie alongside the jar.
-http_get(ctx, client.api, "/things", {
+http::get(ctx, client.api, "/things", {
     cookies = { tracking = "abc123" }
 })
 ```
@@ -673,7 +673,7 @@ These headers slot into the special-handling tier of the precedence chain
 A caller can disable propagation per request:
 
 ```hcl
-http_get(ctx, client.api, "/probe", {
+http::get(ctx, client.api, "/probe", {
     otel = { propagate = false }
 })
 ```
@@ -699,40 +699,40 @@ The setup is automatic — no per-client metrics attribute is required.
 
 ---
 
-## Status assertions: `http_must`
+## Status assertions: `http::must`
 
 For "this call must succeed with status N or blow up" call sites, use
-`http_must()` rather than threading status checks through every caller:
+`http::must()` rather than threading status checks through every caller:
 
 ```hcl
 # Default: any 2xx is acceptable
-data = get(http_must(http_get(ctx, client.api, "/widgets")), "body_json")
+data = get(http::must(http::get(ctx, client.api, "/widgets")), "body_json")
 
 # Explicit single status
-http_must(http_post(ctx, client.api, "/widgets", w), 201)
+http::must(http::post(ctx, client.api, "/widgets", w), 201)
 
 # Multiple acceptable statuses
-http_must(http_delete(ctx, client.api, "/widgets/${id}"), [200, 204, 404])
+http::must(http::delete(ctx, client.api, "/widgets/${id}"), [200, 204, 404])
 
 # A range
-http_must(http_get(ctx, client.api, "/data"), [[200, 299]])
+http::must(http::get(ctx, client.api, "/data"), [[200, 299]])
 
 # Mix of numbers and ranges
-http_must(http_get(ctx, client.api, "/data"), [404, [200, 299]])
+http::must(http::get(ctx, client.api, "/data"), [404, [200, 299]])
 ```
 
-When the assertion fails, `http_must` raises a plain HCL error containing
+When the assertion fails, `http::must` raises a plain HCL error containing
 the method, final URL, actual status code and text, expected set, and a
 truncated excerpt of the response body (first 512 bytes for text bodies;
 binary bodies are summarized as `<N bytes of <media-type>>`).
 
-`http_must` is a thin wrapper. Its value is in making the *common* case
+`http::must` is a thin wrapper. Its value is in making the *common* case
 short, not in being the only error-handling tool — for full programmatic
 access to a failing response, handle the status check yourself:
 
 ```hcl
 locals = {
-    resp = http_post(ctx, client.api, "/widgets", w)
+    resp = http::post(ctx, client.api, "/widgets", w)
 }
 result = local.resp.status == 201
     ? get(local.resp, "body_json")
@@ -785,7 +785,7 @@ server "http" "api" {
     listen = ":8080"
 
     handle "GET /repos/{owner}/{name}" {
-        action = http_must(http_get(
+        action = http::must(http::get(
             ctx,
             client.github,
             "/repos/${ctx.request.path.owner}/${ctx.request.path.name}",
@@ -799,8 +799,8 @@ server "http" "api" {
 ```hcl
 trigger "interval" "report" {
     delay = "1m"
-    action = log_info("widget count", {
-        count = http_post(
+    action = log::info("widget count", {
+        count = http::post(
             ctx,
             client.api,
             "/widgets/search",
@@ -819,7 +819,7 @@ client "http" "azure" {
 
     auth = (
         locals = {
-            resp = get(http_post(
+            resp = get(http::post(
                 ctx,
                 client.azure,
                 "/${env.TENANT_ID}/oauth2/v2.0/token",
@@ -849,7 +849,7 @@ client "http" "myapp" {
 }
 
 trigger "start" "login" {
-    action = http_must(http_post(ctx, client.myapp, "/login", {
+    action = http::must(http::post(ctx, client.myapp, "/login", {
         username = env.MYAPP_USER
         password = env.MYAPP_PASS
     }))
@@ -858,8 +858,8 @@ trigger "start" "login" {
 # Subsequent calls automatically include the session cookie set by /login.
 trigger "interval" "poll" {
     delay  = "30s"
-    action = log_info("status", {
-        body = get(http_must(http_get(ctx, client.myapp, "/status")), "body_json")
+    action = log::info("status", {
+        body = get(http::must(http::get(ctx, client.myapp, "/status")), "body_json")
     })
 }
 ```
@@ -869,8 +869,8 @@ trigger "interval" "poll" {
 ```hcl
 trigger "cron" "healthcheck" {
     at "0 */5 * * * *" "ping" {
-        action = log_info("upstream", {
-            status = http_get(ctx, null, "https://upstream.example.com/health").status
+        action = log::info("upstream", {
+            status = http::get(ctx, null, "https://upstream.example.com/health").status
         })
     }
 }

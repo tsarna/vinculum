@@ -369,7 +369,7 @@ effects (logging, sending messages, etc.).
 
 ```hcl
 action = [
-    log_info("doing thing", {key = val}),
+    log::info("doing thing", {key = val}),
     send(ctx, bus.main, "topic", "payload"),
     "final return value",
 ]
@@ -532,7 +532,7 @@ See `MCP-SPEC.md` (full spec) and `MCP-MVP.md` (MVP scope) for details.
 - Static and URI-template resources with action-based handlers
 - Tools with typed params and action-based handlers
 - Prompts with params and action-based handlers
-- `mcp_image()`, `mcp_error()`, `mcp_usermessage()`, `mcp_assistantmessage()` — available globally in all action expressions (not just MCP handlers)
+- `mcp::image()`, `mcp::error()`, `mcp::user_message()`, `mcp::assistant_message()` — available globally in all action expressions (not just MCP handlers)
 - Unit tests for all three handler types using in-process SDK client
 - Observability (`servers/mcp/observability.go`): OTel tracing + metrics
   conforming to the GenAI/MCP semantic conventions. An SDK receiving middleware

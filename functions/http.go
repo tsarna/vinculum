@@ -14,11 +14,11 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
+	bytescty "github.com/tsarna/bytes-cty-type"
 	richcty "github.com/tsarna/rich-cty-types"
 	urlcty "github.com/tsarna/url-cty-funcs"
 	clientshttp "github.com/tsarna/vinculum/clients/http"
 	cfg "github.com/tsarna/vinculum/config"
-	bytescty "github.com/tsarna/bytes-cty-type"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
@@ -38,15 +38,15 @@ func init() {
 // config may be nil in tests that do not exercise hooks.
 func GetHTTPClientFunctions(config *cfg.Config) map[string]function.Function {
 	return map[string]function.Function{
-		"http_get":     makeVerbFunc(config, "GET", false),
-		"http_head":    makeVerbFunc(config, "HEAD", false),
-		"http_options": makeVerbFunc(config, "OPTIONS", false),
-		"http_delete":  makeVerbFunc(config, "DELETE", false),
-		"http_post":    makeVerbFunc(config, "POST", true),
-		"http_put":     makeVerbFunc(config, "PUT", true),
-		"http_patch":   makeVerbFunc(config, "PATCH", true),
-		"http_request": makeGenericVerbFunc(config),
-		"http_must":    HTTPMustFunc,
+		"http::get":     makeVerbFunc(config, "GET", false),
+		"http::head":    makeVerbFunc(config, "HEAD", false),
+		"http::options": makeVerbFunc(config, "OPTIONS", false),
+		"http::delete":  makeVerbFunc(config, "DELETE", false),
+		"http::post":    makeVerbFunc(config, "POST", true),
+		"http::put":     makeVerbFunc(config, "PUT", true),
+		"http::patch":   makeVerbFunc(config, "PATCH", true),
+		"http::request": makeGenericVerbFunc(config),
+		"http::must":    HTTPMustFunc,
 	}
 }
 
@@ -57,14 +57,18 @@ func GetHTTPClientFunctions(config *cfg.Config) map[string]function.Function {
 // (ctx, client, url, opts?). The trailing optional slots are resolved by
 // argument count at call time.
 func makeVerbFunc(config *cfg.Config, method string, bodyAllowed bool) function.Function {
+	restDesc := "An optional options object (headers, query, timeout, …)"
+	if bodyAllowed {
+		restDesc = "An optional request body, then an optional options object (headers, query, timeout, …)"
+	}
 	return function.New(&function.Spec{
 		Description: fmt.Sprintf("Performs an HTTP %s request and returns the response object", method),
 		Params: []function.Parameter{
-			{Name: "ctx", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true},
-			{Name: "client", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true},
-			{Name: "url", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true},
+			{Name: "ctx", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true, Description: "The handler context (carries tracing, deadlines, and request scope)"},
+			{Name: "client", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true, Description: "The HTTP client to use, or null for the default client"},
+			{Name: "url", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true, Description: "Request URL: a string or a url object"},
 		},
-		VarParam: &function.Parameter{Name: "rest", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true},
+		VarParam: &function.Parameter{Name: "rest", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true, Description: restDesc},
 		Type:     function.StaticReturnType(types.HTTPClientResponseObjectType),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 			ctx, client, rawURL, body, opts, err := parseVerbArgs(args, method, bodyAllowed)
@@ -82,12 +86,12 @@ func makeGenericVerbFunc(config *cfg.Config) function.Function {
 	return function.New(&function.Spec{
 		Description: "Performs a generic HTTP request with an explicit method and returns the response object",
 		Params: []function.Parameter{
-			{Name: "ctx", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true},
-			{Name: "client", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true},
-			{Name: "method", Type: cty.String},
-			{Name: "url", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true},
+			{Name: "ctx", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true, Description: "The handler context (carries tracing, deadlines, and request scope)"},
+			{Name: "client", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true, Description: "The HTTP client to use, or null for the default client"},
+			{Name: "method", Type: cty.String, Description: "HTTP method (GET, POST, …)"},
+			{Name: "url", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true, Description: "Request URL: a string or a url object"},
 		},
-		VarParam: &function.Parameter{Name: "rest", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true},
+		VarParam: &function.Parameter{Name: "rest", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true, Description: "An optional request body, then an optional options object (headers, query, timeout, …)"},
 		Type:     function.StaticReturnType(types.HTTPClientResponseObjectType),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 			method := strings.ToUpper(args[2].AsString())
@@ -1336,15 +1340,15 @@ const httpMustErrorBodyExcerpt = 512
 var HTTPMustFunc = function.New(&function.Spec{
 	Description: "Returns response unchanged if its status matches expected (default any 2xx); otherwise raises an HCL error",
 	Params: []function.Parameter{
-		{Name: "response", Type: cty.DynamicPseudoType, AllowDynamicType: true},
+		{Name: "response", Type: cty.DynamicPseudoType, AllowDynamicType: true, Description: "The http_client_response to check"},
 	},
-	VarParam: &function.Parameter{Name: "expected", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true},
+	VarParam: &function.Parameter{Name: "expected", Type: cty.DynamicPseudoType, AllowNull: true, AllowDynamicType: true, Description: "Optional expected status(es): a number, an [lo, hi] range tuple, or a list mixing them (default: any 2xx)"},
 	Type:     function.StaticReturnType(types.HTTPClientResponseObjectType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 		respVal := args[0]
 		wrapper, ok := types.GetHTTPClientResponseFromValue(respVal)
 		if !ok {
-			return cty.NilVal, fmt.Errorf("http_must: first argument must be an http_client_response value")
+			return cty.NilVal, fmt.Errorf("http::must: first argument must be an http_client_response value")
 		}
 
 		// Default: any 2xx.
@@ -1354,7 +1358,7 @@ var HTTPMustFunc = function.New(&function.Spec{
 		if len(args) > 1 && !args[1].IsNull() {
 			c, desc, err := parseHTTPMustExpected(args[1])
 			if err != nil {
-				return cty.NilVal, fmt.Errorf("http_must: %w", err)
+				return cty.NilVal, fmt.Errorf("http::must: %w", err)
 			}
 			check = c
 			expectedDesc = desc
@@ -1381,7 +1385,7 @@ var HTTPMustFunc = function.New(&function.Spec{
 		bodyExcerpt := buildHTTPMustBodyExcerpt(wrapper)
 
 		return cty.NilVal, fmt.Errorf(
-			"http_must: %s %s returned %d %s\n  expected: %s\n  body: %s",
+			"http::must: %s %s returned %d %s\n  expected: %s\n  body: %s",
 			method,
 			urlStr,
 			wrapper.R.StatusCode,

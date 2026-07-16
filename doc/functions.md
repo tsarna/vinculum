@@ -18,11 +18,11 @@ If a single map or object is passed as the fields argument, its keys become log 
 names. If multiple positional arguments are passed, they are logged as `$1`, `$2`, etc.
 All logging functions return `true`.
 
-- `log_debug(message, fields?)`: Log at DEBUG level.
-- `log_info(message, fields?)`: Log at INFO level.
-- `log_warn(message, fields?)`: Log at WARN level.
-- `log_error(message, fields?)`: Log at ERROR level.
-- `log_msg(level, message, fields?)`: Log at the given level string (`"debug"`, `"info"`, `"warn"` / `"warning"`, `"error"`).
+- `log::debug(message, fields?)`: Log at DEBUG level.
+- `log::info(message, fields?)`: Log at INFO level.
+- `log::warn(message, fields?)`: Log at WARN level.
+- `log::error(message, fields?)`: Log at ERROR level.
+- `log::msg(level, message, fields?)`: Log at the given level string (`"debug"`, `"info"`, `"warn"` / `"warning"`, `"error"`).
 
 ### Data Manipulation
 
@@ -81,7 +81,7 @@ base64decode("aGVsbG8=", "text/plain")         # → bytes object
 base64decode("aGVsbG8=", "")                   # → bytes object, no content type
 ```
 
-### Wire Format (`serialize` / `deserialize`)
+### Wire Format (`wire::serialize` / `wire::deserialize`)
 
 Ad-hoc serialization and deserialization using vinculum's pluggable wire
 format system. The first argument is either a built-in name (`"auto"`,
@@ -90,37 +90,37 @@ format system. The first argument is either a built-in name (`"auto"`,
 
 ```hcl
 # Serialize a value as JSON bytes
-serialize("json", {status = "ok", count = 42})
+wire::serialize("json", {status = "ok", count = 42})
 
 # Serialize as a string (convenient for interpolation)
-serializestr("json", {status = "ok"})
+wire::serialize_str("json", {status = "ok"})
 
 # Deserialize JSON bytes or a string
-deserialize("json", raw_bytes)
-deserialize("auto", some_string)
+wire::dewire::serialize("json", raw_bytes)
+wire::dewire::serialize("auto", some_string)
 
 # Use a custom wire format
-serialize(wire_format.myproto, event_value)
+wire::serialize(wire_format.myproto, event_value)
 ```
 
-- `serialize(wire_format, value)`: Serialize a cty value using the given
+- `wire::serialize(wire_format, value)`: Serialize a cty value using the given
   wire format. Returns a `bytes` object.
-- `serializestr(wire_format, value)`: Like `serialize`, but returns a
+- `wire::serialize_str(wire_format, value)`: Like `wire::serialize`, but returns a
   string. More convenient for string interpolation and contexts that
   expect strings.
-- `deserialize(wire_format, data)`: Deserialize bytes or a string using
+- `wire::dewire::serialize(wire_format, data)`: Deserialize bytes or a string using
   the given wire format. Returns the decoded cty value.
 
 ### URL Parsing and Manipulation
 
-VCL has a URL object type produced by `urlparse()`. A URL object has all standard
+VCL has a URL object type produced by `url::parse()`. A URL object has all standard
 URL components as direct attributes, so you can write `u.scheme`, `u.host`, `u.path`,
 etc. without any function call. It also carries a hidden `_capsule` attribute used
 internally by `get()`, `tostring()`, and the manipulation functions.
 
 #### Parsing
 
-- `urlparse(rawURL)`: Parse a URL string and return a URL object. `rawURL` may be a
+- `url::parse(rawURL)`: Parse a URL string and return a URL object. `rawURL` may be a
   relative URL, an absolute URL, or an opaque URI. Returns an error on invalid input.
 
 The returned object has the following attributes:
@@ -154,7 +154,7 @@ The returned object has the following attributes:
   parameters; single-value parameters can also be read as `u.query[key][0]`.
 
 ```hcl
-u = urlparse("https://example.com/search?tag=go&tag=cty&page=1")
+u = url::parse("https://example.com/search?tag=go&tag=cty&page=1")
 u.query["tag"]                            # → ["go", "cty"]
 get(u, "query_param", "tag")              # → ["go", "cty"]
 get(u, "query_param", "missing")          # → []
@@ -165,57 +165,58 @@ get(u, "query_param", "missing")          # → []
 These functions accept a base URL as a string, URL object, or URL capsule.
 They return a URL object, so attributes are directly accessible on the result.
 
-- `urljoin(base, ref)`: Resolve `ref` against `base` following RFC 3986. `ref` may be
+- `url::join(base, ref)`: Resolve `ref` against `base` following RFC 3986. `ref` may be
   a relative or absolute URL string, object, or capsule.
-- `urljoinpath(base, elem...)`: Append path elements to `base`. Each element is
+- `url::join_path(base, elem...)`: Append path elements to `base`. Each element is
   automatically percent-encoded. Elements are joined with `/`.
 
 ```hcl
 # RFC 3986 reference resolution
-tostring(urljoin("https://example.com/base/", "../other"))
+tostring(url::join("https://example.com/base/", "../other"))
 # → "https://example.com/other"
 
 # Building API paths safely
-u = urlparse("https://api.example.com/v1")
-tostring(urljoinpath(u, "users", user_id, "profile"))
+u = url::parse("https://api.example.com/v1")
+tostring(url::join_path(u, "users", user_id, "profile"))
 # → "https://api.example.com/v1/users/42/profile"
 
 # Accessing fields on a manipulation result
-result = urljoin(ctx.base_url, ctx.relative_ref)
+result = url::join(ctx.base_url, ctx.relative_ref)
 result.scheme    # direct attribute access on result
 tostring(result) # full URL string
 ```
 
 #### Query String Helpers
 
-- `urlqueryencode(params)`: Encode a map of query parameters into a URL query string
+- `url::query_encode(params)`: Encode a map of query parameters into a URL query string
   (without the leading `?`). Values may be strings or lists of strings for multi-value
   parameters. Keys are sorted alphabetically.
-- `urlquerydecode(query)`: Decode a URL query string into a `map(list(string))`. The
+- `url::query_decode(query)`: Decode a URL query string into a `map(list(string))`. The
   leading `?` is optional.
 
 ```hcl
-urlqueryencode({ "q" = "hello world", "page" = "2" })
+url::query_encode({ "q" = "hello world", "page" = "2" })
 # → "page=2&q=hello+world"
 
-urlqueryencode({ "tag" = ["go", "cty"] })
+url::query_encode({ "tag" = ["go", "cty"] })
 # → "tag=go&tag=cty"
 
-urlquerydecode("a=1&b=2&b=3")
+url::query_decode("a=1&b=2&b=3")
 # → { "a" = ["1"], "b" = ["2", "3"] }
 ```
 
 #### Percent Encoding
 
-- `urlencode(str)`: Percent-encode a string for use in a URL query value. Spaces are
-  encoded as `+`.
-- `urldecode(str)`: Decode a percent-encoded string. Decodes `+` as a space. Returns
+- `urlencode(str)` (also `url::encode(str)`): Percent-encode a string for use in a URL
+  query value. Spaces are encoded as `+`. `urlencode` is the flat HCL builtin;
+  `url::encode` is the same function, named to pair with `url::decode`.
+- `url::decode(str)`: Decode a percent-encoded string. Decodes `+` as a space. Returns
   an error on invalid sequences.
 
 ```hcl
 urlencode("hello world")    # → "hello+world"
-urldecode("hello+world")    # → "hello world"
-urldecode("caf%C3%A9")      # → "café"
+url::decode("hello+world")    # → "hello world"
+url::decode("caf%C3%A9")      # → "café"
 ```
 
 ### Sqids
@@ -250,15 +251,15 @@ The same `options` object must be used for both `sqid` and `unsqid` when using a
 
 ### Random
 
-- `random()`: Return a random float in `[0.0, 1.0)`.
-- `randint(a, b)`: Return a random integer N such that `a <= N <= b` (both bounds inclusive).
-- `randuniform(a, b)`: Return a random float N such that `a <= N <= b`.
-- `randgauss(mu, sigma)`: Return a random float drawn from a Gaussian (normal) distribution
+- `rand::float()`: Return a random float in `[0.0, 1.0)`.
+- `rand::int(a, b)`: Return a random integer N such that `a <= N <= b` (both bounds inclusive).
+- `rand::uniform(a, b)`: Return a random float N such that `a <= N <= b`.
+- `rand::gauss(mu, sigma)`: Return a random float drawn from a Gaussian (normal) distribution
   with the given mean (`mu`) and standard deviation (`sigma`).
-- `randchoice(list)`: Return a single random element from `list`. Errors if the list is empty.
-- `randsample(list, k)`: Return a new list of `k` unique elements chosen at random from `list`,
+- `rand::choice(list)`: Return a single random element from `list`. Errors if the list is empty.
+- `rand::sample(list, k)`: Return a new list of `k` unique elements chosen at random from `list`,
   without replacement. Errors if `k` exceeds the length of `list`.
-- `randshuffle(list)`: Return a shuffled copy of `list`. The original list is not modified.
+- `rand::shuffle(list)`: Return a shuffled copy of `list`. The original list is not modified.
 
 ### Barcode
 
@@ -314,22 +315,37 @@ functions that return derived points. The field names are aligned with the
 [GPSD JSON `TPV` record](https://gpsd.gitlab.io/gpsd/gpsd_json.html), so data
 from a GPSD source can flow through without translation.
 
+That shape has a name: `geopoint`, usable anywhere a type is — a `var` block's
+`type`, or a `.cty` parameter annotation — to require an object with numeric
+`lat`/`lon` while letting the extra fields ride along:
+
+```hcl
+var "here" {
+  type  = geopoint
+  value = geo::point(37.7749, -122.4194)
+}
+```
+
+`help("geo::point")`, `help("geo::inverse")`, and so on show each function's full
+signature, including which arguments are a `geopoint` and the exact shape of the
+object each returns.
+
 #### Point Construction and Formatting
 
-- `geo_point(combined)`: Parse a combined `"lat,lon"` or DMS string into a point.
-  All `geo_format` output formats round-trip through this form.
-- `geo_point(combined, base)`: Same, merged onto `base`.
-- `geo_point(lat, lon)`: Construct a point from separate lat/lon values. Each may
+- `geo::point(combined)`: Parse a combined `"lat,lon"` or DMS string into a point.
+  All `geo::format` output formats round-trip through this form.
+- `geo::point(combined, base)`: Same, merged onto `base`.
+- `geo::point(lat, lon)`: Construct a point from separate lat/lon values. Each may
   be a number (signed decimal degrees) or a string in any of these forms:
   - Signed decimal: `"37.7749"`, `"-122.4194"`
   - Decimal with hemisphere: `"37.7749 N"`, `"N 37.7749"`, `"122.4194W"`
   - DMS with degree symbol: `"37°46'29.6\"N"`
   - DMS with ASCII `d`/`D`: `"37d46'29.6\"N"`
   - Whitespace-separated DMS: `"37 46 29.6 N"`
-- `geo_point(lat, lon, base)`: Same, but the result is a copy of `base` with
+- `geo::point(lat, lon, base)`: Same, but the result is a copy of `base` with
   `lat`/`lon` overwritten. All other fields in `base` are preserved.
-- `geo_format(point)`: Format a point as `"lat,lon"` (signed decimal, default).
-- `geo_format(point, format)`: Format using a named format:
+- `geo::format(point)`: Format a point as `"lat,lon"` (signed decimal, default).
+- `geo::format(point, format)`: Format using a named format:
 
   | Format | Example |
   |--------|---------|
@@ -340,13 +356,13 @@ from a GPSD source can flow through without translation.
   | `"dms_signed"` | `"37°46'29.6\" -122°25'9.8\""` |
 
 ```hcl
-p = geo_point("37.7749,-122.4194")
-p = geo_point("37°46'29\"N 122°25'9\"W")
-p = geo_point(37.7749, -122.4194)
-p = geo_point("37°46'29\"N", "122°25'9\"W")
-p = geo_point(new_lat, new_lon, get(var.vehicle_position))
-geo_format(p, "dms")    # → "37°46'29.6\"N 122°25'9.8\"W"
-geo_point(geo_format(p, "dms"))   # round-trips back to a point
+p = geo::point("37.7749,-122.4194")
+p = geo::point("37°46'29\"N 122°25'9\"W")
+p = geo::point(37.7749, -122.4194)
+p = geo::point("37°46'29\"N", "122°25'9\"W")
+p = geo::point(new_lat, new_lon, get(var.vehicle_position))
+geo::format(p, "dms")    # → "37°46'29.6\"N 122°25'9.8\"W"
+geo::point(geo::format(p, "dms"))   # round-trips back to a point
 ```
 
 #### Solar / Astronomical Time Functions
@@ -360,104 +376,104 @@ f(point, t)          — t is a time
 f(point, offset, t)
 ```
 
-They return the **next occurrence** after `t` (default: `now()`) of the solar
+They return the **next occurrence** after `t` (default: `time::now()`) of the solar
 event plus `offset` (default: zero). If the computed target is in the past, the
 function advances to the next day. All times are UTC.
 
 To be clear: `f(point, delta)` is **not** the same as
-`timeadd(f(point), delta)`. Consider the case where it is now 30 minutes before
-sunrise. `sunrise(point, "-1h")` will return a time one hour before **tomorrow's**
+`time::add(f(point), delta)`. Consider the case where it is now 30 minutes before
+sunrise. `sky::sunrise(point, "-1h")` will return a time one hour before **tomorrow's**
 sunrise, because 1 hour before today's is in the past.
 
 In **polar regions** where the sun does not rise or set for extended periods,
 the functions search forward day-by-day (up to 400 days) until the event
-occurs again. `solar_noon` and `solar_midnight` require both sunrise and
+occurs again. `sky::solar_noon` and `sky::solar_midnight` require both sunrise and
 sunset to exist on the relevant day(s); during polar day or polar night they
 return the first meaningful occurrence after polar conditions end.
 
-- `sunrise(point[, offset][, t])`: Next sunrise.
-- `sunset(point[, offset][, t])`: Next sunset.
-- `solar_noon(point[, offset][, t])`: Next solar noon (midpoint of sunrise/sunset).
-- `solar_midnight(point[, offset][, t])`: Next solar midnight (midpoint of sunset
+- `sky::sunrise(point[, offset][, t])`: Next sunrise.
+- `sky::sunset(point[, offset][, t])`: Next sunset.
+- `sky::solar_noon(point[, offset][, t])`: Next solar noon (midpoint of sunrise/sunset).
+- `sky::solar_midnight(point[, offset][, t])`: Next solar midnight (midpoint of sunset
   and next sunrise).
 
 ```hcl
-time = sunrise(get(var.location))
-time = sunrise(get(var.location), duration("-30m"))
-time = sunset(get(var.location), duration("-15m"), ctx.scheduled_time)
+time = sky::sunrise(get(var.location))
+time = sky::sunrise(get(var.location), duration("-30m"))
+time = sky::sunset(get(var.location), duration("-15m"), ctx.scheduled_time)
 ```
 
 #### Sun and Moon Position
 
-- `sun_position(point)` / `sun_position(point, t)`: Returns `{azimuth, altitude}`
+- `sky::sun_position(point)` / `sky::sun_position(point, t)`: Returns `{azimuth, altitude}`
   in degrees. Azimuth is clockwise from true north; altitude is above the horizon
   (negative = below).
-- `moon_position(point)` / `moon_position(point, t)`: Returns
+- `sky::moon_position(point)` / `sky::moon_position(point, t)`: Returns
   `{azimuth, altitude, distance}`. Distance is in meters.
-- `moon_phase()` / `moon_phase(t)`: Returns `{fraction, phase, angle}`.
+- `sky::moon_phase()` / `sky::moon_phase(t)`: Returns `{fraction, phase, angle}`.
   `fraction` is 0–1 (illuminated disc), `phase` is 0–1 (0 = new, 0.5 = full),
   `angle` is the bright-limb angle in degrees (sign distinguishes waxing/waning).
 
 ```hcl
-s = sun_position(get(var.location))
+s = sky::sun_position(get(var.location))
 s.altitude > 0              # true if the sun is up
 s.altitude < -6.0           # true if past civil twilight
 
-mp = moon_phase()
+mp = sky::moon_phase()
 mp.phase < 0.5              # true if waxing
 ```
 
 #### Geodesic Functions (WGS-84)
 
-- `geo_inverse(point_a, point_b)`: Returns `{distance, bearing, back_bearing}`.
+- `geo::inverse(point_a, point_b)`: Returns `{distance, bearing, back_bearing}`.
   Distance in meters; bearings in degrees clockwise from north.
-- `geo_destination(origin, bearing, distance)`: Returns the point reached by
+- `geo::destination(origin, bearing, distance)`: Returns the point reached by
   travelling `distance` meters from `origin` on the given bearing. All fields
   from `origin` are preserved; only `lat`/`lon` are overwritten.
-- `geo_destination(origin, bearing, duration)`: Travel for the given duration at
+- `geo::destination(origin, bearing, duration)`: Travel for the given duration at
   `origin.speed` (m/s). Errors if `speed` is missing. Updates `time` if present.
-- `geo_destination(origin, bearing, target_time)`: Travel until `target_time` at
+- `geo::destination(origin, bearing, target_time)`: Travel until `target_time` at
   `origin.speed`. Requires both `speed` and `time` on the origin. Errors if
   `target_time` is before `origin.time`.
-- `geo_destination(origin, bearing, third, extras)`: All three forms accept an
+- `geo::destination(origin, bearing, third, extras)`: All three forms accept an
   optional `extras` object that is merged onto `origin` before the calculation
   (extras win on key conflicts).
-- `geo_waypoints(point_a, point_b, n)`: Returns a list of `n` (>= 2) evenly
+- `geo::waypoints(point_a, point_b, n)`: Returns a list of `n` (>= 2) evenly
   spaced `{lat, lon, track}` objects along the geodesic, including both endpoints.
 
 ```hcl
-r = geo_inverse(get(var.current), get(var.destination))
+r = geo::inverse(get(var.current), get(var.destination))
 r.distance      # meters
 r.bearing       # heading toward destination
 
-dest = geo_destination(get(var.location), 90.0, 1000.0)
-future = geo_destination(get(var.vehicle), get(var.vehicle).track, duration("5m"))
+dest = geo::destination(get(var.location), 90.0, 1000.0)
+future = geo::destination(get(var.vehicle), get(var.vehicle).track, duration("5m"))
 
-waypoints = geo_waypoints(get(var.origin), get(var.destination), 5)
+waypoints = geo::waypoints(get(var.origin), get(var.destination), 5)
 ```
 
 #### Geometric Functions
 
 A polygon is a `list(point)`, implicitly closed. Fewer than 3 points is an error.
 
-- `geo_area(polygon)`: Area in square meters. Orientation-independent.
-- `geo_contains(polygon, point)`: Returns `true` if `point` is inside `polygon`.
-- `geo_nearest(polygon, point)`: Returns the closest `{lat, lon}` on the polygon
+- `geo::area(polygon)`: Area in square meters. Orientation-independent.
+- `geo::contains(polygon, point)`: Returns `true` if `point` is inside `polygon`.
+- `geo::nearest(polygon, point)`: Returns the closest `{lat, lon}` on the polygon
   perimeter (may be mid-edge, not just at a vertex).
-- `geo_line_intersect(line_a, line_b)`: Returns a list of `{lat, lon}` intersection
+- `geo::line_intersect(line_a, line_b)`: Returns a list of `{lat, lon}` intersection
   points between two polylines. Empty list if no crossings. Each line must have at
   least 2 points.
 
 ```hcl
 # Geofence detection
-geo_contains(const.home_zone, get(var.vehicle_position))
+geo::contains(const.home_zone, get(var.vehicle_position))
 
 # Distance to boundary
-boundary_pt = geo_nearest(const.restricted_zone, get(var.vehicle_position))
-dist = geo_inverse(get(var.vehicle_position), boundary_pt).distance
+boundary_pt = geo::nearest(const.restricted_zone, get(var.vehicle_position))
+dist = geo::inverse(get(var.vehicle_position), boundary_pt).distance
 
 # Route crossing
-crossings = geo_line_intersect(const.route_a, const.route_b)
+crossings = geo::line_intersect(const.route_a, const.route_b)
 length(crossings) > 0    # true if routes cross
 ```
 
@@ -471,25 +487,25 @@ Duration strings are accepted in two formats:
 
 - **Go format** — `5m`, `1h30m`, `2h3m4s`, `500ms`, `1.5s`. Units: `ns`, `us`, `µs`, `ms`, `s`, `m`, `h`.
 - **ISO 8601 P-notation** — `PT5M`, `PT1H30M`, `P1DT12H`, `PT0.5S`. Calendar fields (`P1Y`, `P1M`)
-  are rejected — they cannot be represented as a fixed duration; use `addyears()` / `addmonths()`
+  are rejected — they cannot be represented as a fixed duration; use `time::add_years()` / `time::add_months()`
   for calendar arithmetic.
 
 #### Timestamp Creation
 
-- `now()`: Return the current time in the local system timezone.
-- `now(tz)`: Return the current time in the named IANA timezone, e.g. `now("UTC")`, `now("America/New_York")`.
-- `parsetime(s)`: Parse an RFC 3339 timestamp string (timezone required). Accepts sub-second
-  precision. Example: `parsetime("2024-01-15T10:30:00Z")`.
-- `parsetime(format, s)`: Parse `s` using the given format (Go reference-time layout or `@name`
-  alias — see table under `formattime`). Example: `parsetime("2006-01-02", "2024-01-15")`.
-- `parsetime(format, s, tz)`: Parse `s` using `format`, interpreting the result as a local time
-  in the named IANA timezone. Example: `parsetime("2006-01-02", "2024-01-15", "America/New_York")`.
+- `time::now()`: Return the current time in the local system timezone.
+- `time::now(tz)`: Return the current time in the named IANA timezone, e.g. `time::now("UTC")`, `time::now("America/New_York")`.
+- `time::parse(s)`: Parse an RFC 3339 timestamp string (timezone required). Accepts sub-second
+  precision. Example: `time::parse("2024-01-15T10:30:00Z")`.
+- `time::parse(format, s)`: Parse `s` using the given format (Go reference-time layout or `@name`
+  alias — see table under `formattime`). Example: `time::parse("2006-01-02", "2024-01-15")`.
+- `time::parse(format, s, tz)`: Parse `s` using `format`, interpreting the result as a local time
+  in the named IANA timezone. Example: `time::parse("2006-01-02", "2024-01-15", "America/New_York")`.
 
 #### Timestamp Formatting
 
-- `formattime(format, t)`: Format `t` using Go's reference-time layout. The reference moment is
+- `time::format(format, t)`: Format `t` using Go's reference-time layout. The reference moment is
   `Mon Jan 2 15:04:05 MST 2006`; use those specific values as placeholders in the format string.
-  Example: `formattime("2006-01-02", now("UTC"))` → `"2024-01-15"`.
+  Example: `time::format("2006-01-02", time::now("UTC"))` → `"2024-01-15"`.
 
   A format string starting with `@` selects a predefined layout:
 
@@ -518,31 +534,37 @@ Duration strings are accepted in two formats:
 
 - `formatdate(fmt, ts)`: A legacy hcl function, prefer `formattime`. Format an RFC 3339 timestamp *string*
   using a token-based format (`YYYY`, `MM`, `DD`, `HH`, `mm`, `ss`, `Z`). Operates on strings
-  only; for `time` capsule values use `formattime` instead.
+  only; for `time` capsule values use `time::format` instead.
 
 #### Timestamp Arithmetic
 
-- `timeadd(ts, dur)`: Add a duration to a time. Accepts four type combinations:
+- `time::add(ts, dur)`: Add a duration to a time. **Always returns a `time`.** Either argument
+  may be given as a string, and a string is parsed the same way whichever form it lands in — a
+  timestamp as RFC 3339, a duration in Go syntax (`"1h30m"`) or ISO 8601 (`"PT1H30M"`).
 
-  | `ts` type | `dur` type | Return type | Notes |
-  |-----------|------------|-------------|-------|
-  | `string`  | `string`   | `string`    | Backward-compatible: RFC 3339 in, RFC 3339 out; duration in Go format |
-  | `time`    | `duration` | `time`      | Native capsule path |
-  | `time`    | `string`   | `time`      | Duration string auto-parsed (Go or ISO 8601) |
-  | `string`  | `duration` | `time`      | Timestamp string auto-parsed as RFC 3339 |
+  | `ts` type | `dur` type | Return type |
+  |-----------|------------|-------------|
+  | `time`    | `duration` | `time`      |
+  | `time`    | `string`   | `time`      |
+  | `string`  | `duration` | `time`      |
+  | `string`  | `string`   | `time`      |
 
-- `timesub(t1, t2)`: Subtract. Return type depends on argument types:
-  - `timesub(time, time)` → `duration` — elapsed from `t2` to `t1`; negative if `t1 < t2`.
-  - `timesub(time, duration)` → `time` — `t` minus `d`.
-- `since(t)`: Duration elapsed since `t` (equivalent to `timesub(now(), t)`).
-- `until(t)`: Duration remaining until `t` (equivalent to `timesub(t, now())`).
+  Not to be confused with **`timeadd(ts, dur)`**, the flat HCL builtin, which takes two RFC 3339
+  / Go-duration *strings* and returns a string. Use it when you are working with strings; use
+  `time::add` when you are working with `time` and `duration` values.
+
+- `time::sub(t1, t2)`: Subtract. Return type depends on argument types:
+  - `time::sub(time, time)` → `duration` — elapsed from `t2` to `t1`; negative if `t1 < t2`.
+  - `time::sub(time, duration)` → `time` — `t` minus `d`.
+- `time::since(t)`: Duration elapsed since `t` (equivalent to `time::sub(time::now(), t)`).
+- `time::until(t)`: Duration remaining until `t` (equivalent to `time::sub(t, time::now())`).
 
 #### Timestamp Comparison
 
 The `<`/`>`/`<=`/`>=` operators do not work on `time` values (go-cty limitation). Use:
 
-- `timebefore(t1, t2)`: `true` if `t1` is before `t2`.
-- `timeafter(t1, t2)`: `true` if `t1` is after `t2`.
+- `time::before(t1, t2)`: `true` if `t1` is before `t2`.
+- `time::after(t1, t2)`: `true` if `t1` is after `t2`.
 
 #### Duration Creation
 
@@ -553,21 +575,21 @@ The `<`/`>`/`<=`/`>=` operators do not work on `time` values (go-cty limitation)
 
 #### Duration Formatting
 
-- `formatduration(d)`: Format `d` in Go format, e.g. `"1h30m0s"`.
-- `formatduration(d, fmt)`: Format with explicit format. `fmt` is `"go"` (default) or `"iso"`
+- `duration::format(d)`: Format `d` in Go format, e.g. `"1h30m0s"`.
+- `duration::format(d, fmt)`: Format with explicit format. `fmt` is `"go"` (default) or `"iso"`
   (ISO 8601 P-notation, e.g. `"PT1H30M"`).
 
 #### Duration Comparison
 
-- `durationlt(d1, d2)`: `true` if `d1 < d2`.
-- `durationgt(d1, d2)`: `true` if `d1 > d2`.
+- `duration::lt(d1, d2)`: `true` if `d1 < d2`.
+- `duration::gt(d1, d2)`: `true` if `d1 > d2`.
 
 #### Timestamp — Unix Interop
 
-- `fromunix(sec)`: Create a `time` from a Unix epoch value. The argument may be an
+- `time::from_unix(sec)`: Create a `time` from a Unix epoch value. The argument may be an
   integer (whole seconds) or a float (seconds with sub-second precision, up to nanoseconds).
-- `unix(t)`: Return a `time` as a Unix epoch float (seconds since 1970-01-01T00:00:00Z,
-  fractional if sub-second). Equivalent to calling `fromunix(unix(t))` round-trips the value.
+- `time::to_unix(t)`: Return a `time` as a Unix epoch float (seconds since 1970-01-01T00:00:00Z,
+  fractional if sub-second). Equivalent to calling `time::from_unix(time::to_unix(t))` round-trips the value.
 
 #### Timestamp — Decomposition
 
@@ -587,28 +609,28 @@ The `<`/`>`/`<=`/`>=` operators do not work on `time` values (go-cty limitation)
   | `"isoweek"` | ISO 8601 week number 1–53 |
   | `"isoyear"` | ISO 8601 week-year (may differ from calendar year at year boundaries) |
 
-  Components are read in the timezone stored in `t`; use `intimezone(t, tz)`
+  Components are read in the timezone stored in `t`; use `time::in_zone(t, tz)`
   first to decompose in a different zone.
 
 - `tostring(t)`: Format `t` as RFC 3339 with nanosecond precision (equivalent
-  to `formattime("@rfc3339nano", t)`). Sub-second digits are included only
+  to `time::format("@rfc3339nano", t)`). Sub-second digits are included only
   when `t` carries sub-second precision.
 
 #### Timestamp — Timezone
 
-- `timezone()`: Return the name of the local system timezone (e.g. `"UTC"`, `"America/New_York"`).
-- `timezone(t)`: Return the name of the timezone stored in `t`.
-- `intimezone(t, tz)`: Return a new `time` equal to `t` but displayed in the named timezone `tz`.
+- `time::zone()`: Return the name of the local system timezone (e.g. `"UTC"`, `"America/New_York"`).
+- `time::zone(t)`: Return the name of the timezone stored in `t`.
+- `time::in_zone(t, tz)`: Return a new `time` equal to `t` but displayed in the named timezone `tz`.
   Does not change the instant — only the timezone used for display and decomposition.
 
 #### Calendar Arithmetic
 
-These functions add calendar-based offsets. Unlike `timeadd`, they respect month lengths and
+These functions add calendar-based offsets. Unlike `time::add`, they respect month lengths and
 leap years — adding one month to January 31 yields February 28 (or 29 in a leap year).
 
-- `adddays(t, n)`: Add `n` calendar days to `t`. `n` may be negative.
-- `addmonths(t, n)`: Add `n` calendar months to `t`. `n` may be negative.
-- `addyears(t, n)`: Add `n` calendar years to `t`. `n` may be negative.
+- `time::add_days(t, n)`: Add `n` calendar days to `t`. `n` may be negative.
+- `time::add_months(t, n)`: Add `n` calendar months to `t`. `n` may be negative.
+- `time::add_years(t, n)`: Add `n` calendar years to `t`. `n` may be negative.
 
 #### Duration — Decomposition
 
@@ -626,86 +648,86 @@ leap years — adding one month to January 31 yields February 28 (or 29 in a lea
   All units are *total* (not components). For example, `get(duration("1h30m"), "m")` → `90.0`.
 
 - `tostring(d)`: Format `d` in Go syntax (e.g. `"1h30m5s"`), equivalent to
-  `formatduration(d)`.
+  `duration::format(d)`.
 
 #### Duration — Misc
 
-- `absduration(d)`: Return the absolute value of `d`. Negative durations become positive.
+- `duration::abs(d)`: Return the absolute value of `d`. Negative durations become positive.
 
 #### Examples
 
 ```hcl
 # Current time
-now("UTC")                                      # → time in UTC
-now("America/New_York")                         # → time in Eastern timezone
+time::now("UTC")                                      # → time in UTC
+time::now("America/New_York")                         # → time in Eastern timezone
 
 # Parse and format
-t = parsetime("2024-01-15T10:30:00Z")
-formattime("2006-01-02", t)                     # → "2024-01-15"
-formattime("15:04:05", t)                       # → "10:30:00"
+t = time::parse("2024-01-15T10:30:00Z")
+time::format("2006-01-02", t)                     # → "2024-01-15"
+time::format("15:04:05", t)                       # → "10:30:00"
 
 # Arithmetic
-timeadd(now("UTC"), duration("1h30m"))          # → 1.5 hours from now
-timeadd(now("UTC"), duration(90, "m"))          # → same
-timesub(ctx.end_time, ctx.start_time)           # → duration elapsed
-timesub(ctx.deadline, duration("30m"))          # → 30 minutes before deadline
+time::add(time::now("UTC"), duration("1h30m"))    # → 1.5 hours from now
+time::add(time::now("UTC"), duration(90, "m"))    # → same
+time::sub(ctx.end_time, ctx.start_time)           # → duration elapsed
+time::sub(ctx.deadline, duration("30m"))          # → 30 minutes before deadline
 
 # Elapsed / remaining
-since(sys.starttime)                            # → process uptime
-since(sys.boottime)                             # → host uptime
-since(ctx.start_time)                           # → duration since start
-formatduration(since(ctx.start_time))           # → "5m32s"
-formatduration(since(ctx.start_time), "iso")    # → "PT5M32S"
+time::since(sys.starttime)                            # → process uptime
+time::since(sys.boottime)                             # → host uptime
+time::since(ctx.start_time)                           # → duration since start
+duration::format(time::since(ctx.start_time))           # → "5m32s"
+duration::format(time::since(ctx.start_time), "iso")    # → "PT5M32S"
 
 # Comparison (use functions, not operators)
-timebefore(ctx.expires_at, now("UTC"))          # → true if already expired
-durationgt(since(ctx.last_seen), duration(24, "h"))  # → true if inactive > 1 day
+time::before(ctx.expires_at, time::now("UTC"))          # → true if already expired
+duration::gt(time::since(ctx.last_seen), duration(24, "h"))  # → true if inactive > 1 day
 
 # Unix interop
-fromunix(1705315800)                            # → 2024-01-15T10:30:00Z
-unix(now("UTC"))                                # → current epoch as float
+time::from_unix(1705315800)                            # → 2024-01-15T10:30:00Z
+time::to_unix(time::now("UTC"))                                # → current epoch as float
 
 # Decomposition
-get(now("UTC"), "year")                         # → e.g. 2024
-get(now("UTC"), "weekday")                      # → 0 (Sunday) – 6 (Saturday)
-get(since(ctx.start_time), "m")                 # → total minutes as float
-tostring(now("UTC"))                            # → "2024-01-15T10:30:00Z"
-tostring(since(ctx.start_time))                 # → "5m32s"
+get(time::now("UTC"), "year")                         # → e.g. 2024
+get(time::now("UTC"), "weekday")                      # → 0 (Sunday) – 6 (Saturday)
+get(time::since(ctx.start_time), "m")                 # → total minutes as float
+tostring(time::now("UTC"))                            # → "2024-01-15T10:30:00Z"
+tostring(time::since(ctx.start_time))                 # → "5m32s"
 
 # Timezone
-timezone()                                      # → local TZ name, e.g. "America/New_York"
-timezone(now("UTC"))                            # → "UTC"
-intimezone(now(), "UTC")                        # → same instant in UTC
+time::zone()                                      # → local TZ name, e.g. "America/New_York"
+time::zone(time::now("UTC"))                            # → "UTC"
+time::in_zone(time::now(), "UTC")                        # → same instant in UTC
 
 # Calendar arithmetic
-adddays(now("UTC"), 7)                          # → one week from now
-addmonths(now("UTC"), -1)                       # → one month ago
-addyears(now("UTC"), 1)                         # → same date next year
+time::add_days(time::now("UTC"), 7)                          # → one week from now
+time::add_months(time::now("UTC"), -1)                       # → one month ago
+time::add_years(time::now("UTC"), 1)                         # → same date next year
 
-# Backward-compatible string form of timeadd
-timeadd("2024-01-15T10:30:00Z", "1h")          # → "2024-01-15T11:30:00Z"
+# The flat HCL builtin: strings in, string out
+timeadd("2024-01-15T10:30:00Z", "1h")             # → "2024-01-15T11:30:00Z"
 
 # Named format aliases
-formattime("@rfc3339", now("UTC"))              # → "2024-01-15T10:30:00Z"
-formattime("@date", now("UTC"))                 # → "2024-01-15"
-parsetime("@rfc3339", "2024-01-15T10:30:00Z")  # → time
+time::format("@rfc3339", time::now("UTC"))              # → "2024-01-15T10:30:00Z"
+time::format("@date", time::now("UTC"))                 # → "2024-01-15"
+time::parse("@rfc3339", "2024-01-15T10:30:00Z")  # → time
 
 # Multi-arg parsetime
-parsetime("2006-01-02", "2024-01-15", "America/New_York")  # → time in New York
+time::parse("2006-01-02", "2024-01-15", "America/New_York")  # → time in New York
 
 # strftime / strptime
-strftime("%Y-%m-%d", now("UTC"))               # → "2024-01-15"
-strftime("%H:%M:%S", now("UTC"))               # → "10:30:00"
-strptime("%Y-%m-%d", "2024-01-15")             # → time (UTC midnight)
-strptime("%Y-%m-%d", "2024-01-15", "UTC")      # → time in UTC
+time::strftime("%Y-%m-%d", time::now("UTC"))               # → "2024-01-15"
+time::strftime("%H:%M:%S", time::now("UTC"))               # → "10:30:00"
+time::strptime("%Y-%m-%d", "2024-01-15")             # → time (UTC midnight)
+time::strptime("%Y-%m-%d", "2024-01-15", "UTC")      # → time in UTC
 
 # Duration arithmetic
-durationadd(duration("1h"), duration("30m"))   # → 1h30m
-durationsub(duration("2h"), duration("30m"))   # → 1h30m
-durationmul(duration("15m"), 4)                # → 1h
-durationdiv(duration("1h"), 4)                 # → 15m
-durationtruncate(since(ctx.start_time), duration("1m"))   # → elapsed rounded down to minute
-durationround(since(ctx.start_time), duration("1s"))      # → elapsed rounded to second
+duration::add(duration("1h"), duration("30m"))   # → 1h30m
+duration::sub(duration("2h"), duration("30m"))   # → 1h30m
+duration::mul(duration("15m"), 4)                # → 1h
+duration::div(duration("1h"), 4)                 # → 15m
+duration::truncate(time::since(ctx.start_time), duration("1m"))   # → elapsed rounded down to minute
+duration::round(time::since(ctx.start_time), duration("1s"))      # → elapsed rounded to second
 ```
 
 #### Timestamp — strftime/strptime
@@ -713,26 +735,26 @@ durationround(since(ctx.start_time), duration("1s"))      # → elapsed rounded 
 These functions use strftime/strptime-style format strings (POSIX `%`-codes) via the
 [itchyny/timefmt-go](https://github.com/itchyny/timefmt-go) library.
 
-- `strftime(format, t)`: Format `t` using a `%`-code format string.
-  Example: `strftime("%Y-%m-%d", now("UTC"))` → `"2024-01-15"`.
-- `strptime(format, s)`: Parse `s` using a `%`-code format string. Missing components default to
+- `time::strftime(format, t)`: Format `t` using a `%`-code format string.
+  Example: `time::strftime("%Y-%m-%d", time::now("UTC"))` → `"2024-01-15"`.
+- `time::strptime(format, s)`: Parse `s` using a `%`-code format string. Missing components default to
   zero (e.g. time components default to midnight).
-- `strptime(format, s, tz)`: Parse `s` and interpret the result as a local time in the named
-  IANA timezone. Example: `strptime("%Y-%m-%d", "2024-01-15", "America/New_York")`.
+- `time::strptime(format, s, tz)`: Parse `s` and interpret the result as a local time in the named
+  IANA timezone. Example: `time::strptime("%Y-%m-%d", "2024-01-15", "America/New_York")`.
 
 The `@name` format aliases do **not** apply to strftime/strptime — use literal `%`-codes.
 
 #### Duration Arithmetic
 
-- `durationadd(d1, d2)`: Add two durations: `d1 + d2`.
-- `durationsub(d1, d2)`: Subtract durations: `d1 - d2`.
-- `durationmul(d, n)`: Multiply a duration by a scalar number. Fractional scalars are accepted:
-  `durationmul(duration("1h"), 1.5)` → `1h30m`.
-- `durationdiv(d, n)`: Divide a duration by a scalar number. Returns a duration.
-  `durationdiv(duration("1h"), 4)` → `15m`.
-- `durationtruncate(d, m)`: Truncate `d` to a multiple of `m` (equivalent to Go's `d.Truncate(m)`).
+- `duration::add(d1, d2)`: Add two durations: `d1 + d2`.
+- `duration::sub(d1, d2)`: Subtract durations: `d1 - d2`.
+- `duration::mul(d, n)`: Multiply a duration by a scalar number. Fractional scalars are accepted:
+  `duration::mul(duration("1h"), 1.5)` → `1h30m`.
+- `duration::div(d, n)`: Divide a duration by a scalar number. Returns a duration.
+  `duration::div(duration("1h"), 4)` → `15m`.
+- `duration::truncate(d, m)`: Truncate `d` to a multiple of `m` (equivalent to Go's `d.Truncate(m)`).
   Example: truncating `1h37m42s` to `1m` → `1h37m`.
-- `durationround(d, m)`: Round `d` to the nearest multiple of `m` (equivalent to Go's `d.Round(m)`).
+- `duration::round(d, m)`: Round `d` to the nearest multiple of `m` (equivalent to Go's `d.Round(m)`).
   Example: rounding `1h37m42s` to `1m` → `1h38m`.
 
 #### DNS Zone Serial Numbers
@@ -742,7 +764,7 @@ DNS zone serial numbers conventionally encode a date and a per-day sequence numb
 per day before overflow. Overflowing into what looks like the next day (or an invalid date)
 is acceptable per convention.
 
-- `nextzoneserial(s)` / `nextzoneserial(s, t)`: Compute the next zone serial after `s`.
+- `dns::next_zone_serial(s)` / `dns::next_zone_serial(s, t)`: Compute the next zone serial after `s`.
   `s` is the current serial (number or string). `t` is an optional `time` value; if omitted,
   the current time is used. The date components are extracted from `t` in its stored timezone.
 
@@ -751,12 +773,12 @@ is acceptable per convention.
   jump to the start of today.
 
   ```hcl
-  nextzoneserial(0)                    # → first serial of today, e.g. 2026012300
-  nextzoneserial(var.serial)           # → next serial after var.serial
-  nextzoneserial(var.serial, now("UTC"))  # → explicit timezone
+  dns::next_zone_serial(0)                    # → first serial of today, e.g. 2026012300
+  dns::next_zone_serial(var.serial)           # → next serial after var.serial
+  dns::next_zone_serial(var.serial, time::now("UTC"))  # → explicit timezone
   ```
 
-- `parsezoneserial(s)`: Convert a zone serial back to an approximate `time` value (UTC midnight
+- `dns::parse_zone_serial(s)`: Convert a zone serial back to an approximate `time` value (UTC midnight
   of the encoded date). The sequence number (`NN`) is ignored. `s` may be a number or string.
 
   Out-of-range date components are snapped to the nearest valid date: month > 12 becomes
@@ -764,8 +786,8 @@ is acceptable per convention.
   day-rollover case where `NN` reached 100+ on the last day.
 
   ```hcl
-  parsezoneserial(2026012307)   # → 2026-01-23T00:00:00Z
-  parsezoneserial(2026123200)   # → 2026-12-31T00:00:00Z  (day 32 → Dec 31)
+  dns::parse_zone_serial(2026012307)   # → 2026-01-23T00:00:00Z
+  dns::parse_zone_serial(2026123200)   # → 2026-12-31T00:00:00Z  (day 32 → Dec 31)
   ```
 
 ### Variables and Metrics
@@ -864,7 +886,7 @@ action = [
     increment(ctx, var.hits, 1),
     increment(ctx, metric.requests_total, 1, {method = ctx.method}),
     observe(ctx, metric.request_duration_seconds, ctx.elapsed, {method = ctx.method}),
-    http_response(http_status.OK, {hits = get(var.hits)}),
+    http::response(http_status.OK, {hits = get(var.hits)}),
 ]
 ```
 
@@ -893,7 +915,7 @@ Returns the current internal state name: `"inactive"`,
 dashboards and diagnostics that want to visualize in-flight transitions.
 
 ```hcl
-action = log_info("fault state", {s = state(condition.fault)})
+action = log::info("fault state", {s = state(condition.fault)})
 ```
 
 #### `set(condition.name, value)` — timer only
@@ -965,7 +987,7 @@ Returns the current numeric count value. Distinct from `get()`, which
 returns the boolean preset-reached output.
 
 ```hcl
-action = log_info("fault count", {n = count(condition.fault_count)})
+action = log::info("fault count", {n = count(condition.fault_count)})
 ```
 
 `count()` also works on trigger types that maintain a run count
@@ -982,7 +1004,7 @@ trigger "interval" "heartbeat" {
 
 trigger "cron" "daily_report" {
     at "0 9 * * *" "report" {
-        action = log_info("heartbeat count", {n = count(trigger.heartbeat)})
+        action = log::info("heartbeat count", {n = count(trigger.heartbeat)})
     }
 }
 ```
@@ -993,8 +1015,8 @@ These are functy's standard-library builtins (shared with standalone `functy`), 
 
 - `error(value)`: Raise an error from expression position — the expression form of a `throw`. `value` may be a string or an object (`error({ message = "...", code = 403 })`). It composes with `try`/`catch` and carries a source range. Example: `coalesce(config.host, error("host is required"))`.
 - `assert(cond, message?)`: Raise a catchable error when `cond` is false; on success returns `true`. The condition is received unevaluated, so a surfaced error underlines exactly what failed and captures the referenced variables (e.g. detail `n = -3`). The optional `message` (string or object) is evaluated only on failure. Example: `assert(port > 0, "port must be positive")`.
-- `cond(c1, r1, c2, r2, ..., else)`: Lazy multi-branch conditional. Takes an odd number of arguments (at least 3). Each `(c_i, r_i)` pair is a condition/result; the trailing argument is the `else`. Conditions are evaluated in order; the result paired with the first truthy condition is returned (and evaluated). If no condition is truthy, the `else` is returned. **Only the selected branch is evaluated** — unselected conditions, results, and the else are untouched — making `cond()` safe for side-effectful branches (unlike HCL's `?:` ternary, which evaluates both sides greedily). The return type is dynamic, since each branch may be of a different type. Example: `cond(level == "error", log_error(msg), level == "warn", log_warn(msg), log_info(msg))` dispatches to exactly one log call based on `level` — the other two are never invoked.
-- `switch(on, v1, r1, v2, r2, ..., default?)`: Switch dispatch on a single value. `on` is evaluated exactly once; each case-value `vN` is then evaluated in order and compared to `on` for equality. On the first match, the paired `rN` is evaluated and returned. If no case matches, the optional trailing `default` is evaluated and returned; if `default` is omitted (i.e. the total argument count is odd) and no case matched, `switch()` errors at call time. Case values past the matching arm are not evaluated, nor are unselected results. Equality is strict: a number `200` does not match the string `"200"`. Cleaner than the equivalent `cond()` form because `on` is named once. Example: `switch(level, "error", log_error(msg), "warn", log_warn(msg), log_info(msg))` is the cond example above rewritten as a switch.
+- `cond(c1, r1, c2, r2, ..., else)`: Lazy multi-branch conditional. Takes an odd number of arguments (at least 3). Each `(c_i, r_i)` pair is a condition/result; the trailing argument is the `else`. Conditions are evaluated in order; the result paired with the first truthy condition is returned (and evaluated). If no condition is truthy, the `else` is returned. **Only the selected branch is evaluated** — unselected conditions, results, and the else are untouched — making `cond()` safe for side-effectful branches (unlike HCL's `?:` ternary, which evaluates both sides greedily). The return type is dynamic, since each branch may be of a different type. Example: `cond(level == "error", log::error(msg), level == "warn", log::warn(msg), log::info(msg))` dispatches to exactly one log call based on `level` — the other two are never invoked.
+- `switch(on, v1, r1, v2, r2, ..., default?)`: Switch dispatch on a single value. `on` is evaluated exactly once; each case-value `vN` is then evaluated in order and compared to `on` for equality. On the first match, the paired `rN` is evaluated and returned. If no case matches, the optional trailing `default` is evaluated and returned; if `default` is omitted (i.e. the total argument count is odd) and no case matched, `switch()` errors at call time. Case values past the matching arm are not evaluated, nor are unselected results. Equality is strict: a number `200` does not match the string `"200"`. Cleaner than the equivalent `cond()` form because `on` is named once. Example: `switch(level, "error", log::error(msg), "warn", log::warn(msg), log::info(msg))` is the cond example above rewritten as a switch.
 - `try(expr1, expr2, ...)`: Evaluate each expression in order; return the value of the first one that evaluates without error. If all expressions error, `try()` itself errors with the accumulated diagnostics. **Each expression is evaluated at most once.** This is vinculum's single-evaluation variant and differs from the stock HCL `try()` (from `hcl/v2/ext/tryfunc`) — the upstream implementation evaluates the selected expression twice (once for return-type inference, once for the actual value), which is a hazard for side-effectful arguments like `try(send(ctx, ...), ...)`. The trade-off for single-evaluation is that vinculum's `try()` has a dynamic return type rather than the concrete unified type of its branches.
 - `can(expr)`: Return whether `expr` evaluates without error, as a `bool`. Useful to guard an expression that may fail — e.g. `can(jsondecode(s))`.
 
@@ -1023,36 +1045,36 @@ Parameters:
 ### Messaging
 
 - `send(ctx, subscriber, topic, payload, fields?)`: Publish a message to a bus or other subscriber. `fields` is an optional map of string metadata attached to the event. Returns `true`.
-- `sendjson(ctx, subscriber, topic, payload, fields?)`: Same as `send`, but first serializes `payload` to JSON bytes before publishing.
-- `sendgo(ctx, subscriber, topic, payload, fields?)`: Same as `send`, but first converts `payload` from a cty value to a Go native value (map/slice/scalar) before publishing. Use this when the subscriber expects native Go types.
+- `send::json(ctx, subscriber, topic, payload, fields?)`: Same as `send`, but first serializes `payload` to JSON bytes before publishing.
+- `send::go(ctx, subscriber, topic, payload, fields?)`: Same as `send`, but first converts `payload` from a cty value to a Go native value (map/slice/scalar) before publishing. Use this when the subscriber expects native Go types.
 - `call(ctx, client, request)`: Make a synchronous request to a client and return the response. Currently supported for LLM clients (`client "openai"`). Always returns a response object — API errors are represented as `stop_reason = "error"` in the response rather than Go-level errors. See [client-llm.md](client-llm.md) for the full request/response schema.
-- `sql_must(result)`: Given a result object from `call()` against a SQL client, raise an evaluation error if its `error` field is non-null (building the message from the `driver`/`code`/`sqlstate`/`message` fields); otherwise return the result unchanged, so it composes inline — e.g. `sql_must(call(ctx, client.db, "INSERT ...")).last_insert_id`. Available in every action context (it works on any result object that carries an `error` field), so it does not require a SQL client to be configured. See [client-sql.md](client-sql.md#sql_mustresult).
-- `llm_wrap(content)`: Wrap a string in `<user_input>` XML-like delimiters as a prompt injection mitigation. Use in the `content` of user messages when the content comes from an untrusted source. The system prompt should reference the tags (e.g. `"Summarize the text in the <user_input> tags."`). Returns `"<user_input>\n{content}\n</user_input>"`.
-- `redis_ack(ctx, consumer, message_id)`: `XACK` a Redis Streams entry on the given consumer's stream and group. Used with `client "redis_stream"` consumers configured with `auto_ack = false`; the consumer is addressed as `client.<name>.consumer.<c>` and the entry ID is exposed to the action as `ctx.message_id`. Returns `true` on success. See [client-redis.md](client-redis.md#manual-ack-redis_ack).
-- `sqs_delete(ctx, receiver, receipt_handle)`: Delete an SQS message by receipt handle. Used with `client "sqs_receiver"` configured with `auto_delete = false`; the receiver is addressed as `client.<name>` and the receipt handle is available as `ctx.fields["$receipt_handle"]`. Returns `true` on success. See [client-sqs.md](client-sqs.md#manual-deletion).
-- `sqs_extend_visibility(ctx, receiver, receipt_handle, timeout_seconds)`: Extend the visibility timeout for an SQS message. Used for long-running processing to prevent the message from becoming visible to other consumers before processing completes. `timeout_seconds` is a number. Returns `true` on success. See [client-sqs.md](client-sqs.md#manual-deletion).
+- `sql::must(result)`: Given a result object from `call()` against a SQL client, raise an evaluation error if its `error` field is non-null (building the message from the `driver`/`code`/`sqlstate`/`message` fields); otherwise return the result unchanged, so it composes inline — e.g. `sql::must(call(ctx, client.db, "INSERT ...")).last_insert_id`. Available in every action context (it works on any result object that carries an `error` field), so it does not require a SQL client to be configured. See [client-sql.md](client-sql.md#sql_mustresult).
+- `llm::wrap(content)`: Wrap a string in `<user_input>` XML-like delimiters as a prompt injection mitigation. Use in the `content` of user messages when the content comes from an untrusted source. The system prompt should reference the tags (e.g. `"Summarize the text in the <user_input> tags."`). Returns `"<user_input>\n{content}\n</user_input>"`.
+- `redis::ack(ctx, consumer, message_id)`: `XACK` a Redis Streams entry on the given consumer's stream and group. Used with `client "redis_stream"` consumers configured with `auto_ack = false`; the consumer is addressed as `client.<name>.consumer.<c>` and the entry ID is exposed to the action as `ctx.message_id`. Returns `true` on success. See [client-redis.md](client-redis.md#manual-ack-redisack).
+- `sqs::delete(ctx, receiver, receipt_handle)`: Delete an SQS message by receipt handle. Used with `client "sqs_receiver"` configured with `auto_delete = false`; the receiver is addressed as `client.<name>` and the receipt handle is available as `ctx.fields["$receipt_handle"]`. Returns `true` on success. See [client-sqs.md](client-sqs.md#manual-deletion).
+- `sqs::extend_visibility(ctx, receiver, receipt_handle, timeout_seconds)`: Extend the visibility timeout for an SQS message. Used for long-running processing to prevent the message from becoming visible to other consumers before processing completes. `timeout_seconds` is a number. Returns `true` on success. See [client-sqs.md](client-sqs.md#manual-deletion).
 
 ### HTTP Response Functions
 
-These functions are globally available and build `http_response` values. The return value
+These functions are globally available and build `http::response` values. The return value
 of a `handle` action expression is used as the HTTP response — no separate "write" call
 is needed. See [`server "http"`](server-http.md#response) for full details.
 
-- `http_response(status[, body[, headers]])`: Build a response with the given status code, optional body, and optional headers. Body is auto-coerced: string → text/plain, bytes → its content type, anything else → JSON. Headers may be `map(string)` or `map(list(string))`.
-- `http_redirect(url)` / `http_redirect(status, url)`: Build a redirect response. Single-arg form defaults to 302 Found.
-- `http_error(status, message)`: Build an error response with plain-text body. Works naturally with `try()`.
-- `addheader(response, name, value)`: Return a new response with the given header appended.
-- `removeheader(response, name)`: Return a new response with the given header removed.
-- `setcookie(cookieObj)`: Format a `Set-Cookie` header value from a cookie definition object (fields: `name`, `value`, `path`, `domain`, `expires`, `max_age`, `secure`, `http_only`, `same_site`, `partitioned`). Use with `addheader()`.
+- `http::response(status[, body[, headers]])`: Build a response with the given status code, optional body, and optional headers. Body is auto-coerced: string → text/plain, bytes → its content type, anything else → JSON. Headers may be `map(string)` or `map(list(string))`.
+- `http::redirect(url)` / `http::redirect(status, url)`: Build a redirect response. Single-arg form defaults to 302 Found.
+- `http::error(status, message)`: Build an error response with plain-text body. Works naturally with `try()`.
+- `http::add_header(response, name, value)`: Return a new response with the given header appended.
+- `http::remove_header(response, name)`: Return a new response with the given header removed.
+- `http::set_cookie(cookieObj)`: Format a `Set-Cookie` header value from a cookie definition object (fields: `name`, `value`, `path`, `domain`, `expires`, `max_age`, `secure`, `http_only`, `same_site`, `partitioned`). Use with `http::add_header()`.
 
 ### HTTP Utilities
 
 These functions are always available and help construct HTTP request values.
 
-- `basicauth(user, password)`: Returns the value for an HTTP `Authorization` header using Basic authentication — `"Basic <base64(user:password)>"`.
+- `http::basic_auth(user, password)`: Returns the value for an HTTP `Authorization` header using Basic authentication — `"Basic <base64(user:password)>"`.
 
 ```hcl
-set_header("Authorization", basicauth("alice", "s3cr3t"))
+set_header("Authorization", http::basic_auth("alice", "s3cr3t"))
 ```
 
 ### HTTP Client Verb Functions
@@ -1070,14 +1092,14 @@ header precedence, and the response object shape.
 
 | Function | Body? | Idempotent (per RFC) |
 |---|---|---|
-| `http_get(ctx, client, url[, opts])` | no | yes |
-| `http_head(ctx, client, url[, opts])` | no | yes |
-| `http_options(ctx, client, url[, opts])` | no | yes |
-| `http_delete(ctx, client, url[, opts])` | no | yes |
-| `http_post(ctx, client, url[, body[, opts]])` | yes | no |
-| `http_put(ctx, client, url[, body[, opts]])` | yes | yes |
-| `http_patch(ctx, client, url[, body[, opts]])` | yes | no |
-| `http_request(ctx, client, method, url[, body[, opts]])` | yes | depends on method |
+| `http::get(ctx, client, url[, opts])` | no | yes |
+| `http::head(ctx, client, url[, opts])` | no | yes |
+| `http::options(ctx, client, url[, opts])` | no | yes |
+| `http::delete(ctx, client, url[, opts])` | no | yes |
+| `http::post(ctx, client, url[, body[, opts]])` | yes | no |
+| `http::put(ctx, client, url[, body[, opts]])` | yes | yes |
+| `http::patch(ctx, client, url[, body[, opts]])` | yes | no |
+| `http::request(ctx, client, method, url[, body[, opts]])` | yes | depends on method |
 
 The return value is an `http_client_response` object with materialized
 attributes (`status`, `status_text`, `ok`, `redirected`, `final_url`,
@@ -1088,21 +1110,21 @@ header / cookie lookup (`header`, `header_all`, `cookie`, `cookies`).
 A non-2xx response is **not** a function error — it is just a response
 with `status = 404` (etc.), the same as `fetch()`'s behavior. Transport
 errors (DNS, connection refused, TLS, context canceled, retries
-exhausted) raise an HCL error. Use `http_must()` (below) when a non-2xx
+exhausted) raise an HCL error. Use `http::must()` (below) when a non-2xx
 should fail loudly.
 
 ```hcl
 # One-off probe with no client
-http_get(ctx, null, "https://example.com/ping").status
+http::get(ctx, null, "https://example.com/ping").status
 
 # POST JSON, get JSON back, with as = "json" pre-decode
-http_post(ctx, client.api, "/widgets/search", { color = "blue" }, { as = "json" }).body.total
+http::post(ctx, client.api, "/widgets/search", { color = "blue" }, { as = "json" }).body.total
 
 # Generic verb for non-standard methods
-http_request(ctx, client.dav, "PROPFIND", "/dir/")
+http::request(ctx, client.dav, "PROPFIND", "/dir/")
 ```
 
-- `http_must(response[, expected])`: Returns `response` unchanged if its
+- `http::must(response[, expected])`: Returns `response` unchanged if its
   status is acceptable; otherwise raises an HCL error with the method,
   final URL, actual status, expected set, and a 512-byte body excerpt.
   `expected` may be omitted (default: any 2xx), a single number, a list
@@ -1110,16 +1132,16 @@ http_request(ctx, client.dav, "PROPFIND", "/dir/")
 
   ```hcl
   # Default: any 2xx
-  data = get(http_must(http_get(ctx, client.api, "/widgets")), "body_json")
+  data = get(http::must(http::get(ctx, client.api, "/widgets")), "body_json")
 
   # Explicit single status
-  http_must(http_post(ctx, client.api, "/widgets", w), 201)
+  http::must(http::post(ctx, client.api, "/widgets", w), 201)
 
   # Multiple acceptable statuses
-  http_must(http_delete(ctx, client.api, "/widgets/${id}"), [200, 204, 404])
+  http::must(http::delete(ctx, client.api, "/widgets/${id}"), [200, 204, 404])
 
   # A range
-  http_must(http_get(ctx, client.api, "/data"), [[200, 299]])
+  http::must(http::get(ctx, client.api, "/data"), [[200, 299]])
   ```
 
 ### Path Functions
@@ -1209,7 +1231,7 @@ construct MCP values for async handlers (future feature).
 A plain string return from an action is also valid and is treated as text content —
 the functions below are only needed for non-text result types.
 
-### `mcp_image(data [, mime_type])`
+### `mcp::image(data [, mime_type])`
 
 Returns image content for an MCP resource or tool result.
 
@@ -1217,9 +1239,9 @@ Three call forms are accepted:
 
 | Form | Description |
 |---|---|
-| `mcp_image(base64_string, mime_type)` | Original form — base64 string + explicit MIME type |
-| `mcp_image(bytes_capsule)` | `bytes` capsule — MIME type taken from the capsule's content type |
-| `mcp_image(bytes_capsule, mime_type)` | `bytes` capsule — MIME type overrides the capsule's content type |
+| `mcp::image(base64_string, mime_type)` | Original form — base64 string + explicit MIME type |
+| `mcp::image(bytes_capsule)` | `bytes` capsule — MIME type taken from the capsule's content type |
+| `mcp::image(bytes_capsule, mime_type)` | `bytes` capsule — MIME type overrides the capsule's content type |
 
 When a `bytes` capsule is supplied without a `mime_type` and its content type is empty,
 the MIME type sent to the client will also be empty; set a content type on the capsule
@@ -1229,16 +1251,16 @@ Valid in: resource and tool action expressions.
 
 ```hcl
 # Classic form
-mcp_image(filebase64("logo.png"), "image/png")
+mcp::image(filebase64("logo.png"), "image/png")
 
 # Using filebytes — no separate mime_type needed
-mcp_image(filebytes("logo.png", "image/png"))
+mcp::image(filebytes("logo.png", "image/png"))
 
 # Override content type from a bytes value
-mcp_image(bytes(raw_data, "image/jpeg"))
+mcp::image(bytes(raw_data, "image/jpeg"))
 ```
 
-### `mcp_error(message)`
+### `mcp::error(message)`
 
 Returns an error result for an MCP tool call.
 
@@ -1246,7 +1268,7 @@ Returns an error result for an MCP tool call.
 
 Valid in: tool action expressions only.
 
-### `mcp_usermessage(content)`
+### `mcp::user_message(content)`
 
 Returns a user-role message for an MCP prompt result.
 
@@ -1254,10 +1276,10 @@ Returns a user-role message for an MCP prompt result.
 
 Valid in: prompt action expressions.
 
-### `mcp_assistantmessage(content)`
+### `mcp::assistant_message(content)`
 
 Returns an assistant-role message for an MCP prompt result. Used to provide
-few-shot examples alongside a `mcp_usermessage()`.
+few-shot examples alongside a `mcp::user_message()`.
 
 - `content` — message text (string)
 

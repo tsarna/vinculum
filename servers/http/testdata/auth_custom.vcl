@@ -17,7 +17,7 @@ server "http" "main" {
 
   handle "/redirect" {
     auth "custom" {
-      action = http_redirect("https://example.com/login")
+      action = http::redirect("https://example.com/login")
     }
     action = "logged in"
   }

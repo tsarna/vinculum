@@ -65,7 +65,7 @@ editor "line" "update_zone_record" {
         # when the file is changed due to an actual record update.
 
         incidental = true
-        replace = "${ctx.groups[0]} ${sys.hostname} on ${formattime("@rfc3339", now("UTC"))}\n"
+        replace = "${ctx.groups[0]} ${sys.hostname} on ${time::format("@rfc3339", time::now("UTC"))}\n"
         update_state = {
             saw_header = true
         }
@@ -75,14 +75,14 @@ editor "line" "update_zone_record" {
     # (runs AFTER all lines are processed; state.saw_header is final)
     before {
         incidental = true
-        content = state.saw_header ? "" : ";;; Updated by ${sys.hostname} on ${formattime("@rfc3339", now("UTC"))}\n\n"
+        content = state.saw_header ? "" : ";;; Updated by ${sys.hostname} on ${time::format("@rfc3339", time::now("UTC"))}\n\n"
     }
 
     # Update the SOA serial: matches "        2024010101 ; Serial"
     match "^(\\s*)(\\d+)(\\s*;\\s*[Ss]erial)" {
         required = true
         incidental = true
-        replace  = "${ctx.groups[1]}${nextzoneserial(ctx.groups[2])}${ctx.groups[3]}\n"
+        replace  = "${ctx.groups[1]}${dns::next_zone_serial(ctx.groups[2])}${ctx.groups[3]}\n"
     }
 
     # Replace the A record for the named host: matches "www    IN A    1.2.3.4"

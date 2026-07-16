@@ -175,7 +175,7 @@ Example — include the trace ID in a response header or log entry:
 
 ```hcl
 handle "/api/data" {
-    action = http_response(200, {
+    action = http::response(200, {
         "X-Trace-Id" = ctx.trace_id
     }, fetch_data())
 }

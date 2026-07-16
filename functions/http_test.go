@@ -95,7 +95,7 @@ func TestHTTPGet_Basic(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/ping"))
+	resp, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/ping"))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
 	assert.Equal(t, cty.BoolVal(true), resp.GetAttr("ok"))
@@ -114,7 +114,7 @@ func TestHTTPGet_404_NotAnError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/missing"))
+	resp, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/missing"))
 	require.NoError(t, err, "404 should not be a function error")
 	assert.Equal(t, cty.NumberIntVal(404), resp.GetAttr("status"))
 	assert.Equal(t, cty.BoolVal(false), resp.GetAttr("ok"))
@@ -136,7 +136,7 @@ client "http" "api" {
 `, srv.URL+"/v1/"))
 
 	// "things/42" is a relative reference that resolves against /v1/.
-	resp, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("things/42"))
+	resp, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("things/42"))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
 }
@@ -155,7 +155,7 @@ client "http" "api" {
     base_url = "http://does-not-exist.invalid/"
 }
 `)
-	resp, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal(srv.URL+"/abs"))
+	resp, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal(srv.URL+"/abs"))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
 	assert.Equal(t, int32(1), atomic.LoadInt32(&hitExpected))
@@ -178,7 +178,7 @@ client "http" "api" {
 }
 `, srv.URL))
 
-	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("things"))
+	_, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("things"))
 	require.NoError(t, err)
 	assert.Equal(t, "secret", gotQuery.Get("api_key"))
 }
@@ -198,7 +198,7 @@ client "http" "api" {
 }
 `, srv.URL))
 
-	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("things?page=2"))
+	_, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("things?page=2"))
 	require.NoError(t, err)
 	assert.Equal(t, "secret", gotQuery.Get("api_key"))
 	assert.Equal(t, "2", gotQuery.Get("page"))
@@ -218,7 +218,7 @@ client "http" "api" {
 }
 `, srv.URL))
 
-	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("things?fmt=json"))
+	_, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("things?fmt=json"))
 	require.NoError(t, err)
 	assert.Equal(t, []string{"json"}, gotQuery["fmt"], "call value should win, base value dropped")
 }
@@ -243,7 +243,7 @@ client "http" "api" {
 			"page": cty.StringVal("2"),
 		}),
 	})
-	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("things"), opts)
+	_, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("things"), opts)
 	require.NoError(t, err)
 	assert.Equal(t, "secret", gotQuery.Get("api_key"))
 	assert.Equal(t, "2", gotQuery.Get("page"))
@@ -264,7 +264,7 @@ client "http" "api" {
     base_url = "http://does-not-exist.invalid/?api_key=secret"
 }
 `)
-	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal(srv.URL+"/abs"))
+	_, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal(srv.URL+"/abs"))
 	require.NoError(t, err)
 	assert.Empty(t, gotQuery.Get("api_key"), "absolute call URL should not inherit base query")
 }
@@ -278,7 +278,7 @@ func TestHTTPGet_DefaultUserAgent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL))
+	_, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL))
 	require.NoError(t, err)
 	assert.Equal(t, "vinculum", gotUA)
 }
@@ -300,7 +300,7 @@ client "http" "api" {
     }
 }
 `, srv.URL))
-	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	_, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/"))
 	require.NoError(t, err)
 	assert.Equal(t, "application/json", gotAccept)
 	assert.Equal(t, "value", gotCustom)
@@ -329,7 +329,7 @@ client "http" "api" {
 			"X-New":    cty.StringVal("added"),
 		}),
 	})
-	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"), opts)
+	_, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/"), opts)
 	require.NoError(t, err)
 	assert.Equal(t, "application/json", got.Get("Accept"), "client header that wasn't overridden survives")
 	assert.Equal(t, "call-value", got.Get("X-Custom"), "per-call header overrides client header")
@@ -357,7 +357,7 @@ client "http" "api" {
 			"X-Gone": cty.NullVal(cty.String),
 		}),
 	})
-	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"), opts)
+	_, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/"), opts)
 	require.NoError(t, err)
 	assert.Empty(t, got.Values("X-Gone"))
 }
@@ -378,7 +378,7 @@ func TestHTTPPost_JSONBody(t *testing.T) {
 		"name":  cty.StringVal("frobnicator"),
 		"color": cty.StringVal("blue"),
 	})
-	resp, err := callVerb(t, "http_post", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/widgets"), body)
+	resp, err := callVerb(t, "http::post", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/widgets"), body)
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(201), resp.GetAttr("status"))
 	assert.Equal(t, "application/json", gotCT)
@@ -397,7 +397,7 @@ func TestHTTPPost_StringBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := callVerb(t, "http_post", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/echo"), cty.StringVal("hello"))
+	_, err := callVerb(t, "http::post", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/echo"), cty.StringVal("hello"))
 	require.NoError(t, err)
 	assert.Equal(t, "text/plain; charset=utf-8", gotCT)
 	assert.Equal(t, "hello", gotBody)
@@ -422,7 +422,7 @@ client "http" "api" {
 `, srv.URL))
 
 	body := bytescty.BuildBytesObject([]byte("\x89PNG"), "image/png")
-	_, err := callVerb(t, "http_post", bgCtx, clientVal, cty.StringVal("/upload"), body)
+	_, err := callVerb(t, "http::post", bgCtx, clientVal, cty.StringVal("/upload"), body)
 	require.NoError(t, err)
 	assert.Equal(t, "image/png", gotCT, "bytes content_type should override client default Content-Type")
 }
@@ -441,7 +441,7 @@ func TestHTTPPost_BytesBody_OptsHeaderStillWins(t *testing.T) {
 			"Content-Type": cty.StringVal("application/x-custom"),
 		}),
 	})
-	_, err := callVerb(t, "http_post", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/upload"), body, opts)
+	_, err := callVerb(t, "http::post", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/upload"), body, opts)
 	require.NoError(t, err)
 	assert.Equal(t, "application/x-custom", gotCT)
 }
@@ -462,7 +462,7 @@ func TestHTTPGet_Query(t *testing.T) {
 			"c": cty.TupleVal([]cty.Value{cty.StringVal("x"), cty.StringVal("y")}),
 		}),
 	})
-	_, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/path"), opts)
+	_, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/path"), opts)
 	require.NoError(t, err)
 	// Keys are sorted for deterministic ordering in parseOpts; a=1&b=42&c=x&c=y
 	assert.Contains(t, gotURL, "a=1")
@@ -483,7 +483,7 @@ func TestHTTPGet_Query_PreservesExisting(t *testing.T) {
 			"b": cty.StringVal("added"),
 		}),
 	})
-	_, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/path?a=orig"), opts)
+	_, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/path?a=orig"), opts)
 	require.NoError(t, err)
 	assert.Contains(t, gotQuery, "a=orig")
 	assert.Contains(t, gotQuery, "b=added")
@@ -501,7 +501,7 @@ func TestHTTPGet_AsJSON(t *testing.T) {
 	opts := cty.ObjectVal(map[string]cty.Value{
 		"as": cty.StringVal("json"),
 	})
-	resp, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL), opts)
+	resp, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL), opts)
 	require.NoError(t, err)
 
 	body := resp.GetAttr("body")
@@ -518,7 +518,7 @@ func TestHTTPGet_AsString(t *testing.T) {
 	opts := cty.ObjectVal(map[string]cty.Value{
 		"as": cty.StringVal("string"),
 	})
-	resp, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL), opts)
+	resp, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL), opts)
 	require.NoError(t, err)
 	assert.Equal(t, cty.StringVal("plain text"), resp.GetAttr("body"))
 }
@@ -533,7 +533,7 @@ func TestHTTPGet_AsBytes(t *testing.T) {
 	opts := cty.ObjectVal(map[string]cty.Value{
 		"as": cty.StringVal("bytes"),
 	})
-	resp, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL), opts)
+	resp, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL), opts)
 	require.NoError(t, err)
 
 	body := resp.GetAttr("body")
@@ -553,7 +553,7 @@ func TestHTTPGet_AsJSON_InvalidJSON(t *testing.T) {
 	opts := cty.ObjectVal(map[string]cty.Value{
 		"as": cty.StringVal("json"),
 	})
-	_, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL), opts)
+	_, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL), opts)
 	require.Error(t, err)
 }
 
@@ -568,7 +568,7 @@ func TestHTTPGet_BodyLimit(t *testing.T) {
 	opts := cty.ObjectVal(map[string]cty.Value{
 		"body_limit": cty.NumberIntVal(10),
 	})
-	resp, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL), opts)
+	resp, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL), opts)
 	require.NoError(t, err)
 
 	w, ok := types.GetHTTPClientResponseFromValue(resp)
@@ -595,7 +595,7 @@ func TestHTTPGet_FollowsRedirect(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/start"))
+	resp, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/start"))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
 	assert.Equal(t, cty.BoolVal(true), resp.GetAttr("redirected"))
@@ -616,7 +616,7 @@ func TestHTTPGet_PerCallFollowFalse(t *testing.T) {
 	opts := cty.ObjectVal(map[string]cty.Value{
 		"follow_redirects": cty.BoolVal(false),
 	})
-	resp, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/start"), opts)
+	resp, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/start"), opts)
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(302), resp.GetAttr("status"))
 	assert.Equal(t, cty.BoolVal(false), resp.GetAttr("redirected"))
@@ -633,7 +633,7 @@ func TestHTTPGet_PerCallMaxRedirects(t *testing.T) {
 	opts := cty.ObjectVal(map[string]cty.Value{
 		"max_redirects": cty.NumberIntVal(2),
 	})
-	_, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/start"), opts)
+	_, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/start"), opts)
 	require.Error(t, err, "exceeding max_redirects should be a function error")
 	assert.Contains(t, err.Error(), "stopped after 2 redirects")
 }
@@ -650,7 +650,7 @@ func TestHTTPGet_PerCallTimeout(t *testing.T) {
 	opts := cty.ObjectVal(map[string]cty.Value{
 		"timeout": cty.StringVal("50ms"),
 	})
-	_, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL), opts)
+	_, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL), opts)
 	require.Error(t, err)
 }
 
@@ -662,7 +662,7 @@ func TestHTTPGet_ConnectionRefused(t *testing.T) {
 	addr := srv.URL
 	srv.Close()
 
-	_, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(addr+"/"))
+	_, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(addr+"/"))
 	require.Error(t, err)
 }
 
@@ -675,7 +675,7 @@ func TestHTTPHead(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, err := callVerb(t, "http_head", bgCtx, nullClientVal, cty.StringVal(srv.URL))
+	resp, err := callVerb(t, "http::head", bgCtx, nullClientVal, cty.StringVal(srv.URL))
 	require.NoError(t, err)
 	w, ok := types.GetHTTPClientResponseFromValue(resp)
 	require.True(t, ok)
@@ -691,7 +691,7 @@ func TestHTTPDelete(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, err := callVerb(t, "http_delete", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/things/1"))
+	resp, err := callVerb(t, "http::delete", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/things/1"))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(204), resp.GetAttr("status"))
 }
@@ -705,7 +705,7 @@ func TestHTTPPut(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := callVerb(t, "http_put", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/a"), cty.StringVal("new content"))
+	_, err := callVerb(t, "http::put", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/a"), cty.StringVal("new content"))
 	require.NoError(t, err)
 }
 
@@ -716,7 +716,7 @@ func TestHTTPPatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := callVerb(t, "http_patch", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/a"), cty.ObjectVal(map[string]cty.Value{
+	_, err := callVerb(t, "http::patch", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/a"), cty.ObjectVal(map[string]cty.Value{
 		"field": cty.StringVal("val"),
 	}))
 	require.NoError(t, err)
@@ -729,7 +729,7 @@ func TestHTTPOptions(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, err := callVerb(t, "http_options", bgCtx, nullClientVal, cty.StringVal(srv.URL))
+	resp, err := callVerb(t, "http::options", bgCtx, nullClientVal, cty.StringVal(srv.URL))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
 }
@@ -743,7 +743,7 @@ func TestHTTPRequest_Generic(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, err := callVerb(t, "http_request",
+	resp, err := callVerb(t, "http::request",
 		bgCtx, nullClientVal,
 		cty.StringVal("PROPFIND"),
 		cty.StringVal(srv.URL+"/dav"),
@@ -762,7 +762,7 @@ func TestHTTPRequest_GenericWithBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := callVerb(t, "http_request",
+	_, err := callVerb(t, "http::request",
 		bgCtx, nullClientVal,
 		cty.StringVal("DELETE"),
 		cty.StringVal(srv.URL+"/items"),
@@ -793,7 +793,7 @@ func TestHTTPGet_CrossOriginRedirect_StripsAuth(t *testing.T) {
 			"Authorization": cty.StringVal("Bearer secret"),
 		}),
 	})
-	_, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(redirectSrv.URL+"/start"), opts)
+	_, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(redirectSrv.URL+"/start"), opts)
 	require.NoError(t, err)
 	assert.Empty(t, targetAuth, "Authorization must be stripped on cross-origin redirect")
 }
@@ -832,7 +832,7 @@ client "http" "api" {
 }
 `, srv.URL))
 
-	resp, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	resp, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/"))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
 	assert.Equal(t, int32(3), atomic.LoadInt32(count), "should hit server 3 times")
@@ -854,7 +854,7 @@ client "http" "api" {
 }
 `, srv.URL))
 
-	resp, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	resp, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/"))
 	require.NoError(t, err, "exhausted retries on a status code returns the last response, not an error")
 	assert.Equal(t, cty.NumberIntVal(503), resp.GetAttr("status"))
 	assert.Equal(t, int32(3), atomic.LoadInt32(count))
@@ -876,7 +876,7 @@ client "http" "api" {
 }
 `, srv.URL))
 
-	resp, err := callVerb(t, "http_post", bgCtx, clientVal, cty.StringVal("/"), cty.StringVal("data"))
+	resp, err := callVerb(t, "http::post", bgCtx, clientVal, cty.StringVal("/"), cty.StringVal("data"))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(503), resp.GetAttr("status"))
 	assert.Equal(t, int32(1), atomic.LoadInt32(count), "POST should not retry without allow_non_idempotent")
@@ -899,7 +899,7 @@ client "http" "api" {
 }
 `, srv.URL))
 
-	resp, err := callVerb(t, "http_post", bgCtx, clientVal, cty.StringVal("/"), cty.StringVal("data"))
+	resp, err := callVerb(t, "http::post", bgCtx, clientVal, cty.StringVal("/"), cty.StringVal("data"))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
 	assert.Equal(t, int32(2), atomic.LoadInt32(count))
@@ -921,7 +921,7 @@ client "http" "api" {
 }
 `, srv.URL))
 
-	resp, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	resp, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/"))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(500), resp.GetAttr("status"))
 	assert.Equal(t, int32(1), atomic.LoadInt32(count), "500 should not be retried under default policy")
@@ -947,7 +947,7 @@ client "http" "api" {
 }
 `, addr))
 
-	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	_, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/"))
 	require.Error(t, err)
 }
 
@@ -979,7 +979,7 @@ client "http" "api" {
 }
 `, srv.URL))
 
-	resp, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	resp, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/"))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
 	gap := secondAttemptAt.Sub(firstAttemptAt)
@@ -1006,7 +1006,7 @@ client "http" "api" {
 	opts := cty.ObjectVal(map[string]cty.Value{
 		"retry": cty.BoolVal(false),
 	})
-	resp, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"), opts)
+	resp, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/"), opts)
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(503), resp.GetAttr("status"))
 	assert.Equal(t, int32(1), atomic.LoadInt32(count), "opts.retry = false should disable client's retry policy")
@@ -1032,7 +1032,7 @@ client "http" "api" {
 			"jitter":        cty.BoolVal(false),
 		}),
 	})
-	resp, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/"), opts)
+	resp, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/"), opts)
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
 	assert.Equal(t, int32(5), atomic.LoadInt32(count))
@@ -1061,7 +1061,7 @@ client "http" "api" {
 	require.False(t, diags.HasErrors(), diags.Error())
 	clientVal := config.CtyClientMap["api"]
 
-	resp, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	resp, err := callVerbWithConfig(t, config, "http::get", bgCtx, clientVal, cty.StringVal("/"))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(503), resp.GetAttr("status"))
 	assert.Equal(t, int32(1), atomic.LoadInt32(count), "on_response = false stops after first attempt")
@@ -1089,7 +1089,7 @@ client "http" "api" {
 	require.False(t, diags.HasErrors(), diags.Error())
 	clientVal := config.CtyClientMap["api"]
 
-	resp, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	resp, err := callVerbWithConfig(t, config, "http::get", bgCtx, clientVal, cty.StringVal("/"))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
 	assert.Equal(t, int32(3), atomic.LoadInt32(count))
@@ -1117,7 +1117,7 @@ client "http" "api" {
 	require.False(t, diags.HasErrors(), diags.Error())
 	clientVal := config.CtyClientMap["api"]
 
-	_, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	_, err := callVerbWithConfig(t, config, "http::get", bgCtx, clientVal, cty.StringVal("/"))
 	require.NoError(t, err)
 	// Attempt 1: hook sees attempt=1 → true → retry
 	// Attempt 2: hook sees attempt=2 → false → stop
@@ -1158,7 +1158,7 @@ client "http" "api" {
 	require.False(t, diags.HasErrors(), diags.Error())
 	clientVal := config.CtyClientMap["api"]
 
-	resp, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	resp, err := callVerbWithConfig(t, config, "http::get", bgCtx, clientVal, cty.StringVal("/"))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
 }
@@ -1183,7 +1183,7 @@ client "http" "api" {
 	clientVal := config.CtyClientMap["api"]
 
 	for i := 0; i < 3; i++ {
-		_, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+		_, err := callVerbWithConfig(t, config, "http::get", bgCtx, clientVal, cty.StringVal("/"))
 		require.NoError(t, err)
 	}
 	assert.Equal(t, int32(3), atomic.LoadInt32(count))
@@ -1223,7 +1223,7 @@ client "http" "api" {
 	require.False(t, diags.HasErrors(), diags.Error())
 	clientVal := config.CtyClientMap["api"]
 
-	resp, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	resp, err := callVerbWithConfig(t, config, "http::get", bgCtx, clientVal, cty.StringVal("/"))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(401), resp.GetAttr("status"))
 	assert.Equal(t, int32(2), atomic.LoadInt32(&requestCount), "401 should trigger exactly one re-auth retry")
@@ -1248,7 +1248,7 @@ client "http" "api" {
 	opts := cty.ObjectVal(map[string]cty.Value{
 		"auth": cty.StringVal("Bearer wrong"),
 	})
-	resp, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"), opts)
+	resp, err := callVerbWithConfig(t, config, "http::get", bgCtx, clientVal, cty.StringVal("/"), opts)
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(401), resp.GetAttr("status"))
 	assert.Equal(t, int32(1), atomic.LoadInt32(count), "opts.auth must not trigger re-auth retry on 401")
@@ -1275,7 +1275,7 @@ client "http" "api" {
 	opts := cty.ObjectVal(map[string]cty.Value{
 		"auth": cty.StringVal("Bearer per-call"),
 	})
-	_, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"), opts)
+	_, err := callVerbWithConfig(t, config, "http::get", bgCtx, clientVal, cty.StringVal("/"), opts)
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer per-call", sawAuth)
 }
@@ -1300,7 +1300,7 @@ client "http" "api" {
 	opts := cty.ObjectVal(map[string]cty.Value{
 		"auth": cty.NullVal(cty.String),
 	})
-	_, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"), opts)
+	_, err := callVerbWithConfig(t, config, "http::get", bgCtx, clientVal, cty.StringVal("/"), opts)
 	require.NoError(t, err)
 	assert.Empty(t, sawAuth, "opts.auth = null must send no Authorization")
 }
@@ -1327,7 +1327,7 @@ client "http" "api" {
 			"Authorization": cty.StringVal("Bearer header-wins"),
 		}),
 	})
-	_, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"), opts)
+	_, err := callVerbWithConfig(t, config, "http::get", bgCtx, clientVal, cty.StringVal("/"), opts)
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer header-wins", sawAuth)
 }
@@ -1359,14 +1359,14 @@ client "http" "api" {
 
 	// First call: 401 + re-auth + 401 → 2 wire requests, cache enters
 	// failed state.
-	resp, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	resp, err := callVerbWithConfig(t, config, "http::get", bgCtx, clientVal, cty.StringVal("/"))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(401), resp.GetAttr("status"))
 	assert.Equal(t, int32(2), atomic.LoadInt32(count))
 
 	// Second call: client is now in failed state and should error
 	// before hitting the network.
-	_, err = callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/"))
+	_, err = callVerbWithConfig(t, config, "http::get", bgCtx, clientVal, cty.StringVal("/"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed state")
 	assert.Equal(t, int32(2), atomic.LoadInt32(count), "fail-fast call must not hit the server")
@@ -1415,14 +1415,14 @@ func TestHTTPGet_AuthHook_ReentrancySuppressed(t *testing.T) {
 	vcl := fmt.Sprintf(`
 client "http" "api" {
     base_url = %q
-    auth     = "Bearer ${tostring(http_get(ctx, client.api, "/token"))}"
+    auth     = "Bearer ${tostring(http::get(ctx, client.api, "/token"))}"
 }
 `, srv.URL)
 	config, diags := cfg.NewConfig().WithSources([]byte(vcl)).WithLogger(newTestLogger(t)).Build()
 	require.False(t, diags.HasErrors(), diags.Error())
 	clientVal := config.CtyClientMap["api"]
 
-	resp, err := callVerbWithConfig(t, config, "http_get", bgCtx, clientVal, cty.StringVal("/data"))
+	resp, err := callVerbWithConfig(t, config, "http::get", bgCtx, clientVal, cty.StringVal("/data"))
 	require.NoError(t, err)
 	assert.Equal(t, cty.NumberIntVal(200), resp.GetAttr("status"))
 	assert.Equal(t, int32(1), atomic.LoadInt32(&tokenHits), "token endpoint should be hit exactly once")
@@ -1455,9 +1455,9 @@ client "http" "api" {
 }
 `, srv.URL))
 
-	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/login"))
+	_, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/login"))
 	require.NoError(t, err)
-	_, err = callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/whoami"))
+	_, err = callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/whoami"))
 	require.NoError(t, err)
 	assert.Empty(t, seenCookie, "no jar means no automatic Set-Cookie persistence")
 }
@@ -1488,9 +1488,9 @@ client "http" "api" {
 }
 `, srv.URL))
 
-	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/login"))
+	_, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/login"))
 	require.NoError(t, err)
-	_, err = callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/whoami"))
+	_, err = callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/whoami"))
 	require.NoError(t, err)
 	assert.Equal(t, "abc123", seenCookie)
 }
@@ -1518,9 +1518,9 @@ client "http" "api" {
 }
 `, srv.URL))
 
-	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/login"))
+	_, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/login"))
 	require.NoError(t, err)
-	_, err = callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/whoami"))
+	_, err = callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/whoami"))
 	require.NoError(t, err)
 	assert.Equal(t, "abc", seenCookie)
 }
@@ -1551,9 +1551,9 @@ client "http" "api" {
 }
 `, srv.URL))
 
-	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/login"))
+	_, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/login"))
 	require.NoError(t, err)
-	_, err = callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/whoami"))
+	_, err = callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/whoami"))
 	require.NoError(t, err)
 	assert.Empty(t, seenCookie)
 }
@@ -1578,7 +1578,7 @@ func TestHTTPGet_PerCallCookies_Map(t *testing.T) {
 			"tracking": cty.StringVal("xyz789"),
 		}),
 	})
-	_, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/"), opts)
+	_, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/"), opts)
 	require.NoError(t, err)
 	assert.Equal(t, "abc123", seenSession)
 	assert.Equal(t, "xyz789", seenTracking)
@@ -1606,7 +1606,7 @@ func TestHTTPGet_PerCallCookies_List(t *testing.T) {
 			}),
 		}),
 	})
-	_, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/"), opts)
+	_, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/"), opts)
 	require.NoError(t, err)
 	assert.Equal(t, "abc123", seenSession)
 }
@@ -1637,9 +1637,9 @@ client "http" "api" {
 			"ephemeral": cty.StringVal("once"),
 		}),
 	})
-	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/first"), opts)
+	_, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/first"), opts)
 	require.NoError(t, err)
-	_, err = callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/second"))
+	_, err = callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/second"))
 	require.NoError(t, err)
 	assert.Empty(t, seenOnSecond, "per-call cookies must not enter the jar")
 }
@@ -1671,7 +1671,7 @@ client "http" "api" {
 }
 `, srv.URL))
 
-	_, err := callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/login"))
+	_, err := callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/login"))
 	require.NoError(t, err)
 
 	opts := cty.ObjectVal(map[string]cty.Value{
@@ -1679,7 +1679,7 @@ client "http" "api" {
 			"extra": cty.StringVal("frompercall"),
 		}),
 	})
-	_, err = callVerb(t, "http_get", bgCtx, clientVal, cty.StringVal("/data"), opts)
+	_, err = callVerb(t, "http::get", bgCtx, clientVal, cty.StringVal("/data"), opts)
 	require.NoError(t, err)
 	assert.Equal(t, "fromjar", seenSession)
 	assert.Equal(t, "frompercall", seenExtra)
@@ -1732,7 +1732,7 @@ func TestHTTPGet_OTelPropagation_DefaultOn(t *testing.T) {
 	defer srv.Close()
 
 	ctx, sc := ctxWithSpan(t, tp)
-	_, err := callVerb(t, "http_get", ctx, nullClientVal, cty.StringVal(srv.URL+"/"))
+	_, err := callVerb(t, "http::get", ctx, nullClientVal, cty.StringVal(srv.URL+"/"))
 	require.NoError(t, err)
 	assert.NotEmpty(t, sawTraceparent, "default-on propagation should inject traceparent")
 	assert.Contains(t, sawTraceparent, sc.TraceID().String(),
@@ -1758,7 +1758,7 @@ client "http" "api" {
 `, srv.URL))
 
 	ctx, _ := ctxWithSpan(t, tp)
-	_, err := callVerb(t, "http_get", ctx, clientVal, cty.StringVal("/"))
+	_, err := callVerb(t, "http::get", ctx, clientVal, cty.StringVal("/"))
 	require.NoError(t, err)
 	assert.Empty(t, sawTraceparent, "per-client propagate=false should suppress traceparent")
 }
@@ -1785,7 +1785,7 @@ client "http" "api" {
 			"propagate": cty.BoolVal(false),
 		}),
 	})
-	_, err := callVerb(t, "http_get", ctx, clientVal, cty.StringVal("/"), opts)
+	_, err := callVerb(t, "http::get", ctx, clientVal, cty.StringVal("/"), opts)
 	require.NoError(t, err)
 	assert.Empty(t, sawTraceparent, "per-call opts.otel.propagate=false should suppress traceparent")
 }
@@ -1815,7 +1815,7 @@ client "http" "api" {
 			"propagate": cty.BoolVal(true),
 		}),
 	})
-	_, err := callVerb(t, "http_get", ctx, clientVal, cty.StringVal("/"), opts)
+	_, err := callVerb(t, "http::get", ctx, clientVal, cty.StringVal("/"), opts)
 	require.NoError(t, err)
 	assert.NotEmpty(t, sawTraceparent, "per-call propagate=true should override client default off")
 }
@@ -1843,7 +1843,7 @@ client "http" "api" {
 
 	// Force a parent span so otelhttp creates a child.
 	ctx, _ := ctxWithSpan(t, tp)
-	_, err := callVerb(t, "http_get", ctx, clientVal, cty.StringVal("/"))
+	_, err := callVerb(t, "http::get", ctx, clientVal, cty.StringVal("/"))
 	require.NoError(t, err)
 
 	// Flush by ending parent span via cleanup, then read.
@@ -1871,7 +1871,7 @@ client "http" "api" {
 // Helper for the http_must tests so each one isn't fifteen lines of setup.
 func fetchOnce(t *testing.T, srv *httptest.Server, path string) cty.Value {
 	t.Helper()
-	resp, err := callVerb(t, "http_get", bgCtx, nullClientVal, cty.StringVal(srv.URL+path))
+	resp, err := callVerb(t, "http::get", bgCtx, nullClientVal, cty.StringVal(srv.URL+path))
 	require.NoError(t, err)
 	return resp
 }
@@ -1879,7 +1879,7 @@ func fetchOnce(t *testing.T, srv *httptest.Server, path string) cty.Value {
 // callMust invokes http_must directly via the function registry.
 func callMust(t *testing.T, args ...cty.Value) (cty.Value, error) {
 	t.Helper()
-	return callVerb(t, "http_must", args...)
+	return callVerb(t, "http::must", args...)
 }
 
 func TestHTTPMust_Default2xx_PassesThrough(t *testing.T) {
@@ -2030,7 +2030,7 @@ func TestHTTPMust_ErrorMessage_IncludesMethodAndURL(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, err := callVerb(t, "http_post", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/widgets"), cty.StringVal("payload"))
+	resp, err := callVerb(t, "http::post", bgCtx, nullClientVal, cty.StringVal(srv.URL+"/widgets"), cty.StringVal("payload"))
 	require.NoError(t, err)
 	_, err = callMust(t, resp, cty.NumberIntVal(201))
 	require.Error(t, err)

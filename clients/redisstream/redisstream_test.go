@@ -207,11 +207,11 @@ client "redis_stream" "rs" {
 subscription "manual_ack" {
     target     = bus.main
     topics     = ["#"]
-    action     = redis_ack(ctx, client.rs.consumer.in, ctx.fields.message_id)
+    action     = redis::ack(ctx, client.rs.consumer.in, ctx.fields.message_id)
 }
 `, mr.Addr())
 	_ = src
-	// Note: this test exercises schema registration of redis_ack without
+	// Note: this test exercises schema registration of redis::ack without
 	// relying on the subscription-action path (which would need the bus
 	// entry to have message_id in fields — it doesn't today). The behavior
 	// is covered in a direct call below.

@@ -136,7 +136,7 @@ Optional HCL expressions evaluated synchronously:
 - `on_disconnect` — fires in `OnConnectionDown`, when the connection drops,
   before any reconnection attempt.
 
-Standard VCL context (`ctx`, `bus.*`, `send()`, `log_info()`, etc.) is
+Standard VCL context (`ctx`, `bus.*`, `send()`, `log::info()`, etc.) is
 available. Message variables (`ctx.topic`, `ctx.msg`, `ctx.fields`) are not
 available — there is no message in flight at lifecycle hook time.
 
@@ -228,7 +228,7 @@ from the broker and dispatches them to a vinculum bus or subscriber.
 receiver "main" {
   subscriber = bus.main        # forward to a bus or subscriber
   # OR
-  # action = log_info(ctx, "mqtt", {topic = ctx.topic, msg = ctx.msg})
+  # action = log::info(ctx, "mqtt", {topic = ctx.topic, msg = ctx.msg})
 
   # Optional transform pipeline and async queue (same semantics as the
   # top-level `subscription` block — see config.md#subscription).

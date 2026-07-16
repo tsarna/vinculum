@@ -22,11 +22,11 @@ func GetLogFunctions(logger *zap.Logger) map[string]function.Function {
 	if logger == nil {
 		// Return no-op functions if no logger is provided
 		return map[string]function.Function{
-			"log_debug": makeNoOpLogFunc(),
-			"log_info":  makeNoOpLogFunc(),
-			"log_warn":  makeNoOpLogFunc(),
-			"log_error": makeNoOpLogFunc(),
-			"log_msg":   makeNoOpLogLevelFunc(),
+			"log::debug": makeNoOpLogFunc(),
+			"log::info":  makeNoOpLogFunc(),
+			"log::warn":  makeNoOpLogFunc(),
+			"log::error": makeNoOpLogFunc(),
+			"log::msg":   makeNoOpLogLevelFunc(),
 		}
 	}
 
@@ -39,26 +39,29 @@ func GetLogFunctions(logger *zap.Logger) map[string]function.Function {
 	)
 
 	return map[string]function.Function{
-		"log_debug": makeLogFunc(logger, zapcore.DebugLevel),
-		"log_info":  makeLogFunc(logger, zapcore.InfoLevel),
-		"log_warn":  makeLogFunc(logger, zapcore.WarnLevel),
-		"log_error": makeLogFunc(logger, zapcore.ErrorLevel),
-		"log_msg":   makeLogLevelFunc(logger),
+		"log::debug": makeLogFunc(logger, zapcore.DebugLevel),
+		"log::info":  makeLogFunc(logger, zapcore.InfoLevel),
+		"log::warn":  makeLogFunc(logger, zapcore.WarnLevel),
+		"log::error": makeLogFunc(logger, zapcore.ErrorLevel),
+		"log::msg":   makeLogLevelFunc(logger),
 	}
 }
 
 // makeLogFunc creates a logging function for a specific log level
 func makeLogFunc(logger *zap.Logger, level zapcore.Level) function.Function {
 	return function.New(&function.Spec{
+		Description: fmt.Sprintf("Logs a message at %s level with optional structured fields; returns true", level.String()),
 		Params: []function.Parameter{
 			{
-				Name: "message",
-				Type: cty.String,
+				Name:        "message",
+				Type:        cty.String,
+				Description: "The log message",
 			},
 		},
 		VarParam: &function.Parameter{
-			Name: "fields",
-			Type: cty.DynamicPseudoType,
+			Name:        "fields",
+			Type:        cty.DynamicPseudoType,
+			Description: "Structured fields: either a single map/object (its keys become field names) or positional values (named $1, $2, …)",
 		},
 		Type: function.StaticReturnType(cty.Bool),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
@@ -78,19 +81,23 @@ func makeLogFunc(logger *zap.Logger, level zapcore.Level) function.Function {
 // makeLogLevelFunc creates a logging function that takes log level as first parameter
 func makeLogLevelFunc(logger *zap.Logger) function.Function {
 	return function.New(&function.Spec{
+		Description: "Logs a message at a level named by the first argument, with optional structured fields; returns true",
 		Params: []function.Parameter{
 			{
-				Name: "level",
-				Type: cty.String,
+				Name:        "level",
+				Type:        cty.String,
+				Description: "Log level: \"debug\", \"info\", \"warn\" (or \"warning\"), or \"error\" (unknown levels default to info)",
 			},
 			{
-				Name: "message",
-				Type: cty.String,
+				Name:        "message",
+				Type:        cty.String,
+				Description: "The log message",
 			},
 		},
 		VarParam: &function.Parameter{
-			Name: "fields",
-			Type: cty.DynamicPseudoType,
+			Name:        "fields",
+			Type:        cty.DynamicPseudoType,
+			Description: "Structured fields: either a single map/object (its keys become field names) or positional values (named $1, $2, …)",
 		},
 		Type: function.StaticReturnType(cty.Bool),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
@@ -217,15 +224,18 @@ func convertCtyValueToZapField(key string, val cty.Value) *zap.Field {
 // makeNoOpLogFunc creates a no-op logging function when no logger is available
 func makeNoOpLogFunc() function.Function {
 	return function.New(&function.Spec{
+		Description: "Logs a message with optional structured fields; returns true",
 		Params: []function.Parameter{
 			{
-				Name: "message",
-				Type: cty.String,
+				Name:        "message",
+				Type:        cty.String,
+				Description: "The log message",
 			},
 		},
 		VarParam: &function.Parameter{
-			Name: "fields",
-			Type: cty.DynamicPseudoType,
+			Name:        "fields",
+			Type:        cty.DynamicPseudoType,
+			Description: "Structured fields: either a single map/object (its keys become field names) or positional values (named $1, $2, …)",
 		},
 		Type: function.StaticReturnType(cty.Bool),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
@@ -237,19 +247,23 @@ func makeNoOpLogFunc() function.Function {
 // makeNoOpLogLevelFunc creates a no-op log_msg function when no logger is available
 func makeNoOpLogLevelFunc() function.Function {
 	return function.New(&function.Spec{
+		Description: "Logs a message at a level named by the first argument, with optional structured fields; returns true",
 		Params: []function.Parameter{
 			{
-				Name: "level",
-				Type: cty.String,
+				Name:        "level",
+				Type:        cty.String,
+				Description: "Log level: \"debug\", \"info\", \"warn\" (or \"warning\"), or \"error\" (unknown levels default to info)",
 			},
 			{
-				Name: "message",
-				Type: cty.String,
+				Name:        "message",
+				Type:        cty.String,
+				Description: "The log message",
 			},
 		},
 		VarParam: &function.Parameter{
-			Name: "fields",
-			Type: cty.DynamicPseudoType,
+			Name:        "fields",
+			Type:        cty.DynamicPseudoType,
+			Description: "Structured fields: either a single map/object (its keys become field names) or positional values (named $1, $2, …)",
 		},
 		Type: function.StaticReturnType(cty.Bool),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {

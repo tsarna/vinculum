@@ -16,14 +16,14 @@ func TestSerialize_JSONString(t *testing.T) {
 		cty.StringVal("hello"),
 	})
 	if err != nil {
-		t.Fatalf("serialize() error = %v", err)
+		t.Fatalf("wire::serialize() error = %v", err)
 	}
 	b, bErr := bytescty.GetBytesFromValue(result)
 	if bErr != nil {
 		t.Fatalf("expected bytes result: %v", bErr)
 	}
 	if string(b.Data) != `"hello"` {
-		t.Errorf("serialize() = %q, want %q", string(b.Data), `"hello"`)
+		t.Errorf("wire::serialize() = %q, want %q", string(b.Data), `"hello"`)
 	}
 }
 
@@ -34,11 +34,11 @@ func TestSerialize_AutoObject(t *testing.T) {
 	})
 	result, err := fn.Call([]cty.Value{cty.StringVal("auto"), obj})
 	if err != nil {
-		t.Fatalf("serialize() error = %v", err)
+		t.Fatalf("wire::serialize() error = %v", err)
 	}
 	b, _ := bytescty.GetBytesFromValue(result)
 	if string(b.Data) != `{"key":"val"}` {
-		t.Errorf("serialize() = %q, want %q", string(b.Data), `{"key":"val"}`)
+		t.Errorf("wire::serialize() = %q, want %q", string(b.Data), `{"key":"val"}`)
 	}
 }
 
@@ -50,11 +50,11 @@ func TestSerialize_Capsule(t *testing.T) {
 		cty.NumberIntVal(42),
 	})
 	if err != nil {
-		t.Fatalf("serialize() error = %v", err)
+		t.Fatalf("wire::serialize() error = %v", err)
 	}
 	b, _ := bytescty.GetBytesFromValue(result)
 	if string(b.Data) != "42" {
-		t.Errorf("serialize() = %q, want %q", string(b.Data), "42")
+		t.Errorf("wire::serialize() = %q, want %q", string(b.Data), "42")
 	}
 }
 
@@ -76,10 +76,10 @@ func TestSerializeStr_JSON(t *testing.T) {
 		cty.ObjectVal(map[string]cty.Value{"a": cty.NumberIntVal(1)}),
 	})
 	if err != nil {
-		t.Fatalf("serializestr() error = %v", err)
+		t.Fatalf("wire::serialize_str() error = %v", err)
 	}
 	if result.AsString() != `{"a":1}` {
-		t.Errorf("serializestr() = %q, want %q", result.AsString(), `{"a":1}`)
+		t.Errorf("wire::serialize_str() = %q, want %q", result.AsString(), `{"a":1}`)
 	}
 }
 
@@ -90,10 +90,10 @@ func TestSerializeStr_Auto(t *testing.T) {
 		cty.StringVal("plain"),
 	})
 	if err != nil {
-		t.Fatalf("serializestr() error = %v", err)
+		t.Fatalf("wire::serialize_str() error = %v", err)
 	}
 	if result.AsString() != "plain" {
-		t.Errorf("serializestr() = %q, want %q", result.AsString(), "plain")
+		t.Errorf("wire::serialize_str() = %q, want %q", result.AsString(), "plain")
 	}
 }
 
@@ -104,10 +104,10 @@ func TestDeserialize_JSONString(t *testing.T) {
 		cty.StringVal(`{"key":"val"}`),
 	})
 	if err != nil {
-		t.Fatalf("deserialize() error = %v", err)
+		t.Fatalf("wire::dewire::serialize() error = %v", err)
 	}
 	if !result.IsKnown() {
-		t.Fatal("deserialize() returned unknown value")
+		t.Fatal("wire::dewire::serialize() returned unknown value")
 	}
 }
 
@@ -118,13 +118,13 @@ func TestDeserialize_AutoPlainText(t *testing.T) {
 		cty.StringVal("hello world"),
 	})
 	if err != nil {
-		t.Fatalf("deserialize() error = %v", err)
+		t.Fatalf("wire::dewire::serialize() error = %v", err)
 	}
 	if result.Type() != cty.String {
-		t.Errorf("deserialize() type = %s, want string", result.Type().FriendlyName())
+		t.Errorf("wire::dewire::serialize() type = %s, want string", result.Type().FriendlyName())
 	}
 	if result.AsString() != "hello world" {
-		t.Errorf("deserialize() = %q, want %q", result.AsString(), "hello world")
+		t.Errorf("wire::dewire::serialize() = %q, want %q", result.AsString(), "hello world")
 	}
 }
 
@@ -136,10 +136,10 @@ func TestDeserialize_Bytes(t *testing.T) {
 		bytesVal,
 	})
 	if err != nil {
-		t.Fatalf("deserialize() error = %v", err)
+		t.Fatalf("wire::dewire::serialize() error = %v", err)
 	}
 	if !result.IsKnown() {
-		t.Fatal("deserialize() returned unknown value")
+		t.Fatal("wire::dewire::serialize() returned unknown value")
 	}
 }
 

@@ -98,7 +98,7 @@ time on every cycle.
 `get(trigger.<name>)` returns `null` until the first evaluation of `time`,
 then the currently scheduled fire time as a time capsule. This lets other
 expressions compute how far away the next firing is, e.g.
-`until(get(trigger.<name>))`.
+`time::until(get(trigger.<name>))`.
 
 If `time` evaluates to a time in the past, the action fires immediately and a
 warning is logged. If `time` evaluation fails (wrong type, expression error),
@@ -160,7 +160,7 @@ Example — fire at a dynamically computed time each day, for example using Vinc
 
 ```hcl
 trigger "at" "sunrise" {
-    time   = sunrise({lat = get(var.latitude), lon = get(var.longitude)})
+    time   = sky::sunrise({lat = get(var.latitude), lon = get(var.longitude)})
     action = set(var.scene, "morning")
 }
 ```
@@ -176,7 +176,7 @@ trigger "at" "arrival_alert" {
 }
 
 trigger "interval" "recompute_eta" {
-    delay  = recheck_interval(var.speed, until(get(trigger.arrival_alert)))
+    delay  = recheck_interval(var.speed, time::until(get(trigger.arrival_alert)))
     action = set(trigger.arrival_alert)
 }
 ```
@@ -187,7 +187,7 @@ override the next fire with the storm's expected arrival time:
 
 ```hcl
 trigger "at" "draw_curtains" {
-    time   = sunset({lat = get(var.lat), lon = get(var.lon)})
+    time   = sky::sunset({lat = get(var.lat), lon = get(var.lon)})
     action = send(ctx, bus.main, "home/curtains/close", {})
 }
 
@@ -365,7 +365,7 @@ trigger "file" "spool" {
     filter            = "*.json"
     on_start_existing = true
     action = [
-        log_info("processing spool file", {path = ctx.event_path}),
+        log::info("processing spool file", {path = ctx.event_path}),
         send(ctx, bus.main, "spool/inbound", fileread(ctx.event_path)),
     ]
 }
@@ -392,7 +392,7 @@ trigger "file" "tls_cert_rotate" {
     events   = ["create", "write"]
     filter   = "*.pem"
     debounce = "500ms"
-    action   = log_info("TLS cert changed, reload required", {file = ctx.event_path})
+    action   = log::info("TLS cert changed, reload required", {file = ctx.event_path})
 }
 ```
 
@@ -639,7 +639,7 @@ Example — log a goodbye message on shutdown:
 
 ```hcl
 trigger "shutdown" "bye" {
-    action = log_info("shutting down", {name = ctx.name})
+    action = log::info("shutting down", {name = ctx.name})
 }
 ```
 
@@ -678,7 +678,7 @@ Example — log the signal name on SIGUSR1:
 
 ```hcl
 trigger "signals" "main" {
-    SIGUSR1 = log_info("received signal", {signal = ctx.signal})
+    SIGUSR1 = log::info("received signal", {signal = ctx.signal})
 }
 ```
 
@@ -714,7 +714,7 @@ Example — log a startup message:
 
 ```hcl
 trigger "start" "hello" {
-    action = log_info("vinculum started", {host = sys.hostname})
+    action = log::info("vinculum started", {host = sys.hostname})
 }
 ```
 
@@ -779,7 +779,7 @@ var "temperature" {}
 
 trigger "watch" "on_temp_update" {
     watch  = var.temperature
-    action = log_info("temperature updated", {
+    action = log::info("temperature updated", {
         was = ctx.old_value,
         now = ctx.new_value,
     })
@@ -792,7 +792,7 @@ Example — fire only when the value actually changes (opt-in via `skip_when`):
 trigger "watch" "on_temp_change" {
     watch     = var.temperature
     skip_when = ctx.old_value == ctx.new_value
-    action    = log_info("temperature changed", {
+    action    = log::info("temperature changed", {
         was = ctx.old_value,
         now = ctx.new_value,
     })
@@ -817,7 +817,7 @@ metric "gauge" "queue_depth" {}
 trigger "watch" "queue_alert" {
     watch     = metric.queue_depth
     skip_when = ctx.new_value < 1000
-    action    = log_warn("queue depth exceeded threshold", {depth = ctx.new_value})
+    action    = log::warn("queue depth exceeded threshold", {depth = ctx.new_value})
 }
 ```
 
@@ -894,7 +894,7 @@ Example — heartbeat monitoring (alert if worker goes silent for 90 seconds):
 ```hcl
 trigger "watchdog" "worker_alive" {
     window = "90s"
-    action = log_warn("worker missed heartbeat", {missed = ctx.miss_count})
+    action = log::warn("worker missed heartbeat", {missed = ctx.miss_count})
 }
 
 trigger "interval" "worker" {
@@ -922,7 +922,7 @@ Example — allow 2 minutes for a dependency to start before monitoring begins:
 trigger "watchdog" "upstream" {
     initial_grace = "2m"
     window        = "30s"
-    action        = log_warn("upstream health check stopped", {name = ctx.name})
+    action        = log::warn("upstream health check stopped", {name = ctx.name})
 }
 ```
 
@@ -942,7 +942,7 @@ subscription "sensor" {
 trigger "watchdog" "sensor_alive" {
     window = "60s"
     watch  = var.sensor_reading  # auto-feeds on every set(var.sensor_reading, ...)
-    action = log_warn("sensor went silent", {last = ctx.last_set})
+    action = log::warn("sensor went silent", {last = ctx.last_set})
 }
 ```
 

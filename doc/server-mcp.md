@@ -116,8 +116,8 @@ tool "name" {
 The `action` expression is evaluated when a client calls the tool. Return values:
 
 - A string is returned as text content.
-- `mcp_image(data [, mime_type])` returns image content — `data` may be a base64 string or a `bytes` capsule.
-- `mcp_error(message)` signals a tool error to the client.
+- `mcp::image(data [, mime_type])` returns image content — `data` may be a base64 string or a `bytes` capsule.
+- `mcp::error(message)` signals a tool error to the client.
 
 ### Tool Context Variables
 
@@ -193,7 +193,7 @@ prompt "code_review" {
         required = true
     }
 
-    action = mcp_usermessage(
+    action = mcp::user_message(
         "Please review this ${ctx.args.language} code:\n\n```${ctx.args.language}\n${ctx.args.code}\n```"
     )
 }
@@ -210,12 +210,12 @@ See [functions.md](functions.md#mcp-functions) for full details.
 | Function | Returns | Valid in |
 |---|---|---|
 | plain string | Text content | resources, tools, prompts |
-| `mcp_image(data [, mime_type])` | Image content | resources, tools |
-| `mcp_error(message)` | Tool error | tools only |
-| `mcp_usermessage(content)` | User-role prompt message | prompts |
-| `mcp_assistantmessage(content)` | Assistant-role prompt message | prompts |
+| `mcp::image(data [, mime_type])` | Image content | resources, tools |
+| `mcp::error(message)` | Tool error | tools only |
+| `mcp::user_message(content)` | User-role prompt message | prompts |
+| `mcp::assistant_message(content)` | Assistant-role prompt message | prompts |
 
-`data` in `mcp_image` may be a base64-encoded string (requires `mime_type`) or a `bytes` capsule
+`data` in `mcp::image` may be a base64-encoded string (requires `mime_type`) or a `bytes` capsule
 (MIME type taken from the capsule's content type, optionally overridden by a second argument).
 See [functions.md](functions.md#mcp_image-data--mime_type) for full details.
 
@@ -453,7 +453,7 @@ server "mcp" "assistant_tools" {
             required    = true
         }
 
-        action = mcp_usermessage(
+        action = mcp::user_message(
             "Please review this ${ctx.args.language} code:\n\n```${ctx.args.language}\n${ctx.args.code}\n```"
         )
     }

@@ -7,6 +7,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: the time and duration functions are namespaced.** `timeadd` → `time::add`,
+  `durationtruncate` → `duration::truncate`, `nextzoneserial` → `dns::next_zone_serial`, and so
+  on. HCL parses `a::b(x)` natively and resolves it as a single flat map key, so this is a
+  naming change, not a structural one — but **existing `.vcl` and `.cty` files must be updated**.
+
+  The names follow HashiCorp's conventions for provider-defined functions: the leaf name does
+  not repeat the namespace, and namespaced functions use underscores (HCL's *built-in*
+  functions run words together for historical reasons). The nine functions that all began with
+  the word "duration" are the clearest win, and the two DNS functions get a namespace of their
+  own — they were never time functions.
+
+  `duration()` keeps its bare name: it is the type constructor, and reads as one.
+
+  | was | is |
+  | --- | --- |
+  | `now`, `parsetime`, `formattime` | `time::now`, `time::parse`, `time::format` |
+  | `timeadd`, `timesub` | `time::add`, `time::sub` |
+  | `since`, `until` | `time::since`, `time::until` |
+  | `fromunix`, `unix` | `time::from_unix`, `time::to_unix` |
+  | `timezone`, `intimezone` | `time::zone`, `time::in_zone` |
+  | `addyears`, `addmonths`, `adddays` | `time::add_years`, `time::add_months`, `time::add_days` |
+  | `timebefore`, `timeafter` | `time::before`, `time::after` |
+  | `strftime`, `strptime` | `time::strftime`, `time::strptime` |
+  | `formatduration`, `absduration` | `duration::format`, `duration::abs` |
+  | `durationadd`, `durationsub`, … | `duration::add`, `duration::sub`, … |
+  | `durationtruncate`, `durationround` | `duration::truncate`, `duration::round` |
+  | `durationlt`, `durationgt` | `duration::lt`, `duration::gt` |
+  | `nextzoneserial`, `parsezoneserial` | `dns::next_zone_serial`, `dns::parse_zone_serial` |
+
+- **BREAKING: the geo functions are namespaced under `geo::` and `sky::`.** The geographic,
+  geodesic, and geometric functions — whose bare names (`point`, `area`, `contains`) would be
+  too generic to expose globally — move under `geo::`; the solar-event and celestial-position
+  functions move under `sky::`. The `geopoint` type (new, see below) is not namespaced.
+
+  | was | is |
+  | --- | --- |
+  | `geo_point`, `geo_format` | `geo::point`, `geo::format` |
+  | `geo_inverse`, `geo_destination`, `geo_waypoints` | `geo::inverse`, `geo::destination`, `geo::waypoints` |
+  | `geo_area`, `geo_contains`, `geo_nearest`, `geo_line_intersect` | `geo::area`, `geo::contains`, `geo::nearest`, `geo::line_intersect` |
+  | `sunrise`, `sunset`, `solar_noon`, `solar_midnight` | `sky::sunrise`, `sky::sunset`, `sky::solar_noon`, `sky::solar_midnight` |
+  | `sun_position`, `moon_position`, `moon_phase` | `sky::sun_position`, `sky::moon_position`, `sky::moon_phase` |
+
+- **BREAKING: the random functions are namespaced under `rand::`.** `random` → `rand::float`
+  (it returns a float in `[0.0, 1.0)`; a leaf name should not repeat its namespace),
+  `randint` → `rand::int`, `randuniform` → `rand::uniform`, `randgauss` → `rand::gauss`,
+  `randchoice` → `rand::choice`, `randsample` → `rand::sample`, `randshuffle` → `rand::shuffle`.
+
+- **BREAKING: the URL functions are namespaced under `url::`.** `urlparse` → `url::parse`,
+  `urljoin` → `url::join`, `urljoinpath` → `url::join_path`, `urlqueryencode` →
+  `url::query_encode`, `urlquerydecode` → `url::query_decode`, `urldecode` → `url::decode`.
+  The `url` object type keeps its name (it is a type, not a function). `urlencode` (the flat
+  HCL builtin) is unchanged, and is now **also** available as `url::encode`, so the
+  encode/decode pair is symmetric under the namespace.
+
+- **BREAKING: vinculum's own functions are namespaced.** The multi-member families move
+  under a namespace, dropping the prefix the flat names carried; the `http_response` and
+  `http_request` *object types* keep their names (they are types, not functions).
+
+  | family | was → is |
+  | --- | --- |
+  | **`log::`** | `log_debug/info/warn/error/msg` → `log::debug/info/warn/error/msg` |
+  | **`http::`** | `http_get/post/put/delete/head/options/patch/request/must` → `http::get/…/must`; `http_response/redirect/error` → `http::response/redirect/error`; `addheader/removeheader/setcookie` → `http::add_header/remove_header/set_cookie`; `basicauth` → `http::basic_auth` |
+  | **`mcp::`** | `mcp_image/error/usermessage/assistantmessage` → `mcp::image/error/user_message/assistant_message` |
+  | **`wire::`** | `serialize/serializestr/deserialize` → `wire::serialize/serialize_str/deserialize` |
+  | **`send`** | `sendjson/sendgo` → `send::json/send::go` (bare `send` keeps its name) |
+  | **`llm::` / `sql::`** | `llm_wrap` → `llm::wrap`; `sql_must` → `sql::must` |
+  | **`sqs::` / `redis::`** | `sqs_delete` → `sqs::delete`, `sqs_extend_visibility` → `sqs::extend_visibility`; `redis_ack` → `redis::ack` |
+
+  `diff`, `patch`, `kill`, `help`, and `doc` stay flat — they have no multi-member family.
+  The `file`/`template` families (`file`, `filebytes`, `filebase64`, `fileexists`, `fileset`,
+  `filewrite`, `fileappend`, `templatefile`, `gotemplatefile`) also stay flat: `file`,
+  `fileexists`, `fileset`, `filebase64`, and `templatefile` are Terraform/OpenTofu standard
+  function names, kept for compatibility, and the rest keep their families uniform. The cty
+  standard-library builtins (`upper`, `jsonencode`, `md5`, `abspath`, …) are likewise unchanged.
+
+- **BREAKING: `timeadd` is now the flat HCL builtin — strings in, string out.** It used to be
+  an upgraded version that also accepted `time` and `duration` capsules. That name now belongs
+  to cty's `stdlib.TimeAddFunc` again, and the capsule-aware function is `time::add`, **which
+  always returns a `time`**.
+
+  A call passing capsules must be updated, and will fail loudly rather than silently:
+
+  ```hcl
+  timeadd(now(), duration("50ms"))          # before
+  time::add(time::now(), duration("50ms"))  # after
+  ```
+
+  As a side effect, a duration string is now parsed the same way in every form of `time::add`:
+  `time::add("2024-01-01T00:00:00Z", "PT5M")` used to fail (that path accepted only Go duration
+  syntax) while the equivalent with a parsed timestamp succeeded. Both work now.
+
 ### Added
 
 - **`help()` and `doc()` — reflection over Vinculum's function set.** `help("f")` returns a function's signature, description, and per-parameter docs; with no argument it lists every callable name. `doc("f")` returns just the description. Both are available wherever Vinculum evaluates an expression, and in particular in the REPL (`serve -i`), where `help()` is now the way to find your way around the function set.
@@ -24,6 +117,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     thing      the thing to read (must be Gettable)
     fallback?  Conventionally the value to return when the thing has none. …
     *args      further arguments, interpreted by the thing
+  ```
+
+  The `bytes` functions are declared the same way, for the other reason cty cannot describe a function: they are **overload sets**. Each of `bytes`, `base64encode`, and `base64decode` takes a string *or* a `bytes` value, and cty has no union type — its metadata can only say "dynamic". `base64decode` goes further and picks its *return* type from how many arguments it was given, which one cty signature cannot express at all. `help()` now shows every form:
+
+  ```console
+  > help("base64decode")
+  base64decode(s: string) -> string
+  base64decode(s: string, content_type: string) -> bytes
   ```
 
 - **`RegisterFunctyExterns(filename, src)`** — a package that contributes a function plugin can register a `//functy:extern` source declaring the true signatures of the functions it provides, alongside the plugin itself. Unlike the function-plugin registry, extern names are checked for collisions: two packages declaring the same name is an error, as is a user `.cty` function that collides with one.
@@ -44,6 +145,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Functions with an optional trailing argument no longer accept, and silently ignore, extra ones.** `bytes()`, `base64decode()`, `filebytes()`, and the `time::*` family fake an *optional* argument with a variadic, because that is the only way cty offers — and a variadic has no upper bound. Reading only the argument they expected, they dropped the rest without a word: `bytes("hi", "text/plain", "junk")` returned a bytes value, and `time::now("UTC", "junk")` returned a time. They now report `takes at most N arguments`. A call that was silently wrong is now an error; no call that was doing something meaningful is affected.
+
 - **`vinculum check .` / `serve .` from inside a configuration directory loaded nothing** and reported the (empty) config as valid. The directory walk visited the walk root first with name `.`, which the skip-hidden-directories check treated as a dot-directory and skipped, discarding the whole tree. The walk root is now excluded from that check; hidden subdirectories are still skipped.
 
 ## [0.42.0] - 2026-06-27
@@ -60,7 +163,7 @@ now emits telemetry conforming to the [OpenTelemetry GenAI/MCP semantic conventi
 - **Real client IP behind a proxy (`real_ip` block on `server "http"`)**: when the server runs behind a reverse proxy or load balancer (Traefik, nginx, an ELB) that terminates the client connection, the TCP peer is the proxy, so `ctx.request.remote_addr` and the request log would show the proxy's address. A `real_ip` sub-block recovers the original client from a forwarded header, porting nginx's `real_ip` module: `trusted_proxies` (CIDRs or bare IPs — `set_real_ip_from`), `header` (default `X-Forwarded-For`, but any header including single-value `X-Real-IP` — `real_ip_header`), and `recursive` (walk the chain right-to-left skipping trusted addresses — `real_ip_recursive`). The forwarded header is honored only when the immediate peer is itself trusted, so a direct client cannot spoof its address. The substitution rewrites `RemoteAddr` outermost — before tracing, logging, auth, and action evaluation — so everything downstream sees the real client. See [doc/server-http.md](doc/server-http.md#real-client-ip-real_ip).
 - **`remote_addr` is now included in the `server "http"` request log**, alongside `method`, `route`, `path`, `status`, `duration_ms`, and `bytes` (and reflects the [`real_ip`](doc/server-http.md#real-client-ip-real_ip) substitution when configured).
 - **`disabled` attribute on `auth` and `real_ip` blocks**: both sub-blocks now accept an optional `disabled` expression that, when `true`, leaves the block parsed but inert — auth falls back to no authentication (mode-specific required fields are not validated) and `real_ip` performs no rewrite (`trusted_proxies` is not required). Since the expression sees `env.*`, a single environment variable can both supply a value and toggle its feature, which HCL cannot otherwise express (a block is either written or not). The `auth` toggle applies to `server "http"`, `server "mcp"`, and `server "metrics"`. The `traffic-light` example uses this to make its `real_ip` and basic-auth optional and env-configurable, and its environment variables are now `TRAFFIC_`-prefixed (`TRAFFIC_HTML_DIR` — renamed from `HTML_DIR` — plus the new `TRAFFIC_TRUSTED_PROXIES`, `TRAFFIC_WEB_USER`, and `TRAFFIC_WEB_PASSWORD`).
-- **Weather MCP example (`examples/weather-mcp.vcl`)**: a worked `server "mcp"` that wraps the free, no-API-key [Open-Meteo](https://open-meteo.com) service and exposes live weather to an MCP client (Claude Desktop, Claude Code, …) as two tools (`current_weather`, `forecast`), a templated `resource "weather://current/{place}"`, and a `trip_packing` prompt — running with no env vars or credentials. The MCP server is mounted under a `server "http"` block (rather than given its own `listen`), so each MCP call appears in the HTTP request log. It shows `client "http"` wrapping a third-party JSON API with `function`/`jq` blocks factoring the geocode→forecast flow out of the handler actions (each request resolves the place once and calls the network once), `cond()` for lazy branching (HCL's own `a ? b : c` eagerly evaluates *both* branches, so a side-effecting not-found path needs it), returning an empty list as a "not found" sentinel since user functions reject `null` arguments, and `mcp_error()` for tool failures vs. a plain string for a resource. It also includes an optional, env-toggled `client "otlp"` (`disabled = try(env.OTEL_EXPORTER_OTLP_ENDPOINT, "") == ""`) that the HTTP and MCP servers auto-wire to for traces and metrics — off by default, enabled by setting `OTEL_EXPORTER_OTLP_ENDPOINT`. (`client "otlp"` has always honored the generic `disabled` client attribute; it is now documented in [doc/client-otlp.md](doc/client-otlp.md).) See [examples/README.md](examples/README.md).
+- **Weather MCP example (`examples/weather-mcp.vcl`)**: a worked `server "mcp"` that wraps the free, no-API-key [Open-Meteo](https://open-meteo.com) service and exposes live weather to an MCP client (Claude Desktop, Claude Code, …) as two tools (`current_weather`, `forecast`), a templated `resource "weather://current/{place}"`, and a `trip_packing` prompt — running with no env vars or credentials. The MCP server is mounted under a `server "http"` block (rather than given its own `listen`), so each MCP call appears in the HTTP request log. It shows `client "http"` wrapping a third-party JSON API with `function`/`jq` blocks factoring the geocode→forecast flow out of the handler actions (each request resolves the place once and calls the network once), `cond()` for lazy branching (HCL's own `a ? b : c` eagerly evaluates *both* branches, so a side-effecting not-found path needs it), returning an empty list as a "not found" sentinel since user functions reject `null` arguments, and `mcp::error()` for tool failures vs. a plain string for a resource. It also includes an optional, env-toggled `client "otlp"` (`disabled = try(env.OTEL_EXPORTER_OTLP_ENDPOINT, "") == ""`) that the HTTP and MCP servers auto-wire to for traces and metrics — off by default, enabled by setting `OTEL_EXPORTER_OTLP_ENDPOINT`. (`client "otlp"` has always honored the generic `disabled` client attribute; it is now documented in [doc/client-otlp.md](doc/client-otlp.md).) See [examples/README.md](examples/README.md).
 - **Virtual hosts on `server "http"`**: a `handle` or `files` block can now be scoped to a specific `Host` by prefixing its route/urlpath label with a host, using Go 1.22's `[METHOD ][HOST]/[PATH]` `http.ServeMux` pattern grammar — so one listener can serve `api.example.com`, `cdn.example.com`, and a host-less catch-all from a single `server` block. Host matching is exact (no wildcards — a `ServeMux` limitation; branch on `ctx.request.host` for suffix/wildcard needs), more-specific patterns win, and a host-less route remains the default for any unmatched host, so existing configs are unchanged. `files` learned the host prefix (the host scopes the mux registration while `StripPrefix` still uses the path portion only) and rejects a method token (a file server serves GET/HEAD only). Serving multiple hosts over HTTPS still requires a multi-SAN certificate or SNI selection — a separate TLS concern. See [doc/server-http.md](doc/server-http.md#virtual-hosts).
 
 ### Changed
@@ -115,7 +218,7 @@ now emits telemetry conforming to the [OpenTelemetry GenAI/MCP semantic conventi
 
 ### Added
 
-- **SQL clients (`client "sqlite"`)**: run SQL statements from a config via the existing polymorphic `get()` (exactly one row) and `call()` (general — any number of rows, modifying statements, and the result object) functions; no SQL-specific verbs. Supports named `query` sub-blocks with declared cardinality (`one`/`zero_or_one`/`many`/`exec`), positional (`?`) and named (`:name`) parameters, a result object (`rows`/`row`/`row_count`/`affected`/`last_insert_id`/`error`) where execution failures ride in `result.error` rather than raising, and column→cty type mapping (number/string/bool/`bytes`/`time`/decoded JSON/null). Built on `database/sql` + `sqlx`. SQLite requires a cgo-enabled build; on the minimal image `client "sqlite"` fails at config load with a clear "not compiled into this build" error. A companion `sql_must(result)` function fail-fasts on the error: it raises an evaluation error when `result.error` is non-null and otherwise returns the result unchanged, so it composes inline (`sql_must(call(...)).last_insert_id`). This is the first round of the SQL feature — the dialect-agnostic engine is in place and Postgres/MySQL are forthcoming. See [doc/client-sql.md](doc/client-sql.md).
+- **SQL clients (`client "sqlite"`)**: run SQL statements from a config via the existing polymorphic `get()` (exactly one row) and `call()` (general — any number of rows, modifying statements, and the result object) functions; no SQL-specific verbs. Supports named `query` sub-blocks with declared cardinality (`one`/`zero_or_one`/`many`/`exec`), positional (`?`) and named (`:name`) parameters, a result object (`rows`/`row`/`row_count`/`affected`/`last_insert_id`/`error`) where execution failures ride in `result.error` rather than raising, and column→cty type mapping (number/string/bool/`bytes`/`time`/decoded JSON/null). Built on `database/sql` + `sqlx`. SQLite requires a cgo-enabled build; on the minimal image `client "sqlite"` fails at config load with a clear "not compiled into this build" error. A companion `sql::must(result)` function fail-fasts on the error: it raises an evaluation error when `result.error` is non-null and otherwise returns the result unchanged, so it composes inline (`sql::must(call(...)).last_insert_id`). This is the first round of the SQL feature — the dialect-agnostic engine is in place and Postgres/MySQL are forthcoming. See [doc/client-sql.md](doc/client-sql.md).
 
 ## [0.37.1] - 2026-06-04
 
@@ -263,7 +366,7 @@ now emits telemetry conforming to the [OpenTelemetry GenAI/MCP semantic conventi
 - **Pluggable wire format system** for consistent payload serialization/deserialization across all messaging clients and servers. Replaces the copy-pasted `serializePayload`/`deserializePayload` functions with a shared interface from the new [vinculum-wire](https://github.com/tsarna/vinculum-wire) (`v0.1.0`) module.
   - **`wire_format` attribute** on `client "kafka"`, `client "mqtt"`, `client "redis_pubsub"`, `client "redis_stream"`, and `client "redis_kv"`. Accepts `"auto"` (default), `"json"`, `"string"`, or `"bytes"`, or a custom `wire_format` capsule.
   - **`wire_format "<type>" "<name>"` block** for registering custom wire format plugins (e.g. Protocol Buffers, MessagePack). Custom formats participate in the dependency graph and are addressable as `wire_format.<name>` in expressions.
-  - **`serialize(wire_format, value)`**, **`serializestr(wire_format, value)`**, and **`deserialize(wire_format, data)`** expression functions for ad-hoc use in VCL. See [doc/functions.md](doc/functions.md#wire-format-serialize--deserialize).
+  - **`wire::serialize(wire_format, value)`**, **`wire::serialize_str(wire_format, value)`**, and **`wire::dewire::serialize(wire_format, data)`** expression functions for ad-hoc use in VCL. See [doc/functions.md](doc/functions.md#wire-format-serialize--deserialize).
   - **`CtyWireFormat` decorator** in the config layer transparently converts between cty values and native Go types, so messaging clients never need to import cty.
 
 ### Changed
@@ -577,22 +680,22 @@ now emits telemetry conforming to the [OpenTelemetry GenAI/MCP semantic conventi
 
 - **HTTP response functions** — new globally-available functions for building HTTP responses
   (not scoped to `handle` actions; usable from any action expression):
-  - `http_response(status[, body[, headers]])` — build a response with explicit status,
+  - `http::response(status[, body[, headers]])` — build a response with explicit status,
     optional body (auto-coerced by type), and optional headers (`map(string)` or
     `map(list(string))`)
-  - `http_redirect(url)` / `http_redirect(status, url)` — redirect response; defaults to
+  - `http::redirect(url)` / `http::redirect(status, url)` — redirect response; defaults to
     302 Found
-  - `http_error(status, message)` — error response with plain-text body; integrates
+  - `http::error(status, message)` — error response with plain-text body; integrates
     naturally with `try()` for mapping errors to specific HTTP status codes
-  - `addheader(response, name, value)` — return new response with header value appended
-  - `removeheader(response, name)` — return new response with header removed
-  - `setcookie(cookieObj)` — format a `Set-Cookie` header value from a cookie definition
-    object; use with `addheader()` to attach cookies to any response
-- **`mcp_usermessage()` and `mcp_assistantmessage()`** — renamed from
+  - `http::add_header(response, name, value)` — return new response with header value appended
+  - `http::remove_header(response, name)` — return new response with header removed
+  - `http::set_cookie(cookieObj)` — format a `Set-Cookie` header value from a cookie definition
+    object; use with `http::add_header()` to attach cookies to any response
+- **`mcp::user_message()` and `mcp::assistant_message()`** — renamed from
   `mcp_user_message()` and `mcp_assistant_message()` for naming consistency (underscore
   as namespace separator only, not word separator).
 
-- **`basicauth(user, password)` function** — returns the `Authorization` header value for HTTP Basic authentication (`"Basic <base64(user:password)>"`); available in the new `httputil` function plugin
+- **`http::basic_auth(user, password)` function** — returns the `Authorization` header value for HTTP Basic authentication (`"Basic <base64(user:password)>"`); available in the new `httputil` function plugin
 - **URL parsing and manipulation functions** — new `url` function plugin:
   - `urlparse(rawURL)` — parse a URL string into a URL object with named attributes (`scheme`, `host`, `hostname`, `port`, `path`, `query`, `fragment`, etc.) accessible directly (e.g. `u.scheme`, `u.path`)
   - `urljoin(base, ref)` — resolve `ref` against `base` following RFC 3986; accepts strings, URL objects, or URL capsules
@@ -629,7 +732,7 @@ now emits telemetry conforming to the [OpenTelemetry GenAI/MCP semantic conventi
     `base64decode(str)` continues to return a string (backward compatible)
   - `base64encode(value)` — now also accepts a `bytes` capsule in addition to strings
   - `filebytes(path [, content_type])` — read a file into a `bytes` capsule (gated by `--file-path`)
-  - `mcp_image()` — now accepts a `bytes` capsule as its first argument; MIME type is taken from the
+  - `mcp::image()` — now accepts a `bytes` capsule as its first argument; MIME type is taken from the
     capsule's content type and may be overridden by an explicit second argument
 - Variables may now optionally have a defined type and nullability.
 - `sys.plugins` lists the names of all plugin components
@@ -746,7 +849,7 @@ vinculum-ai tool (see github.com/tsarna/vscode-vinculum)
 - **`call(ctx, client, request)` VCL function** — synchronous call to a `CallableClient`; request
   supports `messages`, `system` shorthand (prepended as `role = "system"`), and per-call overrides
   for `model`, `max_tokens`, and `temperature`
-- **`llm_wrap(content)` VCL function** — wraps a string in `<user_input>…</user_input>` XML-like
+- **`llm::wrap(content)` VCL function** — wraps a string in `<user_input>…</user_input>` XML-like
   delimiters as a structural prompt injection mitigation; the system prompt should reference the
   tags to signal to the model where untrusted input begins and ends
 - Documentation: `doc/client-llm.md` with full reference, provider table, Security section,

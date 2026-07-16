@@ -246,7 +246,7 @@ func TestTriggerAtStopBeforeFire(t *testing.T) {
 	// A trigger with a far-future time must stop promptly without firing.
 	src := []byte(`
 trigger "at" "future" {
-    time   = timeadd(now(), duration("999h"))
+    time   = time::add(time::now(), duration("999h"))
     action = "ring"
 }
 `)
@@ -279,7 +279,7 @@ trigger "at" "future" {
 func TestTriggerAtFiresAtScheduledTime(t *testing.T) {
 	src := []byte(`
 trigger "at" "fast" {
-    time   = timeadd(now(), duration("50ms"))
+    time   = time::add(time::now(), duration("50ms"))
     action = "ring"
 }
 `)
@@ -305,7 +305,7 @@ func TestTriggerAtRepeats(t *testing.T) {
 	// After each firing the trigger re-evaluates time; it should fire multiple times.
 	src := []byte(`
 trigger "at" "fast" {
-    time   = timeadd(now(), duration("50ms"))
+    time   = time::add(time::now(), duration("50ms"))
     action = "ring"
 }
 `)
@@ -330,7 +330,7 @@ trigger "at" "fast" {
 func TestTriggerAtRepeatFalseFiresOnce(t *testing.T) {
 	src := []byte(`
 trigger "at" "oneshot" {
-    time   = timeadd(now(), duration("50ms"))
+    time   = time::add(time::now(), duration("50ms"))
     repeat = false
     action = "ring"
 }
@@ -356,7 +356,7 @@ trigger "at" "oneshot" {
 func TestTriggerAtPastTimeFiresImmediately(t *testing.T) {
 	src := []byte(`
 trigger "at" "past" {
-    time   = timeadd(now(), duration("-1s"))
+    time   = time::add(time::now(), duration("-1s"))
     action = "ring"
 }
 `)
@@ -381,7 +381,7 @@ trigger "at" "past" {
 func TestTriggerAtGetReturnsScheduledTime(t *testing.T) {
 	src := []byte(`
 trigger "at" "future" {
-    time   = timeadd(now(), duration("999h"))
+    time   = time::add(time::now(), duration("999h"))
     action = "ring"
 }
 `)
@@ -415,10 +415,10 @@ trigger "at" "future" {
 func TestTriggerAtSetForcesReevaluation(t *testing.T) {
 	// Start with a far-future time. After a brief wait, record scheduledTime.
 	// Then call Set() and after another brief wait verify scheduledTime advanced
-	// (because now() was called again in re-evaluation).
+	// (because time::now() was called again in re-evaluation).
 	src := []byte(`
 trigger "at" "slow" {
-    time   = timeadd(now(), duration("999h"))
+    time   = time::add(time::now(), duration("999h"))
     action = "ring"
 }
 `)
@@ -449,7 +449,7 @@ trigger "at" "slow" {
 	second := trig.scheduledTime
 	trig.mu.RUnlock()
 
-	// Re-evaluation called now() again, so the new scheduled time should be
+	// Re-evaluation called time::now() again, so the new scheduled time should be
 	// strictly later than the first one.
 	assert.True(t, second.After(first), "Set() should cause scheduledTime to advance via re-evaluation")
 
@@ -498,7 +498,7 @@ func TestTriggerAtResetGoesDormant(t *testing.T) {
 	// A running trigger that gets Reset() should go dormant and not fire.
 	src := []byte(`
 trigger "at" "cancellable" {
-    time   = timeadd(now(), duration("100ms"))
+    time   = time::add(time::now(), duration("100ms"))
     action = "ring"
 }
 `)

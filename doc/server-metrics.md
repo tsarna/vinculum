@@ -221,7 +221,7 @@ server "http" "api" {
     handle "/webhook" {
         action = [
             send(ctx, bus.main, "webhooks/${ctx.method}", ctx.body),
-            http_response(http_status.OK, {status = "ok"}),
+            http::response(http_status.OK, {status = "ok"}),
         ]
     }
 

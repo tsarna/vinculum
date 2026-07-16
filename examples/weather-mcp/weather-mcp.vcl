@@ -28,7 +28,7 @@
 #     cond() evaluates only the selected branch
 #   - returning an empty list as a "not found" sentinel: user functions reject
 #     null arguments, so geocode() returns a (zero-or-one) list rather than null
-#   - mcp_error() for tool-level failures vs. a plain string for a resource
+#   - mcp::error() for tool-level failures vs. a plain string for a resource
 #   - an optional, env-toggled client "otlp" that the HTTP and MCP servers
 #     auto-wire to for traces and metrics
 
@@ -109,7 +109,7 @@ const {
 function "geocode" {
     params = [ctx, place]
     result = try(
-        http_must(http_get(ctx, client.geocoding, "search", {
+        http::must(http::get(ctx, client.geocoding, "search", {
             as    = "json"
             query = { name = place, count = 1 }
         })).body.results,
@@ -126,7 +126,7 @@ function "weather_desc" {
 # Current conditions for an already-resolved location object.
 function "current_conditions" {
     params = [ctx, loc]
-    result = http_must(http_get(ctx, client.openmeteo, "forecast", {
+    result = http::must(http::get(ctx, client.openmeteo, "forecast", {
         as    = "json"
         query = {
             latitude  = loc.latitude
@@ -140,7 +140,7 @@ function "current_conditions" {
 # Daily forecast for an already-resolved location object.
 function "daily_forecast" {
     params = [ctx, loc, days]
-    result = http_must(http_get(ctx, client.openmeteo, "forecast", {
+    result = http::must(http::get(ctx, client.openmeteo, "forecast", {
         as    = "json"
         query = {
             latitude      = loc.latitude
@@ -198,7 +198,7 @@ function "format_forecast" {
 function "current_weather_report" {
     params = [ctx, place, matches]
     result = cond(
-        length(matches) == 0, mcp_error("No location found matching '${place}'. Try a more specific name."),
+        length(matches) == 0, mcp::error("No location found matching '${place}'. Try a more specific name."),
         format_current(matches[0], current_conditions(ctx, matches[0]))
     )
 }
@@ -214,7 +214,7 @@ function "current_weather_text" {
 function "forecast_report" {
     params = [ctx, place, days, matches]
     result = cond(
-        length(matches) == 0, mcp_error("No location found matching '${place}'. Try a more specific name."),
+        length(matches) == 0, mcp::error("No location found matching '${place}'. Try a more specific name."),
         format_forecast(matches[0], daily_forecast(ctx, matches[0], days))
     )
 }
@@ -285,7 +285,7 @@ server "mcp" "weather" {
             default     = 3
         }
 
-        action = mcp_usermessage(
+        action = mcp::user_message(
             "I'm traveling to ${ctx.args.place} for the next ${ctx.args.days} days. Use the `forecast` tool to check the weather there, then tell me what clothing and gear to pack and call out anything weather-dependent I should plan around."
         )
     }

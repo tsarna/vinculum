@@ -369,29 +369,40 @@ func GetSubscriberFromExpression(config *Config, subscriberExpr hcl.Expression) 
 type MessageConverter func(cty.Value) (any, error)
 
 // createSendFunction is a shared helper that creates send functions with different message converters
-func createSendFunction(config *Config, converter MessageConverter) function.Function {
+func createSendFunction(config *Config, description string, converter MessageConverter) function.Function {
 	return function.New(&function.Spec{
+		Description: description,
 		Params: []function.Parameter{
 			{
-				Name: "ctx",
-				Type: cty.DynamicPseudoType,
+				// AllowDynamicType keeps the static bool return visible in reflected
+				// metadata — a dynamic argument without it poisons the return to dynamic.
+				Name:             "ctx",
+				Type:             cty.DynamicPseudoType,
+				AllowDynamicType: true,
+				Description:      "The handler context (carries tracing, deadlines, and request scope)",
 			},
 			{
-				Name: "subscriber",
-				Type: cty.DynamicPseudoType,
+				Name:             "subscriber",
+				Type:             cty.DynamicPseudoType,
+				AllowDynamicType: true,
+				Description:      "Where to send: a bus, or a server/client that is a subscriber",
 			},
 			{
-				Name: "topic",
-				Type: cty.String,
+				Name:        "topic",
+				Type:        cty.String,
+				Description: "The topic to publish under",
 			},
 			{
-				Name: "message",
-				Type: cty.DynamicPseudoType,
+				Name:             "message",
+				Type:             cty.DynamicPseudoType,
+				AllowDynamicType: true,
+				Description:      "The message payload",
 			},
 		},
 		VarParam: &function.Parameter{
-			Name: "fields",
-			Type: cty.DynamicPseudoType,
+			Name:        "fields",
+			Type:        cty.DynamicPseudoType,
+			Description: "Optional structured fields (a single map/object, or positional values) merged into the message envelope",
 		},
 		Type: function.StaticReturnType(cty.Bool),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
@@ -526,26 +537,26 @@ func jsonMessageConverter(message cty.Value) (any, error) {
 func init() {
 	RegisterFunctionPlugin("send", func(_ *Config) map[string]function.Function {
 		return map[string]function.Function{
-			"send":     SendFunction(nil),
-			"sendjson": SendJSONFunction(nil),
-			"sendgo":   SendGoFunction(nil),
+			"send":       SendFunction(nil),
+			"send::json": SendJSONFunction(nil),
+			"send::go":   SendGoFunction(nil),
 		}
 	})
 }
 
 // SendFunction returns a cty function for sending a message to a bus subscriber (original behavior)
 func SendFunction(config *Config) function.Function {
-	return createSendFunction(config, defaultMessageConverter)
+	return createSendFunction(config, "Sends a message to a bus subscriber under a topic; returns true on success", defaultMessageConverter)
 }
 
 // SendJSONFunction returns a cty function for sending a JSON string message to a bus subscriber
 func SendJSONFunction(config *Config) function.Function {
-	return createSendFunction(config, jsonMessageConverter)
+	return createSendFunction(config, "Sends a message to a bus subscriber under a topic, encoded as a JSON string; returns true on success", jsonMessageConverter)
 }
 
 // SendGoFunction returns a cty function for sending a Go native type message to a bus subscriber
 func SendGoFunction(config *Config) function.Function {
-	return createSendFunction(config, func(message cty.Value) (any, error) {
+	return createSendFunction(config, "Sends a message to a bus subscriber under a topic, converted to native Go types; returns true on success", func(message cty.Value) (any, error) {
 		return go2cty2go.CtyToAny(message)
 	})
 }

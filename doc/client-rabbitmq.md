@@ -154,7 +154,7 @@ Optional HCL expressions evaluated synchronously:
 - `on_disconnect` — fires when the connection drops, **before** any reconnect
   attempt, and once on graceful shutdown.
 
-Standard VCL context (`ctx`, `bus.*`, `send()`, `log_info()`, etc.) is
+Standard VCL context (`ctx`, `bus.*`, `send()`, `log::info()`, etc.) is
 available. Message variables (`ctx.topic`, `ctx.msg`, `ctx.fields`) are not —
 there is no message in flight at lifecycle hook time.
 
@@ -284,7 +284,7 @@ receiver "main" {
   queue      = "vinculum-events"  # required: AMQP queue to consume from
   subscriber = bus.main           # forward to a bus or subscriber
   # OR
-  # action = log_info(ctx, "rabbitmq", {topic = ctx.topic, msg = ctx.msg})
+  # action = log::info(ctx, "rabbitmq", {topic = ctx.topic, msg = ctx.msg})
 
   # Optional transform pipeline and async queue (same semantics as the
   # top-level subscription block — see config.md#subscription).

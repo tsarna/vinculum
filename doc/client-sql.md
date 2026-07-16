@@ -294,22 +294,22 @@ On execution failure the row fields are empty/zero and `error` is populated:
 Because the error rides in the result rather than aborting evaluation, a
 handler can inspect `result.error` directly.
 
-### `sql_must(result)`
+### `sql::must(result)`
 
 When you would rather fail the whole action on any database error than handle
-it inline, wrap the call in `sql_must()`. If `result.error` is non-null it
+it inline, wrap the call in `sql::must()`. If `result.error` is non-null it
 raises an evaluation error built from the error fields (driver, code, sqlstate,
 message); otherwise it returns the result unchanged, so it composes inline:
 
 ```hcl
-action = http_response(http_status.OK, {
-    id = sql_must(
+action = http::response(http_status.OK, {
+    id = sql::must(
         call(ctx, client.state, "INSERT INTO users (email) VALUES (?)", email)
     ).last_insert_id,
 })
 ```
 
-`sql_must()` is available in every action context (it works on any result
+`sql::must()` is available in every action context (it works on any result
 object that carries an `error` field), so it does not require a SQL client to
 be configured.
 
@@ -373,7 +373,7 @@ client "sqlite" "users" {
 server "http" "api" {
     listen = ":8080"
     handle "GET /users/{id}" {
-        action = http_response(http_status.OK, get(ctx, client.users.by_id, {
+        action = http::response(http_status.OK, get(ctx, client.users.by_id, {
             id = toint(ctx.request.path.id),
         }))
     }

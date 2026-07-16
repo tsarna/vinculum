@@ -3,7 +3,7 @@ func voipms_scrape_sip_accounts(ctx: ctx) {
     var registrations = voipms_get_all_registrations(ctx)
     for reg in registrations {
         var labels = {account_id = reg.account}
-        log_info("sip_account", {labels = labels})
+        log::info("sip_account", {labels = labels})
         set(metric.voipms_sipaccount_registered, 1, labels)
     }
 }

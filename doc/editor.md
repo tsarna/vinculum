@@ -303,7 +303,7 @@ editor "line" "update_zone_record" {
     # Update the SOA serial: matches "        2024010101 ; Serial"
     match "^(\\s*)(\\d{10})(\\s*;\\s*[Ss]erial)" {
         required = 1
-        replace  = "${ctx.groups[1]}${nextzoneserial(ctx.groups[2])}${ctx.groups[3]}\n"
+        replace  = "${ctx.groups[1]}${dns::next_zone_serial(ctx.groups[2])}${ctx.groups[3]}\n"
     }
 
     # Replace the A record for the named host: matches "www    IN A    1.2.3.4"

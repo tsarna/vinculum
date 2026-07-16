@@ -12,9 +12,9 @@ import (
 func init() {
 	cfg.RegisterFunctionPlugin("serialize", func(_ *cfg.Config) map[string]function.Function {
 		return map[string]function.Function{
-			"serialize":    makeSerializeFunc(),
-			"serializestr": makeSerializeStrFunc(),
-			"deserialize":  makeDeserializeFunc(),
+			"wire::serialize":     makeSerializeFunc(),
+			"wire::serialize_str": makeSerializeStrFunc(),
+			"wire::deserialize":   makeDeserializeFunc(),
 		}
 	})
 }
@@ -34,18 +34,19 @@ func makeSerializeFunc() function.Function {
 	return function.New(&function.Spec{
 		Description: "Serializes a value using the given wire format, returning bytes",
 		Params: []function.Parameter{
-			{Name: "wire_format", Type: cty.DynamicPseudoType, Description: "Wire format name (string) or wire_format capsule"},
-			{Name: "value", Type: cty.DynamicPseudoType, Description: "Value to serialize"},
+			// AllowDynamicType keeps the static bytes return visible in reflected metadata.
+			{Name: "wire_format", Type: cty.DynamicPseudoType, AllowDynamicType: true, Description: "Wire format name (string) or wire_format capsule"},
+			{Name: "value", Type: cty.DynamicPseudoType, AllowDynamicType: true, Description: "Value to serialize"},
 		},
 		Type: function.StaticReturnType(bytescty.BytesObjectType),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 			wf, err := resolveWireFormat(args[0])
 			if err != nil {
-				return cty.NilVal, fmt.Errorf("serialize: %w", err)
+				return cty.NilVal, fmt.Errorf("wire::serialize: %w", err)
 			}
 			b, err := wf.Serialize(args[1])
 			if err != nil {
-				return cty.NilVal, fmt.Errorf("serialize: %w", err)
+				return cty.NilVal, fmt.Errorf("wire::serialize: %w", err)
 			}
 			return bytescty.BuildBytesObject(b, ""), nil
 		},
@@ -57,18 +58,18 @@ func makeSerializeStrFunc() function.Function {
 	return function.New(&function.Spec{
 		Description: "Serializes a value using the given wire format, returning a string",
 		Params: []function.Parameter{
-			{Name: "wire_format", Type: cty.DynamicPseudoType, Description: "Wire format name (string) or wire_format capsule"},
-			{Name: "value", Type: cty.DynamicPseudoType, Description: "Value to serialize"},
+			{Name: "wire_format", Type: cty.DynamicPseudoType, AllowDynamicType: true, Description: "Wire format name (string) or wire_format capsule"},
+			{Name: "value", Type: cty.DynamicPseudoType, AllowDynamicType: true, Description: "Value to serialize"},
 		},
 		Type: function.StaticReturnType(cty.String),
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 			wf, err := resolveWireFormat(args[0])
 			if err != nil {
-				return cty.NilVal, fmt.Errorf("serializestr: %w", err)
+				return cty.NilVal, fmt.Errorf("wire::serialize_str: %w", err)
 			}
 			s, err := wf.SerializeString(args[1])
 			if err != nil {
-				return cty.NilVal, fmt.Errorf("serializestr: %w", err)
+				return cty.NilVal, fmt.Errorf("wire::serialize_str: %w", err)
 			}
 			return cty.StringVal(s), nil
 		},
@@ -87,7 +88,7 @@ func makeDeserializeFunc() function.Function {
 		Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 			wf, err := resolveWireFormat(args[0])
 			if err != nil {
-				return cty.NilVal, fmt.Errorf("deserialize: %w", err)
+				return cty.NilVal, fmt.Errorf("wire::deserialize: %w", err)
 			}
 
 			var raw []byte
@@ -98,18 +99,18 @@ func makeDeserializeFunc() function.Function {
 			default:
 				b, bErr := bytescty.GetBytesFromValue(data)
 				if bErr != nil {
-					return cty.NilVal, fmt.Errorf("deserialize: data must be a string or bytes value, got %s", data.Type().FriendlyName())
+					return cty.NilVal, fmt.Errorf("wire::deserialize: data must be a string or bytes value, got %s", data.Type().FriendlyName())
 				}
 				raw = b.Data
 			}
 
 			result, err := wf.Deserialize(raw)
 			if err != nil {
-				return cty.NilVal, fmt.Errorf("deserialize: %w", err)
+				return cty.NilVal, fmt.Errorf("wire::deserialize: %w", err)
 			}
 			cv, ok := result.(cty.Value)
 			if !ok {
-				return cty.NilVal, fmt.Errorf("deserialize: unexpected result type %T", result)
+				return cty.NilVal, fmt.Errorf("wire::deserialize: unexpected result type %T", result)
 			}
 			return cv, nil
 		},

@@ -53,7 +53,7 @@ condition "timer" "conflict" {
 #    delay = "5m"
 #    jitter = 0.30
 #    # This will sometimes result in green/yellow lights in two directions at once, which should trigger the fault condition in the FSM
-#    action = [ log_info("simulating fault"), send(ctx, bus.main, "traffic/lights/ns", "GREEN")]
+#    action = [ log::info("simulating fault"), send(ctx, bus.main, "traffic/lights/ns", "GREEN")]
 #}
 
 # trigger manual fault on command

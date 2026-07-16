@@ -49,7 +49,7 @@ func TestSQLMustRaisesOnError(t *testing.T) {
 	_, err := SQLMustFunc.Call([]cty.Value{sqlErrorResult()})
 	require.Error(t, err)
 	msg := err.Error()
-	assert.Contains(t, msg, "sql_must")
+	assert.Contains(t, msg, "sql::must")
 	assert.Contains(t, msg, "sqlite")
 	assert.Contains(t, msg, "code 2067")
 	assert.Contains(t, msg, "UNIQUE constraint failed: users.email")

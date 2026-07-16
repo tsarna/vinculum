@@ -119,7 +119,7 @@ and leave `_` unchanged (and the prompt number does not advance). This keeps the
 history focused on meaningful values and keeps side-effecting calls quiet:
 
 ```
-5> log_info("checkpoint", {})    # returns null → nothing printed, _ unchanged
+5> log::info("checkpoint", {})    # returns null → nothing printed, _ unchanged
 5>
 ```
 

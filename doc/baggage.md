@@ -32,7 +32,7 @@ syntax:
 
 ```hcl
 handle "/api/data" {
-    action = log_info("received request", {
+    action = log::info("received request", {
         tenant  = get(ctx.baggage, "tenant_id"),
         user    = get(ctx.baggage, "user_id", "anonymous"),
         feature = get(ctx.baggage, "feature.flag.new-ui"),
@@ -78,7 +78,7 @@ surfaces as an evaluation error.
 
 A write derives a new context and stores it back on the same context the handler
 already threads through `ctx`. Every later side-effect function in the same
-`action = [...]` list — `send()`, `http_post()`, a Kafka/MQTT publish — re-reads
+`action = [...]` list — `send()`, `http::post()`, a Kafka/MQTT publish — re-reads
 that context when it runs and injects the current baggage into its outbound
 headers. So a `set()` early in a list is visible to everything after it, with no
 extra wiring:

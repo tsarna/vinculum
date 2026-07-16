@@ -164,7 +164,7 @@ func TestObservability_ToolCallError(t *testing.T) {
 	exporter, tp, reader, mp := newObsProviders(t)
 
 	srv := newObsServer(t, tp, mp, nil, []ToolDef{
-		{Name: "boom", Description: "Fails", Action: parseExpr(t, `mcp_error("nope")`)},
+		{Name: "boom", Description: "Fails", Action: parseExpr(t, `mcp::error("nope")`)},
 	}, nil)
 	cs := connectInMemory(t, srv)
 
@@ -216,7 +216,7 @@ func TestObservability_PromptGet(t *testing.T) {
 	exporter, tp, _, mp := newObsProviders(t)
 
 	srv := newObsServer(t, tp, mp, nil, nil, []PromptDef{
-		{Name: "greeting", Description: "Greet", Action: parseExpr(t, `mcp_usermessage("hello")`)},
+		{Name: "greeting", Description: "Greet", Action: parseExpr(t, `mcp::user_message("hello")`)},
 	})
 	cs := connectInMemory(t, srv)
 

@@ -83,11 +83,11 @@ for the full expression language reference.
     [File Write Functions](functions.md#file-write-functions) for details.
   - `sys.starttime` (time): Approximate process start time, captured once when
     the process loads. Use with
-    `since(sys.starttime)` to compute process uptime.
+    `time::since(sys.starttime)` to compute process uptime.
   - `sys.boottime` (time): Approximate system boot time. On macOS this is exact
     (via `kern.boottime` sysctl); on Linux it is accurate to ±1 second (via
     `sysinfo(2)`). On other platforms it falls back to `sys.starttime`. Use with
-    `since(sys.boottime)` to compute host uptime.
+    `time::since(sys.boottime)` to compute host uptime.
   - `sys.plugins` (list of string): Names of all registered plugin components,
     e.g. `["ambient.sys", "client.kafka", "functions.kill", "server.mcp"]`.
     Useful for introspection and conditional logic.
@@ -363,7 +363,7 @@ clients share a single name namespace.
 
 For details on each client type, see the dedicated pages:
 
-- [`client "http"`](client-http.md) — HTTP(S) request/response client (used via `http_get()`, `http_post()`, etc.)
+- [`client "http"`](client-http.md) — HTTP(S) request/response client (used via `http::get()`, `http::post()`, etc.)
 - [`client "kafka"`](client-kafka.md) — Apache Kafka producer and consumer
 - [`client "mqtt"`](client-mqtt.md) — MQTT 5.0 publisher and subscriber
 - [`client "openai"`](client-llm.md) — OpenAI and OpenAI-compatible LLM APIs
@@ -458,7 +458,7 @@ Log every message on `events/#`:
 subscription "logger" {
     target = bus.main
     topics = ["events/#"]
-    action = log_info("received", {topic = ctx.topic, msg = ctx.msg})
+    action = log::info("received", {topic = ctx.topic, msg = ctx.msg})
 }
 ```
 
@@ -543,7 +543,7 @@ subscription "counter" {
     topics = ["#"]
     action = [
         increment(var.message_count, 1),
-        get(var.message_count) % 100 == 0 ? log_warn("milestone", {count = get(var.message_count)}) : true,
+        get(var.message_count) % 100 == 0 ? log::warn("milestone", {count = get(var.message_count)}) : true,
     ]
 }
 ```

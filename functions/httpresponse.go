@@ -23,12 +23,12 @@ func init() {
 // GetHTTPResponseFunctions returns all HTTP response functions for global registration.
 func GetHTTPResponseFunctions() map[string]function.Function {
 	return map[string]function.Function{
-		"http_response": HTTPResponseFunc,
-		"http_redirect": HTTPRedirectFunc,
-		"http_error":    HTTPErrorFunc,
-		"addheader":     AddHeaderFunc,
-		"removeheader":  RemoveHeaderFunc,
-		"setcookie":     SetCookieFunc,
+		"http::response":      HTTPResponseFunc,
+		"http::redirect":      HTTPRedirectFunc,
+		"http::error":         HTTPErrorFunc,
+		"http::add_header":    AddHeaderFunc,
+		"http::remove_header": RemoveHeaderFunc,
+		"http::set_cookie":    SetCookieFunc,
 	}
 }
 
@@ -36,9 +36,9 @@ func GetHTTPResponseFunctions() map[string]function.Function {
 var HTTPResponseFunc = function.New(&function.Spec{
 	Description: "Builds an HTTP response value with the given status code, optional body, and optional headers",
 	Params: []function.Parameter{
-		{Name: "status", Type: cty.Number},
+		{Name: "status", Type: cty.Number, Description: "HTTP status code"},
 	},
-	VarParam: &function.Parameter{Name: "args", Type: cty.DynamicPseudoType},
+	VarParam: &function.Parameter{Name: "args", Type: cty.DynamicPseudoType, Description: "An optional body (string or bytes), then an optional headers map"},
 	Type:     function.StaticReturnType(types.HTTPResponseObjectType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 		status, _ := args[0].AsBigFloat().Int64()
@@ -73,9 +73,11 @@ var HTTPResponseFunc = function.New(&function.Spec{
 var HTTPRedirectFunc = function.New(&function.Spec{
 	Description: "Builds an HTTP redirect response; http_redirect(url) defaults to 302, http_redirect(status, url) uses the given status",
 	Params: []function.Parameter{
-		{Name: "first", Type: cty.DynamicPseudoType},
+		// AllowDynamicType keeps the static http_response return visible; first is a URL
+		// string or a status number, resolved at call time.
+		{Name: "first", Type: cty.DynamicPseudoType, AllowDynamicType: true, Description: "Either the redirect URL (status defaults to 302), or a status code when a URL follows"},
 	},
-	VarParam: &function.Parameter{Name: "rest", Type: cty.DynamicPseudoType},
+	VarParam: &function.Parameter{Name: "rest", Type: cty.DynamicPseudoType, Description: "The redirect URL, when the first argument is a status code"},
 	Type:     function.StaticReturnType(types.HTTPResponseObjectType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 		var status int
@@ -117,8 +119,8 @@ var HTTPRedirectFunc = function.New(&function.Spec{
 var HTTPErrorFunc = function.New(&function.Spec{
 	Description: "Builds an HTTP error response with the given status code and message body",
 	Params: []function.Parameter{
-		{Name: "status", Type: cty.Number},
-		{Name: "message", Type: cty.String},
+		{Name: "status", Type: cty.Number, Description: "HTTP status code"},
+		{Name: "message", Type: cty.String, Description: "Plain-text error message used as the body"},
 	},
 	Type: function.StaticReturnType(types.HTTPResponseObjectType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
@@ -139,15 +141,15 @@ var HTTPErrorFunc = function.New(&function.Spec{
 var AddHeaderFunc = function.New(&function.Spec{
 	Description: "Returns a new response with the given header value appended",
 	Params: []function.Parameter{
-		{Name: "response", Type: cty.DynamicPseudoType},
-		{Name: "name", Type: cty.String},
-		{Name: "value", Type: cty.String},
+		{Name: "response", Type: cty.DynamicPseudoType, AllowDynamicType: true, Description: "The http_response to copy"},
+		{Name: "name", Type: cty.String, Description: "Header name"},
+		{Name: "value", Type: cty.String, Description: "Header value to append (existing values are kept)"},
 	},
 	Type: function.StaticReturnType(types.HTTPResponseObjectType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 		orig, ok := types.GetHTTPResponseFromValue(args[0])
 		if !ok {
-			return cty.NilVal, fmt.Errorf("addheader: first argument must be an http_response value")
+			return cty.NilVal, fmt.Errorf("http::add_header: first argument must be an http_response value")
 		}
 		r := cloneResponse(orig)
 		r.Headers.Add(textproto.CanonicalMIMEHeaderKey(args[1].AsString()), args[2].AsString())
@@ -160,14 +162,14 @@ var AddHeaderFunc = function.New(&function.Spec{
 var RemoveHeaderFunc = function.New(&function.Spec{
 	Description: "Returns a new response with all values for the given header removed",
 	Params: []function.Parameter{
-		{Name: "response", Type: cty.DynamicPseudoType},
-		{Name: "name", Type: cty.String},
+		{Name: "response", Type: cty.DynamicPseudoType, AllowDynamicType: true, Description: "The http_response to copy"},
+		{Name: "name", Type: cty.String, Description: "Header name to remove (all its values)"},
 	},
 	Type: function.StaticReturnType(types.HTTPResponseObjectType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 		orig, ok := types.GetHTTPResponseFromValue(args[0])
 		if !ok {
-			return cty.NilVal, fmt.Errorf("removeheader: first argument must be an http_response value")
+			return cty.NilVal, fmt.Errorf("http::remove_header: first argument must be an http_response value")
 		}
 		r := cloneResponse(orig)
 		r.Headers.Del(args[1].AsString())
@@ -181,17 +183,17 @@ var RemoveHeaderFunc = function.New(&function.Spec{
 var SetCookieFunc = function.New(&function.Spec{
 	Description: "Formats a Set-Cookie header value from a cookie definition object",
 	Params: []function.Parameter{
-		{Name: "cookie", Type: cty.DynamicPseudoType},
+		{Name: "cookie", Type: cty.DynamicPseudoType, AllowDynamicType: true, Description: "Cookie object: name and value are required; path, domain, max_age, secure, http_only, same_site, etc. are optional"},
 	},
 	Type: function.StaticReturnType(cty.String),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
 		val := args[0]
 		if !val.Type().IsObjectType() {
-			return cty.NilVal, fmt.Errorf("setcookie: argument must be an object, got %s", val.Type().FriendlyName())
+			return cty.NilVal, fmt.Errorf("http::set_cookie: argument must be an object, got %s", val.Type().FriendlyName())
 		}
 
 		if !val.Type().HasAttribute("name") || !val.Type().HasAttribute("value") {
-			return cty.NilVal, fmt.Errorf("setcookie: object must have 'name' and 'value' attributes")
+			return cty.NilVal, fmt.Errorf("http::set_cookie: object must have 'name' and 'value' attributes")
 		}
 
 		c := &http.Cookie{
@@ -219,12 +221,12 @@ var SetCookieFunc = function.New(&function.Spec{
 				if s != "" {
 					t, err := time.Parse(time.RFC3339, s)
 					if err != nil {
-						return cty.NilVal, fmt.Errorf("setcookie: invalid expires value %q: %w", s, err)
+						return cty.NilVal, fmt.Errorf("http::set_cookie: invalid expires value %q: %w", s, err)
 					}
 					c.Expires = t
 				}
 			default:
-				return cty.NilVal, fmt.Errorf("setcookie: expires must be a time, duration, or RFC3339 string, got %s", exp.Type().FriendlyName())
+				return cty.NilVal, fmt.Errorf("http::set_cookie: expires must be a time, duration, or RFC3339 string, got %s", exp.Type().FriendlyName())
 			}
 		}
 		if val.Type().HasAttribute("max_age") {

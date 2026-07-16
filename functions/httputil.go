@@ -12,7 +12,7 @@ import (
 func init() {
 	cfg.RegisterFunctionPlugin("httputil", func(_ *cfg.Config) map[string]function.Function {
 		return map[string]function.Function{
-			"basicauth": BasicAuthFunc,
+			"http::basic_auth": BasicAuthFunc,
 		}
 	})
 }

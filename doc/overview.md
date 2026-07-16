@@ -88,7 +88,7 @@ Subscriptions may declare some transformations to be performed on messages befor
 
 ## Triggers
 
-Triggers cause an action to be evaluated in response to time, lifecycle, or external events. Vinculum supports many trigger types: classic cron schedules, fixed and dynamically computed intervals, absolute / dynamically computed wall-clock times (e.g. using `sunrise()` or `sunset()`), file-system events, OS signals, application startup and shutdown, watchdogs (fire when expected work *stops*), and watches over reactive values.
+Triggers cause an action to be evaluated in response to time, lifecycle, or external events. Vinculum supports many trigger types: classic cron schedules, fixed and dynamically computed intervals, absolute / dynamically computed wall-clock times (e.g. using `sky::sunrise()` or `sky::sunset()`), file-system events, OS signals, application startup and shutdown, watchdogs (fire when expected work *stops*), and watches over reactive values.
 
 See [trigger.md](trigger.md) for the full reference covering all trigger types.
 
@@ -223,13 +223,13 @@ bus "main" {
 subscription "logger" {
     bus = bus.main
     topics = ["app/#"]
-    action = log_info("Received message", ctx.msg)
+    action = log::info("Received message", ctx.msg)
 }
 
 trigger "cron" "heartbeat" {
     at "*/30 * * * * *" "ping" {
         action = send(ctx, bus.main, "system/heartbeat", {
-            timestamp = formattime("@rfc3339", now("UTC"))
+            timestamp = time::format("@rfc3339", time::now("UTC"))
             status    = "alive"
         })
     }
@@ -260,7 +260,7 @@ server "http" "api" {
     handle "POST /events" {
         action = [
             send(ctx, bus.main, "api/event", ctx.body),
-            http_response(http_status.Accepted, {status = "received"})
+            http::response(http_status.Accepted, {status = "received"})
         ]
     }
 

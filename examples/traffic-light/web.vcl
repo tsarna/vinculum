@@ -23,7 +23,7 @@ server "http" "traffic" {
     }
 
     handle "GET /{$}" {
-        action = http_redirect("/traffic/")
+        action = http::redirect("/traffic/")
     }
 
     handle "/vws" {

@@ -250,7 +250,7 @@ call(ctx, client.gpt, {
 })
 ```
 
-### `llm_wrap(content)` — delimiter wrapping
+### `llm::wrap(content)` — delimiter wrapping
 
 Wraps a string in `<user_input>` XML-like delimiters to signal to the model where
 untrusted input begins and ends. The system prompt should reference these tags:
@@ -264,7 +264,7 @@ untrusted input begins and ends. The system prompt should reference these tags:
 ```hcl
 call(ctx, client.gpt, {
     system   = "Summarize the text in the <user_input> tags in 2-3 sentences."
-    messages = [{ role = "user", content = llm_wrap(getbody()) }]
+    messages = [{ role = "user", content = llm::wrap(getbody()) }]
 })
 ```
 
@@ -304,7 +304,7 @@ server "http" "api" {
     handle "POST /ask" {
         action = call(ctx, client.gpt, {
             system   = "Answer the question in the <user_input> tags concisely."
-            messages = [{ role = "user", content = llm_wrap(get(ctx.request, "body")) }]
+            messages = [{ role = "user", content = llm::wrap(get(ctx.request, "body")) }]
         }).content
     }
 }
@@ -347,7 +347,7 @@ subscription "classify" {
     topics = ["raw/#"]
     action = send(ctx, bus.classified, "msg/${call(ctx, client.classifier, {
         system   = "Classify the text in the <user_input> tags as one word: urgent, normal, or spam."
-        messages = [{ role = "user", content = llm_wrap(ctx.msg) }]
+        messages = [{ role = "user", content = llm::wrap(ctx.msg) }]
     }).content}", ctx.msg)
 }
 ```
@@ -372,7 +372,7 @@ server "http" "chat" {
 
     handle "POST /chat" {
         action = {
-            user_msg = { role = "user", content = llm_wrap(get(ctx.request, "body_json").message) }
+            user_msg = { role = "user", content = llm::wrap(get(ctx.request, "body_json").message) }
             result   = call(ctx, client.assistant, {
                 system   = "You are a helpful assistant. The user's messages are wrapped in <user_input> tags."
                 messages = concat(get(var.history), [user_msg])
@@ -381,7 +381,7 @@ server "http" "chat" {
                 get(var.history),
                 [user_msg, { role = "assistant", content = result.content }]
             ))
-            response = http_response(http_status.OK, { reply = result.content })
+            response = http::response(http_status.OK, { reply = result.content })
         }.response
     }
 }

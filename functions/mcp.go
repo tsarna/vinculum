@@ -65,7 +65,8 @@ func GetMCPResult(val cty.Value) *MCPResult {
 var MCPImageFunc = function.New(&function.Spec{
 	Description: "Returns image content for an MCP resource or tool result",
 	Params: []function.Parameter{
-		{Name: "data", Type: cty.DynamicPseudoType, Description: "Base64-encoded image string or bytes capsule"},
+		// AllowDynamicType keeps the static mcp_result return visible in reflected metadata.
+		{Name: "data", Type: cty.DynamicPseudoType, AllowDynamicType: true, Description: "Base64-encoded image string or bytes capsule"},
 	},
 	VarParam: &function.Parameter{
 		Name:        "mime_type",
@@ -82,16 +83,16 @@ var MCPImageFunc = function.New(&function.Spec{
 			var err error
 			imageData, err = base64.StdEncoding.DecodeString(args[0].AsString())
 			if err != nil {
-				return cty.NilVal, fmt.Errorf("mcp_image: invalid base64 data: %w", err)
+				return cty.NilVal, fmt.Errorf("mcp::image: invalid base64 data: %w", err)
 			}
 			if len(args) < 2 {
-				return cty.NilVal, fmt.Errorf("mcp_image: mime_type is required when data is a base64 string")
+				return cty.NilVal, fmt.Errorf("mcp::image: mime_type is required when data is a base64 string")
 			}
 			mimeType = args[1].AsString()
 		default:
 			b, err := bytescty.GetBytesFromValue(args[0])
 			if err != nil {
-				return cty.NilVal, fmt.Errorf("mcp_image: data must be a base64 string or bytes value, got %s", args[0].Type().FriendlyName())
+				return cty.NilVal, fmt.Errorf("mcp::image: data must be a base64 string or bytes value, got %s", args[0].Type().FriendlyName())
 			}
 			imageData = b.Data
 			mimeType = b.ContentType
@@ -159,9 +160,9 @@ var MCPAssistantMessageFunc = function.New(&function.Spec{
 // for async handlers.
 func GetMcpFunctions() map[string]function.Function {
 	return map[string]function.Function{
-		"mcp_image":            MCPImageFunc,
-		"mcp_error":            MCPErrorFunc,
-		"mcp_usermessage":      MCPUserMessageFunc,
-		"mcp_assistantmessage": MCPAssistantMessageFunc,
+		"mcp::image":             MCPImageFunc,
+		"mcp::error":             MCPErrorFunc,
+		"mcp::user_message":      MCPUserMessageFunc,
+		"mcp::assistant_message": MCPAssistantMessageFunc,
 	}
 }

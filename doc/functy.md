@@ -130,7 +130,7 @@ Besides the standard functy types (`number`, `string`, `bool`, `list(T)`, `map(T
 | Variables | `variable` |
 | Time | `time`, `duration` |
 | Rich values | `url`, `bytes`, `baggage`, `metric`, `wire_format` |
-| HTTP | `http_request`, `http_response`, `http_client_response`, `http_client` |
+| HTTP | `http::request`, `http::response`, `http_client_response`, `http_client` |
 | SQL | `sql_client`, `sql_query` |
 | MCP | `mcp_result` |
 | Handler context | `ctx` |

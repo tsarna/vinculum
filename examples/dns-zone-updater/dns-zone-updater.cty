@@ -11,18 +11,18 @@ func update_dns(
 ) -> http_response {
     var expected_username = "${zone}/${host}"
     if username != expected_username || ip == "" {
-        return http_response(http_status.Forbidden, "Forbidden")
+        return http::response(http_status.Forbidden, "Forbidden")
     }
 
     // update_zone_record is the editor "line" block defined in the .vcl file.
     var file_changed = update_zone_record(ctx, "${env.ZONES_DIR}/${zone}.zone", host, ip, disabled)
     if file_changed {
         // You could add other logic here, eg publish a message to MQTT, send an SMS, etc.
-        log_info("Updated DNS record", {
+        log::info("Updated DNS record", {
             host = "${host}.${zone}", new_ip = ip, enabled = !disabled
         })
-        return http_response(http_status.OK, "good ${ip}")
+        return http::response(http_status.OK, "good ${ip}")
     }
 
-    return http_response(http_status.OK, "nochg ${ip}")
+    return http::response(http_status.OK, "nochg ${ip}")
 }

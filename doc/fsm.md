@@ -29,13 +29,13 @@ fsm "door" {
     initial = "closed"
 
     state "closed" {
-        on_entry = log_info("Door is now closed")
+        on_entry = log::info("Door is now closed")
     }
     state "open" {
-        on_entry = log_info("Door is now open")
+        on_entry = log::info("Door is now open")
     }
     state "locked" {
-        on_entry = log_info("Door is now locked")
+        on_entry = log::info("Door is now locked")
     }
 
     event "open"   { transition "closed" "open"   {} }
@@ -43,7 +43,7 @@ fsm "door" {
     event "lock"   { transition "closed" "locked" {} }
     event "unlock" { transition "locked" "closed" {} }
 
-    on_change = log_info("Door: ${ctx.old_state} -> ${ctx.new_state}")
+    on_change = log::info("Door: ${ctx.old_state} -> ${ctx.new_state}")
 }
 
 # Drive via subscription
@@ -63,7 +63,7 @@ trigger "cron" "auto_lock" {
 # React to state changes
 trigger "watch" "door_state" {
     watch  = fsm.door
-    action = log_info("Door changed: ${ctx.old_value} -> ${ctx.new_value}")
+    action = log::info("Door changed: ${ctx.old_value} -> ${ctx.new_value}")
 }
 ```
 
@@ -139,7 +139,7 @@ event:
 ```hcl
 event "emergency_stop" {
     transition "*" "emergency" {
-        action = log_warn("Emergency stop from ${ctx.old_state}!")
+        action = log::warn("Emergency stop from ${ctx.old_state}!")
     }
 }
 ```
@@ -229,7 +229,7 @@ event "alert" {
     topic = "sensors/+sensor/alert"
 
     transition "idle" "alerting" {
-        action = log_info("Alert from sensor: ${ctx.topic_params.sensor}")
+        action = log::info("Alert from sensor: ${ctx.topic_params.sensor}")
     }
 }
 ```

@@ -41,6 +41,21 @@ func TestMakeFileBytesFunc_ReadFileWithContentType(t *testing.T) {
 	assert.Equal(t, "image/png", b.ContentType)
 }
 
+// The content type is optional, and a cty VarParam is the only way to say so — but a
+// VarParam has no upper bound of its own, so filebytes() accepted any number of them
+// and, reading only the first, dropped the rest in silence.
+func TestMakeFileBytesFunc_ExcessArgumentsRejected(t *testing.T) {
+	base := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(base, "img.png"), []byte{0x89, 0x50}, 0644))
+	fn := MakeFileBytesFunc(base)
+
+	_, err := fn.Call([]cty.Value{
+		cty.StringVal("img.png"), cty.StringVal("image/png"), cty.StringVal("junk"),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at most 2 arguments")
+}
+
 func TestMakeFileBytesFunc_TraversalRejected(t *testing.T) {
 	base := t.TempDir()
 	fn := MakeFileBytesFunc(base)

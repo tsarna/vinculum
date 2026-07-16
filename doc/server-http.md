@@ -188,7 +188,7 @@ Inside a `handle` action expression, the incoming request is available as
 
 The `url` attribute is a full URL object — all URL fields are accessible directly:
 `ctx.request.url.path`, `ctx.request.url.hostname`, `ctx.request.url.query`, etc.
-See the urlparse function documentation for the full field list.
+See the url::parse function documentation for the full field list.
 
 ### `get(ctx.request, ...)` — On-demand Access
 
@@ -240,33 +240,33 @@ type coercion handles the common cases; use the constructor functions for full c
 | `string` | 200 | `text/plain; charset=utf-8` | string bytes |
 | `bytes` object | 200 | from `bytes.content_type` | raw bytes |
 | `bool`, `number`, `object`, `map`, `list`, `tuple` | 200 | `application/json` | JSON-encoded |
-| `http_error(...)` result | from call | `text/plain; charset=utf-8` | message |
-| `http_response(...)` result | from call | from call | from call |
+| `http::error(...)` result | from call | `text/plain; charset=utf-8` | message |
+| `http::response(...)` result | from call | from call | from call |
 
 ### Response Functions
 
-#### `http_response(status[, body[, headers]])`
+#### `http::response(status[, body[, headers]])`
 Build a response with the given status code, optional body, and optional headers.
 `body` is coerced using the same rules as automatic coercion. `headers` may be
 `map(string)` or `map(list(string))`.
 
-#### `http_redirect(url)` / `http_redirect(status, url)`
+#### `http::redirect(url)` / `http::redirect(status, url)`
 Build a redirect response. The single-argument form uses `302 Found`. Valid status
 codes: 301, 302, 303, 307, 308.
 
-#### `http_error(status, message)`
+#### `http::error(status, message)`
 Build an error response with the given status code and plain-text body.
 Useful with `try()` to map errors to specific HTTP status codes.
 
-#### `addheader(response, name, value)`
+#### `http::add_header(response, name, value)`
 Return a new response with the given header value appended (multi-value safe).
 
-#### `removeheader(response, name)`
+#### `http::remove_header(response, name)`
 Return a new response with all values for the given header removed.
 
-#### `setcookie(cookieObj)`
+#### `http::set_cookie(cookieObj)`
 Format a `Set-Cookie` header value from a cookie definition object.
-Use with `addheader()` to set cookies on a response. Required fields: `name`, `value`.
+Use with `http::add_header()` to set cookies on a response. Required fields: `name`, `value`.
 Optional: `path`, `domain`, `expires` (`time` capsule, `duration` capsule, or RFC 3339 string), `max_age`, `secure`, `http_only`,
 `same_site` (`"Lax"`, `"Strict"`, `"None"`, or `"Default"`), `partitioned`.
 
@@ -510,13 +510,13 @@ handle "DELETE /item/{id}" {
 
 ```hcl
 handle "POST /items" {
-    action = http_response(http_status.Created, created_item, {
+    action = http::response(http_status.Created, created_item, {
         "Location" = "/items/${created_item.id}"
     })
 }
 
 handle "/old-path" {
-    action = http_redirect(http_status.MovedPermanently, "/new-path")
+    action = http::redirect(http_status.MovedPermanently, "/new-path")
 }
 ```
 
@@ -526,7 +526,7 @@ handle "/old-path" {
 handle "GET /items/{id}" {
     action = try(
         lookup_item(ctx.request.path.id),
-        http_error(http_status.NotFound, "item not found"),
+        http::error(http_status.NotFound, "item not found"),
     )
 }
 ```
@@ -535,10 +535,10 @@ handle "GET /items/{id}" {
 
 ```hcl
 handle "POST /login" {
-    action = addheader(
-        http_response(http_status.OK, {ok = true}),
+    action = http::add_header(
+        http::response(http_status.OK, {ok = true}),
         "Set-Cookie",
-        setcookie({
+        http::set_cookie({
             name      = "session"
             value     = create_session(get(ctx.request, "body_json"))
             path      = "/"

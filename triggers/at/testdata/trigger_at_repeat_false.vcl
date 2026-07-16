@@ -1,5 +1,5 @@
 trigger "at" "oneshot" {
-    time   = timeadd(now(), duration("50ms"))
+    time   = time::add(time::now(), duration("50ms"))
     repeat = false
     action = "ring"
 }

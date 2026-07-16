@@ -106,7 +106,7 @@ func TestToolMcpError(t *testing.T) {
 		{
 			Name:        "failing",
 			Description: "Always fails",
-			Action:      parseExpr(t, `mcp_error("something went wrong")`),
+			Action:      parseExpr(t, `mcp::error("something went wrong")`),
 		},
 	}, nil)
 

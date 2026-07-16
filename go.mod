@@ -3,7 +3,7 @@ module github.com/tsarna/vinculum
 go 1.26.0
 
 require (
-	github.com/tsarna/bytes-cty-type v0.1.0
+	github.com/tsarna/bytes-cty-type v0.2.0
 	go.uber.org/zap v1.28.0
 )
 
@@ -35,16 +35,16 @@ require (
 	github.com/sosodev/duration v1.4.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
-	github.com/tsarna/barcode-cty-func v0.1.0
-	github.com/tsarna/functy v0.9.0
-	github.com/tsarna/geo-cty-funcs v0.2.0
+	github.com/tsarna/barcode-cty-func v0.2.0
+	github.com/tsarna/functy v0.10.0
+	github.com/tsarna/geo-cty-funcs v0.4.0
 	github.com/tsarna/go-structdiff v0.2.1
 	github.com/tsarna/go2cty2go v0.1.3
 	github.com/tsarna/hcl-jqfunc v0.1.4
-	github.com/tsarna/rand-cty-funcs v0.1.1
-	github.com/tsarna/rich-cty-types v0.4.0
-	github.com/tsarna/sqid-cty-funcs v0.1.0
-	github.com/tsarna/time-cty-funcs v0.2.1
+	github.com/tsarna/rand-cty-funcs v0.2.0
+	github.com/tsarna/rich-cty-types v0.5.1
+	github.com/tsarna/sqid-cty-funcs v0.2.0
+	github.com/tsarna/time-cty-funcs v0.4.0
 	github.com/tsarna/vinculum-bus v0.15.1
 	github.com/tsarna/vinculum-kafka v0.10.0
 	github.com/tsarna/vinculum-mqtt v0.8.1
@@ -110,7 +110,7 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/goccy/go-json v0.10.6 // indirect
-	github.com/golang/geo v0.0.0-20260415063119-550b242b3150 // indirect
+	github.com/golang/geo v0.0.0-20260713102120-857a528af641 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -173,7 +173,7 @@ require (
 	github.com/heimdalr/dag v1.5.1
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/tsarna/url-cty-funcs v0.1.0
+	github.com/tsarna/url-cty-funcs v0.2.0
 	github.com/tsarna/vinculum-fsm v0.5.1
 	github.com/zclconf/go-cty v1.19.0
 	go.uber.org/multierr v1.10.0 // indirect

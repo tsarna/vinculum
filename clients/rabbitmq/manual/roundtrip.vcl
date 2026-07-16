@@ -55,8 +55,8 @@ client "rabbitmq" "events" {
     password = env.RABBITMQ_PASS
   }
 
-  on_connect    = log_info("rabbitmq connected")
-  on_disconnect = log_info("rabbitmq disconnected")
+  on_connect    = log::info("rabbitmq connected")
+  on_disconnect = log::info("rabbitmq disconnected")
 
   sender "out" {
     exchange = "vinculum.test.topic"
@@ -92,5 +92,5 @@ subscription "bus_to_rmq" {
 subscription "log_in" {
   target = bus.main
   topics = ["in/#"]
-  action = log_info("round-trip received", { topic = ctx.topic, msg = ctx.msg })
+  action = log::info("round-trip received", { topic = ctx.topic, msg = ctx.msg })
 }

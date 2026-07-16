@@ -49,7 +49,7 @@ service, so it runs with no environment variables or credentials. Demonstrates:
   once
 - `cond()` for lazy branching — HCL's own `a ? b : c` eagerly evaluates *both*
   branches, so a side-effecting not-found path needs `cond()`
-- `mcp_error()` for tool failures vs. a plain string for a resource
+- `mcp::error()` for tool failures vs. a plain string for a resource
 - an optional, env-toggled [`client "otlp"`](../doc/client-otlp.md) that the
   HTTP and MCP servers auto-wire to for OpenTelemetry traces and metrics — set
   `OTEL_EXPORTER_OTLP_ENDPOINT` to enable it, leave it unset to stay zero-config

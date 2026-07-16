@@ -21,5 +21,5 @@ trigger "cron" "latenight_mode" {
 }
 
 trigger "start" "set_initial_mode" {
-    action = set(var.mode, cond(get(now(), "hour") >= 0 && get(now(), "hour") < 6, "LATE_NIGHT", "NORMAL"))
+    action = set(var.mode, cond(get(time::now(), "hour") >= 0 && get(time::now(), "hour") < 6, "LATE_NIGHT", "NORMAL"))
 }

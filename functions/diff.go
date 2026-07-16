@@ -20,9 +20,10 @@ func init() {
 }
 
 var DiffFunc = function.New(&function.Spec{
+	Description: "Computes a structural diff between two values: a map describing what changed from a to b, in the form patch() applies. The result shape depends on the inputs, so it is dynamic.",
 	Params: []function.Parameter{
-		{Name: "a", Type: cty.DynamicPseudoType},
-		{Name: "b", Type: cty.DynamicPseudoType},
+		{Name: "a", Type: cty.DynamicPseudoType, Description: "The original value"},
+		{Name: "b", Type: cty.DynamicPseudoType, Description: "The new value"},
 	},
 	Type: function.StaticReturnType(cty.DynamicPseudoType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
@@ -45,9 +46,10 @@ var DiffFunc = function.New(&function.Spec{
 })
 
 var PatchFunc = function.New(&function.Spec{
+	Description: "Applies a structural diff (from diff()) to a target map, returning the patched map. The result shape depends on the inputs, so it is dynamic.",
 	Params: []function.Parameter{
-		{Name: "target", Type: cty.DynamicPseudoType},
-		{Name: "patch", Type: cty.DynamicPseudoType},
+		{Name: "target", Type: cty.DynamicPseudoType, Description: "The map to patch"},
+		{Name: "patch", Type: cty.DynamicPseudoType, Description: "The diff to apply (a map, as produced by diff())"},
 	},
 	Type: function.StaticReturnType(cty.DynamicPseudoType),
 	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {

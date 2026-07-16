@@ -119,8 +119,8 @@ effects) but the value is never stored. Different discard names allow multiple
 side-effect-only calls in the same scope:
 
 ```hcl
-_1 = log_debug("step 1")
-_2 = log_debug("step 2")
+_1 = log::debug("step 1")
+_2 = log::debug("step 2")
 ```
 
 This is necessary because the language does not allow variables to be reassigned within the same block.
@@ -219,7 +219,7 @@ attributes:
 
 ```hcl
 range "entry" "my_map" {
-    _1 = log_debug(entry.key, entry.value)
+    _1 = log::debug(entry.key, entry.value)
 }
 ```
 

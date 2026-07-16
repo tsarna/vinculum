@@ -12,7 +12,7 @@ import (
 func init() {
 	cfg.RegisterFunctionPlugin("sql", func(_ *cfg.Config) map[string]function.Function {
 		return map[string]function.Function{
-			"sql_must": SQLMustFunc,
+			"sql::must": SQLMustFunc,
 		}
 	})
 }
@@ -27,12 +27,14 @@ func init() {
 //	# ...or just fail the action if it errored:
 //	r = sql_must(call(ctx, client.db, "INSERT ..."))
 var SQLMustFunc = function.New(&function.Spec{
+	Description: "Returns a SQL result unchanged if it carries no error; otherwise raises an HCL error. Its return type echoes the result passed in.",
 	Params: []function.Parameter{
 		{
 			Name:             "result",
 			Type:             cty.DynamicPseudoType,
 			AllowNull:        true,
 			AllowDynamicType: true,
+			Description:      "A SQL result object (must have an \"error\" field)",
 		},
 	},
 	Type: func(args []cty.Value) (cty.Type, error) {
@@ -44,7 +46,7 @@ var SQLMustFunc = function.New(&function.Spec{
 			return cty.UnknownVal(retType), nil
 		}
 		if result.IsNull() || !result.Type().IsObjectType() || !result.Type().HasAttribute("error") {
-			return cty.NilVal, fmt.Errorf("sql_must: argument is not a result object (no \"error\" field)")
+			return cty.NilVal, fmt.Errorf("sql::must: argument is not a result object (no \"error\" field)")
 		}
 
 		errVal := result.GetAttr("error")
@@ -52,7 +54,7 @@ var SQLMustFunc = function.New(&function.Spec{
 			return result, nil
 		}
 
-		return cty.NilVal, fmt.Errorf("sql_must: %s", formatSQLError(errVal))
+		return cty.NilVal, fmt.Errorf("sql::must: %s", formatSQLError(errVal))
 	},
 })
 

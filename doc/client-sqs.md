@@ -150,7 +150,7 @@ client "sqs_receiver" "tasks" {
 
     # Destination -- exactly one of subscriber or action is required.
     subscriber     = bus.main
-    # action       = log_info(ctx, "sqs msg", {topic = ctx.topic, body = ctx.msg})
+    # action       = log::info(ctx, "sqs msg", {topic = ctx.topic, body = ctx.msg})
 
     # Optional transform pipeline and async queue (same semantics as the
     # top-level `subscription` block — see config.md#subscription).
@@ -222,7 +222,7 @@ SQS system attributes are mapped to `$`-prefixed vinculum fields:
 ### Manual deletion
 
 When `auto_delete = false`, messages must be explicitly deleted using the
-`sqs_delete()` function. The `sqs_extend_visibility()` function can extend
+`sqs::delete()` function. The `sqs::extend_visibility()` function can extend
 the visibility timeout for long-running processing.
 
 ```hcl
@@ -238,13 +238,13 @@ subscription "process_tasks" {
     topics = ["tasks/incoming"]
     action = [
         do_something(ctx, ctx.msg),
-        sqs_delete(ctx, client.tasks, ctx.fields["$receipt_handle"]),
+        sqs::delete(ctx, client.tasks, ctx.fields["$receipt_handle"]),
     ]
 }
 ```
 
-See [functions.md](functions.md) for `sqs_delete()` and
-`sqs_extend_visibility()` documentation.
+See [functions.md](functions.md) for `sqs::delete()` and
+`sqs::extend_visibility()` documentation.
 
 ### Dead-letter queues
 

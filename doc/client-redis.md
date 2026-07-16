@@ -225,7 +225,7 @@ client "redis_stream" "rs" {
 
     # Exactly one of:
     subscriber = bus.main
-    # action   = [ ..., redis_ack(ctx, client.rs.consumer.in, ctx.message_id) ]
+    # action   = [ ..., redis::ack(ctx, client.rs.consumer.in, ctx.message_id) ]
 
     # Optional transform pipeline and async queue (same semantics as the
     # top-level `subscription` block — see config.md#subscription).
@@ -282,13 +282,13 @@ Consumers use the symmetric attributes to parse incoming entries, so a
 - `require_existing` — fail at `Start` if the group does not exist.
 - `create_from_start` — `XGROUP CREATE ... 0` to replay history.
 
-### Manual ack: `redis_ack()`
+### Manual ack: `redis::ack()`
 
 With `auto_ack = false`, entries stay pending until acknowledged. The
-`redis_ack` function is registered globally:
+`redis::ack` function is registered globally:
 
 ```hcl
-redis_ack(ctx, client.rs.consumer.in, ctx.message_id)
+redis::ack(ctx, client.rs.consumer.in, ctx.message_id)
 ```
 
 The entry ID is exposed on the action eval context as `ctx.message_id`
@@ -386,7 +386,7 @@ client "redis_kv" "devices" {
 get(ctx, client.devices, "abc123", "last_seen")
 
 # HSET dev:abc123 last_seen <value>
-set(ctx, client.devices, "abc123", "last_seen", tostring(now()))
+set(ctx, client.devices, "abc123", "last_seen", tostring(time::now()))
 
 # HGETALL dev:abc123 → cty object with every field decoded
 get(ctx, client.devices, "abc123")
@@ -415,7 +415,7 @@ Every block surfaces a cty object shaped to match MQTT/Kafka conventions:
 | `client.<pubsub>.publishers` | Fan-out to all publishers on the pubsub client. |
 | `client.<stream>.producer.<p>` | A single named stream producer. |
 | `client.<stream>.producers` | Fan-out to all producers. |
-| `client.<stream>.consumer.<c>` | The consumer capsule — pass to `redis_ack()`. |
+| `client.<stream>.consumer.<c>` | The consumer capsule — pass to `redis::ack()`. |
 | `client.<kv>` | The KV client capsule — pass to `get()`/`set()`/`increment()`. |
 
 The wrapper for each messaging client is itself a `bus.Subscriber`, so
