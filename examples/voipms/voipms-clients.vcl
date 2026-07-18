@@ -13,11 +13,11 @@ metric "counter" "voipms.client.calls" {
     label_names = ["client_id", "client_email"]
 }
 
-# voipms_scrape_client_metrics() lives in voipms-clients.cty (functy).
+# voipms::scrape_client_metrics() lives in voipms-clients.cty (functy).
 
 trigger "interval" "clients" {
     delay         = "1h"
     initial_delay = "1m"
     jitter        = 0.2 # +/- 10%
-    action        = voipms_scrape_client_metrics(ctx)
+    action        = voipms::scrape_client_metrics(ctx)
 }

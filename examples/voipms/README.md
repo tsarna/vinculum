@@ -14,8 +14,12 @@ REST API on an interval and exposes the results as Prometheus or OpenTelemetry m
   endpoint
 - [`client "otlp"`](../../doc/client-otlp.md) for OpenTelemetry push metrics.
 - Splitting a single logical configuration across multiple `.vcl` and `.cty`
-  files that share one namespace. Each concern pairs a `.vcl` file (its blocks)
-  with a `.cty` file (its functions):
+  files sharing one evaluation context. Every `.cty` file declares
+  `namespace voipms`, so its functions call each other by bare name
+  (`get_balance(ctx, true)`) while VCL calls them by their qualified name
+  (`voipms::scrape_balance_metrics(ctx)`) — keeping the API and scrape helpers
+  out of the global function namespace without hand-prefixing every name. Each
+  concern pairs a `.vcl` file (its blocks) with a `.cty` file (its functions):
 
   - [voipms-api.vcl](voipms-api.vcl) / [voipms-api.cty](voipms-api.cty) — the
     HTTP client and the API wrapper functions that call it

@@ -1,6 +1,10 @@
 // Scrape SIP account registration status and set a labeled gauge per account.
-func voipms_scrape_sip_accounts(ctx: ctx) {
-    var registrations = voipms_get_all_registrations(ctx)
+// get_all_registrations() is a sibling in this namespace, so it is called by its
+// bare name.
+namespace voipms
+
+func scrape_sip_accounts(ctx: ctx) {
+    var registrations = get_all_registrations(ctx)
     for reg in registrations {
         var labels = {account_id = reg.account}
         log::info("sip_account", {labels = labels})
