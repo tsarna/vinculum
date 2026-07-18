@@ -1,0 +1,8 @@
+namespace bar
+
+// The same bare name as foo's const; on the old flat fold these collided.
+const greeting = "goodbye"
+
+func greet(who: string) -> string {
+    return "${greeting} ${who}"
+}

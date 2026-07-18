@@ -315,6 +315,16 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		return nil, diags
 	}
 
+	// Evaluate namespaced functy consts into their per-namespace scopes now that the
+	// global const surface (config.Constants) is resolved by the pass above. Global
+	// ("") functy consts were folded into that surface; namespaced ones are scoped to
+	// their namespace's functy bodies (own+global) and must be in place before any
+	// functy function is invoked (var initializers below, then the Process phase).
+	diags = diags.Extend(config.functyState.evalNamespacedConsts(config))
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
 	// Evaluate functy top-level var initializers now (consts are resolved by the
 	// FinishPreprocessing pass above), so functy var values are in place before
 	// the Process phase where consumers (asserts, subscriptions) read var.<name>.

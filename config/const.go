@@ -94,10 +94,17 @@ func (b *ConstBlockHandler) FinishPreprocessing(config *Config) hcl.Diagnostics 
 	return diags
 }
 
-// foldFunctyConsts merges the functy Result.Consts into the const attribute pool
-// as synthesized hcl.Attributes (Name + unevaluated Expr), recording any declared
-// type constraint. Duplicate names — across VCL consts and other functy consts —
-// are reported, reusing the same collision surface as VCL const blocks.
+// foldFunctyConsts merges the *global* (unnamespaced) functy Result.Consts into the
+// const attribute pool as synthesized hcl.Attributes (Name + unevaluated Expr),
+// recording any declared type constraint. Duplicate names — across VCL consts and
+// other global functy consts — are reported, reusing the same collision surface as
+// VCL const blocks.
+//
+// Namespaced functy consts (ns != "") are deliberately skipped: they are scoped to
+// their namespace's functy bodies and evaluated separately by
+// functyState.evalNamespacedConsts (own+global), so two namespaces may each declare
+// `const greeting` without colliding, and neither is exposed to VCL (there is no
+// `foo::bar::x` value spelling).
 func (b *ConstBlockHandler) foldFunctyConsts(config *Config) hcl.Diagnostics {
 	var diags hcl.Diagnostics
 	if config.functyState == nil || config.functyState.result == nil {
@@ -105,7 +112,7 @@ func (b *ConstBlockHandler) foldFunctyConsts(config *Config) hcl.Diagnostics {
 	}
 
 	for _, decl := range config.functyState.result.Consts {
-		if decl.Expr == nil {
+		if decl.Expr == nil || decl.Namespace != "" {
 			continue
 		}
 		if existing, dup := b.consts[decl.Name]; dup {

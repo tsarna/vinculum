@@ -1,0 +1,5 @@
+namespace foo
+
+// A vinculum `var` is global (var.<name>); a namespaced one has nothing to scope
+// to, so folding rejects this with a diagnostic.
+var count = 0

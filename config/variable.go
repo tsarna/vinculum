@@ -69,6 +69,17 @@ func (h *VariableBlockHandler) foldFunctyVars(config *Config) hcl.Diagnostics {
 	}
 
 	for _, decl := range config.functyState.result.Vars {
+		if decl.Namespace != "" {
+			diags = diags.Append(&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Namespaced var is not supported",
+				Detail: fmt.Sprintf(
+					"var %q is declared in namespace %q, but a vinculum `var` is global — it becomes a mutable var.%s with no namespace to scope it to. Declare top-level `var`s in the global namespace.",
+					decl.Name, decl.Namespace, decl.Name),
+				Subject: decl.DefRange.Ptr(),
+			})
+			continue
+		}
 		if _, dup := h.variables[decl.Name]; dup {
 			diags = diags.Append(&hcl.Diagnostic{
 				Severity: hcl.DiagError,

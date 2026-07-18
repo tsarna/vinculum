@@ -137,6 +137,67 @@ func TestFunctyVarFolding(t *testing.T) {
 	require.Contains(t, config.CtyVarMap, "label")
 }
 
+// TestFunctyNamespacedConstScoping verifies namespaced functy consts are scoped to
+// their namespace instead of folded flat: two namespaces each declare `const
+// greeting` without colliding, each body resolves its own, a namespaced body still
+// sees the global functy-const and VCL-const surface (own+global), and a namespaced
+// const is not exposed to VCL.
+func TestFunctyNamespacedConstScoping(t *testing.T) {
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+
+	config, diags := NewConfig().
+		WithSources("testdata/functynsconst").
+		WithLogger(logger).
+		Build()
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+
+	// Each namespace's greet() resolves its own greeting — no collision.
+	callStr := func(name string, args ...cty.Value) cty.Value {
+		fn, ok := config.Functions[name]
+		require.True(t, ok, "%s should be registered", name)
+		v, err := fn.Call(args)
+		require.NoError(t, err, "calling %s", name)
+		return v
+	}
+	assert.Equal(t, cty.StringVal("hello world"), callStr("foo::greet", cty.StringVal("world")))
+	assert.Equal(t, cty.StringVal("goodbye world"), callStr("bar::greet", cty.StringVal("world")))
+
+	// own+global: foo's greeting + global functy const suffix ("!") + VCL const
+	// vcl_tag ("#").
+	assert.Equal(t, cty.StringVal("hello!#"), callStr("foo::tagged"))
+
+	// The global functy const and VCL const are on the shared surface; the
+	// namespaced const is not.
+	assert.True(t, config.Constants["suffix"].RawEquals(cty.StringVal("!")), "global functy const on shared surface")
+	assert.True(t, config.Constants["vcl_tag"].RawEquals(cty.StringVal("#")))
+	_, exposed := config.Constants["greeting"]
+	assert.False(t, exposed, "namespaced const must not be exposed to VCL")
+}
+
+// TestFunctyNamespacedVarRejected verifies a top-level functy `var` in a namespace
+// is rejected: vinculum vars are global, so there is no namespace to scope one to.
+func TestFunctyNamespacedVarRejected(t *testing.T) {
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+
+	_, diags := NewConfig().
+		WithSources("testdata/functynsvar").
+		WithLogger(logger).
+		Build()
+	require.True(t, diags.HasErrors(), "expected a namespaced-var error")
+
+	found := false
+	for _, d := range diags {
+		if d.Severity == hcl.DiagError && d.Summary == "Namespaced var is not supported" {
+			found = true
+		}
+	}
+	assert.True(t, found, "expected a Namespaced var diagnostic, got: %v", diags)
+}
+
 // TestFunctyBuiltinCollision verifies a .cty function whose name collides with a
 // registered builtin (send) is rejected by GetFunctions' duplicate check.
 func TestFunctyBuiltinCollision(t *testing.T) {

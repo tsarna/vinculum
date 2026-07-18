@@ -1,0 +1,14 @@
+namespace foo
+
+const greeting = "hello"
+
+// Resolves greeting to foo's own const.
+func greet(who: string) -> string {
+    return "${greeting} ${who}"
+}
+
+// own+global: greeting is foo's; suffix is a global functy const; vcl_tag is a VCL
+// const. All reachable by bare name, with the namespace winning on a name clash.
+func tagged() -> string {
+    return "${greeting}${suffix}${vcl_tag}"
+}

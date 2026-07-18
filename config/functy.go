@@ -90,9 +90,10 @@ func RegisterFunctyExterns(filename string, src []byte) {
 // with source context), and the configured parser (whose TypeResolver is shared
 // with the VCL `var` `type` attribute).
 type functyState struct {
-	result  *functy.Result
-	sources []functy.Source
-	parser  *functy.Parser
+	result   *functy.Result
+	compiled *functy.Compiled
+	sources  []functy.Source
+	parser   *functy.Parser
 	// files maps each .cty filename to its source bytes, for rendering functy
 	// throws with source context at runtime. Built once during compile() (the
 	// sources are immutable after Build), so ActionError need not rebuild it.
@@ -260,6 +261,37 @@ func (s *functyState) compile(sources []functy.Source, evalCtxFn func() *hcl.Eva
 		return nil, diags
 	}
 
-	funcs, compileDiags := result.Compile(evalCtxFn)
-	return funcs, diags.Extend(compileDiags)
+	// CompileUnits (not Compile) so the per-namespace layers are retained: Compiled
+	// is kept on the state so evalNamespacedConsts can fill Vars[ns] after the const
+	// pass, and namespaced functy bodies read those scopes through the same live map.
+	compiled, compileDiags := result.CompileUnits(evalCtxFn)
+	s.compiled = compiled
+	return compiled.Funcs, diags.Extend(compileDiags)
+}
+
+// evalNamespacedConsts evaluates the *namespaced* (ns != "") functy top-level consts
+// into their per-namespace scopes in Compiled.Vars, under functy's own+global policy
+// (own namespace first, then the global surface, local wins). Global ("") functy
+// consts are not handled here — ConstBlockHandler folds them into config.Constants so
+// they share one dependency sort with VCL consts; this pass runs afterward, so a
+// namespaced const may reference that resolved global surface (config.evalCtx carries
+// it as its Variables), while a namespaced value is never exposed back to VCL (there
+// is no `foo::bar::x` value spelling).
+//
+// It must run after the const FinishPreprocessing pass (config.Constants complete)
+// and before any functy function is invoked (var initializers, the Process phase).
+func (s *functyState) evalNamespacedConsts(config *Config) hcl.Diagnostics {
+	if s.result == nil || s.compiled == nil {
+		return nil
+	}
+	var nsConsts []functy.Decl
+	for _, decl := range s.result.Consts {
+		if decl.Namespace != "" {
+			nsConsts = append(nsConsts, decl)
+		}
+	}
+	if len(nsConsts) == 0 {
+		return nil
+	}
+	return functy.EvalNamespacedDecls(nsConsts, config.evalCtx, s.compiled)
 }

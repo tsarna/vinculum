@@ -1,0 +1,3 @@
+// A global (unnamespaced) functy const: folds into the shared const surface and is
+// visible both to VCL and to every namespace's bodies by bare name.
+const suffix = "!"

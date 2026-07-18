@@ -114,6 +114,39 @@ caveat applies to VCL `var` blocks).
 
 ---
 
+## Namespaces
+
+A `.cty` file may open with a `namespace` declaration, which qualifies its functions
+and scopes its top-level `const`s to that namespace:
+
+```functy
+namespace acme::math
+
+const pi = 3.14159                      // acme::math's own const
+
+func area(r: number) -> number {        // registered as acme::math::area
+    return pi * r * r                   // resolves acme::math's pi, then the global surface
+}
+```
+
+- **Functions** register under their qualified name (`acme::math::area`) and are
+  called that way from VCL and other namespaces. Within the namespace, siblings call
+  each other by bare name.
+- **Consts** are scoped to the namespace: a namespaced `const` is **not** folded into
+  the shared const surface and has no VCL spelling (there is no `acme::math::pi` for a
+  value). It is visible only to that namespace's own functions, **own-plus-global** —
+  a namespaced body resolves a bare name in its own namespace first, then falls back
+  to the global const surface (VCL consts and unnamespaced functy consts), with the
+  local winning on a clash. Two namespaces may therefore each declare `const greeting`
+  without colliding.
+- **Unnamespaced** (global) consts fold into the shared surface exactly as described
+  above, visible to VCL and to every namespace.
+- **`var` cannot be namespaced.** A Vinculum `var` is global (`var.<name>`), so a
+  top-level `var` declared inside a `namespace` is a configuration error — move it to
+  the global namespace.
+
+---
+
 ## Types
 
 functy annotations (`param: T`, `-> T`, `var x: T`) enforce a type via **coercion** —

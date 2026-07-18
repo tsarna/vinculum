@@ -36,7 +36,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/tsarna/barcode-cty-func v0.2.0
-	github.com/tsarna/functy v0.10.0
+	github.com/tsarna/functy v0.11.0
 	github.com/tsarna/geo-cty-funcs v0.4.0
 	github.com/tsarna/go-structdiff v0.2.1
 	github.com/tsarna/go2cty2go v0.1.3
