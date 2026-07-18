@@ -68,6 +68,18 @@ for the full expression language reference.
   - `sys.os` (string): Operating system (e.g. `"linux"`, `"darwin"`, `"windows"`).
   - `sys.arch` (string): CPU architecture (e.g. `"amd64"`, `"arm64"`).
   - `sys.cpus` (number): Number of logical CPUs available.
+  - `sys.version` (string): Vinculum release version (e.g. `"v1.2.3"`), or `"dev"`
+    for a local build.
+  - `sys.commit` (string): Git commit SHA the binary was built from, or empty if
+    unknown.
+  - `sys.build_time` (string): Build/commit timestamp (RFC 3339), or empty if unknown.
+  - `sys.modified` (bool): True if the working tree had uncommitted changes at build
+    time.
+  - `sys.functy.version` (string): Version of the bundled [functy](functy.md) (`.cty`)
+    language (e.g. `"v0.11.0"`), read from the binary's build info — `"(devel)"` in a
+    workspace build, `""` if unavailable. Only the module version is recorded for a
+    dependency; functy's own commit and build time are not (the `sys.commit` /
+    `sys.build_time` above describe the Vinculum binary, not functy).
   - `sys.executable` (string): Path to the running executable.
   - `sys.cwd` (string): Current working directory at startup.
   - `sys.homedir` (string): Home directory of the current user.

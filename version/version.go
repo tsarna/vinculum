@@ -69,3 +69,32 @@ func String() string {
 	}
 	return s
 }
+
+// ModuleVersion returns the recorded module version of the dependency with the
+// given module path — e.g. ModuleVersion("github.com/tsarna/functy") might yield
+// "v0.11.0" in a released build. It reads runtime/debug build info, so it needs
+// no ldflags or cooperation from the dependency: a library cannot inject its own
+// version the way a main package does with -ldflags, but its module version rides
+// along in the importing binary's build info regardless.
+//
+// It returns "(devel)" for a workspace or replace build (where no released version
+// applies), and "" if the module is not a dependency or build info is unavailable.
+// Note only the module *version* is recorded per dependency; a dependency's commit
+// and build time are not — Go stamps VCS info (vcs.revision/vcs.time) for the main
+// module only, so those describe this binary, not its dependencies.
+func ModuleVersion(path string) string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	for _, dep := range info.Deps {
+		if dep.Path != path {
+			continue
+		}
+		if dep.Replace != nil && dep.Replace.Version != "" {
+			return dep.Replace.Version
+		}
+		return dep.Version
+	}
+	return ""
+}

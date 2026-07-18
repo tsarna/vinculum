@@ -14,6 +14,10 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
+// functyModulePath is the Go module path of the bundled functy (.cty) language,
+// used to read its version from build info for sys.functy.version.
+const functyModulePath = "github.com/tsarna/functy"
+
 // processStartTime is captured once at package initialization so that
 // sys.starttime reflects the true process start time even after a config
 // rebuild (e.g. on SIGHUP).
@@ -74,6 +78,13 @@ func GetSysObject(baseDir string, writeDir string, features []string) cty.Value 
 	sysMap["commit"] = cty.StringVal(version.Commit)
 	sysMap["build_time"] = cty.StringVal(version.BuildTime)
 	sysMap["modified"] = cty.BoolVal(version.Modified)
+
+	// Bundled functy (.cty) language version, read from build info. Only the module
+	// version is available for a dependency — commit/date are recorded for the main
+	// module (above) only, not for imported modules.
+	sysMap["functy"] = cty.ObjectVal(map[string]cty.Value{
+		"version": cty.StringVal(version.ModuleVersion(functyModulePath)),
+	})
 
 	// Process paths
 	executable, err := os.Executable()

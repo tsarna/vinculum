@@ -53,6 +53,7 @@ func TestGetSysObject(t *testing.T) {
 		"commit":     cty.String,
 		"build_time": cty.String,
 		"modified":   cty.Bool,
+		"functy":     cty.Object(map[string]cty.Type{"version": cty.String}),
 		"executable": cty.String,
 		"cwd":        cty.String,
 		"homedir":    cty.String,
