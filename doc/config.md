@@ -6,8 +6,7 @@ more `.vcl` files in a directory.
 
 A directory may also contain [functy](functy.md) (`.cty`) files: their functions and
 top-level `var`/`const` declarations join the same namespace and evaluation context as
-the `.vcl` files. functy is a more expressive alternative to `function`, `jq`, and the
-deprecated `procedure` block. See [functy.md](functy.md).
+the `.vcl` files. functy is a more expressive alternative to `function` blocks. See [functy.md](functy.md).
 
 ## HCL Syntax
 
@@ -240,6 +239,11 @@ For details on each trigger type, see [Trigger Reference](trigger.md):
 
 ### `function`
 
+> For anything beyond a single expression — typed parameters, locals, branching,
+> loops, or error handling — [functy (`.cty`) files](functy.md) are a more
+> expressive alternative, and a `func` there is callable from VCL exactly like a
+> `function` block.
+
 ```hcl
 function "name" {
     params         = [a, b]  # list of parameter names (not strings)
@@ -323,26 +327,10 @@ editor "line" "name" {
 
 ### `procedure`
 
-Defines a callable function using an imperative body with variable assignments,
-conditionals, loops, and switch/case. See [procedure.md](procedure.md) for the
-full reference.
+See [procedure.md](procedure.md).
 
 > **Deprecated** in favor of [functy (`.cty`) files](functy.md); loading a `procedure`
 > block emits a deprecation warning and the block will be removed in a future release.
-
-```hcl
-procedure "name" {
-    spec {
-        params {
-            req   = required
-            limit = 10
-        }
-    }
-
-    # imperative statements...
-    return = expr
-}
-```
 
 ---
 

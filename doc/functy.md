@@ -7,12 +7,13 @@ functions, top-level `var`/`const` declarations, and type annotations in those `
 files participate in the **same** evaluation context, dependency graph, and namespace
 as their VCL equivalents.
 
-functy is a more expressive, more programmer-friendly alternative to `function`, `jq`,
-and especially [`procedure`](procedure.md) blocks. Unlike the `procedure` block — which
-bends HCL into an imperative language and inherits HCL's restrictions (no statement-level
-side effects, quoted-string block-label conditions, one-assignment-per-block, …) —
-functy has real syntax for statements, reassignment, loops, `try`/`catch`, typed
-locals, and structured errors.
+functy is a more expressive, more programmer-friendly alternative to the `function`
+block. Rather than bending HCL into an imperative language — and inheriting HCL's
+restrictions (no statement-level side effects, quoted-string block-label conditions,
+one-assignment-per-block, …) — functy has real syntax for statements, reassignment,
+loops, `try`/`catch`, typed locals, and structured errors. It complements rather than
+replaces the [`jq`](config.md#jq) block, which stays the more natural choice for data
+transformation (see [Relationship to other block types](#relationship-to-other-block-types)).
 
 ```functy
 // scrape.cty
@@ -60,9 +61,9 @@ functions, ambient providers, and types are available) and alongside `.vcl` pars
 ## Functions
 
 A top-level `func` becomes a callable function in the shared user-function namespace —
-indistinguishable, at the call site, from a `function`/`jq`/`procedure` block or a
-built-in. Functions may call each other (and VCL-defined functions) regardless of
-declaration order; mutual recursion works.
+indistinguishable, at the call site, from a `function`/`jq` block or a built-in.
+Functions may call each other (and VCL-defined functions) regardless of declaration
+order; mutual recursion works.
 
 ```functy
 func greet(name: string) -> string {
@@ -83,7 +84,7 @@ func total(*values: number) -> number {                  // variadic parameter
 ```
 
 A function name that collides with a built-in or another user function is a
-configuration error, the same as for `function`/`procedure` blocks.
+configuration error, the same as for `function`/`jq` blocks.
 
 ---
 
@@ -228,14 +229,16 @@ n = -3
 functy overlaps with several block types; which to reach for is largely a matter of
 convenience:
 
-- A [`function`](config.md#function) or [`jq`](config.md#jq) block is a fine, lightweight
-  way to name a single pure expression inline in a `.vcl` file. But if you're writing a
-  `.cty` file anyway, defining that function there — next to related code, with optional
-  type annotations — is just as good and often more convenient. Use whichever keeps the
-  code where you want it.
+- A [`function`](config.md#function) block is a fine, lightweight way to name a single
+  pure HCL expression inline in a `.vcl` file. But if you're writing a `.cty` file
+  anyway, defining that function there — next to related code, with optional type
+  annotations — is just as good and often more convenient. Use whichever keeps the code
+  where you want it.
+- A [`jq`](config.md#jq) block is a different tool, not a lesser one: for reshaping,
+  filtering, or restructuring JSON-like data, a JQ query is frequently more concise and
+  more natural than the equivalent functy code. Reach for `jq` when the task is a data
+  transformation and for functy when it is program logic; the two compose — a functy
+  body can call a `jq` function.
 - For multi-step logic — branching, loops, typed locals, reassignment, error handling —
-  functy is the natural fit; plain HCL expressions and `function`/`jq` blocks can't
-  express it cleanly.
-- The [`procedure`](procedure.md) block covered the multi-step case before functy and is
-  now **deprecated** in favor of it (it will be removed in a future release; loading one
-  emits a deprecation warning). Port procedures to `.cty` functions.
+  functy is the natural fit; plain HCL expressions and `function` blocks can't express
+  it cleanly.

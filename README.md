@@ -21,7 +21,7 @@ MacGyver together a solution with a few lines of configuration.
 - **Triggers** — A range of trigger types for time-, event-, and lifecycle-driven actions: cron, dynamic intervals with optional jitter, absolute / dynamic times, file-system events, OS signals, startup/shutdown, watchdogs, and watches over reactive values
 - **Conditions** — Named boolean primitives with temporal rules (activate/deactivate delays, hysteresis, retentive timing, latches, cooldown, inhibit), covering IEC 61131-3 timer and counter function-block behaviors and composable into pipelines
 - **State Machines** — Finite state machines with guarded transitions, reactive events, key-value storage, MQTT topic matching, and OpenTelemetry tracing; composable with conditions and watchable for reactive integration
-- **Transformations and Procedures** — JQ-based message transforms, structured-text `editor` blocks, and `procedure` blocks for small imperative helpers
+- **Transformations and Scripting** — JQ-based message transforms, structured-text `editor` blocks, and [functy](doc/functy.md) (`.cty`) files: a small imperative language with functions, typed locals, control flow, and structured errors
 - **Built-in Functions** — A large standard library covering HTTP, files, templates, time, randomness, IDs, LLMs, sunrise/sunset, geographic calculations, and more.
 - **Plugins** — Load Go shared-object plugins (`.so`) at startup to extend Vinculum with custom functions, transforms, server/client/trigger types, and more — using the same registration points as in-tree subsystems
 - **Observability** — Context propagation, OpenTelemetry tracing and metrics, and Prometheus exposition throughout
@@ -40,7 +40,8 @@ See [doc/overview.md](doc/overview.md) for full documentation including:
 The [examples/](examples/) directory contains complete working configurations.
 See [examples/README.md](examples/README.md) for the index, including a dynamic
 DNS zone updater that combines an HTTP server, basic authentication, a
-procedure, and a line-editor block to safely rewrite BIND zone files.
+[functy](doc/functy.md) function, and a line-editor block to safely rewrite BIND
+zone files.
 
 ## Related Projects
 

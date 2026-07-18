@@ -11,16 +11,15 @@
 7. [Built-in Functions](#built-in-functions)
 8. [Message Transforms](#message-transforms)
 9. [functy (`.cty` files)](#functy-cty-files)
-10. [Procedures](#procedures)
-11. [Editors](#editors)
-12. [Metrics](#metrics)
-13. [Protocols](#protocols)
-14. [Examples](#examples)
-15. [Observability](#observability)
-16. [Interactive REPL](#interactive-repl)
-17. [Container Images](#container-images)
-18. [Bootstrap and Plugins](#bootstrap-and-plugins)
-19. [Block Type Reference](#block-type-reference)
+10. [Editors](#editors)
+11. [Metrics](#metrics)
+12. [Protocols](#protocols)
+13. [Examples](#examples)
+14. [Observability](#observability)
+15. [Interactive REPL](#interactive-repl)
+16. [Container Images](#container-images)
+17. [Bootstrap and Plugins](#bootstrap-and-plugins)
+18. [Block Type Reference](#block-type-reference)
 
 ## Introduction
 
@@ -44,7 +43,7 @@ block to safely rewrite BIND zone files in place.
 - **Triggers** — A range of trigger types for time-, event-, and lifecycle-driven actions: cron, dynamic intervals with optional jitter, absolute / dynamic times, file-system events, OS signals, startup/shutdown, watchdogs, and watches over reactive values
 - **Conditions** — Named boolean primitives with temporal rules (activate/deactivate delays, hysteresis, retentive timing, latches, cooldown, inhibit), covering IEC 61131-3 timer and counter function-block behaviors and composable into pipelines
 - **State Machines** — Finite state machines with guarded transitions, reactive events, key-value storage, MQTT topic matching, and OpenTelemetry tracing; composable with conditions and watchable for reactive integration
-- **Transformations and Procedures** — JQ-based message transforms, structured-text `editor` blocks, and `procedure` blocks for small imperative helpers
+- **Transformations and Scripting** — JQ-based message transforms, structured-text `editor` blocks, and [functy](functy.md) (`.cty`) files: a small imperative language with functions, typed locals, control flow, and structured errors
 - **Built-in Functions** — A large standard library covering HTTP, files, templates, time, randomness, IDs, LLMs, and more
 - **Observability** — Context propagation, OpenTelemetry tracing and metrics, and Prometheus exposition throughout
 
@@ -156,17 +155,9 @@ See [transforms.md](transforms.md) for the full reference.
 
 ## functy (`.cty` files)
 
-A configuration directory may contain [functy](functy.md) (`.cty`) source files alongside its `.vcl` files. functy is a small expression/statement language with real syntax for functions, typed locals, reassignment, branching, loops, `try`/`catch`, and structured errors. Its `func` declarations and top-level `var`/`const` bindings fold into the same namespace and evaluation context as the `.vcl` files, and its type annotations can name Vinculum's own types (`bus`, `client`, `ctx`, …). It is a more expressive alternative to `function`, `jq`, and the (now deprecated) `procedure` block.
+A configuration directory may contain [functy](functy.md) (`.cty`) source files alongside its `.vcl` files. functy is a small expression/statement language with real syntax for functions, typed locals, reassignment, branching, loops, `try`/`catch`, and structured errors. Its `func` declarations and top-level `var`/`const` bindings fold into the same namespace and evaluation context as the `.vcl` files, and its type annotations can name Vinculum's own types (`bus`, `client`, `ctx`, …). It is a more expressive alternative to the `function` block, and complements the `jq` block (still the more natural choice for data transformation).
 
 See [functy.md](functy.md) for the full reference.
-
-## Procedures
-
-> **Deprecated** in favor of [functy (`.cty`) files](functy.md); loading a `procedure` block emits a deprecation warning and the block will be removed in a future release. See [Deprecated Features](deprecations.md).
-
-A `procedure` block defines a callable function with a small imperative body — locals, conditionals (`if`/`elif`), loops (`while`, `for`), and `return`. Procedures are compiled at config load time and can be called from any expression. They're useful when a piece of logic is awkward to express as a single HCL expression but doesn't warrant building a Go plugin.
-
-See [procedure.md](procedure.md) for syntax, scoping rules, and examples.
 
 ## Editors
 
@@ -339,16 +330,19 @@ flag, and ABI-compatibility considerations.
 
 Top-level block types:
 
-- `bus` — event bus declaration
-- `subscription` — subscribes a target to one or more topic patterns on a bus, with optional transforms and an action
-- `server` — server protocol instance (see [Protocols](#protocols))
-- `client` — client protocol instance (see [Protocols](#protocols))
-- `trigger` — time, lifecycle, or event-driven action (see [trigger.md](trigger.md))
-- `condition` — named boolean with temporal rules, composable via `input = …` and observable via `trigger "watch"` (see [condition.md](condition.md))
-- `fsm` — finite state machine with guarded transitions, reactive events, storage, and tracing (see [fsm.md](fsm.md))
-- `metric` — metric declaration for Prometheus/OTLP exposition (see [metric.md](metric.md))
-- `procedure` — imperative function definition (see [procedure.md](procedure.md))
-- `editor` — structured text editing function (see [editor.md](editor.md))
-- `jq` — named JQ function definition
-- `const` — named constants
 - `assert` — configuration validation assertions
+- `bus` — event bus declaration
+- `client` — client protocol instance (see [Protocols](#protocols))
+- `condition` — named boolean with temporal rules, composable via `input = …` and observable via `trigger "watch"` (see [condition.md](condition.md))
+- `const` — named constants
+- `editor` — structured text editing function (see [editor.md](editor.md))
+- `fsm` — finite state machine with guarded transitions, reactive events, storage, and tracing (see [fsm.md](fsm.md))
+- `function` — single-expression user-callable function ([functy](functy.md) is a more expressive alternative)
+- `jq` — named JQ function definition
+- `metric` — metric declaration for Prometheus/OTLP exposition (see [metric.md](metric.md))
+- `procedure` — imperative function definition (**deprecated** in favor of [functy](functy.md); see [procedure.md](procedure.md))
+- `server` — server protocol instance (see [Protocols](#protocols))
+- `subscription` — subscribes a target to one or more topic patterns on a bus, with optional transforms and an action
+- `trigger` — time, lifecycle, or event-driven action (see [trigger.md](trigger.md))
+- `var` — mutable named value, exposed as `var.<name>` and runtime-settable via `set()` (see [config.md](config.md#var))
+- `wire_format` — declares a custom message encoder/decoder provided by a plugin (extension point; the built-in `auto`/`json`/`string`/`bytes` formats are selected via a client's `wire_format` attribute, not this block)
