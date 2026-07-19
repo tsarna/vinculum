@@ -41,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING: the geo functions are namespaced under `geo::` and `sky::`.** The geographic,
   geodesic, and geometric functions — whose bare names (`point`, `area`, `contains`) would be
   too generic to expose globally — move under `geo::`; the solar-event and celestial-position
-  functions move under `sky::`. The `geopoint` type (new, see below) is not namespaced.
+  functions move under `sky::`. The `geopoint` type is not namespaced (it is a type, not a function).
 
   | was | is |
   | --- | --- |
@@ -100,6 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `time::add("2024-01-01T00:00:00Z", "PT5M")` used to fail (that path accepted only Go duration
   syntax) while the equivalent with a parsed timestamp succeeded. Both work now.
 
+- **`typeof()` returns functy's type-annotation grammar** (e.g. `list(string)`, `object({ a = string })`) rather than the cty friendly name (`list of string`), so its output round-trips as a type spec. The `error()` builtin now raises a structured, catchable error. Both are now provided by functy's standard library, replacing Vinculum's overlapping copies.
+
 ### Added
 
 - **`help()` and `doc()` — reflection over Vinculum's function set.** `help("f")` returns a function's signature, description, and per-parameter docs; with no argument it lists every callable name. `doc("f")` returns just the description. Both are available wherever Vinculum evaluates an expression, and in particular in the REPL (`serve -i`), where `help()` is now the way to find your way around the function set.
@@ -129,14 +131,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`RegisterFunctyExterns(filename, src)`** — a package that contributes a function plugin can register a `//functy:extern` source declaring the true signatures of the functions it provides, alongside the plugin itself. Unlike the function-plugin registry, extern names are checked for collisions: two packages declaring the same name is an error, as is a user `.cty` function that collides with one.
 
-- **functy (`.cty` files)**: a configuration directory may now contain [functy](https://github.com/tsarna/functy) source files (`.cty`) alongside its `.vcl` files. functy is a small expression/statement language with real syntax for functions, typed locals, reassignment, branching, loops, `try`/`catch`, and structured errors — a more expressive alternative to `function`, `jq`, and the `procedure` block. Its top-level `func` declarations join the same user-function namespace, and its top-level `var`/`const` bindings fold into Vinculum's own var/const pools (a functy `const` may reference a VCL `const` and vice versa in any order; a functy `var` becomes a mutable `var.<name>`). Type annotations can name Vinculum's capsule and rich-object types (`bus`, `server`, `client`, `subscriber`, `variable`, `time`, `duration`, `url`, `bytes`, `baggage`, `metric`, `wire_format`, `ctx`, `http_request`/`http_response`/`http_client_response`, `http_client`, `sql_client`/`sql_query`, `mcp_result`), and the same type grammar backs the `var` block's `type` attribute. An uncaught throw or failed `assert` inside a `.cty` function called from VCL is rendered against the offending `.cty` line (with `assert` operand detail) through the user log. See [doc/functy.md](doc/functy.md).
+- **functy (`.cty` files)**: a configuration directory may now contain [functy](https://github.com/tsarna/functy) source files (`.cty`) alongside its `.vcl` files. functy is a small expression/statement language with real syntax for functions, typed locals, reassignment, branching, loops, `try`/`catch`, and structured errors — a more expressive alternative to `function`, `jq`, and the `procedure` block. Its top-level `func` declarations join the same user-function namespace. In an unnamespaced file, top-level `var`/`const` bindings fold into Vinculum's own var/const pools (a functy `const` may reference a VCL `const` and vice versa in any order; a functy `var` becomes a mutable `var.<name>`). A file with a `namespace` declaration instead registers its functions under the qualified name and scopes its `const`s to that namespace — they are not folded into the shared surface, so two namespaces may each declare the same const name; a top-level `var` inside a namespace is an error, since a Vinculum `var` is always global. Type annotations can name Vinculum's capsule and rich-object types (`bus`, `server`, `client`, `subscriber`, `variable`, `time`, `duration`, `url`, `bytes`, `baggage`, `metric`, `wire_format`, `ctx`, `http_request`/`http_response`/`http_client_response`, `http_client`, `sql_client`/`sql_query`, `mcp_result`), and the same type grammar backs the `var` block's `type` attribute. An uncaught throw or failed `assert` inside a `.cty` function called from VCL is rendered against the offending `.cty` line (with `assert` operand detail) through the user log. See [doc/functy.md](doc/functy.md).
 - **functy standard library**: adopting functy's stdlib adds the `typekind`, `assert`, and `can` builtins (alongside the existing `typeof`, `cond`, `switch`, `error`, `try`), available anywhere Vinculum evaluates an expression. See [doc/functions.md](doc/functions.md#control-flow).
 - **The `var` block `type` attribute accepts a type spec**, not just a quoted string: `type = number`, `type = list(string)`, `type = object({ host = string, port = number })`, or a host-registered named type such as `type = bus`. Enforcement now coerces where the grammar allows. See [doc/config.md](doc/config.md#var).
 - **Configuration warnings are now surfaced by `vinculum check` and `vinculum serve`.** Non-fatal warning diagnostics (deprecations, duration-precision loss, etc.) were previously computed but silently dropped — the commands acted only on errors. They are now printed to stderr.
-
-### Changed
-
-- **`typeof()` returns functy's type-annotation grammar** (e.g. `list(string)`, `object({ a = string })`) rather than the cty friendly name (`list of string`), so its output round-trips as a type spec. The `error()` builtin now raises a structured, catchable error. Both are now provided by functy's standard library, replacing Vinculum's overlapping copies.
 
 ### Deprecated
 
@@ -915,7 +913,35 @@ vinculum-ai tool (see github.com/tsarna/vscode-vinculum)
 
 - Switched back to upstream `github.com/amir-yaghoubi/mqttpattern` after our changes were accepted
 
-[Unreleased]: https://github.com/tsarna/vinculum/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/tsarna/vinculum/compare/v0.42.0...HEAD
+[0.42.0]: https://github.com/tsarna/vinculum/compare/v0.41.0...v0.42.0
+[0.41.0]: https://github.com/tsarna/vinculum/compare/v0.40.0...v0.41.0
+[0.40.0]: https://github.com/tsarna/vinculum/compare/v0.39.0...v0.40.0
+[0.39.0]: https://github.com/tsarna/vinculum/compare/v0.38.1...v0.39.0
+[0.38.1]: https://github.com/tsarna/vinculum/compare/v0.38.0...v0.38.1
+[0.38.0]: https://github.com/tsarna/vinculum/compare/v0.37.1...v0.38.0
+[0.37.1]: https://github.com/tsarna/vinculum/compare/v0.37.0...v0.37.1
+[0.37.0]: https://github.com/tsarna/vinculum/compare/v0.36.0...v0.37.0
+[0.36.0]: https://github.com/tsarna/vinculum/compare/v0.35.0...v0.36.0
+[0.35.0]: https://github.com/tsarna/vinculum/compare/v0.34.0...v0.35.0
+[0.34.0]: https://github.com/tsarna/vinculum/compare/v0.33.0...v0.34.0
+[0.33.0]: https://github.com/tsarna/vinculum/compare/v0.32.0...v0.33.0
+[0.32.0]: https://github.com/tsarna/vinculum/compare/v0.31.0...v0.32.0
+[0.31.0]: https://github.com/tsarna/vinculum/compare/v0.30.0...v0.31.0
+[0.30.0]: https://github.com/tsarna/vinculum/compare/v0.29.0...v0.30.0
+[0.29.0]: https://github.com/tsarna/vinculum/compare/v0.28.0...v0.29.0
+[0.28.0]: https://github.com/tsarna/vinculum/compare/v0.27.0...v0.28.0
+[0.27.0]: https://github.com/tsarna/vinculum/compare/v0.26.0...v0.27.0
+[0.26.0]: https://github.com/tsarna/vinculum/compare/v0.25.0...v0.26.0
+[0.25.0]: https://github.com/tsarna/vinculum/compare/v0.24.0...v0.25.0
+[0.24.0]: https://github.com/tsarna/vinculum/compare/v0.23.0...v0.24.0
+[0.23.0]: https://github.com/tsarna/vinculum/compare/v0.22.0...v0.23.0
+[0.22.0]: https://github.com/tsarna/vinculum/compare/v0.21.0...v0.22.0
+[0.21.0]: https://github.com/tsarna/vinculum/compare/v0.20.0...v0.21.0
+[0.20.0]: https://github.com/tsarna/vinculum/compare/v0.19.0...v0.20.0
+[0.19.0]: https://github.com/tsarna/vinculum/compare/v0.18.0...v0.19.0
+[0.18.0]: https://github.com/tsarna/vinculum/compare/v0.17.0...v0.18.0
+[0.17.0]: https://github.com/tsarna/vinculum/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/tsarna/vinculum/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/tsarna/vinculum/compare/v0.14.1...v0.15.0
 [0.14.1]: https://github.com/tsarna/vinculum/compare/v0.14.0...v0.14.1
