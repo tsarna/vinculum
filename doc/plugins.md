@@ -190,13 +190,61 @@ The summary, in case you already know what you're doing:
   ```go
   func VinculumPluginInit(ctx *config.PluginContext) hcl.Diagnostics
   ```
-- Inside it, call the relevant `config.Register*` functions
-  (`RegisterFunctionPlugin`, `RegisterServerType`, etc.) to contribute
-  whatever the plugin provides.
+- Inside it, call the relevant `config.Register*` functions to contribute
+  whatever the plugin provides — see [Extension points](#extension-points)
+  below.
 - Decode the plugin block's body (`ctx.Block.Body`) with `gohcl` or
   raw HCL APIs if the plugin accepts configuration.
 - Build with the matching `vinculum-build` image so the resulting `.so`
   is ABI-compatible with the target Vinculum release.
+
+### Extension points
+
+A plugin contributes by calling these from `VinculumPluginInit`. They are
+the same functions the in-tree subsystems call from their `init()`, so
+anything a built-in server, client, or trigger can do, a plugin can do.
+
+| Function | Contributes |
+|---|---|
+| `RegisterFunctionPlugin` | callable functions ([functions.md](functions.md)) |
+| `RegisterTransformPlugin` | transform-pipeline constructors ([transforms.md](transforms.md)) |
+| `RegisterAmbientProvider` | a top-level VCL value, e.g. `myplugin.*` |
+| `RegisterServerType` | `server "type"` blocks |
+| `RegisterClientType` | `client "type"` blocks |
+| `RegisterTriggerType` | `trigger "type"` blocks ([trigger.md](trigger.md)) |
+| `RegisterConditionalTriggerType` | a trigger type whose availability depends on config state (e.g. a feature flag), resolved once per `Build()` |
+| `RegisterConditionSubtype` | `condition "subtype"` blocks ([condition.md](condition.md)) |
+| `RegisterWireFormatType` | `wire_format "type"` blocks |
+| `RegisterEditorType` | `editor "type"` blocks ([editor.md](editor.md)) |
+| `RegisterFunctyType` | a named type usable in [functy](functy.md) (`.cty`) annotations: a capsule type, or a rich object's type when its attribute set is fixed |
+| `RegisterFunctyOpenType` | the open, predicate-backed form of the above — for a type with no single fixed `cty.Type` (attributes vary per instance, or interface dispatch spans several capsule types) |
+| `RegisterFunctyExterns` | a `//functy:extern` source declaring the *real* signatures of the functions the plugin contributes |
+
+The last three matter if the plugin contributes its own types or
+functions. Registering a type makes it nameable in `.cty` annotations
+(and in the `var` block's `type` attribute, which shares the same
+grammar). Externs exist because a cty function's own metadata often
+cannot describe it: cty can only make a *trailing* parameter optional, so
+a function taking an optional leading `ctx` has to fake it with a
+variadic and reflects uselessly as `f(thing, ...args)` — an extern states
+what it actually accepts, so `help()` and editor tooling show the true
+signature. Register the externs from the same place as the function
+plugin they describe.
+
+Note that functy checks extern names for collisions, which the
+function-plugin registry does not: two packages declaring an extern for
+the same name is an error, as is one that collides with a user's `.cty`
+function.
+
+Name contributed functions with a namespace, as Vinculum's own families
+do (`log::info`, `http::get`, `time::add`). HCL parses `a::b(x)` natively
+and resolves it as a single flat map key, so a namespaced name costs
+nothing beyond spelling the registry key that way, and the leaf name
+should not repeat the namespace.
+
+`RegisteredPlugins()` reports what has been registered; it is a query,
+not a contribution point. For what plugins *cannot* do, see
+[Limitations](#limitations).
 
 ### Build contract
 

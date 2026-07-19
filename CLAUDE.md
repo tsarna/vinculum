@@ -40,7 +40,7 @@ User-facing documentation lives in `doc/`. Each file covers one topic:
 | `doc/client-*.md` | Per-client references: `http`, `mqtt`, `kafka`, `rabbitmq`, `redis`, `sns`, `sqs`, `sql`, `llm`, `otlp` |
 | `doc/deprecations.md` | Deprecated features, replacements, and planned removal |
 | `doc/vinit.md` | `.vinit` bootstrap file format, two-pass discovery, minimal eval context, `disabled` |
-| `doc/plugins.md` | `plugin` block, `--plugin-path`, ABI rules, container deployment |
+| `doc/plugins.md` | `plugin` block, `--plugin-path`, ABI rules, container deployment, `Register*` extension points |
 | `doc/git.md` | `git` block: clone-and-materialize, HTTP/SSH auth, revision pinning, destination ownership |
 | `doc/repl.md` | Interactive REPL (`serve -i`): live expression eval, result history, session bindings, meta-commands, log control |
 | `doc/container.md` | Published Docker images: `vinculum`, `vinculum:*-minimal`, `vinculum-build` |
