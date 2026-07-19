@@ -7,9 +7,85 @@ For the transform pipeline constructors used in `transforms` / `inbound_transfor
 `outbound_transforms` attributes, see [transforms.md](transforms.md) — those are a
 separate, context-specific mini-DSL, not regular functions.
 
-## Utility Functions
+## Contents
 
-These functions are available in any expression context (actions, `const` blocks, etc.).
+- [Core](#core)
+  - [Control Flow](#control-flow)
+  - [Reflection](#reflection)
+  - [Data Manipulation](#data-manipulation)
+  - [Logging](#logging)
+- [Data Types and Encoding](#data-types-and-encoding)
+  - [Binary Data (`bytes`)](#binary-data-bytes)
+  - [Wire Format (`wire::serialize` / `wire::deserialize`)](#wire-format-wireserialize--wiredeserialize)
+  - [URL Parsing and Manipulation](#url-parsing-and-manipulation)
+  - [Sqids](#sqids)
+  - [Barcode](#barcode)
+- [Time](#time)
+  - [Time and Duration](#time-and-duration)
+- [Math and Geography](#math-and-geography)
+  - [Random](#random)
+  - [Geographic](#geographic)
+- [Messaging and State](#messaging-and-state)
+  - [Messaging](#messaging)
+  - [Variables and Metrics](#variables-and-metrics)
+  - [Conditions](#conditions)
+- [HTTP](#http)
+  - [HTTP Client Verb Functions](#http-client-verb-functions)
+  - [HTTP Response Functions](#http-response-functions)
+  - [HTTP Utilities](#http-utilities)
+- [Files and Process](#files-and-process)
+  - [Path Functions](#path-functions)
+  - [File Functions](#file-functions)
+  - [File Write Functions](#file-write-functions)
+  - [Process Control Functions](#process-control-functions)
+- [MCP Functions](#mcp-functions)
+- [User-defined Functions](#user-defined-functions)
+
+## Core
+
+### Control Flow
+
+These are functy's standard-library builtins (shared with standalone `functy`), available anywhere vinculum evaluates an expression.
+
+- `error(value)`: Raise an error from expression position — the expression form of a `throw`. `value` may be a string or an object (`error({ message = "...", code = 403 })`). It composes with `try`/`catch` and carries a source range. Example: `coalesce(config.host, error("host is required"))`.
+- `assert(cond, message?)`: Raise a catchable error when `cond` is false; on success returns `true`. The condition is received unevaluated, so a surfaced error underlines exactly what failed and captures the referenced variables (e.g. detail `n = -3`). The optional `message` (string or object) is evaluated only on failure. Example: `assert(port > 0, "port must be positive")`.
+- `cond(c1, r1, c2, r2, ..., else)`: Lazy multi-branch conditional. Takes an odd number of arguments (at least 3). Each `(c_i, r_i)` pair is a condition/result; the trailing argument is the `else`. Conditions are evaluated in order; the result paired with the first truthy condition is returned (and evaluated). If no condition is truthy, the `else` is returned. **Only the selected branch is evaluated** — unselected conditions, results, and the else are untouched — making `cond()` safe for side-effectful branches (unlike HCL's `?:` ternary, which evaluates both sides greedily). The return type is dynamic, since each branch may be of a different type. Example: `cond(level == "error", log::error(msg), level == "warn", log::warn(msg), log::info(msg))` dispatches to exactly one log call based on `level` — the other two are never invoked.
+- `switch(on, v1, r1, v2, r2, ..., default?)`: Switch dispatch on a single value. `on` is evaluated exactly once; each case-value `vN` is then evaluated in order and compared to `on` for equality. On the first match, the paired `rN` is evaluated and returned. If no case matches, the optional trailing `default` is evaluated and returned; if `default` is omitted (i.e. the total argument count is odd) and no case matched, `switch()` errors at call time. Case values past the matching arm are not evaluated, nor are unselected results. Equality is strict: a number `200` does not match the string `"200"`. Cleaner than the equivalent `cond()` form because `on` is named once. Example: `switch(level, "error", log::error(msg), "warn", log::warn(msg), log::info(msg))` is the cond example above rewritten as a switch.
+- `try(expr1, expr2, ...)`: Evaluate each expression in order; return the value of the first one that evaluates without error. If all expressions error, `try()` itself errors with the accumulated diagnostics. **Each expression is evaluated at most once.** This is vinculum's single-evaluation variant and differs from the stock HCL `try()` (from `hcl/v2/ext/tryfunc`) — the upstream implementation evaluates the selected expression twice (once for return-type inference, once for the actual value), which is a hazard for side-effectful arguments like `try(send(ctx, ...), ...)`. The trade-off for single-evaluation is that vinculum's `try()` has a dynamic return type rather than the concrete unified type of its branches.
+- `can(expr)`: Return whether `expr` evaluates without error, as a `bool`. Useful to guard an expression that may fail — e.g. `can(jsondecode(s))`.
+
+### Reflection
+
+Available anywhere vinculum evaluates an expression, and most useful at the [REPL](repl.md).
+
+- `help(name?)`: With a name, return a human-readable summary of that function — its signature, description, and per-parameter documentation. With no argument, return the sorted names of every available function, as a directory to explore with `help(name)`. Returns `null` if there is no such function.
+- `doc(name)`: Return just a function's description. `null` if there is no such function; `""` if it exists but is undocumented.
+
+`help()` shows a function's **real** signature, which is not always the one cty can express. A cty function may only make its *trailing* parameters optional, so the generic capability functions below — `get`, `set`, `count`, `increment`, `observe`, and the rest, which all take an *optional leading* `ctx` — must fake it with a variadic, and would otherwise reflect uselessly as `get(thing, ...args)`. They ship declarations of what they actually accept, and `help()` uses those:
+
+```console
+> help("get")
+get(ctx?: ctx, thing, fallback?, *args) -> any
+
+Read a thing's current value.
+
+Parameters:
+  ctx?       request context
+  thing      the thing to read (must be Gettable)
+  fallback?  Conventionally the value to return when the thing has none. …
+  *args      further arguments, interpreted by the thing
+```
+
+### Data Manipulation
+
+- `diff(a, b)`: Compute a structural diff between two values and return it as a value. See also the `diff(old_key, new_key)` transform constructor in [transforms.md](transforms.md).
+- `patch(target, patch)`: Apply a diff (as produced by `diff`) to `target` and return the patched result. Both `target` and `patch` must be objects/maps.
+- `jsonencode(value)`: Encode a value as a JSON string.
+- `jsondecode(json_string)`: Parse a JSON string and return the decoded value.
+- `typeof(value)`: Return a value's type in functy's type-annotation grammar, so it round-trips as a type spec — e.g. `"string"`, `"number"`, `"bool"`, `"list(string)"`, `"object({ a = string })"`, or a capsule/rich-object's name (`"bytes"`, `"ctx"`). A bare `null` is `"any"`.
+- `typekind(value)`: Return just the top-level kind of a value — `"string"`, `"number"`, `"bool"`, `"list"`, `"set"`, `"map"`, `"object"`, `"tuple"`, `"any"`, or a capsule's name — dropping element/attribute detail. Use it for dispatch where `typeof`'s full form is too specific.
+- `tostring(value)`: Convert a value to a string. For plain scalars this behaves as the standard type conversion. For rich VCL types (`bytes`, URL objects, and future capsule types) it returns the natural string representation — e.g. `tostring(b)` gives the UTF-8 content of a `bytes` value, and `tostring(u)` gives the canonical URL string of a URL object.
+- `length(value)`: Return the length of a value. For strings, lists, maps, and sets this behaves as the standard function. For `bytes` values it returns the byte count.
 
 ### Logging
 
@@ -24,16 +100,7 @@ All logging functions return `true`.
 - `log::error(message, fields?)`: Log at ERROR level.
 - `log::msg(level, message, fields?)`: Log at the given level string (`"debug"`, `"info"`, `"warn"` / `"warning"`, `"error"`).
 
-### Data Manipulation
-
-- `diff(a, b)`: Compute a structural diff between two values and return it as a value. See also the `diff(old_key, new_key)` transform constructor in [transforms.md](transforms.md).
-- `patch(target, patch)`: Apply a diff (as produced by `diff`) to `target` and return the patched result. Both `target` and `patch` must be objects/maps.
-- `jsonencode(value)`: Encode a value as a JSON string.
-- `jsondecode(json_string)`: Parse a JSON string and return the decoded value.
-- `typeof(value)`: Return a value's type in functy's type-annotation grammar, so it round-trips as a type spec — e.g. `"string"`, `"number"`, `"bool"`, `"list(string)"`, `"object({ a = string })"`, or a capsule/rich-object's name (`"bytes"`, `"ctx"`). A bare `null` is `"any"`.
-- `typekind(value)`: Return just the top-level kind of a value — `"string"`, `"number"`, `"bool"`, `"list"`, `"set"`, `"map"`, `"object"`, `"tuple"`, `"any"`, or a capsule's name — dropping element/attribute detail. Use it for dispatch where `typeof`'s full form is too specific.
-- `tostring(value)`: Convert a value to a string. For plain scalars this behaves as the standard type conversion. For rich VCL types (`bytes`, URL objects, and future capsule types) it returns the natural string representation — e.g. `tostring(b)` gives the UTF-8 content of a `bytes` value, and `tostring(u)` gives the canonical URL string of a URL object.
-- `length(value)`: Return the length of a value. For strings, lists, maps, and sets this behaves as the standard function. For `bytes` values it returns the byte count.
+## Data Types and Encoding
 
 ### Binary Data (`bytes`)
 
@@ -96,8 +163,8 @@ wire::serialize("json", {status = "ok", count = 42})
 wire::serialize_str("json", {status = "ok"})
 
 # Deserialize JSON bytes or a string
-wire::dewire::serialize("json", raw_bytes)
-wire::dewire::serialize("auto", some_string)
+wire::deserialize("json", raw_bytes)
+wire::deserialize("auto", some_string)
 
 # Use a custom wire format
 wire::serialize(wire_format.myproto, event_value)
@@ -108,7 +175,7 @@ wire::serialize(wire_format.myproto, event_value)
 - `wire::serialize_str(wire_format, value)`: Like `wire::serialize`, but returns a
   string. More convenient for string interpolation and contexts that
   expect strings.
-- `wire::dewire::serialize(wire_format, data)`: Deserialize bytes or a string using
+- `wire::deserialize(wire_format, data)`: Deserialize bytes or a string using
   the given wire format. Returns the decoded cty value.
 
 ### URL Parsing and Manipulation
@@ -249,18 +316,6 @@ sqid(1, { blocklist = [] })                 # disable profanity filtering
 
 The same `options` object must be used for both `sqid` and `unsqid` when using a custom alphabet or blocklist, since the encoding depends on those settings.
 
-### Random
-
-- `rand::float()`: Return a random float in `[0.0, 1.0)`.
-- `rand::int(a, b)`: Return a random integer N such that `a <= N <= b` (both bounds inclusive).
-- `rand::uniform(a, b)`: Return a random float N such that `a <= N <= b`.
-- `rand::gauss(mu, sigma)`: Return a random float drawn from a Gaussian (normal) distribution
-  with the given mean (`mu`) and standard deviation (`sigma`).
-- `rand::choice(list)`: Return a single random element from `list`. Errors if the list is empty.
-- `rand::sample(list, k)`: Return a new list of `k` unique elements chosen at random from `list`,
-  without replacement. Errors if `k` exceeds the length of `list`.
-- `rand::shuffle(list)`: Return a shuffled copy of `list`. The original list is not modified.
-
 ### Barcode
 
 - `barcode(type, data)`: Generate a barcode image and return it as a `bytes` object with
@@ -305,183 +360,16 @@ barcode("code39", item_id, {height = 80})                      # explicit height
 barcode("ean13", gtin12)                                       # 12-digit EAN
 ```
 
-### Geographic
-
-VCL has a family of geographic functions for working with locations, solar events,
-celestial positions, geodesic calculations, and geometric queries. A **point** is
-any cty object with `lat` and `lon` number attributes (signed decimal degrees).
-Additional fields (`alt`, `speed`, `track`, `time`, etc.) are preserved by
-functions that return derived points. The field names are aligned with the
-[GPSD JSON `TPV` record](https://gpsd.gitlab.io/gpsd/gpsd_json.html), so data
-from a GPSD source can flow through without translation.
-
-That shape has a name: `geopoint`, usable anywhere a type is — a `var` block's
-`type`, or a `.cty` parameter annotation — to require an object with numeric
-`lat`/`lon` while letting the extra fields ride along:
-
-```hcl
-var "here" {
-  type  = geopoint
-  value = geo::point(37.7749, -122.4194)
-}
-```
-
-`help("geo::point")`, `help("geo::inverse")`, and so on show each function's full
-signature, including which arguments are a `geopoint` and the exact shape of the
-object each returns.
-
-#### Point Construction and Formatting
-
-- `geo::point(combined)`: Parse a combined `"lat,lon"` or DMS string into a point.
-  All `geo::format` output formats round-trip through this form.
-- `geo::point(combined, base)`: Same, merged onto `base`.
-- `geo::point(lat, lon)`: Construct a point from separate lat/lon values. Each may
-  be a number (signed decimal degrees) or a string in any of these forms:
-  - Signed decimal: `"37.7749"`, `"-122.4194"`
-  - Decimal with hemisphere: `"37.7749 N"`, `"N 37.7749"`, `"122.4194W"`
-  - DMS with degree symbol: `"37°46'29.6\"N"`
-  - DMS with ASCII `d`/`D`: `"37d46'29.6\"N"`
-  - Whitespace-separated DMS: `"37 46 29.6 N"`
-- `geo::point(lat, lon, base)`: Same, but the result is a copy of `base` with
-  `lat`/`lon` overwritten. All other fields in `base` are preserved.
-- `geo::format(point)`: Format a point as `"lat,lon"` (signed decimal, default).
-- `geo::format(point, format)`: Format using a named format:
-
-  | Format | Example |
-  |--------|---------|
-  | `"decimal"` | `"37.7749,-122.4194"` |
-  | `"decimal_alt"` | `"37.7749,-122.4194,11"` (includes `alt` if present) |
-  | `"dms"` | `"37°46'29.6\"N 122°25'9.8\"W"` |
-  | `"dms_ascii"` | `"37d46'29.6\"N 122d25'9.8\"W"` |
-  | `"dms_signed"` | `"37°46'29.6\" -122°25'9.8\""` |
-
-```hcl
-p = geo::point("37.7749,-122.4194")
-p = geo::point("37°46'29\"N 122°25'9\"W")
-p = geo::point(37.7749, -122.4194)
-p = geo::point("37°46'29\"N", "122°25'9\"W")
-p = geo::point(new_lat, new_lon, get(var.vehicle_position))
-geo::format(p, "dms")    # → "37°46'29.6\"N 122°25'9.8\"W"
-geo::point(geo::format(p, "dms"))   # round-trips back to a point
-```
-
-#### Solar / Astronomical Time Functions
-
-All four solar functions share the same signature:
-
-```
-f(point)
-f(point, offset)     — offset is a duration
-f(point, t)          — t is a time
-f(point, offset, t)
-```
-
-They return the **next occurrence** after `t` (default: `time::now()`) of the solar
-event plus `offset` (default: zero). If the computed target is in the past, the
-function advances to the next day. All times are UTC.
-
-To be clear: `f(point, delta)` is **not** the same as
-`time::add(f(point), delta)`. Consider the case where it is now 30 minutes before
-sunrise. `sky::sunrise(point, "-1h")` will return a time one hour before **tomorrow's**
-sunrise, because 1 hour before today's is in the past.
-
-In **polar regions** where the sun does not rise or set for extended periods,
-the functions search forward day-by-day (up to 400 days) until the event
-occurs again. `sky::solar_noon` and `sky::solar_midnight` require both sunrise and
-sunset to exist on the relevant day(s); during polar day or polar night they
-return the first meaningful occurrence after polar conditions end.
-
-- `sky::sunrise(point[, offset][, t])`: Next sunrise.
-- `sky::sunset(point[, offset][, t])`: Next sunset.
-- `sky::solar_noon(point[, offset][, t])`: Next solar noon (midpoint of sunrise/sunset).
-- `sky::solar_midnight(point[, offset][, t])`: Next solar midnight (midpoint of sunset
-  and next sunrise).
-
-```hcl
-time = sky::sunrise(get(var.location))
-time = sky::sunrise(get(var.location), duration("-30m"))
-time = sky::sunset(get(var.location), duration("-15m"), ctx.scheduled_time)
-```
-
-#### Sun and Moon Position
-
-- `sky::sun_position(point)` / `sky::sun_position(point, t)`: Returns `{azimuth, altitude}`
-  in degrees. Azimuth is clockwise from true north; altitude is above the horizon
-  (negative = below).
-- `sky::moon_position(point)` / `sky::moon_position(point, t)`: Returns
-  `{azimuth, altitude, distance}`. Distance is in meters.
-- `sky::moon_phase()` / `sky::moon_phase(t)`: Returns `{fraction, phase, angle}`.
-  `fraction` is 0–1 (illuminated disc), `phase` is 0–1 (0 = new, 0.5 = full),
-  `angle` is the bright-limb angle in degrees (sign distinguishes waxing/waning).
-
-```hcl
-s = sky::sun_position(get(var.location))
-s.altitude > 0              # true if the sun is up
-s.altitude < -6.0           # true if past civil twilight
-
-mp = sky::moon_phase()
-mp.phase < 0.5              # true if waxing
-```
-
-#### Geodesic Functions (WGS-84)
-
-- `geo::inverse(point_a, point_b)`: Returns `{distance, bearing, back_bearing}`.
-  Distance in meters; bearings in degrees clockwise from north.
-- `geo::destination(origin, bearing, distance)`: Returns the point reached by
-  travelling `distance` meters from `origin` on the given bearing. All fields
-  from `origin` are preserved; only `lat`/`lon` are overwritten.
-- `geo::destination(origin, bearing, duration)`: Travel for the given duration at
-  `origin.speed` (m/s). Errors if `speed` is missing. Updates `time` if present.
-- `geo::destination(origin, bearing, target_time)`: Travel until `target_time` at
-  `origin.speed`. Requires both `speed` and `time` on the origin. Errors if
-  `target_time` is before `origin.time`.
-- `geo::destination(origin, bearing, third, extras)`: All three forms accept an
-  optional `extras` object that is merged onto `origin` before the calculation
-  (extras win on key conflicts).
-- `geo::waypoints(point_a, point_b, n)`: Returns a list of `n` (>= 2) evenly
-  spaced `{lat, lon, track}` objects along the geodesic, including both endpoints.
-
-```hcl
-r = geo::inverse(get(var.current), get(var.destination))
-r.distance      # meters
-r.bearing       # heading toward destination
-
-dest = geo::destination(get(var.location), 90.0, 1000.0)
-future = geo::destination(get(var.vehicle), get(var.vehicle).track, duration("5m"))
-
-waypoints = geo::waypoints(get(var.origin), get(var.destination), 5)
-```
-
-#### Geometric Functions
-
-A polygon is a `list(point)`, implicitly closed. Fewer than 3 points is an error.
-
-- `geo::area(polygon)`: Area in square meters. Orientation-independent.
-- `geo::contains(polygon, point)`: Returns `true` if `point` is inside `polygon`.
-- `geo::nearest(polygon, point)`: Returns the closest `{lat, lon}` on the polygon
-  perimeter (may be mid-edge, not just at a vertex).
-- `geo::line_intersect(line_a, line_b)`: Returns a list of `{lat, lon}` intersection
-  points between two polylines. Empty list if no crossings. Each line must have at
-  least 2 points.
-
-```hcl
-# Geofence detection
-geo::contains(const.home_zone, get(var.vehicle_position))
-
-# Distance to boundary
-boundary_pt = geo::nearest(const.restricted_zone, get(var.vehicle_position))
-dist = geo::inverse(get(var.vehicle_position), boundary_pt).distance
-
-# Route crossing
-crossings = geo::line_intersect(const.route_a, const.route_b)
-length(crossings) > 0    # true if routes cross
-```
+## Time
 
 ### Time and Duration
 
 VCL has two native time types — `time` (a point in time) and `duration` (a length of time). Both
-support `==` and `!=`. Ordering comparisons (`<`, `>`, etc.) and require the dedicated comparison
-functions listed below, because go-cty does not dispatch those operators to capsule types.
+support `==` and `!=`, which compare by value: two separately parsed timestamps denoting the same
+instant are equal. Ordering comparisons (`<`, `>`, etc.) are **not** supported — they fail with
+`number required, but have time` — so use the dedicated comparison functions listed below
+(`time::before` / `time::after`, `duration::lt` / `duration::gt`). HCL's ordering operators accept
+only numbers, and go-cty does not dispatch them to capsule types.
 
 Duration strings are accepted in two formats:
 
@@ -497,7 +385,7 @@ Duration strings are accepted in two formats:
 - `time::parse(s)`: Parse an RFC 3339 timestamp string (timezone required). Accepts sub-second
   precision. Example: `time::parse("2024-01-15T10:30:00Z")`.
 - `time::parse(format, s)`: Parse `s` using the given format (Go reference-time layout or `@name`
-  alias — see table under `formattime`). Example: `time::parse("2006-01-02", "2024-01-15")`.
+  alias — see table under `time::format`). Example: `time::parse("2006-01-02", "2024-01-15")`.
 - `time::parse(format, s, tz)`: Parse `s` using `format`, interpreting the result as a local time
   in the named IANA timezone. Example: `time::parse("2006-01-02", "2024-01-15", "America/New_York")`.
 
@@ -530,9 +418,9 @@ Duration strings are accepted in two formats:
   | `@date` | `2006-01-02` | `2024-01-15` |
   | `@time` | `15:04:05` | `10:30:00` |
 
-  The same `@name` aliases are accepted by `parsetime` and `strptime`.
+  The same `@name` aliases are accepted by `time::parse` and `time::strptime`.
 
-- `formatdate(fmt, ts)`: A legacy hcl function, prefer `formattime`. Format an RFC 3339 timestamp *string*
+- `formatdate(fmt, ts)`: A legacy hcl function, prefer `time::format`. Format an RFC 3339 timestamp *string*
   using a token-based format (`YYYY`, `MM`, `DD`, `HH`, `mm`, `ss`, `Z`). Operates on strings
   only; for `time` capsule values use `time::format` instead.
 
@@ -712,7 +600,7 @@ time::format("@rfc3339", time::now("UTC"))              # → "2024-01-15T10:30:
 time::format("@date", time::now("UTC"))                 # → "2024-01-15"
 time::parse("@rfc3339", "2024-01-15T10:30:00Z")  # → time
 
-# Multi-arg parsetime
+# Multi-arg time::parse
 time::parse("2006-01-02", "2024-01-15", "America/New_York")  # → time in New York
 
 # strftime / strptime
@@ -789,6 +677,206 @@ is acceptable per convention.
   dns::parse_zone_serial(2026012307)   # → 2026-01-23T00:00:00Z
   dns::parse_zone_serial(2026123200)   # → 2026-12-31T00:00:00Z  (day 32 → Dec 31)
   ```
+
+## Math and Geography
+
+### Random
+
+- `rand::float()`: Return a random float in `[0.0, 1.0)`.
+- `rand::int(a, b)`: Return a random integer N such that `a <= N <= b` (both bounds inclusive).
+- `rand::uniform(a, b)`: Return a random float N such that `a <= N <= b`.
+- `rand::gauss(mu, sigma)`: Return a random float drawn from a Gaussian (normal) distribution
+  with the given mean (`mu`) and standard deviation (`sigma`).
+- `rand::choice(list)`: Return a single random element from `list`. Errors if the list is empty.
+- `rand::sample(list, k)`: Return a new list of `k` unique elements chosen at random from `list`,
+  without replacement. Errors if `k` exceeds the length of `list`.
+- `rand::shuffle(list)`: Return a shuffled copy of `list`. The original list is not modified.
+
+### Geographic
+
+VCL has a family of geographic functions for working with locations, solar events,
+celestial positions, geodesic calculations, and geometric queries. A **point** is
+any cty object with `lat` and `lon` number attributes (signed decimal degrees).
+Additional fields (`alt`, `speed`, `track`, `time`, etc.) are preserved by
+functions that return derived points. The field names are aligned with the
+[GPSD JSON `TPV` record](https://gpsd.gitlab.io/gpsd/gpsd_json.html), so data
+from a GPSD source can flow through without translation.
+
+That shape has a name: `geopoint`, usable anywhere a type is — a `var` block's
+`type`, or a `.cty` parameter annotation — to require an object with numeric
+`lat`/`lon` while letting the extra fields ride along:
+
+```hcl
+var "here" {
+  type  = geopoint
+  value = geo::point(37.7749, -122.4194)
+}
+```
+
+`help("geo::point")`, `help("geo::inverse")`, and so on show each function's full
+signature, including which arguments are a `geopoint` and the exact shape of the
+object each returns.
+
+#### Point Construction and Formatting
+
+- `geo::point(combined)`: Parse a combined `"lat,lon"` or DMS string into a point.
+  All `geo::format` output formats round-trip through this form.
+- `geo::point(combined, base)`: Same, merged onto `base`.
+- `geo::point(lat, lon)`: Construct a point from separate lat/lon values. Each may
+  be a number (signed decimal degrees) or a string in any of these forms:
+  - Signed decimal: `"37.7749"`, `"-122.4194"`
+  - Decimal with hemisphere: `"37.7749 N"`, `"N 37.7749"`, `"122.4194W"`
+  - DMS with degree symbol: `"37°46'29.6\"N"`
+  - DMS with ASCII `d`/`D`: `"37d46'29.6\"N"`
+  - Whitespace-separated DMS: `"37 46 29.6 N"`
+- `geo::point(lat, lon, base)`: Same, but the result is a copy of `base` with
+  `lat`/`lon` overwritten. All other fields in `base` are preserved.
+- `geo::format(point)`: Format a point as `"lat,lon"` (signed decimal, default).
+- `geo::format(point, format)`: Format using a named format:
+
+  | Format | Example |
+  |--------|---------|
+  | `"decimal"` | `"37.7749,-122.4194"` |
+  | `"decimal_alt"` | `"37.7749,-122.4194,11"` (includes `alt` if present) |
+  | `"dms"` | `"37°46'29.6\"N 122°25'9.8\"W"` |
+  | `"dms_ascii"` | `"37d46'29.6\"N 122d25'9.8\"W"` |
+  | `"dms_signed"` | `"37°46'29.6\" -122°25'9.8\""` |
+
+```hcl
+p = geo::point("37.7749,-122.4194")
+p = geo::point("37°46'29\"N 122°25'9\"W")
+p = geo::point(37.7749, -122.4194)
+p = geo::point("37°46'29\"N", "122°25'9\"W")
+p = geo::point(new_lat, new_lon, get(var.vehicle_position))
+geo::format(p, "dms")    # → "37°46'29.6\"N 122°25'9.8\"W"
+geo::point(geo::format(p, "dms"))   # round-trips back to a point
+```
+
+#### Solar / Astronomical Time Functions
+
+All four solar functions share the same signature:
+
+```
+f(point)
+f(point, offset)     — offset is a duration
+f(point, t)          — t is a time
+f(point, offset, t)
+```
+
+They return the **next occurrence** after `t` (default: `time::now()`) of the solar
+event plus `offset` (default: zero). If the computed target is in the past, the
+function advances to the next day. All times are UTC.
+
+To be clear: `f(point, delta)` is **not** the same as
+`time::add(f(point), delta)`. Consider the case where it is now 30 minutes before
+sunrise. `sky::sunrise(point, "-1h")` will return a time one hour before **tomorrow's**
+sunrise, because 1 hour before today's is in the past.
+
+In **polar regions** where the sun does not rise or set for extended periods,
+the functions search forward day-by-day (up to 400 days) until the event
+occurs again. `sky::solar_noon` and `sky::solar_midnight` require both sunrise and
+sunset to exist on the relevant day(s); during polar day or polar night they
+return the first meaningful occurrence after polar conditions end.
+
+- `sky::sunrise(point[, offset][, t])`: Next sunrise.
+- `sky::sunset(point[, offset][, t])`: Next sunset.
+- `sky::solar_noon(point[, offset][, t])`: Next solar noon (midpoint of sunrise/sunset).
+- `sky::solar_midnight(point[, offset][, t])`: Next solar midnight (midpoint of sunset
+  and next sunrise).
+
+```hcl
+time = sky::sunrise(get(var.location))
+time = sky::sunrise(get(var.location), duration("-30m"))
+time = sky::sunset(get(var.location), duration("-15m"), ctx.scheduled_time)
+```
+
+#### Sun and Moon Position
+
+- `sky::sun_position(point)` / `sky::sun_position(point, t)`: Returns `{azimuth, altitude}`
+  in degrees. Azimuth is clockwise from true north; altitude is above the horizon
+  (negative = below).
+- `sky::moon_position(point)` / `sky::moon_position(point, t)`: Returns
+  `{azimuth, altitude, distance}`. Distance is in meters.
+- `sky::moon_phase()` / `sky::moon_phase(t)`: Returns `{fraction, phase, angle}`.
+  `fraction` is 0–1 (illuminated disc), `phase` is 0–1 (0 = new, 0.5 = full),
+  `angle` is the bright-limb angle in degrees (sign distinguishes waxing/waning).
+
+```hcl
+s = sky::sun_position(get(var.location))
+s.altitude > 0              # true if the sun is up
+s.altitude < -6.0           # true if past civil twilight
+
+mp = sky::moon_phase()
+mp.phase < 0.5              # true if waxing
+```
+
+#### Geodesic Functions (WGS-84)
+
+- `geo::inverse(point_a, point_b)`: Returns `{distance, bearing, back_bearing}`.
+  Distance in meters; bearings in degrees clockwise from north.
+- `geo::destination(origin, bearing, distance)`: Returns the point reached by
+  travelling `distance` meters from `origin` on the given bearing. All fields
+  from `origin` are preserved; only `lat`/`lon` are overwritten.
+- `geo::destination(origin, bearing, duration)`: Travel for the given duration at
+  `origin.speed` (m/s). Errors if `speed` is missing. Updates `time` if present.
+- `geo::destination(origin, bearing, target_time)`: Travel until `target_time` at
+  `origin.speed`. Requires both `speed` and `time` on the origin. Errors if
+  `target_time` is before `origin.time`.
+- `geo::destination(origin, bearing, third, extras)`: All three forms accept an
+  optional `extras` object that is merged onto `origin` before the calculation
+  (extras win on key conflicts).
+- `geo::waypoints(point_a, point_b, n)`: Returns a list of `n` (>= 2) evenly
+  spaced `{lat, lon, track}` objects along the geodesic, including both endpoints.
+
+```hcl
+r = geo::inverse(get(var.current), get(var.destination))
+r.distance      # meters
+r.bearing       # heading toward destination
+
+dest = geo::destination(get(var.location), 90.0, 1000.0)
+future = geo::destination(get(var.vehicle), get(var.vehicle).track, duration("5m"))
+
+waypoints = geo::waypoints(get(var.origin), get(var.destination), 5)
+```
+
+#### Geometric Functions
+
+A polygon is a `list(point)`, implicitly closed. Fewer than 3 points is an error.
+
+- `geo::area(polygon)`: Area in square meters. Orientation-independent.
+- `geo::contains(polygon, point)`: Returns `true` if `point` is inside `polygon`.
+- `geo::nearest(polygon, point)`: Returns the closest `{lat, lon}` on the polygon
+  perimeter (may be mid-edge, not just at a vertex).
+- `geo::line_intersect(line_a, line_b)`: Returns a list of `{lat, lon}` intersection
+  points between two polylines. Empty list if no crossings. Each line must have at
+  least 2 points.
+
+```hcl
+# Geofence detection
+geo::contains(const.home_zone, get(var.vehicle_position))
+
+# Distance to boundary
+boundary_pt = geo::nearest(const.restricted_zone, get(var.vehicle_position))
+dist = geo::inverse(get(var.vehicle_position), boundary_pt).distance
+
+# Route crossing
+crossings = geo::line_intersect(const.route_a, const.route_b)
+length(crossings) > 0    # true if routes cross
+```
+
+## Messaging and State
+
+### Messaging
+
+- `send(ctx, subscriber, topic, payload, fields?)`: Publish a message to a bus or other subscriber. `fields` is an optional map of string metadata attached to the event. Returns `true`.
+- `send::json(ctx, subscriber, topic, payload, fields?)`: Same as `send`, but first serializes `payload` to JSON bytes before publishing.
+- `send::go(ctx, subscriber, topic, payload, fields?)`: Same as `send`, but first converts `payload` from a cty value to a Go native value (map/slice/scalar) before publishing. Use this when the subscriber expects native Go types.
+- `call(ctx, client, request)`: Make a synchronous request to a client and return the response. Currently supported for LLM clients (`client "openai"`). Always returns a response object — API errors are represented as `stop_reason = "error"` in the response rather than Go-level errors. See [client-llm.md](client-llm.md) for the full request/response schema.
+- `sql::must(result)`: Given a result object from `call()` against a SQL client, raise an evaluation error if its `error` field is non-null (building the message from the `driver`/`code`/`sqlstate`/`message` fields); otherwise return the result unchanged, so it composes inline — e.g. `sql::must(call(ctx, client.db, "INSERT ...")).last_insert_id`. Available in every action context (it works on any result object that carries an `error` field), so it does not require a SQL client to be configured. See [client-sql.md](client-sql.md#sqlmustresult).
+- `llm::wrap(content)`: Wrap a string in `<user_input>` XML-like delimiters as a prompt injection mitigation. Use in the `content` of user messages when the content comes from an untrusted source. The system prompt should reference the tags (e.g. `"Summarize the text in the <user_input> tags."`). Returns `"<user_input>\n{content}\n</user_input>"`.
+- `redis::ack(ctx, consumer, message_id)`: `XACK` a Redis Streams entry on the given consumer's stream and group. Used with `client "redis_stream"` consumers configured with `auto_ack = false`; the consumer is addressed as `client.<name>.consumer.<c>` and the entry ID is exposed to the action as `ctx.message_id`. Returns `true` on success. See [client-redis.md](client-redis.md#manual-ack-redisack).
+- `sqs::delete(ctx, receiver, receipt_handle)`: Delete an SQS message by receipt handle. Used with `client "sqs_receiver"` configured with `auto_delete = false`; the receiver is addressed as `client.<name>` and the receipt handle is available as `ctx.fields["$receipt_handle"]`. Returns `true` on success. See [client-sqs.md](client-sqs.md#manual-deletion).
+- `sqs::extend_visibility(ctx, receiver, receipt_handle, timeout_seconds)`: Extend the visibility timeout for an SQS message. Used for long-running processing to prevent the message from becoming visible to other consumers before processing completes. `timeout_seconds` is a number. Returns `true` on success. See [client-sqs.md](client-sqs.md#manual-deletion).
 
 ### Variables and Metrics
 
@@ -1009,73 +1097,7 @@ trigger "cron" "daily_report" {
 }
 ```
 
-### Control Flow
-
-These are functy's standard-library builtins (shared with standalone `functy`), available anywhere vinculum evaluates an expression.
-
-- `error(value)`: Raise an error from expression position — the expression form of a `throw`. `value` may be a string or an object (`error({ message = "...", code = 403 })`). It composes with `try`/`catch` and carries a source range. Example: `coalesce(config.host, error("host is required"))`.
-- `assert(cond, message?)`: Raise a catchable error when `cond` is false; on success returns `true`. The condition is received unevaluated, so a surfaced error underlines exactly what failed and captures the referenced variables (e.g. detail `n = -3`). The optional `message` (string or object) is evaluated only on failure. Example: `assert(port > 0, "port must be positive")`.
-- `cond(c1, r1, c2, r2, ..., else)`: Lazy multi-branch conditional. Takes an odd number of arguments (at least 3). Each `(c_i, r_i)` pair is a condition/result; the trailing argument is the `else`. Conditions are evaluated in order; the result paired with the first truthy condition is returned (and evaluated). If no condition is truthy, the `else` is returned. **Only the selected branch is evaluated** — unselected conditions, results, and the else are untouched — making `cond()` safe for side-effectful branches (unlike HCL's `?:` ternary, which evaluates both sides greedily). The return type is dynamic, since each branch may be of a different type. Example: `cond(level == "error", log::error(msg), level == "warn", log::warn(msg), log::info(msg))` dispatches to exactly one log call based on `level` — the other two are never invoked.
-- `switch(on, v1, r1, v2, r2, ..., default?)`: Switch dispatch on a single value. `on` is evaluated exactly once; each case-value `vN` is then evaluated in order and compared to `on` for equality. On the first match, the paired `rN` is evaluated and returned. If no case matches, the optional trailing `default` is evaluated and returned; if `default` is omitted (i.e. the total argument count is odd) and no case matched, `switch()` errors at call time. Case values past the matching arm are not evaluated, nor are unselected results. Equality is strict: a number `200` does not match the string `"200"`. Cleaner than the equivalent `cond()` form because `on` is named once. Example: `switch(level, "error", log::error(msg), "warn", log::warn(msg), log::info(msg))` is the cond example above rewritten as a switch.
-- `try(expr1, expr2, ...)`: Evaluate each expression in order; return the value of the first one that evaluates without error. If all expressions error, `try()` itself errors with the accumulated diagnostics. **Each expression is evaluated at most once.** This is vinculum's single-evaluation variant and differs from the stock HCL `try()` (from `hcl/v2/ext/tryfunc`) — the upstream implementation evaluates the selected expression twice (once for return-type inference, once for the actual value), which is a hazard for side-effectful arguments like `try(send(ctx, ...), ...)`. The trade-off for single-evaluation is that vinculum's `try()` has a dynamic return type rather than the concrete unified type of its branches.
-- `can(expr)`: Return whether `expr` evaluates without error, as a `bool`. Useful to guard an expression that may fail — e.g. `can(jsondecode(s))`.
-
-### Reflection
-
-Available anywhere vinculum evaluates an expression, and most useful at the [REPL](repl.md).
-
-- `help(name?)`: With a name, return a human-readable summary of that function — its signature, description, and per-parameter documentation. With no argument, return the sorted names of every available function, as a directory to explore with `help(name)`. Returns `null` if there is no such function.
-- `doc(name)`: Return just a function's description. `null` if there is no such function; `""` if it exists but is undocumented.
-
-`help()` shows a function's **real** signature, which is not always the one cty can express. A cty function may only make its *trailing* parameters optional, so the generic capability functions below — `get`, `set`, `count`, `increment`, `observe`, and the rest, which all take an *optional leading* `ctx` — must fake it with a variadic, and would otherwise reflect uselessly as `get(thing, ...args)`. They ship declarations of what they actually accept, and `help()` uses those:
-
-```console
-> help("get")
-get(ctx?: ctx, thing, fallback?, *args) -> any
-
-Read a thing's current value.
-
-Parameters:
-  ctx?       request context
-  thing      the thing to read (must be Gettable)
-  fallback?  Conventionally the value to return when the thing has none. …
-  *args      further arguments, interpreted by the thing
-```
-
-### Messaging
-
-- `send(ctx, subscriber, topic, payload, fields?)`: Publish a message to a bus or other subscriber. `fields` is an optional map of string metadata attached to the event. Returns `true`.
-- `send::json(ctx, subscriber, topic, payload, fields?)`: Same as `send`, but first serializes `payload` to JSON bytes before publishing.
-- `send::go(ctx, subscriber, topic, payload, fields?)`: Same as `send`, but first converts `payload` from a cty value to a Go native value (map/slice/scalar) before publishing. Use this when the subscriber expects native Go types.
-- `call(ctx, client, request)`: Make a synchronous request to a client and return the response. Currently supported for LLM clients (`client "openai"`). Always returns a response object — API errors are represented as `stop_reason = "error"` in the response rather than Go-level errors. See [client-llm.md](client-llm.md) for the full request/response schema.
-- `sql::must(result)`: Given a result object from `call()` against a SQL client, raise an evaluation error if its `error` field is non-null (building the message from the `driver`/`code`/`sqlstate`/`message` fields); otherwise return the result unchanged, so it composes inline — e.g. `sql::must(call(ctx, client.db, "INSERT ...")).last_insert_id`. Available in every action context (it works on any result object that carries an `error` field), so it does not require a SQL client to be configured. See [client-sql.md](client-sql.md#sql_mustresult).
-- `llm::wrap(content)`: Wrap a string in `<user_input>` XML-like delimiters as a prompt injection mitigation. Use in the `content` of user messages when the content comes from an untrusted source. The system prompt should reference the tags (e.g. `"Summarize the text in the <user_input> tags."`). Returns `"<user_input>\n{content}\n</user_input>"`.
-- `redis::ack(ctx, consumer, message_id)`: `XACK` a Redis Streams entry on the given consumer's stream and group. Used with `client "redis_stream"` consumers configured with `auto_ack = false`; the consumer is addressed as `client.<name>.consumer.<c>` and the entry ID is exposed to the action as `ctx.message_id`. Returns `true` on success. See [client-redis.md](client-redis.md#manual-ack-redisack).
-- `sqs::delete(ctx, receiver, receipt_handle)`: Delete an SQS message by receipt handle. Used with `client "sqs_receiver"` configured with `auto_delete = false`; the receiver is addressed as `client.<name>` and the receipt handle is available as `ctx.fields["$receipt_handle"]`. Returns `true` on success. See [client-sqs.md](client-sqs.md#manual-deletion).
-- `sqs::extend_visibility(ctx, receiver, receipt_handle, timeout_seconds)`: Extend the visibility timeout for an SQS message. Used for long-running processing to prevent the message from becoming visible to other consumers before processing completes. `timeout_seconds` is a number. Returns `true` on success. See [client-sqs.md](client-sqs.md#manual-deletion).
-
-### HTTP Response Functions
-
-These functions are globally available and build `http::response` values. The return value
-of a `handle` action expression is used as the HTTP response — no separate "write" call
-is needed. See [`server "http"`](server-http.md#response) for full details.
-
-- `http::response(status[, body[, headers]])`: Build a response with the given status code, optional body, and optional headers. Body is auto-coerced: string → text/plain, bytes → its content type, anything else → JSON. Headers may be `map(string)` or `map(list(string))`.
-- `http::redirect(url)` / `http::redirect(status, url)`: Build a redirect response. Single-arg form defaults to 302 Found.
-- `http::error(status, message)`: Build an error response with plain-text body. Works naturally with `try()`.
-- `http::add_header(response, name, value)`: Return a new response with the given header appended.
-- `http::remove_header(response, name)`: Return a new response with the given header removed.
-- `http::set_cookie(cookieObj)`: Format a `Set-Cookie` header value from a cookie definition object (fields: `name`, `value`, `path`, `domain`, `expires`, `max_age`, `secure`, `http_only`, `same_site`, `partitioned`). Use with `http::add_header()`.
-
-### HTTP Utilities
-
-These functions are always available and help construct HTTP request values.
-
-- `http::basic_auth(user, password)`: Returns the value for an HTTP `Authorization` header using Basic authentication — `"Basic <base64(user:password)>"`.
-
-```hcl
-set_header("Authorization", http::basic_auth("alice", "s3cr3t"))
-```
+## HTTP
 
 ### HTTP Client Verb Functions
 
@@ -1143,6 +1165,31 @@ http::request(ctx, client.dav, "PROPFIND", "/dir/")
   # A range
   http::must(http::get(ctx, client.api, "/data"), [[200, 299]])
   ```
+
+### HTTP Response Functions
+
+These functions are globally available and build `http::response` values. The return value
+of a `handle` action expression is used as the HTTP response — no separate "write" call
+is needed. See [`server "http"`](server-http.md#response) for full details.
+
+- `http::response(status[, body[, headers]])`: Build a response with the given status code, optional body, and optional headers. Body is auto-coerced: string → text/plain, bytes → its content type, anything else → JSON. Headers may be `map(string)` or `map(list(string))`.
+- `http::redirect(url)` / `http::redirect(status, url)`: Build a redirect response. Single-arg form defaults to 302 Found.
+- `http::error(status, message)`: Build an error response with plain-text body. Works naturally with `try()`.
+- `http::add_header(response, name, value)`: Return a new response with the given header appended.
+- `http::remove_header(response, name)`: Return a new response with the given header removed.
+- `http::set_cookie(cookieObj)`: Format a `Set-Cookie` header value from a cookie definition object (fields: `name`, `value`, `path`, `domain`, `expires`, `max_age`, `secure`, `http_only`, `same_site`, `partitioned`). Use with `http::add_header()`.
+
+### HTTP Utilities
+
+These functions are always available and help construct HTTP request values.
+
+- `http::basic_auth(user, password)`: Returns the value for an HTTP `Authorization` header using Basic authentication — `"Basic <base64(user:password)>"`.
+
+```hcl
+set_header("Authorization", http::basic_auth("alice", "s3cr3t"))
+```
+
+## Files and Process
 
 ### Path Functions
 
