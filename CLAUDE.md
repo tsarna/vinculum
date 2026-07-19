@@ -296,11 +296,20 @@ Built in `vinitEvalContext()` in `config/vinit.go`:
 ### What plugins can register
 
 Plugins call the same `Register*` functions as in-tree subsystems:
-`RegisterFunctionPlugin`, `RegisterAmbientProvider`, `RegisterServerType`,
-`RegisterClientType`, `RegisterTriggerType`, `RegisterConditionSubtype`,
-`RegisterWireFormatType`, `RegisterEditorType`, and the new
-`RegisterTransformPlugin`. Adding entirely new top-level `.vcl` block
-types is not supported.
+`RegisterFunctionPlugin`, `RegisterTransformPlugin`,
+`RegisterAmbientProvider`, `RegisterServerType`, `RegisterClientType`,
+`RegisterTriggerType`, `RegisterConditionalTriggerType`,
+`RegisterConditionSubtype`, `RegisterWireFormatType`,
+`RegisterEditorType`, and the functy hooks `RegisterFunctyType` /
+`RegisterFunctyOpenType` / `RegisterFunctyExterns` (`config/functy.go` —
+the same path leaf packages use to make their capsule and rich-object
+types nameable in `.cty` annotations, and to declare real signatures for
+`help()`). Adding entirely new top-level `.vcl` block types is not
+supported.
+
+`RegisteredPlugins()` is a query, not a contribution point. The
+[vinculum-plugin-example](https://github.com/tsarna/vinculum-plugin-example)
+README carries the same list in table form; keep the two in sync.
 
 ### `RegisterTransformPlugin` + collision check
 
