@@ -248,7 +248,7 @@ context canceled, retries exhausted on a network error), the function
 **raises an HCL error** — the same mechanism used by `error()`.
 HTTP-level non-2xx responses do **not** raise: a `404` is
 just a response with `status = 404`, the same as `fetch()`'s behavior. Use
-[`http::must()`](#http_must) when you want a non-2xx response to fail loudly.
+[`http::must()`](#status-assertions-httpmust) when you want a non-2xx response to fail loudly.
 
 ---
 

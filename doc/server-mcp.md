@@ -217,7 +217,7 @@ See [functions.md](functions.md#mcp-functions) for full details.
 
 `data` in `mcp::image` may be a base64-encoded string (requires `mime_type`) or a `bytes` capsule
 (MIME type taken from the capsule's content type, optionally overridden by a second argument).
-See [functions.md](functions.md#mcp_image-data--mime_type) for full details.
+See [functions.md](functions.md#mcpimagedata--mime_type) for full details.
 
 ---
 

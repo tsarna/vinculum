@@ -125,7 +125,7 @@ Must return one of:
 - An **object** — authentication succeeds; the object becomes the base of `ctx.auth`
   (`username` is merged in from the request's Basic auth username)
 - **null** — authentication fails (401)
-- An **http_response / http_redirect value** — that response is sent directly (e.g. for redirects)
+- An **`http_response` value** (from `http::response()` or `http::redirect()`) — that response is sent directly (e.g. for redirects)
 
 ```hcl
 auth "basic" {
@@ -234,7 +234,7 @@ It must return one of:
 
 - An **object** — authentication succeeds; the object becomes `ctx.auth`
 - **null** — authentication fails (401 Unauthorized)
-- An **http_response / http_redirect value** — that response is sent directly
+- An **`http_response` value** (from `http::response()` or `http::redirect()`) — that response is sent directly
 
 ```hcl
 auth "custom" {
