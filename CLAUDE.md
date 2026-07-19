@@ -23,12 +23,22 @@ User-facing documentation lives in `doc/`. Each file covers one topic:
 | `doc/config.md` | HCL syntax, variables, all block types (`bus`, `const`, `cron`, `function`, `jq`, `server`, `signals`, `subscription`) |
 | `doc/condition.md` | `condition` block subtypes (`timer`, `threshold`, `counter`, `flipflop`), four-state model, common attributes, lifecycle hooks |
 | `doc/functions.md` | Built-in callable functions (logging, messaging, data, MCP, file, HTTP) |
+| `doc/functy.md` | functy (`.cty`) language: functions, typed locals, control flow, namespaces, types, errors |
+| `doc/procedure.md` | `procedure` block (**deprecated** in favor of functy) |
 | `doc/transforms.md` | Message transform pipeline DSL (`add_topic_prefix`, `jq`, `chain`, etc.) |
+| `doc/editor.md` | `editor` block: structured-text editing |
+| `doc/fsm.md` | `fsm` block: state machines |
+| `doc/trigger.md` | `trigger` block types (`cron`, `at`, `after`, `interval`, `once`, `watch`, `watchdog`, `signals`, `start`, `shutdown`, `file`) |
+| `doc/metric.md` | `metric` block and metric types |
 | `doc/baggage.md` | OTel `ctx.baggage`: read/write/delete, secure-by-default `baggage {}` trust filtering, `record_baggage` span projection |
 | `doc/server-http.md` | `server "http"`: handle/files blocks, context vars, request functions |
 | `doc/server-mcp.md` | `server "mcp"`: resources, tools, prompts, MCP functions |
 | `doc/server-vws.md` | `server "vws"` and `client "vws"`: VWS protocol, allow_send, reconnect |
 | `doc/server-websocket.md` | `server "websocket"`: simple raw WebSocket push server |
+| `doc/server-metrics.md` | `server "metrics"`: Prometheus-style metrics endpoint |
+| `doc/server-auth.md` | Shared HTTP auth (`basic`, `oauth2`, `oidc`, `custom`) |
+| `doc/client-*.md` | Per-client references: `http`, `mqtt`, `kafka`, `rabbitmq`, `redis`, `sns`, `sqs`, `sql`, `llm`, `otlp` |
+| `doc/deprecations.md` | Deprecated features, replacements, and planned removal |
 | `doc/vinit.md` | `.vinit` bootstrap file format, two-pass discovery, minimal eval context, `disabled` |
 | `doc/plugins.md` | `plugin` block, `--plugin-path`, ABI rules, container deployment |
 | `doc/git.md` | `git` block: clone-and-materialize, HTTP/SSH auth, revision pinning, destination ownership |
