@@ -33,13 +33,14 @@ func (h *ClientBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl
 }
 
 func (h *ClientBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, hcl.Diagnostics) {
-	// Lazy attributes: action expressions and auth expressions are
+	// Lazy attributes: action, auth, and on_decode_error expressions are
 	// evaluated at request time against a per-request eval context, not
 	// at config load. Excluding them from dependency extraction lets a
 	// client safely reference itself or other clients in those slots
 	// (e.g. an OAuth client whose auth hook calls back through
-	// http_post(ctx, client.<self>, "/token", ...)).
-	return ExtractBlockDependencies(block, "action", "auth"), nil
+	// http_post(ctx, client.<self>, "/token", ...), or a receiver whose
+	// on_decode_error publishes to its own dead-letter bus).
+	return ExtractBlockDependencies(block, "action", "auth", "on_decode_error"), nil
 }
 
 func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {

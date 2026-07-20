@@ -77,7 +77,7 @@ client "rabbitmq" "events" {
   on_disconnect = send(ctx, bus.main, "rabbitmq/disconnected", {client = "events"})
 
   # Wire format for payload serialization/deserialization (default: "auto")
-  # wire_format = "json"     # auto | json | string | bytes
+  # wire_format = "json"     # auto | auto_bytes | json | string | bytes
 
   # Optional OTel wiring
   # metrics = server.metrics    # optional; auto-wired to the default if omitted
@@ -263,14 +263,32 @@ Controlled by the client-level `wire_format` attribute (default `"auto"`):
 | Wire format | Serialize | Deserialize |
 |---|---|---|
 | `auto` | Strings/bytes verbatim; everything else JSON-encoded | Auto-detects JSON; falls back to string |
+| `auto_bytes` | Same as `auto` | Auto-detects JSON; falls back to [`bytes`](functions.md) |
 | `json` | All values JSON-encoded; bytes pass through | Strict JSON; errors on malformed input |
 | `string` | Strings, bytes, numbers, bools to string form | Returns string |
-| `bytes` | Same as string | Returns bytes |
+| `bytes` | Same as string | Returns [`bytes`](functions.md) |
 
 vinculum `fields` are encoded as entries in the AMQP basic-properties `headers`
 table (one entry per key). The AMQP `content-type` property is set from the
 wire format used (`application/json`, `text/plain`, or
 `application/octet-stream`).
+
+#### Decode failures
+
+The configured `wire_format` is a **contract**. When an inbound body fails to
+deserialize, the message is nacked without requeue — it is *not* delivered to
+the subscriber as raw bytes.
+
+For rabbitmq this is safe: the message is dropped, or routed to a dead-letter
+exchange if one is bound to the queue.
+
+Use `wire_format = "auto_bytes"` if you want best-effort decoding instead: it
+decodes JSON like `auto` and yields a [`bytes`](functions.md) value for anything
+it can't parse. `auto` behaves the same but yields a string — pick whichever
+type your handler wants. Neither ever fails to decode.
+
+> **Changed in 0.44.0.** Earlier releases logged a warning and delivered the
+> raw bytes. See [deprecations](deprecations.md#tolerant-wire-format-decoding).
 
 ---
 
@@ -341,6 +359,7 @@ receiver "main" {
 | `auto_ack` | bool | `false` | When `true`, the broker considers a message delivered as soon as it is written to the socket (lossy on crash). Default `false` = manual ack after `subscriber.OnEvent` returns without error. |
 | `baggage` | block | strip all | Optional [baggage](baggage.md) trust filter. Inbound baggage is **stripped by default** before it reaches the action; opt in with `passthrough`/`allow`/`deny`. Per-receiver. See [Server-side trust filtering](baggage.md#server-side-trust-filtering). |
 | `default_routing_key_transform` | string | `"dot_to_slash"` | Fallback when no `subscription` matches. See below. |
+| `on_decode_error` | expression | none | Evaluated when an inbound body fails to deserialize. Observes only — the message is nacked either way. See [Decode failures](#decode-failures). |
 
 ### `subscriber` / `action` / `transforms` / `queue_size`
 
@@ -362,6 +381,38 @@ dispatches events (see [subscription](config.md#subscription)):
 | `ctx.topic` | Vinculum topic of the received message |
 | `ctx.msg` | Deserialized payload (per `wire_format`) |
 | `ctx.fields` | `map(string)` from the AMQP headers table merged with extracted routing-key fields. W3C trace headers (`traceparent`, `tracestate`, `baggage`) are stripped. |
+
+### `on_decode_error`
+
+Optional. Evaluated when an inbound body fails to deserialize, *before* the
+message is nacked. It is an observer: it cannot suppress the failure or cause
+the message to be delivered. Errors inside the hook are logged and otherwise
+ignored, so a broken hook can never change the outcome.
+
+```hcl
+receiver "in" {
+  queue       = "events"
+  action      = send(ctx, bus.main, ctx.topic, ctx.msg)
+
+  on_decode_error = send(ctx, bus.dlq, "decode-error/${ctx.routing_key}", {
+    raw   = tostring(ctx.raw),
+    error = ctx.error,
+  })
+}
+```
+
+**Hook context variables:**
+
+| Variable | Description |
+|---|---|
+| `ctx.raw` | The undecoded body, as a [`bytes`](functions.md) object |
+| `ctx.error` | The deserialize error message |
+| `ctx.wire_format` | The configured format name (`"json"`, …) |
+| `ctx.topic` | Best-effort vinculum topic. The routing key transform is applied, but a `subscription`'s `vinculum_topic` expression is not — it needs `msg`, which does not exist here. |
+| `ctx.fields` | Fields extracted from the routing key and AMQP headers before the failure |
+| `ctx.routing_key` | The raw AMQP routing key |
+| `ctx.exchange` | The AMQP exchange |
+| `ctx.queue` | The queue the message came from |
 
 ### `declare`
 

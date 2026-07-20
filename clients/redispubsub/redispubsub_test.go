@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	bus "github.com/tsarna/vinculum-bus"
-	"github.com/zclconf/go-cty/cty"
 	"github.com/tsarna/vinculum/clients/redispubsub"
 	cfg "github.com/tsarna/vinculum/config"
+	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
 
@@ -233,10 +233,11 @@ client "redis_pubsub" "rps" {
 			t.Fatalf("timeout waiting for event %d (got so far: %v)", i+1, got)
 		}
 	}
-	// CtyWireFormat wraps deserialized values as cty.Values
+	// CtyWireFormat wraps deserialized values as cty.Values. A decoded JSON
+	// record is an object, so its fields are attributes, not map elements.
 	alertVal := got["alerts"].(cty.Value)
-	assert.Equal(t, cty.String, alertVal.Index(cty.StringVal("lvl")).Type())
-	assert.Equal(t, "high", alertVal.Index(cty.StringVal("lvl")).AsString())
+	assert.Equal(t, cty.String, alertVal.GetAttr("lvl").Type())
+	assert.Equal(t, "high", alertVal.GetAttr("lvl").AsString())
 
 	// auto format falls back to cty.StringVal for non-JSON
 	seenVal := got["device/devices.abc/seen"].(cty.Value)
@@ -256,4 +257,3 @@ func (b *busSubFuncT) OnEvent(_ context.Context, topic string, msg any, _ map[st
 func busSubFunc(fn func(topic string, msg any)) bus.Subscriber {
 	return &busSubFuncT{fn: fn}
 }
-

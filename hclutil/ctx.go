@@ -43,6 +43,23 @@ func (e *EvalContextBuilder) WithStringAttribute(name string, value string) *Eva
 	return e
 }
 
+// WithStringMapAttribute sets an attribute to an object whose attributes are
+// the map's keys, each holding a string. A nil or empty map yields an empty
+// object rather than a null, so expressions can always index it safely.
+//
+// This is the shape used for the "fields" attribute that receivers extract
+// from routing keys and message headers.
+func (e *EvalContextBuilder) WithStringMapAttribute(name string, m map[string]string) *EvalContextBuilder {
+	if len(m) == 0 {
+		return e.WithAttribute(name, cty.EmptyObjectVal)
+	}
+	vals := make(map[string]cty.Value, len(m))
+	for k, v := range m {
+		vals[k] = cty.StringVal(v)
+	}
+	return e.WithAttribute(name, cty.ObjectVal(vals))
+}
+
 func (e *EvalContextBuilder) WithFunction(name string, fn function.Function) *EvalContextBuilder {
 	if e.Functions == nil {
 		e.Functions = make(map[string]function.Function)

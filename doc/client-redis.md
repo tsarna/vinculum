@@ -108,7 +108,7 @@ cleanly onto vinculum's topic namespace (`/`-separated).
 ```hcl
 client "redis_pubsub" "rps" {
   connection  = client.myredis
-  wire_format = "auto"               # auto | json | string | bytes (default: auto)
+  wire_format = "auto"               # auto | auto_bytes | json | string | bytes (default: auto)
   metrics     = server.metrics.main  # optional
   tracing     = server.metrics.main  # optional
 
@@ -171,12 +171,74 @@ client "redis_pubsub" "rps" {
 - Payloads are deserialized according to the client-level `wire_format`
   (default `"auto"`). In auto mode, JSON is decoded; non-JSON becomes a
   string.
+- A decode failure is **fatal to the message**: it is dropped, not delivered
+  as raw bytes. Pub/sub has no acknowledgement, so nothing accumulates. Set
+  `on_decode_error` to observe it, or `wire_format = "auto"` for best-effort
+  decoding. See [Decode failures](#decode-failures).
 - go-redis automatically re-subscribes on reconnect, so the
   `SUBSCRIBE`/`PSUBSCRIBE` set stays live without explicit config.
 - Redis keyspace notifications (`__keyevent@0__:expired` etc.) are just
   ordinary channels — subscribe to them like any other. Enabling the
   server-side `notify-keyspace-events` setting is the operator's
   responsibility; Vinculum does not touch it.
+
+### Decode failures
+
+The configured `wire_format` is a **contract**. When an entry's payload field
+fails to deserialize, the entry is *not* delivered to the subscriber as raw
+bytes and is *not* `XACK`ed.
+
+> **Configure dead-lettering.** A failed entry stays in the pending-entries
+> list. With `dead_letter_stream` set it is moved to the DLQ stream once
+> `dead_letter_after` retries are exhausted. Without it, the entry stays
+> pending indefinitely. Vinculum emits a config-time warning when a receiver
+> combines a strict `wire_format` with no `dead_letter_stream`.
+
+Set `on_decode_error` to observe the failure. It cannot suppress it; errors
+inside the hook are logged and otherwise ignored.
+
+```hcl
+receiver "in" {
+  stream             = "events"
+  group              = "g1"
+  wire_format        = "json"
+  dead_letter_stream = "events-dlq"
+  dead_letter_after  = 3
+  action             = send(ctx, bus.main, ctx.topic, ctx.msg)
+
+  on_decode_error = log::error("bad entry", {
+    stream   = ctx.stream,
+    entry_id = ctx.entry_id,
+    error    = ctx.error,
+    raw      = tostring(ctx.raw),
+  })
+}
+```
+
+**Hook context variables** (pub/sub and stream both support
+`on_decode_error`):
+
+| Variable | Description |
+|---|---|
+| `ctx.raw` | The undecoded payload, as a [`bytes`](functions.md) object |
+| `ctx.error` | The deserialize error message |
+| `ctx.wire_format` | The configured format name |
+| `ctx.topic` | The channel (pub/sub) or stream name |
+| `ctx.fields` | *(pub/sub)* Fields extracted before the failure. Always empty for streams: fields are read in the same pass that decodes the payload, so a partial map would depend on Go's randomized map iteration order. |
+| `ctx.channel` | *(pub/sub)* The Redis channel |
+| `ctx.matched_pattern` | *(pub/sub)* The subscribed pattern, when the match was by pattern |
+| `ctx.stream` | *(stream)* The stream name |
+| `ctx.entry_id` | *(stream)* The entry ID |
+| `ctx.group` | *(stream)* The consumer group |
+| `ctx.consumer` | *(stream)* The consumer name |
+
+Use `wire_format = "auto_bytes"` if you want best-effort decoding instead: it
+decodes JSON like `auto` and yields a [`bytes`](functions.md) value for anything
+it can't parse. `auto` behaves the same but yields a string — pick whichever
+type your handler wants. Neither ever fails to decode.
+
+> **Changed in 0.44.0.** Earlier releases logged a warning and delivered the
+> raw bytes. See [deprecations](deprecations.md#tolerant-wire-format-decoding).
 
 ### Trace context
 
@@ -198,7 +260,7 @@ the closest Redis analogue to the Kafka client.
 ```hcl
 client "redis_stream" "rs" {
   connection  = client.myredis
-  wire_format = "auto"               # auto | json | string | bytes (default: auto)
+  wire_format = "auto"               # auto | auto_bytes | json | string | bytes (default: auto)
   metrics     = server.metrics.main
   tracing     = server.metrics.main
 
@@ -341,7 +403,7 @@ client "redis_kv" "cache" {
   connection  = client.myredis
   key_prefix  = "app:"
   default_ttl = "1h"
-  wire_format = "auto"       # auto | json | string | bytes  (default: auto)
+  wire_format = "auto"       # auto | auto_bytes | json | string | bytes  (default: auto)
   metrics     = server.metrics.main
 }
 

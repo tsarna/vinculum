@@ -49,6 +49,7 @@ type ConsumerDef struct {
 	Subscriber       hcl.Expression               `hcl:"subscriber,optional"`
 	Action           hcl.Expression               `hcl:"action,optional"`
 	Transforms       hcl.Expression               `hcl:"transforms,optional"`
+	OnDecodeError    hcl.Expression               `hcl:"on_decode_error,optional"`
 	QueueSize        *int                         `hcl:"queue_size,optional"`
 	Baggage          *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
 	BatchSize        *int64                       `hcl:"batch_size,optional"`
@@ -486,6 +487,8 @@ func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, cli
 		WithConsumerName(consumerName).
 		WithTarget(target).
 		WithWireFormat(wf).
+		WithDecodeErrorHook(cfg.MakeDecodeErrorHook(config, def.OnDecodeError,
+			fmt.Sprintf("redis_stream receiver %q", def.Name))).
 		WithLogger(config.Logger).
 		WithMeterProvider(mp).
 		WithTracerProvider(tp)
@@ -582,6 +585,17 @@ func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, cli
 			Summary:  "redis_stream: dead_letter_after has no effect without dead_letter_stream",
 			Subject:  &def.DefRange,
 		}}
+	} else if cfg.IsStrictWireFormat(wf.Name()) {
+		// A decode failure leaves the entry in the PEL. Without
+		// dead-lettering it stays pending indefinitely, so warn at load.
+		config.UserLogger.Warn(
+			"redis_stream receiver uses a strict wire_format with no dead_letter_stream; "+
+				"a malformed entry will stay pending indefinitely. "+
+				"Set dead_letter_stream, or use wire_format = \"auto\" for best-effort decoding.",
+			zap.String("client", clientName),
+			zap.String("receiver", def.Name),
+			zap.String("wire_format", wf.Name()),
+		)
 	}
 
 	return b.Build(), nil

@@ -81,6 +81,7 @@ type RMQReceiverDefinition struct {
 	Subscriber                 hcl.Expression               `hcl:"subscriber,optional"`
 	Action                     hcl.Expression               `hcl:"action,optional"`
 	Transforms                 hcl.Expression               `hcl:"transforms,optional"`
+	OnDecodeError              hcl.Expression               `hcl:"on_decode_error,optional"`
 	QueueSize                  *int                         `hcl:"queue_size,optional"`
 	Prefetch                   *int                         `hcl:"prefetch,optional"`
 	Exclusive                  *bool                        `hcl:"exclusive,optional"`
@@ -134,6 +135,7 @@ type builtReceiverSpec struct {
 	autoAck       bool
 	declare       *rmqreceiver.Declare
 	bindings      []rmqreceiver.Binding
+	onDecodeError wire.DecodeErrorHook
 }
 
 // ─── Sender proxy ────────────────────────────────────────────────────────────
@@ -245,6 +247,7 @@ func (c *RMQClientWrapper) Start() error {
 			WithExclusive(spec.exclusive).
 			WithAutoAck(spec.autoAck).
 			WithWireFormat(c.wireFormat).
+			WithDecodeErrorHook(spec.onDecodeError).
 			WithMeterProvider(c.meterProvider).
 			WithTracerProvider(c.tracerProvider).
 			WithLogger(c.logger)
@@ -544,6 +547,8 @@ func buildReceiverSpec(config *cfg.Config, clientName string, def RMQReceiverDef
 		name:     def.Name,
 		queue:    def.Queue,
 		prefetch: 10, // default
+		onDecodeError: cfg.MakeDecodeErrorHook(config, def.OnDecodeError,
+			fmt.Sprintf("rabbitmq receiver %q", def.Name)),
 	}
 
 	if def.Prefetch != nil {

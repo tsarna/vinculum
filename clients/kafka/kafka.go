@@ -66,6 +66,7 @@ type ConsumerDefinition struct {
 	Subscriber    hcl.Expression                `hcl:"subscriber,optional"`
 	Action        hcl.Expression                `hcl:"action,optional"`
 	Transforms    hcl.Expression                `hcl:"transforms,optional"`
+	OnDecodeError hcl.Expression                `hcl:"on_decode_error,optional"`
 	QueueSize     *int                          `hcl:"queue_size,optional"`
 	CommitMode    string                        `hcl:"commit_mode,optional"`
 	DLQTopic      string                        `hcl:"dlq_topic,optional"`
@@ -111,6 +112,7 @@ type builtConsumerSpec struct {
 	dlqTopic      string
 	subscriptions []kconsumer.TopicSubscription
 	subscriber    bus.Subscriber
+	onDecodeError wire.DecodeErrorHook
 }
 
 // KafkaProducerProxy is a config-time bus.Subscriber that forwards OnEvent to
@@ -235,6 +237,7 @@ func (c *KafkaClient) Start() error {
 			WithDLQTopic(spec.dlqTopic).
 			WithSubscriber(spec.subscriber).
 			WithWireFormat(c.wireFormat).
+			WithDecodeErrorHook(spec.onDecodeError).
 			WithMeterProvider(c.meterProvider).
 			WithLogger(c.logger)
 		for _, sub := range spec.subscriptions {
@@ -515,6 +518,25 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	// Wrap with CtyWireFormat so cty.Value payloads are converted transparently.
 	ctyWF := &cfg.CtyWireFormat{Inner: wf}
 
+	// A decode failure leaves the offset uncommitted, so without a DLQ the
+	// consumer re-fetches the same record forever and the partition never
+	// advances. Warn at load rather than refusing to start: dlq_topic
+	// already exists and is the right answer.
+	if cfg.IsStrictWireFormat(wf.Name()) {
+		for _, spec := range consSpecs {
+			if spec.dlqTopic == "" {
+				config.UserLogger.Warn(
+					"kafka receiver uses a strict wire_format with no dlq_topic; "+
+						"a malformed record will stall partition progress. "+
+						"Set dlq_topic, or use wire_format = \"auto\" for best-effort decoding.",
+					zap.String("client", block.Labels[1]),
+					zap.String("receiver", spec.name),
+					zap.String("wire_format", wf.Name()),
+				)
+			}
+		}
+	}
+
 	client := &KafkaClient{
 		BaseClient: cfg.BaseClient{
 			Name:     block.Labels[1],
@@ -684,6 +706,8 @@ func buildConsumerSpecs(config *cfg.Config, clientName string, defs []ConsumerDe
 func buildConsumerSpec(config *cfg.Config, clientName string, def ConsumerDefinition, tp trace.TracerProvider) (builtConsumerSpec, hcl.Diagnostics) {
 	var spec builtConsumerSpec
 	spec.name = def.Name
+	spec.onDecodeError = cfg.MakeDecodeErrorHook(config, def.OnDecodeError,
+		fmt.Sprintf("kafka receiver %q", def.Name))
 
 	if def.GroupID == "" {
 		return spec, hcl.Diagnostics{{

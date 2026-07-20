@@ -70,11 +70,13 @@ func TestCtyWireFormat_DeserializeReturnsCtyCty(t *testing.T) {
 	if !ok {
 		t.Fatalf("Deserialize() returned %T, want cty.Value", result)
 	}
-	// go2cty2go.AnyToCty converts map[string]any with homogeneous values to a cty map
-	if !cv.Type().IsMapType() {
-		t.Errorf("Deserialize() type = %s, want map type", cv.Type().FriendlyName())
+	// go2cty2go.AnyToCty types a map[string]any as an object regardless of
+	// whether its values share a type, so a decoded JSON record is always
+	// an object.
+	if !cv.Type().IsObjectType() {
+		t.Errorf("Deserialize() type = %s, want object type", cv.Type().FriendlyName())
 	}
-	v := cv.Index(cty.StringVal("key"))
+	v := cv.GetAttr("key")
 	if v.AsString() != "val" {
 		t.Errorf("Deserialize()[\"key\"] = %q, want %q", v.AsString(), "val")
 	}

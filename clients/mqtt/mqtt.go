@@ -88,6 +88,7 @@ type MQTTSubscriberDef struct {
 	Subscriber     hcl.Expression               `hcl:"subscriber,optional"`
 	Action         hcl.Expression               `hcl:"action,optional"`
 	Transforms     hcl.Expression               `hcl:"transforms,optional"`
+	OnDecodeError  hcl.Expression               `hcl:"on_decode_error,optional"`
 	QueueSize      *int                         `hcl:"queue_size,optional"`
 	QoS            *int                         `hcl:"qos,optional"`
 	HandleRetained *bool                        `hcl:"handle_retained,optional"`
@@ -120,6 +121,7 @@ type builtMQTTSubscriberSpec struct {
 	subscriber     bus.Subscriber
 	handleRetained bool
 	sharedGroup    string
+	onDecodeError  wire.DecodeErrorHook
 }
 
 // MQTTPublisherProxy is a config-time bus.Subscriber that forwards OnEvent to
@@ -221,6 +223,7 @@ func (c *MQTTClientWrapper) Start() error {
 			WithHandleRetained(spec.handleRetained).
 			WithSharedGroup(spec.sharedGroup).
 			WithWireFormat(c.wireFormat).
+			WithDecodeErrorHook(spec.onDecodeError).
 			WithMeterProvider(c.meterProvider).
 			WithTracerProvider(c.tracerProvider).
 			WithLogger(c.logger)
@@ -648,6 +651,8 @@ func buildSubscriberSpec(config *cfg.Config, clientName string, def MQTTSubscrib
 		name:           def.Name,
 		handleRetained: true,
 		sharedGroup:    def.SharedGroup,
+		onDecodeError: cfg.MakeDecodeErrorHook(config, def.OnDecodeError,
+			fmt.Sprintf("mqtt receiver %q", def.Name)),
 	}
 	if def.HandleRetained != nil {
 		spec.handleRetained = *def.HandleRetained

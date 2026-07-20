@@ -44,6 +44,7 @@ type SubscriberDef struct {
 	Subscriber    hcl.Expression           `hcl:"subscriber,optional"`
 	Action        hcl.Expression           `hcl:"action,optional"`
 	Transforms    hcl.Expression           `hcl:"transforms,optional"`
+	OnDecodeError hcl.Expression           `hcl:"on_decode_error,optional"`
 	QueueSize     *int                     `hcl:"queue_size,optional"`
 	Subscriptions []ChannelSubscriptionDef `hcl:"channel_subscription,block"`
 	DefRange      hcl.Range                `hcl:",def_range"`
@@ -300,6 +301,8 @@ func buildSubscriber(config *cfg.Config, connector redisclient.RedisConnector, c
 		WithClientName(clientName).
 		WithTarget(target).
 		WithWireFormat(wf).
+		WithDecodeErrorHook(cfg.MakeDecodeErrorHook(config, def.OnDecodeError,
+			fmt.Sprintf("redis_pubsub receiver %q", def.Name))).
 		WithLogger(config.Logger).
 		WithMeterProvider(mp).
 		WithTracerProvider(tp)

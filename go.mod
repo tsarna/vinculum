@@ -39,21 +39,21 @@ require (
 	github.com/tsarna/functy v0.11.0
 	github.com/tsarna/geo-cty-funcs v0.4.0
 	github.com/tsarna/go-structdiff v0.2.1
-	github.com/tsarna/go2cty2go v0.1.3
+	github.com/tsarna/go2cty2go v0.2.0
 	github.com/tsarna/hcl-jqfunc v0.1.4
 	github.com/tsarna/rand-cty-funcs v0.2.0
 	github.com/tsarna/rich-cty-types v0.5.1
 	github.com/tsarna/sqid-cty-funcs v0.2.0
 	github.com/tsarna/time-cty-funcs v0.4.0
 	github.com/tsarna/vinculum-bus v0.15.1
-	github.com/tsarna/vinculum-kafka v0.10.0
-	github.com/tsarna/vinculum-mqtt v0.8.1
-	github.com/tsarna/vinculum-rabbitmq v0.1.0
-	github.com/tsarna/vinculum-redis v0.3.1
+	github.com/tsarna/vinculum-kafka v0.11.0
+	github.com/tsarna/vinculum-mqtt v0.9.0
+	github.com/tsarna/vinculum-rabbitmq v0.2.0
+	github.com/tsarna/vinculum-redis v0.4.0
 	github.com/tsarna/vinculum-sns v0.3.0
-	github.com/tsarna/vinculum-sqs v0.3.1
+	github.com/tsarna/vinculum-sqs v0.4.0
 	github.com/tsarna/vinculum-vws v0.13.0
-	github.com/tsarna/vinculum-wire v0.2.1
+	github.com/tsarna/vinculum-wire v0.4.0
 	github.com/twmb/franz-go v1.21.5
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260715165438-dd56926b16a1
 	github.com/twmb/franz-go/plugin/kotel v1.7.0

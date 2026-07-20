@@ -201,8 +201,61 @@ client "sqs_receiver" "tasks" {
 | `auto_delete` | bool | Delete messages after successful delivery. Default: `true`. |
 | `concurrency` | int | Number of concurrent polling goroutines. Default: 1. |
 | `wire_format` | expression | Wire format for deserialization. Default: `"auto"`. |
+| `on_decode_error` | expression | Evaluated when an inbound body fails to deserialize. Observes only. See [Decode failures](#decode-failures). |
 | `metrics` | expression | Metrics backend reference. |
 | `tracing` | expression | Tracing backend reference. |
+
+### Decode failures
+
+The configured `wire_format` is a **contract**. When an inbound body fails to
+deserialize, the message is *not* delivered to the subscriber as a raw string
+and is *not* deleted from the queue.
+
+> **Configure a redrive policy.** Because the message is not deleted, it
+> becomes visible again after the visibility timeout and is redelivered
+> indefinitely. Attach an SQS
+> [redrive policy](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html)
+> so a persistently malformed message lands in a dead-letter queue instead of
+> cycling forever. Vinculum cannot see the queue's redrive policy, so it cannot
+> warn you about this at config time.
+
+Set `on_decode_error` to observe the failure. The hook cannot suppress it;
+errors inside the hook are logged and otherwise ignored.
+
+```hcl
+client "sqs_receiver" "in" {
+  queue_url   = "https://sqs.us-east-1.amazonaws.com/123456789012/events"
+  wire_format = "json"
+  action      = send(ctx, bus.main, ctx.topic, ctx.msg)
+
+  on_decode_error = log::error("bad body", {
+    queue      = ctx.queue,
+    message_id = ctx.message_id,
+    error      = ctx.error,
+    raw        = tostring(ctx.raw),
+  })
+}
+```
+
+**Hook context variables:**
+
+| Variable | Description |
+|---|---|
+| `ctx.raw` | The undecoded body, as a [`bytes`](functions.md) object |
+| `ctx.error` | The deserialize error message |
+| `ctx.wire_format` | The configured format name |
+| `ctx.topic` | The queue name |
+| `ctx.fields` | Fields extracted from SQS message and system attributes |
+| `ctx.queue` | The queue name |
+| `ctx.message_id` | The SQS message ID, when present |
+
+Use `wire_format = "auto_bytes"` if you want best-effort decoding instead: it
+decodes JSON like `auto` and yields a [`bytes`](functions.md) value for anything
+it can't parse. `auto` behaves the same but yields a string — pick whichever
+type your handler wants. Neither ever fails to decode.
+
+> **Changed in 0.44.0.** Earlier releases logged a warning and delivered the
+> raw string. See [deprecations](deprecations.md#tolerant-wire-format-decoding).
 
 ### System attributes
 

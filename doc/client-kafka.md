@@ -44,7 +44,7 @@ client "kafka" "events" {
   max_records = 10000      # max buffered records before ProduceSync blocks
 
   # Wire format for payload serialization/deserialization (default: "auto")
-  # wire_format = "json"     # auto | json | string | bytes
+  # wire_format = "json"     # auto | auto_bytes | json | string | bytes
 
   # Connection timeouts
   dial_timeout     = "10s"   # default: 10s
@@ -294,6 +294,62 @@ receiver.
 everything else becomes a string. Use `wire_format = "json"` for strict JSON
 decoding, or `"string"`/`"bytes"` for raw passthrough. Kafka record headers
 become the `fields` map.
+
+#### Decode failures
+
+The configured `wire_format` is a **contract**. When an inbound payload fails
+to deserialize, the record is treated as failed — it is *not* delivered to the subscriber as raw
+bytes.
+
+> **Configure `dlq_topic`.** A failed record's offset is not committed. With
+> a `dlq_topic` set, the record is routed there and the offset advances. Without
+> one, the consumer re-fetches the same record forever and the partition never
+> makes progress — every later message is starved. Vinculum emits a config-time
+> warning when a receiver combines a strict `wire_format` with no `dlq_topic`.
+
+Set `on_decode_error` to observe the failure (log it, publish it to a
+dead-letter topic, increment a counter). The hook cannot suppress the failure;
+errors inside it are logged and otherwise ignored.
+
+```hcl
+receiver "in" {
+  group_id  = "g1"
+  dlq_topic = "events-dlq"
+  subscription "events" { vinculum_topic = "events" }
+  action    = send(ctx, bus.main, ctx.topic, ctx.msg)
+
+  on_decode_error = log::error("bad record", {
+    topic     = ctx.topic,
+    partition = ctx.partition,
+    offset    = ctx.offset,
+    error     = ctx.error,
+  })
+}
+```
+
+**Hook context variables:**
+
+| Variable | Description |
+|---|---|
+| `ctx.raw` | The undecoded payload, as a [`bytes`](functions.md) object |
+| `ctx.error` | The deserialize error message |
+| `ctx.wire_format` | The configured format name (`"json"`, …) |
+| `ctx.topic` | Best-effort vinculum topic |
+| `ctx.fields` | Fields extracted before the failure |
+| `ctx.topic` | The Kafka topic |
+| `ctx.partition` | The partition, as a string |
+| `ctx.offset` | The record offset, as a string |
+| `ctx.key` | The record key, when present |
+
+
+Use `wire_format = "auto_bytes"` if you want best-effort decoding instead: it
+decodes JSON like `auto` and yields a [`bytes`](functions.md) value for anything
+it can't parse. `auto` behaves the same but yields a string — pick whichever
+type your handler wants. Neither ever fails to decode.
+
+> **Changed in 0.44.0.** Earlier releases logged a warning and delivered the
+> raw bytes. See [deprecations](deprecations.md#tolerant-wire-format-decoding).
+
 
 **Static topic:**
 ```hcl

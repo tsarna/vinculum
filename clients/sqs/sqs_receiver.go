@@ -27,6 +27,7 @@ type SQSReceiverDefinition struct {
 	Subscriber        hcl.Expression               `hcl:"subscriber,optional"`
 	Action            hcl.Expression               `hcl:"action,optional"`
 	Transforms        hcl.Expression               `hcl:"transforms,optional"`
+	OnDecodeError     hcl.Expression               `hcl:"on_decode_error,optional"`
 	QueueSize         *int                         `hcl:"queue_size,optional"`
 	Baggage           *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
 	VinculumTopic     hcl.Expression               `hcl:"vinculum_topic,optional"`
@@ -149,6 +150,8 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 		WithQueueURL(queueURL).
 		WithSubscriber(target).
 		WithWireFormat(ctyWF).
+		WithDecodeErrorHook(cfg.MakeDecodeErrorHook(config, def.OnDecodeError,
+			fmt.Sprintf("sqs receiver %q", clientName))).
 		WithMeterProvider(mp).
 		WithLogger(config.Logger).
 		WithTracerProvider(tp)

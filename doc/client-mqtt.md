@@ -64,7 +64,7 @@ client "mqtt" "iot" {
   on_disconnect = send(ctx, bus.main, "mqtt/disconnected", {client = "iot"})
 
   # Wire format for payload serialization/deserialization (default: "auto")
-  # wire_format = "json"     # auto | json | string | bytes
+  # wire_format = "json"     # auto | auto_bytes | json | string | bytes
 
   # Named sender blocks (zero or more)
   sender "main" { ... }
@@ -329,6 +329,53 @@ passthrough.
 
 MQTT 5 user properties become `fields["key"] = "value"` (last value wins for
 duplicate keys).
+
+#### Decode failures
+
+The configured `wire_format` is a **contract**. When an inbound payload fails
+to deserialize, the message is dropped — it is *not* delivered to the subscriber as raw
+bytes.
+
+MQTT has no negative acknowledgement, so the message is simply not
+delivered. Nothing accumulates and nothing is redelivered.
+
+Set `on_decode_error` to observe the failure (log it, publish it to a
+dead-letter topic, increment a counter). The hook cannot suppress the failure;
+errors inside it are logged and otherwise ignored.
+
+```hcl
+receiver "in" {
+  topic_subscription "sensors/+deviceId/reading" {}
+  action = send(ctx, bus.main, ctx.topic, ctx.msg)
+
+  on_decode_error = log::error("bad payload", {
+    topic = ctx.topic,
+    error = ctx.error,
+    raw   = tostring(ctx.raw),
+  })
+}
+```
+
+**Hook context variables:**
+
+| Variable | Description |
+|---|---|
+| `ctx.raw` | The undecoded payload, as a [`bytes`](functions.md) object |
+| `ctx.error` | The deserialize error message |
+| `ctx.wire_format` | The configured format name (`"json"`, …) |
+| `ctx.topic` | Best-effort vinculum topic |
+| `ctx.fields` | Fields extracted before the failure |
+| `ctx.topic` | The MQTT topic the message arrived on |
+
+
+Use `wire_format = "auto_bytes"` if you want best-effort decoding instead: it
+decodes JSON like `auto` and yields a [`bytes`](functions.md) value for anything
+it can't parse. `auto` behaves the same but yields a string — pick whichever
+type your handler wants. Neither ever fails to decode.
+
+> **Changed in 0.44.0.** Earlier releases logged a warning and delivered the
+> raw bytes. See [deprecations](deprecations.md#tolerant-wire-format-decoding).
+
 
 ---
 

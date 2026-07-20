@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: wire-format decode failures are now errors on the receive side.** Every
+  messaging receiver (rabbitmq, mqtt, kafka, sqs, redis pub/sub, redis stream) used to
+  swallow a deserialize failure — log a warning, substitute the **raw bytes** for the
+  payload, and deliver the message anyway — even when the config explicitly said
+  `wire_format = "json"`. A decode failure is now fatal to the message: it is not
+  delivered, and each client applies its normal failure path.
+
+  This applies to custom formats too: any format registered by a `wire_format` block or
+  a plugin is now strict, since the client no longer catches its `Deserialize` errors.
+
+  The closest replacement is the new `wire_format = "auto_bytes"`, which decodes JSON
+  and hands back the undecoded payload as a `bytes` value otherwise; use `"auto"` if your
+  handler wants text instead. See
+  [doc/deprecations.md](doc/deprecations.md#tolerant-wire-format-decoding).
+
+  Per-client effect of a failed message:
+
+  | Client | Effect | Poison-message risk |
+  | --- | --- | --- |
+  | rabbitmq | nacked without requeue | none — dropped, or to a DLX if bound |
+  | mqtt | dropped (no ack semantics) | none |
+  | redis pub/sub | dropped (no ack) | none |
+  | kafka | offset not committed; routed to `dlq_topic` when set | **stalls the partition without `dlq_topic`** |
+  | redis stream | entry left in the PEL; dead-lettered after `dead_letter_after` | **stays pending without `dead_letter_stream`** |
+  | sqs | not deleted; visible again after the visibility timeout | **redelivers forever without an AWS redrive policy** |
+
+  Vinculum now warns at config load when a kafka or redis-stream receiver combines a
+  strict `wire_format` with no dead-letter destination.
+
+- **A payload decoded as bytes is now a `bytes` value, not a string.** Wire formats that
+  produce `[]byte` — `bytes`, and the new `auto_bytes` — previously reached VCL as a
+  string, because the cty conversion layer had no `[]byte` case and fell through to text.
+  They now become a [`bytes`](doc/functions.md) rich object, so `tostring()`, `length()`,
+  and the bytes functions dispatch correctly on them.
+
+  No data was being lost before (a cty string holds arbitrary bytes), but the type was
+  wrong. Config that did string operations directly on a `bytes`-format payload must now
+  call `tostring()` on it first.
+
+  Sending is symmetric: a `bytes` value passed to `send()` is serialized as its raw bytes
+  rather than being flattened into the object's attributes, so a payload received as
+  bytes can be forwarded unchanged.
+
+- **A decoded JSON object always has a stable type now.** Via `go2cty2go` v0.2.0, a JSON
+  object decoded into a message (`msg`) is a cty object regardless of whether its fields
+  happen to share a type. Previously an all-same-type object (e.g. `{"count":1,"total":2}`)
+  became a cty *map*, while a mixed object became an object — so the type of `msg` depended
+  on the data. That was observable: `lookup(msg, "missing", "default")` succeeded or failed
+  depending on the message's shape. Attribute and index access (`msg.field`, `msg["field"]`)
+  are unchanged; `keys(msg)` now returns a tuple rather than a list. This matches what
+  `jsondecode()` already produced.
+
+### Added
+
+- **`wire_format = "auto_bytes"`** — decodes JSON exactly like `auto`, but yields a
+  `bytes` value rather than a string when the payload isn't JSON. Intended for streams
+  carrying a mix of JSON and opaque binary, and as the closest replacement for the
+  removed tolerant-decode fallback. Like `auto`, it never fails to decode.
+
+- **`on_decode_error` on every receiver block.** An optional expression evaluated when an
+  inbound payload fails to deserialize, so failures can be logged, published to a
+  dead-letter topic, or counted. It is an *observer*: it cannot suppress the failure or
+  cause delivery, and errors inside the hook are logged and otherwise ignored. The eval
+  context exposes `ctx.raw` (a `bytes` object), `ctx.error`, `ctx.wire_format`,
+  `ctx.topic`, `ctx.fields`, plus per-client identity fields (`ctx.routing_key`,
+  `ctx.partition`, `ctx.entry_id`, …). Like `action`, it is excluded from config-load
+  dependency extraction, so a hook may reference its own client.
+
+- Deserialize failures are now recorded on each client's error counter with
+  `error.type = "deserialize"`. The mqtt and kafka error counters gained an `error.type`
+  attribute, and the sqs receiver gained a `vinculum.messaging.errors` counter (it had
+  none) that also covers subscriber and delete failures.
+
+- `hclutil.EvalContextBuilder.WithStringMapAttribute` — sets an attribute to an object of
+  strings, yielding an empty object rather than a null for an empty map.
+
 ## [0.43.0] - 2026-07-18
 
 ### Changed
