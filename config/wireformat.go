@@ -14,7 +14,9 @@ import (
 //
 // On the serialize side, if the input is a cty.Value it is converted
 // to native Go types via go2cty2go.CtyToAny before delegating; any
-// other type passes straight through to the inner WireFormat.
+// other type passes straight through to the inner WireFormat. A bytes
+// value converts to its raw []byte there (via the go2cty2go conversion
+// interface bytescty implements), so it is sent unchanged.
 //
 // On the deserialize side, the inner WireFormat's native Go output is
 // converted to a cty.Value via go2cty2go.AnyToCty — except for []byte,
@@ -33,9 +35,6 @@ const DefaultBytesContentType = "application/octet-stream"
 
 func (f *CtyWireFormat) Serialize(v any) ([]byte, error) {
 	if cv, ok := v.(cty.Value); ok {
-		if raw, ok := rawBytesFromCty(cv); ok {
-			return f.Inner.Serialize(raw)
-		}
 		native, err := go2cty2go.CtyToAny(cv)
 		if err != nil {
 			return nil, err
@@ -47,9 +46,6 @@ func (f *CtyWireFormat) Serialize(v any) ([]byte, error) {
 
 func (f *CtyWireFormat) SerializeString(v any) (string, error) {
 	if cv, ok := v.(cty.Value); ok {
-		if raw, ok := rawBytesFromCty(cv); ok {
-			return f.Inner.SerializeString(raw)
-		}
 		native, err := go2cty2go.CtyToAny(cv)
 		if err != nil {
 			return "", err
@@ -73,21 +69,6 @@ func (f *CtyWireFormat) Deserialize(b []byte) (any, error) {
 		return bytescty.BuildBytesObject(raw, DefaultBytesContentType), nil
 	}
 	return go2cty2go.AnyToCty(native)
-}
-
-// rawBytesFromCty extracts the underlying bytes from a bytes object or
-// capsule, reporting false for any other value. It lets a payload decoded
-// as bytes be sent back out unchanged rather than being flattened into
-// the object's attributes by CtyToAny.
-func rawBytesFromCty(cv cty.Value) ([]byte, bool) {
-	if cv.IsNull() || !cv.IsKnown() {
-		return nil, false
-	}
-	b, err := bytescty.GetBytesFromValue(cv)
-	if err != nil {
-		return nil, false
-	}
-	return b.Data, true
 }
 
 func (f *CtyWireFormat) Name() string {

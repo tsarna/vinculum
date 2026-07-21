@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rather than being flattened into the object's attributes, so a payload received as
   bytes can be forwarded unchanged.
 
-- **A decoded JSON object always has a stable type now.** Via `go2cty2go` v0.2.0, a JSON
+- **A decoded JSON object always has a stable type now.** A JSON
   object decoded into a message (`msg`) is a cty object regardless of whether its fields
   happen to share a type. Previously an all-same-type object (e.g. `{"count":1,"total":2}`)
   became a cty *map*, while a mixed object became an object — so the type of `msg` depended
