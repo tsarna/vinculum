@@ -71,7 +71,7 @@ jobs:
   # ── Per-arch build (native runners, push by digest, no tags yet) ─────────────
   # 6 legs (3 images × 2 arches) run concurrently, each on its native runner,
   # so arm64 is built natively rather than under QEMU emulation.
-  build:
+  docker-build:
     needs: prep
     runs-on: ${{ matrix.runner }}
     permissions:
@@ -165,7 +165,7 @@ jobs:
 
   # ── Assemble tagged multi-arch manifests from the per-arch digests ───────────
   merge:
-    needs: [prep, build]
+    needs: [prep, docker-build]
     runs-on: ubuntu-latest
     permissions:
       contents: read
