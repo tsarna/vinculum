@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-07-22
+
 ### Changed
 
 - **BREAKING: wire-format decode failures are now errors on the receive side.** Every
@@ -98,6 +100,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `hclutil.EvalContextBuilder.WithStringMapAttribute` — sets an attribute to an object of
   strings, yielding an empty object rather than a null for an empty map.
+
+### Documentation
+
+- Corrected the license stated in `README.md` from MIT to Apache 2.0, matching the
+  `LICENSE` file.
+- Added a **Getting Started** section to `README.md` covering container deployment,
+  a zero-setup `weather-mcp` example, and pulling configuration from a git repository
+  via a `.vinit` block.
+- Rounded out **Related Projects** in `README.md`: added [functy](https://github.com/tsarna/functy)
+  and [vinculum-wire](https://github.com/tsarna/vinculum-wire), plus the `rich-cty-types`,
+  `bytes-cty-type`, `url-cty-funcs`, `geo-cty-funcs`, and `barcode-cty-func` helper
+  libraries.
 
 ## [0.43.0] - 2026-07-18
 
@@ -1007,7 +1021,8 @@ vinculum-ai tool (see github.com/tsarna/vscode-vinculum)
 
 - Switched back to upstream `github.com/amir-yaghoubi/mqttpattern` after our changes were accepted
 
-[Unreleased]: https://github.com/tsarna/vinculum/compare/v0.43.0...HEAD
+[Unreleased]: https://github.com/tsarna/vinculum/compare/v0.44.0...HEAD
+[0.44.0]: https://github.com/tsarna/vinculum/compare/v0.43.0...v0.44.0
 [0.43.0]: https://github.com/tsarna/vinculum/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/tsarna/vinculum/compare/v0.41.0...v0.42.0
 [0.41.0]: https://github.com/tsarna/vinculum/compare/v0.40.0...v0.41.0
