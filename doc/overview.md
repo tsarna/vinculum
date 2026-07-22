@@ -345,4 +345,4 @@ Top-level block types:
 - `subscription` — subscribes a target to one or more topic patterns on a bus, with optional transforms and an action
 - `trigger` — time, lifecycle, or event-driven action (see [trigger.md](trigger.md))
 - `var` — mutable named value, exposed as `var.<name>` and runtime-settable via `set()` (see [config.md](config.md#var))
-- `wire_format` — declares a custom message encoder/decoder provided by a plugin (extension point; the built-in `auto`/`json`/`string`/`bytes` formats are selected via a client's `wire_format` attribute, not this block)
+- `wire_format` — declares a message encoder/decoder bound to a schema. The built-in `auto`/`json`/`string`/`bytes` formats are selected by name via a client's `wire_format` attribute (no block needed); this block declares schema-driven or plugin-provided formats, currently [`protobuf`](wire-format-protobuf.md)

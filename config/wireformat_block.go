@@ -51,6 +51,11 @@ func (h *WireFormatBlockHandler) Process(config *Config, block *hcl.Block) hcl.D
 	if diags.HasErrors() {
 		return diags
 	}
+	// gohcl.DecodeBody does not populate ,label fields from a bare body, so
+	// take the type and name from the block labels directly (the schema in
+	// blocks.go guarantees exactly two: type, name).
+	def.Type = block.Labels[0]
+	def.Name = block.Labels[1]
 	def.DefRange = block.DefRange
 
 	if _, exists := config.CtyWireFormatMap[def.Name]; exists {

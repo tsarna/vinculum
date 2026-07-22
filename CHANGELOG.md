@@ -63,6 +63,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`wire_format "protobuf"` — schema-driven Protocol Buffers encode/decode.** Declares a
+  wire format bound to a compiled `FileDescriptorSet` (`descriptor_set`), so inbound
+  payloads decode from protobuf binary into VCL values and outbound values encode back.
+  A block with `message` set is a single format; without it, the block value is an object
+  of one format per message, keyed by full name with a short-name alias when unambiguous.
+  Two representation modes: `native` (default — proto field names, rich Time/Duration/bytes
+  values, 64-bit ints as numbers) and `json` (protojson fidelity for relaying to a JSON API).
+  Well-known types (Timestamp, Duration, Struct, Any, wrappers, FieldMask, Empty) are
+  bundled — a descriptor set need not include them — and `Any` auto-unpacks when its type
+  is known. Serialize is strict (unknown fields and type mismatches error); deserialize
+  failures flow through `on_decode_error` with `DecodeError.Format = "protobuf:<message>"`.
+  Pure Go and CGO-clean, so it ships in the minimal image. See
+  [doc/wire-format-protobuf.md](doc/wire-format-protobuf.md).
+
 - **`wire_format = "auto_bytes"`** — decodes JSON exactly like `auto`, but yields a
   `bytes` value rather than a string when the payload isn't JSON. Intended for streams
   carrying a mix of JSON and opaque binary, and as the closest replacement for the

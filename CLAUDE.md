@@ -26,6 +26,7 @@ User-facing documentation lives in `doc/`. Each file covers one topic:
 | `doc/functy.md` | functy (`.cty`) language: functions, typed locals, control flow, namespaces, types, errors |
 | `doc/procedure.md` | `procedure` block (**deprecated** in favor of functy) |
 | `doc/transforms.md` | Message transform pipeline DSL (`add_topic_prefix`, `jq`, `chain`, etc.) |
+| `doc/wire-format-protobuf.md` | `wire_format "protobuf"`: schema-driven protobuf encode/decode, `native`/`json` modes, WKT/Any mapping, multi-message binding |
 | `doc/editor.md` | `editor` block: structured-text editing |
 | `doc/fsm.md` | `fsm` block: state machines |
 | `doc/trigger.md` | `trigger` block types (`cron`, `at`, `after`, `interval`, `once`, `watch`, `watchdog`, `signals`, `start`, `shutdown`, `file`) |

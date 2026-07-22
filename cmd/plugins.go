@@ -40,4 +40,5 @@ import (
 	_ "github.com/tsarna/vinculum/triggers/start"
 	_ "github.com/tsarna/vinculum/triggers/watch"
 	_ "github.com/tsarna/vinculum/triggers/watchdog"
+	_ "github.com/tsarna/vinculum/wireformats/protobuf"
 )

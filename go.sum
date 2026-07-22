@@ -269,8 +269,6 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/tsarna/barcode-cty-func v0.2.0 h1:VQFRNxsbupEHzzDe4Enc4PvpIL46OSUOaJS6Uy35WXY=
 github.com/tsarna/barcode-cty-func v0.2.0/go.mod h1:Yliu/R9drI5Kp0bBUyHqYnX60It1UdMxpl/qtotKhJI=
-github.com/tsarna/bytes-cty-type v0.2.0 h1:eVK3/ArRqyLWjEtWuzPgSWTO06QYxfxTZPW0/eaPnnY=
-github.com/tsarna/bytes-cty-type v0.2.0/go.mod h1:6mccxA2V3RLoOkntV5La6GkURL2vtBYaZegmksLopow=
 github.com/tsarna/bytes-cty-type v0.3.0 h1:J+3og2vFP/+WlmWVBfgaa9UQMrLnuGnP5PqyT34WK4w=
 github.com/tsarna/bytes-cty-type v0.3.0/go.mod h1:tUoLqLYtZw1myQxXOr6wKRAhNIX2DkH4CIu3pvoA7hU=
 github.com/tsarna/functy v0.11.0 h1:X5i+h/oYDbVPfQ3wad6HRa7NSs1LigGVBN01W0NmejQ=
@@ -279,8 +277,6 @@ github.com/tsarna/geo-cty-funcs v0.4.0 h1:sHanxz4Y3uToC1ZO2AzsSf/L+i67N7Fs2T+SHI
 github.com/tsarna/geo-cty-funcs v0.4.0/go.mod h1:s4icWA32j1xjU4L+2qWBxZIKuP0YDiLFFU4l7yOzU+Y=
 github.com/tsarna/go-structdiff v0.2.1 h1:SD30U/azJB85tH9dgNu4qVOA2bPie9e1l5EvJodMaD8=
 github.com/tsarna/go-structdiff v0.2.1/go.mod h1:SJHNQUzbdMbXBBNyOBzBsRotrWcX1jruIrhouLuNBgo=
-github.com/tsarna/go2cty2go v0.2.0 h1:elWVVhpmZ4QcFNrVTj+ojyq6DPaiZHg5Z075GPJbh7s=
-github.com/tsarna/go2cty2go v0.2.0/go.mod h1:RYrXdiw6Ukuz8z7O+ewhMRXexYpcpJmjrUVJZJ9DtKU=
 github.com/tsarna/go2cty2go v0.3.0 h1:OhwtKQS8iFRWYGo2lAaNyn6TMiB4OsQXDDJpoBFsxjc=
 github.com/tsarna/go2cty2go v0.3.0/go.mod h1:RYrXdiw6Ukuz8z7O+ewhMRXexYpcpJmjrUVJZJ9DtKU=
 github.com/tsarna/hcl-jqfunc v0.1.4 h1:RM6XtbsB/+vBmt3xyHrFcUQ9CBtoTyvH+f8cThFt4T0=

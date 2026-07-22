@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package acme.orders.v1;
+
+import "google/protobuf/timestamp.proto";
+
+enum Status {
+  STATUS_UNKNOWN = 0;
+  ACTIVE = 1;
+  CLOSED = 2;
+}
+
+message Order {
+  int64 id = 1;
+  string name = 2;
+  bool active = 3;
+  double amount = 4;
+  Status status = 5;
+  repeated string tags = 6;
+  map<string, string> attrs = 7;
+  google.protobuf.Timestamp created = 8;
+  optional string note = 9;
+  bytes blob = 10;
+}
