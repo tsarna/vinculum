@@ -13,37 +13,28 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build-and-push:
+  # ── Shared metadata ──────────────────────────────────────────────────────────
+  # Computed once and consumed by every matrix leg below, so the tag-vs-SHA
+  # logic lives in exactly one place.
+  prep:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
+    outputs:
+      # The go-installable ref of github.com/tsarna/vinculum (tag for tag
+      # builds, commit SHA for branch builds — resolves to a pseudo-version).
+      ref: ${{ steps.ref.outputs.ref }}
+      # Semver version string (empty for branch builds) used as the VERSION
+      # build-arg; matches docker/metadata-action's {{version}}.
+      version: ${{ steps.meta.outputs.version }}
+      build_time: ${{ steps.build_time.outputs.time }}
+      # The image tag the post-push smoke gate pulls and tests.
+      smoke_tag: ${{ steps.smoke_tag.outputs.tag }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Compute build timestamp
         id: build_time
         run: echo "time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-      # The default (alpine) image installs the host binary as a versioned
-      # Go module so it is ABI-compatible with dependency-built plugins (see
-      # Dockerfile). Tag builds use the tag (vX.Y.Z); branch builds use the
-      # commit SHA, which resolves to a pseudo-version.
+      # Tag builds use the tag (vX.Y.Z); branch builds use the commit SHA,
+      # which resolves to a pseudo-version.
       - name: Compute vinculum module ref
         id: ref
         run: |
@@ -53,9 +44,8 @@ jobs:
             echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           fi
 
-      # The image tag the post-push smoke gate will pull and test. For a tag
-      # build this is the semver without the leading "v" (matches the
-      # {{version}} tag produced by docker/metadata-action).
+      # For a tag build this is the semver without the leading "v" (matches
+      # the {{version}} tag produced by docker/metadata-action).
       - name: Compute smoke-test image tag
         id: smoke_tag
         run: |
@@ -68,29 +58,160 @@ jobs:
             echo "tag=latest" >> "$GITHUB_OUTPUT"
           fi
 
-      # ── Tag strategy ─────────────────────────────────────────────────────
-      # main      → :latest        (minimal: :latest-minimal)
-      # develop   → :dev           (minimal: :dev-minimal)
-      # v1.2.3    → :1.2.3, :1.2, :1  (minimal: :1.2.3-minimal, ...)
-      - name: Docker metadata (alpine)
+      # Only needed for the {{version}} string exposed as VERSION; the tag
+      # rules themselves are re-derived per image in the merge job.
+      - name: Docker metadata (version)
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ env.IMAGE_NAME }}
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/develop' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
-      - name: Docker metadata (minimal)
-        id: meta-minimal
+  # ── Per-arch build (native runners, push by digest, no tags yet) ─────────────
+  # 6 legs (3 images × 2 arches) run concurrently, each on its native runner,
+  # so arm64 is built natively rather than under QEMU emulation.
+  build:
+    needs: prep
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # alpine (plugin-capable, cgo/musl) → ghcr.io/<owner>/vinculum
+          - image: alpine
+            file: Dockerfile
+            image_ref: ghcr.io/${{ github.repository_owner }}/vinculum
+            platform: amd64
+            runner: ubuntu-24.04
+          - image: alpine
+            file: Dockerfile
+            image_ref: ghcr.io/${{ github.repository_owner }}/vinculum
+            platform: arm64
+            runner: ubuntu-24.04-arm
+          # minimal (scratch, static) → shares ghcr.io/<owner>/vinculum repo,
+          # gets the -minimal tag suffix in the merge job.
+          - image: minimal
+            file: Dockerfile.minimal
+            image_ref: ghcr.io/${{ github.repository_owner }}/vinculum
+            platform: amd64
+            runner: ubuntu-24.04
+          - image: minimal
+            file: Dockerfile.minimal
+            image_ref: ghcr.io/${{ github.repository_owner }}/vinculum
+            platform: arm64
+            runner: ubuntu-24.04-arm
+          # build (plugin build environment) → ghcr.io/<owner>/vinculum-build
+          - image: build
+            file: Dockerfile.build
+            image_ref: ghcr.io/${{ github.repository_owner }}/vinculum-build
+            platform: amd64
+            runner: ubuntu-24.04
+          - image: build
+            file: Dockerfile.build
+            image_ref: ghcr.io/${{ github.repository_owner }}/vinculum-build
+            platform: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The build image only declares VINCULUM_VERSION; the runtime images
+      # declare VERSION/COMMIT/BUILD_TIME (+ VINCULUM_REF for alpine). Unused
+      # build-args only warn, so passing the union is harmless.
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          platforms: linux/${{ matrix.platform }}
+          build-args: |
+            VERSION=${{ needs.prep.outputs.version }}
+            COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ needs.prep.outputs.build_time }}
+            VINCULUM_REF=${{ needs.prep.outputs.ref }}
+            VINCULUM_VERSION=${{ needs.prep.outputs.ref }}
+          outputs: type=image,name=${{ matrix.image_ref }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.platform }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.image }}-${{ matrix.platform }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ── Assemble tagged multi-arch manifests from the per-arch digests ───────────
+  merge:
+    needs: [prep, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── Tag strategy ─────────────────────────────────────────────────
+          # main    → :latest        (minimal: :latest-minimal)
+          # develop → :dev           (minimal: :dev-minimal)
+          # v1.2.3  → :1.2.3, :1.2, :1  (minimal: :1.2.3-minimal, ...)
+          - image: alpine
+            image_ref: ghcr.io/${{ github.repository_owner }}/vinculum
+            flavor: ""
+          - image: minimal
+            image_ref: ghcr.io/${{ github.repository_owner }}/vinculum
+            flavor: |
+              suffix=-minimal,onlatest=true
+          - image: build
+            image_ref: ghcr.io/${{ github.repository_owner }}/vinculum-build
+            flavor: ""
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digests-${{ matrix.image }}-*
+          path: /tmp/digests
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ env.IMAGE_NAME }}
-          flavor: |
-            suffix=-minimal,onlatest=true
+          images: ${{ matrix.image_ref }}
+          flavor: ${{ matrix.flavor }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -98,81 +219,29 @@ jobs:
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/develop' }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
-      - name: Docker metadata (build)
-        id: meta-build
-        uses: docker/metadata-action@v6
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/vinculum-build
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/develop' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ matrix.image_ref }}@sha256:%s ' *)
 
-      - name: Build and push Alpine image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION=${{ steps.meta.outputs.version }}
-            COMMIT=${{ github.sha }}
-            BUILD_TIME=${{ steps.build_time.outputs.time }}
-            VINCULUM_REF=${{ steps.ref.outputs.ref }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=min
-
-      - name: Build and push minimal image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Dockerfile.minimal
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-minimal.outputs.tags }}
-          labels: ${{ steps.meta-minimal.outputs.labels }}
-          build-args: |
-            VERSION=${{ steps.meta.outputs.version }}
-            COMMIT=${{ github.sha }}
-            BUILD_TIME=${{ steps.build_time.outputs.time }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=min
-
-      - name: Build and push plugin build image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Dockerfile.build
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-build.outputs.tags }}
-          labels: ${{ steps.meta-build.outputs.labels }}
-          build-args: |
-            VINCULUM_VERSION=${{ steps.ref.outputs.ref }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=min
-
-    outputs:
-      # The image tag to smoke-test (semver for tags, latest/dev for branches)
-      # and the go-installable vinculum ref the plugin must require.
-      image_tag: ${{ steps.smoke_tag.outputs.tag }}
-      vinculum_ref: ${{ steps.ref.outputs.ref }}
+      - name: Inspect
+        run: |
+          docker buildx imagetools inspect \
+            ${{ matrix.image_ref }}:${{ steps.meta.outputs.version }}
 
   # Release gate: prove the just-pushed images can actually build and load a
-  # plugin via the documented container workflow. This runs after push and
-  # fails the run if the plugin does not load — catching cgo/ABI regressions
-  # before a release is treated as good. (amd64 only; same source as arm64.)
+  # plugin via the documented container workflow. This runs after the manifests
+  # are pushed and fails the run if the plugin does not load — catching cgo/ABI
+  # regressions before a release is treated as good. (amd64 only; same source
+  # as arm64.)
   plugin-smoke:
-    needs: build-and-push
+    needs: [prep, merge]
     runs-on: ubuntu-latest
     env:
-      IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
-      VINCULUM_REF: ${{ needs.build-and-push.outputs.vinculum_ref }}
+      IMAGE_TAG: ${{ needs.prep.outputs.smoke_tag }}
+      VINCULUM_REF: ${{ needs.prep.outputs.ref }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
