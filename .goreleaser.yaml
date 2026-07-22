@@ -1,0 +1,75 @@
+# GoReleaser configuration — https://goreleaser.com
+# Cross-compiles the CLI, builds archives + checksums, and cuts a GitHub
+# Release on tag push. The library/module is consumed via `go get` and needs
+# no release step; the same vX.Y.Z tag serves both.
+#
+# Binaries are built CGO_ENABLED=0 (static, cross-compiled) — identical to the
+# minimal Docker image. As with that image, these binaries CANNOT load Go
+# plugins and do NOT include the cgo sqlite3 driver. Use the alpine Docker
+# image (ghcr.io/tsarna/vinculum) if you need plugins.
+version: 2
+
+project_name: vinculum
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: vinculum
+    main: .
+    binary: vinculum
+    env:
+      - CGO_ENABLED=0
+    # Windows is unsupported: the platform/ package (unix signal handling)
+    # has build constraints that exclude all files on windows.
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/tsarna/vinculum/version.Version={{ .Version }}
+      - -X github.com/tsarna/vinculum/version.Commit={{ .Commit }}
+      - -X github.com/tsarna/vinculum/version.BuildTime={{ .CommitDate }}
+
+archives:
+  - id: vinculum
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    formats: [tar.gz]
+
+checksum:
+  name_template: checksums.txt
+
+# The release body comes from CHANGELOG.md via `gh release edit` in the release
+# workflow, so GoReleaser's own changelog generation is disabled.
+changelog:
+  disable: true
+
+release:
+  prerelease: auto
+
+# Publish a Homebrew cask to tsarna/homebrew-tap so macOS users can
+# `brew install tsarna/tap/vinculum`. Casks are macOS-only; Linux users
+# use the archives, the Docker images, or `go install`. Prerelease tags skip the
+# tap (skip_upload: auto).
+homebrew_casks:
+  - name: vinculum
+    repository:
+      owner: tsarna
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/tsarna/vinculum"
+    description: "No-code protocol bridging and message routing configured in HCL"
+    skip_upload: "auto"
+    # The macOS binaries are unsigned, so Gatekeeper quarantines them and
+    # refuses to run them. Strip the quarantine attribute on install.
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/vinculum"]
+          end
