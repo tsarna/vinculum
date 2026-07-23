@@ -34,6 +34,30 @@ See [examples/](examples/) for more (including the traffic-light intersection
 modeled entirely in config), [doc/container.md](doc/container.md) for image tags
 and mount points, and [doc/overview.md](doc/overview.md) for the full reference.
 
+### Or run the binary directly
+
+Containers are the recommended way to deploy Vinculum, but prebuilt binaries are
+also published for Linux and macOS (amd64 and arm64) with every
+[release](https://github.com/tsarna/vinculum/releases) — handy for local use and
+development. On macOS, install with Homebrew:
+
+```sh
+brew install tsarna/tap/vinculum
+```
+
+Otherwise download an archive from the
+[releases page](https://github.com/tsarna/vinculum/releases), or build from source
+with `go install github.com/tsarna/vinculum@latest`. Then point it at a directory
+of `.vcl` config:
+
+```sh
+vinculum serve /conf
+```
+
+The prebuilt binaries are statically linked, like the minimal image: they do
+**not** support Go plugins or the cgo-based SQLite driver (PostgreSQL and MySQL,
+which are pure-Go, still work). Use the container image if you need either.
+
 ### Pull configuration from git
 
 You don't have to bake config into the image. Drop a small [`.vinit`](doc/vinit.md)

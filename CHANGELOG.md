@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Prebuilt binaries and Homebrew install.** Every release now publishes
+  statically-linked `vinculum` binaries for Linux and macOS (amd64 and arm64) as
+  downloadable archives with checksums, plus a Homebrew cask:
+  `brew install tsarna/tap/vinculum`. These are an alternative to the container for
+  local use and development — the container image remains the recommended way to
+  deploy. Like the minimal image, the prebuilt binaries are statically linked and
+  do **not** support Go plugins or the cgo-based SQLite driver (PostgreSQL and
+  MySQL, which are pure-Go, still work).
+
 ## [0.44.0] - 2026-07-22
 
 ### Changed
