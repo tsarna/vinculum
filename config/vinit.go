@@ -76,6 +76,21 @@ func vinitStdlibFunctions() map[string]function.Function {
 // On any fatal diagnostic the function returns immediately; subsequent
 // blocks are not processed.
 func processVinit(sources []any, pluginPath string, logger *zap.Logger) hcl.Diagnostics {
+	return processVinitBlocks(sources, pluginPath, logger, true)
+}
+
+// ProcessVinitPlugins runs only the plugin-loading portion of the .vinit pass,
+// deliberately skipping `git` blocks (which clone and materialize repos — a
+// side effect no read-only tool should trigger). Tooling such as `fmt` calls it
+// so plugin-registered contributions (e.g. functy types via RegisterFunctyType)
+// are available when parsing/formatting, without the cost of a full Build.
+func ProcessVinitPlugins(sources []any, pluginPath string, logger *zap.Logger) hcl.Diagnostics {
+	return processVinitBlocks(sources, pluginPath, logger, false)
+}
+
+// processVinitBlocks is the shared implementation. processGit gates the git
+// materialization pass so read-only tooling can load plugins without it.
+func processVinitBlocks(sources []any, pluginPath string, logger *zap.Logger, processGit bool) hcl.Diagnostics {
 	bodies, diags := ParseVinitFiles(sources...)
 	if diags.HasErrors() {
 		return diags
@@ -114,12 +129,15 @@ func processVinit(sources []any, pluginPath string, logger *zap.Logger) hcl.Diag
 		}
 	}
 
-	// Then git blocks (in source order), with their own label namespace.
-	seenGit := make(map[string]hcl.Range)
-	for _, block := range gitBlocks {
-		diags = diags.Extend(processGitBlock(block, evalCtx, logger, seenGit))
-		if diags.HasErrors() {
-			return diags
+	// Then git blocks (in source order), with their own label namespace —
+	// unless the caller opted out (read-only tooling that must not materialize).
+	if processGit {
+		seenGit := make(map[string]hcl.Range)
+		for _, block := range gitBlocks {
+			diags = diags.Extend(processGitBlock(block, evalCtx, logger, seenGit))
+			if diags.HasErrors() {
+				return diags
+			}
 		}
 	}
 

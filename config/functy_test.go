@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"reflect"
 	"testing"
 
@@ -73,6 +74,31 @@ func TestRegisterFunctyType(t *testing.T) {
 	}
 	_, ok := config.Functions["uses_registered"]
 	assert.True(t, ok, "uses_registered (test_reg-typed param) should be registered")
+}
+
+// TestFormatFunctySourceUsesRegisteredTypes proves the guarantee behind
+// `fmt --plugin-path`: a type contributed via RegisterFunctyType — exactly what a
+// plugin's VinculumPluginInit does — lets FormatFunctySource parse and reformat a
+// .cty file whose parameter is annotated with that type. Without the registration
+// the same source is an "unknown type" and is returned unchanged (the invariant
+// that fmt never rewrites a file it cannot fully parse).
+func TestFormatFunctySourceUsesRegisteredTypes(t *testing.T) {
+	src, err := os.ReadFile("testdata/functyregistered/reg.cty")
+	require.NoError(t, err)
+
+	// Unregistered: unknown type, source returned unchanged.
+	out, diags := FormatFunctySource(src, "reg.cty")
+	assert.True(t, diags.HasErrors(), "test_reg should be unknown before registration")
+	assert.Equal(t, src, out, "unparseable source must be returned unchanged")
+
+	// Registered (as a plugin would): the file now parses and formats cleanly.
+	saved := registeredFunctyTypes
+	t.Cleanup(func() { registeredFunctyTypes = saved })
+	RegisterFunctyType("test_reg", testRegCapsuleType)
+
+	out, diags = FormatFunctySource(src, "reg.cty")
+	assert.False(t, diags.HasErrors(), "registered test_reg should let the file parse: %s", diags)
+	assert.NotEmpty(t, out)
 }
 
 // TestFunctyIgnoresExplicitNonCtyFile guards against collectFunctySources handing

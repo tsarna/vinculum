@@ -51,7 +51,7 @@ User-facing documentation lives in `doc/`. Each file covers one topic:
 ## Repository Layout
 
 ```
-cmd/            CLI commands (serve, publish, subscribe, check, plugins, version)
+cmd/            CLI commands (serve, publish, subscribe, check, fmt, plugins, version)
 config/         Core config parsing, block registries, and shared block impls
   blocks.go     BlockHandler interface + registry (GetBlockHandlers)
   server.go     Listener/Startable/HandlerServer interfaces, BaseServer,

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/hashicorp/hcl/v2"
@@ -17,4 +18,12 @@ func reportWarnings(diags hcl.Diagnostics) {
 			fmt.Fprintf(os.Stderr, "Warning: %s\n", d.Error())
 		}
 	}
+}
+
+// printDiags renders diagnostics to w with source context. files maps each
+// filename to its raw bytes so the writer can quote the offending line; a
+// zero-value *hcl.File{Bytes: src} is sufficient for the source snippet.
+func printDiags(w io.Writer, files map[string]*hcl.File, diags hcl.Diagnostics) {
+	tw := hcl.NewDiagnosticTextWriter(w, files, 0, false)
+	tw.WriteDiagnostics(diags) //nolint:errcheck
 }

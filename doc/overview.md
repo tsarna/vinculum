@@ -17,9 +17,10 @@
 13. [Examples](#examples)
 14. [Observability](#observability)
 15. [Interactive REPL](#interactive-repl)
-16. [Container Images](#container-images)
-17. [Bootstrap and Plugins](#bootstrap-and-plugins)
-18. [Block Type Reference](#block-type-reference)
+16. [Formatting](#formatting)
+17. [Container Images](#container-images)
+18. [Bootstrap and Plugins](#bootstrap-and-plugins)
+19. [Block Type Reference](#block-type-reference)
 
 ## Introduction
 
@@ -304,6 +305,38 @@ vinculum serve -i config.vcl
 See [repl.md](repl.md) for the full reference: result history (`_` / `_N`),
 session bindings, multi-line input, meta-commands, log control, and history /
 completion.
+
+## Formatting
+
+`vinculum fmt` canonically formats source files. It dispatches on extension:
+`.vcl` and `.vinit` are reformatted as HCL, and `.cty` as
+[functy](functy.md) source (the same result as `functy fmt`, but using a
+parser that knows Vinculum's host-registered types). A file that does not
+parse is reported and left unchanged — formatting never drops or reorders
+code.
+
+```
+vinculum fmt config.vcl          # print formatted source to stdout
+vinculum fmt -w ./configs/       # rewrite every .vcl/.vinit/.cty file in place
+vinculum fmt -l ./configs/       # list files whose formatting differs
+vinculum fmt --lang cty < f.cty  # format stdin (choose vcl or cty)
+```
+
+With no paths (or `-`) it reads standard input and writes to standard output;
+`--lang`/`-t` selects the language for stdin (default `vcl`). Directories are
+walked recursively for `.vcl`/`.vinit`/`.cty` files, skipping dot-directories.
+
+If a `.cty` file annotates a parameter with a functy type contributed by a
+[plugin](plugins.md), pass `--plugin-path` so the plugin loads first and the
+type resolves (otherwise that file is reported as having an unknown type and
+left unchanged). Only the plugin bootstrap runs — no `git` blocks are
+materialized. `--plugin-path` applies to file/directory mode only (the `.vinit`
+plugin blocks are discovered from the paths given); it has no effect when
+formatting stdin.
+
+```
+vinculum fmt --plugin-path /plugins ./configs/
+```
 
 ## Container Images
 

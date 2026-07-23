@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`vinculum fmt` — canonically format config and functy source.** Formats files by
+  extension: `.vcl`/`.vinit` as HCL (2-space, matching `terraform fmt`) and `.cty` as
+  functy source. With no paths (or `-`) it formats stdin to stdout (`--lang` picks the
+  language, default `vcl`); given files or directories (walked recursively for
+  `.vcl`/`.vinit`/`.cty`, skipping dot-directories) it prints the result, rewrites in
+  place with `-w`, or lists files that differ with `-l`. A file that does not parse is
+  reported and left byte-for-byte unchanged — formatting never drops or reorders code.
+  Pass `--plugin-path` so `.cty` files annotated with plugin-registered functy types
+  resolve (only the plugin bootstrap runs — no `git` blocks are materialized). This
+  applies to file/directory mode only, not stdin. See [`doc/overview.md`](doc/overview.md).
 - **Prebuilt binaries and Homebrew install.** Every release now publishes
   statically-linked `vinculum` binaries for Linux and macOS (amd64 and arm64) as
   downloadable archives with checksums, plus a Homebrew cask:

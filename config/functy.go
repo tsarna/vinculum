@@ -216,6 +216,15 @@ func newFunctyParser() *functy.Parser {
 	return p
 }
 
+// FormatFunctySource canonically formats functy (.cty) source, using a parser
+// configured with Vinculum's registered named types and externs so type
+// annotations referencing host types (ctx, time, bus, …) resolve. On any parse
+// error it returns src unchanged together with the diagnostics — functy's
+// invariant that a file which does not fully parse is never reformatted.
+func FormatFunctySource(src []byte, filename string) ([]byte, hcl.Diagnostics) {
+	return newFunctyParser().Format(src, filename)
+}
+
 // newFunctyState builds the functy parser configured with Vinculum's named types.
 // It is created during Build() even when there are no .cty sources, so the type
 // resolver is available to VCL `var` type constraints; result/sources are
