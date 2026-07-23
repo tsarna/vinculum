@@ -251,7 +251,12 @@ jobs:
           set -euxo pipefail
           mkdir -p out
           cp -r testdata/plugin-smoke smoke
+          # GOPRIVATE bypasses the proxy/sumdb for the vinculum module, which
+          # may lag or 500 on the just-pushed pseudo-version (same rationale as
+          # Dockerfile). Without it, `go mod tidy` can fail on a transient
+          # sum.golang.org error while verifying our own fresh commit.
           docker run --rm \
+            -e GOPRIVATE=github.com/tsarna/vinculum \
             -v "$PWD/smoke":/plugin -w /plugin \
             -v "$PWD/out":/out \
             "ghcr.io/${{ env.IMAGE_NAME }}-build:${IMAGE_TAG}" sh -euc "
