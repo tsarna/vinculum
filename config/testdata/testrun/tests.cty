@@ -1,0 +1,17 @@
+test "runs in testing mode" {
+    assert(sys.testing == true)
+}
+
+test "router rewrites in/ to out/" {
+    send(ctx, bus.main, "in/thing", "hello")
+    eventually(get(var.last) == "hello", "2s")
+}
+
+test "unmatched topics are not routed" {
+    send(ctx, bus.main, "other/thing", "x")
+    never(get(var.last) == "x", "100ms")
+}
+
+test "work in progress" {
+    skip("not ready")
+}

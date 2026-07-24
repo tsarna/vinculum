@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"os"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 	richcty "github.com/tsarna/rich-cty-types"
 	timecty "github.com/tsarna/time-cty-funcs"
 	urlcty "github.com/tsarna/url-cty-funcs"
+	"github.com/tsarna/vinculum/hclutil"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
@@ -276,6 +278,41 @@ func (s *functyState) compile(sources []functy.Source, evalCtxFn func() *hcl.Eva
 	compiled, compileDiags := result.CompileUnits(evalCtxFn)
 	s.compiled = compiled
 	return compiled.Funcs, diags.Extend(compileDiags)
+}
+
+// FunctyTestCount reports how many functy `test` blocks the compiled config
+// declares. Used by `vinculum test` to distinguish "no tests" from "all tests
+// filtered out" (for --fail-if-no-tests).
+func (c *Config) FunctyTestCount() int {
+	if c.functyState == nil || c.functyState.result == nil {
+		return 0
+	}
+	return len(c.functyState.result.Tests)
+}
+
+// RunTests runs the config's functy `test` blocks against the live runtime eval
+// context. The context is augmented with a top-level `ctx` (backed by goctx, and
+// cancelable through it) so test bodies can call the many context-taking runtime
+// functions — send, http, log::*, MCP builders, etc. functy's RunTestsMatching
+// layers its own test-only builtins (skip/eventually/never) on top, so those
+// resolve throughout each test's call graph while staying absent from a normal
+// serve. filter==nil runs all tests; a nil slice (no error) is returned when the
+// config declares no `test` blocks.
+//
+// Conditions that observe async state must read it live — e.g. get(var.x) — so
+// re-evaluation by eventually/never sees mutations by subscription actions: a VCL
+// `var` is a capsule over a shared *types.Variable, dereferenced at each get().
+func (c *Config) RunTests(goctx context.Context, filter func(name string) bool) ([]functy.TestOutcome, error) {
+	if c.functyState == nil || c.functyState.result == nil || len(c.functyState.result.Tests) == 0 {
+		return nil, nil
+	}
+
+	testCtx, err := hclutil.NewEvalContext(goctx).BuildEvalContext(c.EvalCtx())
+	if err != nil {
+		return nil, err
+	}
+
+	return c.functyState.result.RunTestsMatching(func() *hcl.EvalContext { return testCtx }, filter), nil
 }
 
 // evalNamespacedConsts evaluates the *namespaced* (ns != "") functy top-level consts

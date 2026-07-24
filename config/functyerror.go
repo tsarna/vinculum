@@ -42,6 +42,14 @@ func (c *Config) functyFileMap() map[string]*hcl.File {
 	return c.functyState.files
 }
 
+// FunctyFiles exposes the .cty source file map (filename → bytes) so a caller
+// such as `vinculum test` can render a functy test failure's diagnostics with
+// source context. Returns nil when there are no .cty sources (the hcl diagnostic
+// writer tolerates a nil map).
+func (c *Config) FunctyFiles() map[string]*hcl.File {
+	return c.functyFileMap()
+}
+
 // ActionError renders an action/expression evaluation failure as a zap field
 // (keyed "error", like zap.Error) for logging via UserLogger. When the failure
 // carries a functy throw, it is rendered against the .cty source — the failing

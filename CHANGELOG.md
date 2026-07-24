@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`vinculum test` — run a configuration's `.cty` test blocks against the running
+  system.** Boots the full server exactly as `vinculum serve` would — buses, servers,
+  subscriptions, triggers — runs the functy `test "..." { ... }` blocks embedded in the
+  configuration's `.cty` files, then shuts down, exiting non-zero if any test failed.
+  Because the tests execute inside a live Vinculum they are integration tests, not just
+  unit tests: they can reference `bus.*`/`client.*`/`server.*`, `send()` messages, and
+  assert on the resulting state. A new **`sys.testing`** ambient bool is true only under
+  this command, so a configuration can switch real external I/O off while under test
+  (`disabled = sys.testing`) and gate recording sinks on (`disabled = !sys.testing`).
+  Test bodies get an injected `ctx` so they can call the context-taking runtime
+  functions (`send`, `http`, `log::*`, …). Asynchronous effects are asserted with
+  functy's `eventually(cond, timeout)` / `never(cond, timeout)` polling assertions,
+  which observe live `var` state through the capsule — read it with `get(var.x)`, since
+  a bare `var.x` compares the capsule and never converges. Flags: `--run PATTERN`
+  (regex over test descriptions), `-v`, `--json` (machine-readable report on stdout),
+  `--timeout`, `--fail-if-no-tests`, and `--no-serve` to skip starting the runtime for
+  pure function unit tests. Requires functy v0.12.0. See
+  [`doc/testing.md`](doc/testing.md).
 - **`vinculum fmt` — canonically format config and functy source.** Formats files by
   extension: `.vcl`/`.vinit` as HCL (2-space, matching `terraform fmt`) and `.cty` as
   functy source. With no paths (or `-`) it formats stdin to stdout (`--lang` picks the
@@ -27,6 +45,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deploy. Like the minimal image, the prebuilt binaries are statically linked and
   do **not** support Go plugins or the cgo-based SQLite driver (PostgreSQL and
   MySQL, which are pure-Go, still work).
+
+### Fixed
+
+- **An explicitly named `.cty` or `.vinit` file is no longer parsed as VCL.** The
+  `.vcl` pass parsed any file given by path regardless of extension, so naming a
+  functy or bootstrap file directly (e.g. `vinculum test config.vcl tests.cty`)
+  failed with HCL syntax errors. Those extensions have their own passes and are now
+  skipped by the VCL pass; a directory argument was already filtered by extension
+  and is unaffected.
 
 ## [0.44.0] - 2026-07-22
 

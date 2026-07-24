@@ -30,7 +30,7 @@ func TestSys(t *testing.T) {
 }
 
 func TestGetSysObject(t *testing.T) {
-	val := ambient.GetSysObject("", "", nil)
+	val := ambient.GetSysObject("", "", nil, false)
 
 	allSigs := platform.AllSignals()
 	sigAttrTypes := make(map[string]cty.Type, len(allSigs)+1)
@@ -58,6 +58,7 @@ func TestGetSysObject(t *testing.T) {
 		"cwd":        cty.String,
 		"homedir":    cty.String,
 		"tempdir":    cty.String,
+		"testing":    cty.Bool,
 		"filepath":   cty.String,
 		"writepath":  cty.String,
 		"starttime":  timecty.TimeCapsuleType,
@@ -88,22 +89,24 @@ func TestGetSysObject(t *testing.T) {
 	// tempdir should match
 	assert.Equal(t, os.TempDir(), attrs["tempdir"].AsString())
 
-	// filepath and writepath empty when not set
+	// filepath and writepath empty when not set; testing false by default
 	assert.Equal(t, "", attrs["filepath"].AsString())
 	assert.Equal(t, "", attrs["writepath"].AsString())
+	assert.False(t, attrs["testing"].True(), "sys.testing should be false when not under test")
 
-	// filepath and writepath reflect values when set
-	val2 := ambient.GetSysObject("/tmp/myfiles", "/tmp/myfiles/out", []string{"readfiles", "writefiles"})
+	// filepath and writepath reflect values when set; testing reflects the flag
+	val2 := ambient.GetSysObject("/tmp/myfiles", "/tmp/myfiles/out", []string{"readfiles", "writefiles"}, true)
 	attrs2 := val2.AsValueMap()
 	assert.Equal(t, "/tmp/myfiles", attrs2["filepath"].AsString())
 	assert.Equal(t, "/tmp/myfiles/out", attrs2["writepath"].AsString())
+	assert.True(t, attrs2["testing"].True(), "sys.testing should be true when built for testing")
 
 	// starttime should be in the past and stable across calls
 	before := time.Now()
 	st, err := timecty.GetTime(attrs["starttime"])
 	assert.NoError(t, err)
 	assert.True(t, !st.After(before), "starttime should not be in the future")
-	st2, _ := timecty.GetTime(ambient.GetSysObject("", "", nil).AsValueMap()["starttime"])
+	st2, _ := timecty.GetTime(ambient.GetSysObject("", "", nil, false).AsValueMap()["starttime"])
 	assert.True(t, st.Equal(st2), "starttime should be stable across GetSysObject calls")
 
 	// boottime should be at or before starttime

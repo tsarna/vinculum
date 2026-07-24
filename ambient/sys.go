@@ -25,7 +25,7 @@ var processStartTime = time.Now()
 
 func init() {
 	cfg.RegisterAmbientProvider("sys", func(c *cfg.Config) cty.Value {
-		return GetSysObject(c.BaseDir, c.WriteDir, c.EnabledFeatureNames())
+		return GetSysObject(c.BaseDir, c.WriteDir, c.EnabledFeatureNames(), c.Testing)
 	})
 }
 
@@ -35,7 +35,9 @@ func init() {
 // the --file-path flag, or empty string if it was not specified.
 // writeDir is the value of the --write-path flag, or empty string if not set.
 // features is the sorted list of enabled feature flag names.
-func GetSysObject(baseDir string, writeDir string, features []string) cty.Value {
+// testing is true when the config is built for `vinculum test`, projected as
+// sys.testing so a config can gate external I/O off under test.
+func GetSysObject(baseDir string, writeDir string, features []string, testing bool) cty.Value {
 	sysMap := make(map[string]cty.Value)
 
 	// Process ID
@@ -106,6 +108,10 @@ func GetSysObject(baseDir string, writeDir string, features []string) cty.Value 
 	sysMap["homedir"] = cty.StringVal(homedir)
 
 	sysMap["tempdir"] = cty.StringVal(os.TempDir())
+
+	// True when running under `vinculum test`; use in `disabled = sys.testing`
+	// to switch off real external connections while a config is under test.
+	sysMap["testing"] = cty.BoolVal(testing)
 
 	// Base directory for file functions (--file-path flag); empty if not set
 	sysMap["filepath"] = cty.StringVal(baseDir)

@@ -19,6 +19,7 @@ type ConfigBuilder struct {
 	features      map[string]string
 	blockHandlers map[string]BlockHandler
 	pluginPath    string
+	testing       bool
 }
 
 type Startable interface {
@@ -60,6 +61,10 @@ type Config struct {
 	Features   map[string]string
 	BaseDir    string
 	WriteDir   string
+	// Testing is true when the config is built for `vinculum test`. It is
+	// projected to VCL as the `sys.testing` ambient bool, so a config can gate
+	// real external I/O off under test (e.g. `disabled = sys.testing`).
+	Testing bool
 
 	SigActions       *SignalActionHandler
 	Startables       []Startable
@@ -139,6 +144,15 @@ func (c *ConfigBuilder) WithFeature(name, value string) *ConfigBuilder {
 	return c
 }
 
+// WithTesting marks the build as a test run (`vinculum test`). When true, the
+// `sys.testing` ambient is true, letting a config disable real external
+// connections under test via `disabled = sys.testing`. Must be set before
+// Build(), since `sys.testing` is consumed while blocks are processed.
+func (c *ConfigBuilder) WithTesting(testing bool) *ConfigBuilder {
+	c.testing = testing
+	return c
+}
+
 func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	userLogger := cb.logger
 	if userLogger != nil {
@@ -154,6 +168,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		Features:         cb.features,
 		BaseDir:          cb.features["readfiles"],
 		WriteDir:         cb.features["writefiles"],
+		Testing:          cb.testing,
 		Constants:        make(map[string]cty.Value),
 		SigActions:       NewSignalActionHandler(cb.logger, userLogger),
 		Buses:            make(map[string]bus.EventBus),

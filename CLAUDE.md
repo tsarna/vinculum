@@ -44,6 +44,7 @@ User-facing documentation lives in `doc/`. Each file covers one topic:
 | `doc/plugins.md` | `plugin` block, `--plugin-path`, ABI rules, container deployment, `Register*` extension points |
 | `doc/git.md` | `git` block: clone-and-materialize, HTTP/SSH auth, revision pinning, destination ownership |
 | `doc/repl.md` | Interactive REPL (`serve -i`): live expression eval, result history, session bindings, meta-commands, log control |
+| `doc/testing.md` | `vinculum test`: run `.cty` `test` blocks against a booted runtime, `sys.testing` gating, `ctx` injection, `eventually`/`never` async assertions, `--no-serve` fast path |
 | `doc/container.md` | Published Docker images: `vinculum`, `vinculum:*-minimal`, `vinculum-build` |
 
 ---
@@ -51,7 +52,7 @@ User-facing documentation lives in `doc/`. Each file covers one topic:
 ## Repository Layout
 
 ```
-cmd/            CLI commands (serve, publish, subscribe, check, fmt, plugins, version)
+cmd/            CLI commands (serve, test, publish, subscribe, check, fmt, plugins, version)
 config/         Core config parsing, block registries, and shared block impls
   blocks.go     BlockHandler interface + registry (GetBlockHandlers)
   server.go     Listener/Startable/HandlerServer interfaces, BaseServer,

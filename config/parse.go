@@ -10,6 +10,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
+	"github.com/tsarna/functy"
 )
 
 func (cb *ConfigBuilder) GetBlocks(bodies []hcl.Body) (hcl.Blocks, hcl.Diagnostics) {
@@ -64,11 +65,14 @@ func parseFilesWithExt(ext string, acceptBytes bool, sources ...any) ([]hcl.Body
 					return nil, diags
 				}
 				bodies = append(bodies, newBodies...)
-			} else if acceptBytes || strings.HasSuffix(v, ext) {
+			} else if strings.HasSuffix(v, ext) ||
+				(acceptBytes && !strings.HasSuffix(v, functy.Extension) && !strings.HasSuffix(v, ".vinit")) {
 				// When acceptBytes is true (.vcl pass), an explicit file
 				// path is parsed regardless of extension to preserve the
-				// original behavior. When false (.vinit pass), only files
-				// matching the extension are parsed.
+				// original behavior — except .cty and .vinit files, which
+				// have their own passes (functy compilation and the vinit
+				// bootstrap) and would fail to parse as VCL. When false
+				// (.vinit pass), only files matching the extension are parsed.
 				file, parseDiags := parser.ParseHCLFile(v)
 				diags = diags.Extend(parseDiags)
 				bodies = append(bodies, file.Body)
