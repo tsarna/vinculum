@@ -12,7 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.43.2
 	github.com/aws/aws-sdk-go-v2/config v1.32.33
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.32
-	github.com/aws/aws-sdk-go-v2/service/sns v1.42.0
+	github.com/aws/aws-sdk-go-v2/service/sns v1.42.2
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.46.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.45.2
 	github.com/coder/websocket v1.8.15
@@ -25,7 +25,6 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lestrrat-go/jwx/v2 v2.1.7
-	github.com/lestrrat-go/jwx/v4 v4.2.0
 	github.com/mattn/go-sqlite3 v1.14.48
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/prometheus/client_golang v1.24.1
