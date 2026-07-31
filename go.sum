@@ -190,7 +190,6 @@ github.com/lestrrat-go/iter v1.0.2 h1:gMXo1q4c2pHmC3dn8LzRhJfP1ceCbgSiT9lUydIzlt
 github.com/lestrrat-go/iter v1.0.2/go.mod h1:Momfcq3AnRlRjI5b5O8/G5/BvpzrhoFTZcn06fEOPt4=
 github.com/lestrrat-go/jwx/v2 v2.1.7 h1:bnYeET+S8IOyAw6W4LTc6SEeK7Xs58SKKZkR7scb3Ko=
 github.com/lestrrat-go/jwx/v2 v2.1.7/go.mod h1:exQ9ZBuN1cMLYmxwhTlHUru08ykONG0z+HbLEeDG9qo=
-github.com/lestrrat-go/jwx/v4 v4.2.0/go.mod h1:1V1wOmyFnMLltrTKXZSRMZ/GWq8UeMW1JmUaBNqD3E4=
 github.com/lestrrat-go/option v1.0.1 h1:oAzP2fvZGQKWkvHa1/SAcFolBEca1oN+mQ7eooNBEYU=
 github.com/lestrrat-go/option v1.0.1/go.mod h1:5ZHFbivi4xwXxhxY9XHDe2FHo6/Z7WWmtT7T5nBBp3I=
 github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw=
@@ -272,8 +271,8 @@ github.com/tsarna/barcode-cty-func v0.2.0 h1:VQFRNxsbupEHzzDe4Enc4PvpIL46OSUOaJS
 github.com/tsarna/barcode-cty-func v0.2.0/go.mod h1:Yliu/R9drI5Kp0bBUyHqYnX60It1UdMxpl/qtotKhJI=
 github.com/tsarna/bytes-cty-type v0.3.0 h1:J+3og2vFP/+WlmWVBfgaa9UQMrLnuGnP5PqyT34WK4w=
 github.com/tsarna/bytes-cty-type v0.3.0/go.mod h1:tUoLqLYtZw1myQxXOr6wKRAhNIX2DkH4CIu3pvoA7hU=
-github.com/tsarna/functy v0.12.0 h1:pYueWkLH2dRpHu/NHP8D42gKsXb8a0FBenpWLfLNffs=
-github.com/tsarna/functy v0.12.0/go.mod h1:ornOGRwIn6OsIf7AnYkAdNegwP57rhBWiYFpDONsnFQ=
+github.com/tsarna/functy v0.13.0 h1:oQADX7xdjyvkjyGvYe6V1cn/8a0k98RUsDT+WhoYGT8=
+github.com/tsarna/functy v0.13.0/go.mod h1:ornOGRwIn6OsIf7AnYkAdNegwP57rhBWiYFpDONsnFQ=
 github.com/tsarna/geo-cty-funcs v0.4.0 h1:sHanxz4Y3uToC1ZO2AzsSf/L+i67N7Fs2T+SHI9mZQk=
 github.com/tsarna/geo-cty-funcs v0.4.0/go.mod h1:s4icWA32j1xjU4L+2qWBxZIKuP0YDiLFFU4l7yOzU+Y=
 github.com/tsarna/go-structdiff v0.2.1 h1:SD30U/azJB85tH9dgNu4qVOA2bPie9e1l5EvJodMaD8=
