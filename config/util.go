@@ -187,6 +187,33 @@ type ReconnectDefinition struct {
 	DefRange      hcl.Range      `hcl:",def_range"`
 }
 
+func init() {
+	RegisterSharedBlockSchema(&ReconnectDefinition{}, reconnectSchema)
+}
+
+var reconnectSchema = TypeSchema{
+	Summary: "How to retry a lost connection.",
+	Doc: `Retries use exponential backoff: the first retry waits ` + "`initial_delay`" + `, and
+each subsequent wait is multiplied by ` + "`backoff_factor`" + ` up to ` + "`max_delay`" + `.`,
+	Attrs: map[string]AttrMeta{
+		"initial_delay": {
+			Summary: "Wait before the first retry.",
+			Hint:    HintDuration,
+		},
+		"max_delay": {
+			Summary: "Ceiling on the wait between retries.",
+			Hint:    HintDuration,
+		},
+		"backoff_factor": {
+			Summary: "Multiplier applied to the wait after each failed attempt.",
+		},
+		"max_retries": {
+			Summary: "Give up after this many attempts.",
+			Doc:     "Retries forever when omitted.",
+		},
+	},
+}
+
 func (c *Config) CreateReconnector(def ReconnectDefinition) (*bus.AutoReconnector, hcl.Diagnostics) {
 	builder := bus.NewAutoReconnector()
 	if IsExpressionProvided(def.InitialDelay) {

@@ -8,6 +8,48 @@ import (
 	"go.uber.org/zap"
 )
 
+// The baggage block's schema is registered here rather than beside its struct
+// in hclutil, because hclutil is a dependency of this package and cannot import
+// it back.
+func init() {
+	RegisterSharedBlockSchema(&hclutil.BaggageFilterConfig{}, baggageSchema)
+}
+
+var baggageSchema = TypeSchema{
+	Summary: "Which inbound baggage keys to trust.",
+	Doc: `Inbound baggage is untrusted input, so the default — no block, or an empty
+one — strips it entirely. Trace propagation is unaffected, and baggage this
+configuration sets itself via ` + "`set(ctx.baggage, …)`" + ` always propagates outbound
+regardless of this policy.
+
+	baggage { passthrough = true }      # trust all inbound baggage
+	baggage { allow = ["tenant_id"] }   # trust only these keys
+	baggage { deny  = ["internal."] }   # trust everything but these key prefixes`,
+	Attrs: map[string]AttrMeta{
+		"passthrough": {
+			Summary: "Trust all inbound baggage.",
+			Hint:    HintBool,
+		},
+		"allow": {
+			Summary: "Keys to keep; everything else is dropped.",
+		},
+		"deny": {
+			Summary: "Key prefixes to drop; everything else is kept.",
+		},
+		"max_entries": {
+			Summary: "Cap on the number of baggage entries.",
+			Doc:     "Defaults to 64.",
+		},
+		"max_bytes": {
+			Summary: "Cap on the total serialized size, in bytes.",
+			Doc:     "Defaults to 8192.",
+		},
+	},
+	Constraints: []Constraint{
+		MutuallyExclusive("passthrough", "allow", "deny"),
+	},
+}
+
 // baggageFilterSubscriber wraps a bus.Subscriber, applying a baggage trust
 // filter to each event's context before delivery. It is installed by
 // message-consuming clients (Kafka, MQTT, RabbitMQ, SQS, …) at the external

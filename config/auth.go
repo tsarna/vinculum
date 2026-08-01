@@ -66,6 +66,100 @@ type AuthConfig struct {
 	DefRange hcl.Range `hcl:",def_range"`
 }
 
+func init() {
+	RegisterSharedBlockSchema(&AuthConfig{}, authSchema)
+}
+
+var authSchema = TypeSchema{
+	Summary: "Authentication required by this server or handler.",
+	Doc: `The block's label selects the mode: ` + "`basic`" + `, ` + "`oidc`" + `, ` + "`oauth2`" + `,
+` + "`custom`" + `, or ` + "`none`" + `. Each mode uses a different subset of the attributes below.
+
+	auth "basic"  { realm = "API", credentials = { alice = env.ALICE_PASSWORD } }
+	auth "oidc"   { issuer = "https://accounts.example.com", audience = ["api.example.com"] }
+	auth "oauth2" { introspect_url = "…", client_id = "…", client_secret = env.SECRET }
+	auth "custom" { action = lookup_session(ctx.request.cookie("session")) }
+	auth "none"   {}   # opt out of auth inherited from the server
+
+An authenticated request exposes its identity to expressions as ` + "`ctx.auth`" + `.`,
+	Attrs: map[string]AttrMeta{
+		"disabled": {
+			Summary: "Parse the block but do not enforce it.",
+			Doc:     "Behaves as if the block were absent, without validating the mode's required fields. Usually driven by an env expression so one variable can both supply credentials and switch auth off.",
+			Hint:    HintBool,
+		},
+		"realm": {
+			Summary: "Realm shown in the `WWW-Authenticate` header.",
+			Doc:     "`basic` only. Defaults to the server's name.",
+		},
+		"credentials": {
+			Summary: "Map of username to plaintext password.",
+			Doc:     "`basic` only. Supply passwords from the environment rather than literals.",
+		},
+		"action": {
+			Summary: "Expression that authenticates the request itself.",
+			Doc:     "`custom` (and `basic`) only. Returns the identity to expose as `ctx.auth`, or a falsey value to reject.",
+			Hint:    HintActionExpression,
+			Context: "http-request",
+		},
+		"audience": {
+			Summary: "Accepted `aud` values.",
+			Doc:     "`oidc` and `oauth2`. The token must carry at least one of them.",
+		},
+		"issuer": {
+			Summary: "OIDC issuer URL, used for discovery.",
+			Doc:     "`oidc` only.",
+			Hint:    HintURL,
+		},
+		"jwks_url": {
+			Summary: "JWKS endpoint to fetch signing keys from.",
+			Doc:     "`oidc` only. Setting it skips OIDC discovery.",
+			Hint:    HintURL,
+		},
+		"algorithms": {
+			Summary: "Permitted token signing algorithms.",
+			Doc:     "`oidc` only. Defaults to `[\"RS256\", \"ES256\"]`.",
+		},
+		"clock_skew": {
+			Summary: "Tolerance applied to `exp` and `nbf`.",
+			Doc:     "`oidc` only. Defaults to `\"30s\"`. Accepts a duration string, a number of seconds, or a duration value.",
+			Hint:    HintDuration,
+		},
+		"introspect_url": {
+			Summary: "RFC 7662 token introspection endpoint.",
+			Doc:     "Required for `oauth2`; optional for `oidc`, where it adds a revocation check.",
+			Hint:    HintURL,
+		},
+		"introspect_client_id": {
+			Summary: "Client ID for the introspection endpoint.",
+			Doc:     "`oidc` introspection only.",
+		},
+		"introspect_client_secret": {
+			Summary: "Client secret for the introspection endpoint.",
+			Doc:     "`oidc` introspection only.",
+		},
+		"client_id": {
+			Summary: "Client ID for the introspection endpoint.",
+			Doc:     "`oauth2` only, where it is required.",
+		},
+		"client_secret": {
+			Summary: "Client secret for the introspection endpoint.",
+			Doc:     "`oauth2` only, where it is required. Supply it from the environment.",
+		},
+		"cache_ttl": {
+			Summary: "How long to cache introspection results.",
+			Doc:     "`oauth2` only. Defaults to `\"0s\"`, which disables caching.",
+			Hint:    HintDuration,
+		},
+	},
+	Constraints: []Constraint{
+		RequiredTogether("client_id", "client_secret"),
+		RequiredTogether("introspect_client_id", "introspect_client_secret"),
+		MutuallyExclusive("issuer", "jwks_url").
+			WithMessage("Setting jwks_url replaces OIDC discovery, which is what issuer is used for."),
+	},
+}
+
 // ValidateAuthConfig checks that the required fields for the selected mode are
 // present and that no conflicting options were set. Returns HCL diagnostics on error.
 func ValidateAuthConfig(ac *AuthConfig) hcl.Diagnostics {

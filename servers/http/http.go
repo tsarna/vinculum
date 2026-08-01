@@ -73,7 +73,101 @@ type handlerDefinition struct {
 }
 
 func init() {
-	cfg.RegisterServerType("http", ProcessHttpServerBlock)
+	cfg.RegisterServerType("http", ProcessHttpServerBlock, cfg.WithSchema(httpServerSchema))
+}
+
+var httpServerSchema = cfg.TypeSchema{
+	Sample:  &HttpServerDefinition{},
+	Summary: "An HTTP server exposing request handlers and static files.",
+	Doc: `Serves ` + "`handle`" + ` routes and ` + "`files`" + ` trees over HTTP, and is available in
+expressions as ` + "`server.<name>`" + `. Other servers that expose an HTTP handler — MCP,
+metrics — can be mounted into a route with ` + "`handler = server.<name>`" + `.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"listen": {
+			Summary: "Address and port to listen on.",
+			Doc:     "For example `\":8080\"` or `\"127.0.0.1:9090\"`.",
+			Hint:    cfg.HintListenAddr,
+		},
+		"tracing": {
+			Summary: "Where to report request traces.",
+			Doc:     "A `client \"otlp\"` block. Auto-wires to the default when omitted.",
+			Hint:    cfg.HintClientRef,
+		},
+		"metrics": {
+			Summary: "Where to report request metrics.",
+			Doc:     "A `server \"metrics\"` or `client \"otlp\"` block. Auto-wires to the default when omitted.",
+			Hint:    cfg.HintServerRef,
+		},
+	},
+	Blocks: map[string]cfg.TypeSchema{
+		"real_ip": {
+			Summary: "Recover the client's real IP from a forwarded header.",
+			Doc:     "Without this block, `ctx.request.remote_addr` is the immediate peer, which behind a proxy is the proxy itself.",
+			Attrs: map[string]cfg.AttrMeta{
+				"trusted_proxies": {
+					Summary: "CIDR ranges whose forwarded headers are believed.",
+					Doc:     "A header arriving from any other address is ignored.",
+				},
+				"header": {
+					Summary: "Header to read the client address from.",
+					Doc:     "Defaults to `X-Forwarded-For`.",
+				},
+				"recursive": {
+					Summary: "Walk the header right to left, skipping trusted proxies.",
+					Doc:     "Use when several trusted proxies each append an address.",
+					Hint:    cfg.HintBool,
+				},
+				"disabled": {
+					Summary: "Skip this block entirely.",
+					Hint:    cfg.HintBool,
+				},
+			},
+		},
+		"handle": {
+			Summary: "A route handler.",
+			Doc: `The label is a Go 1.22 ` + "`http.ServeMux`" + ` pattern — ` + "`[METHOD ][HOST]/[PATH]`" + `.
+` + "`GET /api/status`" + ` matches one method and path, ` + "`/api/`" + ` matches a subtree,
+` + "`/{$}`" + ` matches only ` + "`/`" + `, and ` + "`/items/{id}`" + ` captures a segment readable as
+` + "`ctx.request.path.id`" + `.`,
+			Attrs: map[string]cfg.AttrMeta{
+				"action": {
+					Summary: "Expression evaluated for each matching request.",
+					Doc: `Its value becomes the response: a string is sent as ` + "`text/plain`" + `, a
+bytes object with its own content type, anything else as JSON, and ` + "`null`" + ` as
+204. Use ` + "`http::response()`" + ` or ` + "`http::error()`" + ` to control the status.`,
+					Hint:    cfg.HintActionExpression,
+					Context: "http-request",
+				},
+				"handler": {
+					Summary: "Another server to delegate this route to.",
+					Doc:     "Mounts a server that exposes an HTTP handler, such as `server \"mcp\"` or `server \"metrics\"`.",
+					Hint:    cfg.HintServerRef,
+				},
+				"disabled": {
+					Summary: "Skip this route entirely.",
+					Hint:    cfg.HintBool,
+				},
+			},
+			Constraints: []cfg.Constraint{
+				cfg.MutuallyExclusive("action", "handler"),
+				cfg.AtLeastOneOf("action", "handler").
+					WithMessage("A route needs either an action to evaluate or a handler to delegate to."),
+			},
+		},
+		"files": {
+			Summary: "Serves a directory tree of static files.",
+			Doc:     "The label is the URL path the tree is mounted at.",
+			Attrs: map[string]cfg.AttrMeta{
+				"directory": {
+					Summary: "Directory to serve files from.",
+				},
+				"disabled": {
+					Summary: "Skip this tree entirely.",
+					Hint:    cfg.HintBool,
+				},
+			},
+		},
+	},
 }
 
 func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Listener, hcl.Diagnostics) {

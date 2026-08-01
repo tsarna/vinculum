@@ -51,6 +51,56 @@ type TLSConfig struct {
 	DefRange           hcl.Range `hcl:",def_range"`
 }
 
+func init() {
+	RegisterSharedBlockSchema(&TLSConfig{}, tlsSchema)
+}
+
+var tlsSchema = TypeSchema{
+	Summary: "TLS settings for this connection.",
+	Doc: `Configures TLS for whichever side the enclosing block is. On a client,
+` + "`ca_cert`" + ` verifies the server and ` + "`cert`/`key`" + ` supply a client certificate for
+mTLS. On a server, ` + "`cert`/`key`" + ` are the server's own certificate and ` + "`ca_cert`" + `
+plus ` + "`require_client_cert`" + ` enforce mTLS.
+
+Relative paths are resolved against the configuration's base directory.`,
+	Attrs: map[string]AttrMeta{
+		"enabled": {
+			Summary: "Turn TLS on.",
+			Doc:     "Nothing else in the block takes effect while this is false.",
+			Hint:    HintBool,
+		},
+		"ca_cert": {
+			Summary: "PEM file of CA certificates to trust.",
+			Doc:     "On a client, verifies the server's certificate. On a server, verifies presented client certificates.",
+		},
+		"cert": {
+			Summary: "PEM file holding this side's certificate.",
+		},
+		"key": {
+			Summary: "PEM file holding the private key for `cert`.",
+		},
+		"insecure_skip_verify": {
+			Summary: "Accept any server certificate without verifying it.",
+			Doc:     "Client-side only, and unsafe outside development.",
+			Hint:    HintBool,
+		},
+		"require_client_cert": {
+			Summary: "Require clients to present a certificate.",
+			Doc:     "Server-side only; verified against `ca_cert`.",
+			Hint:    HintBool,
+		},
+		"self_signed": {
+			Summary: "Generate a self-signed certificate at startup.",
+			Doc:     "Server-side only, for development. Mutually exclusive with `cert`/`key`.",
+			Hint:    HintBool,
+		},
+	},
+	Constraints: []Constraint{
+		RequiredTogether("cert", "key"),
+		MutuallyExclusive("self_signed", "cert"),
+	},
+}
+
 // BuildTLSClientConfig constructs a *tls.Config for use as a TLS client.
 // Returns nil if Enabled is false. Relative paths are resolved against baseDir.
 //

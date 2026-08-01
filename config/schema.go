@@ -132,6 +132,13 @@ const (
 	// block-specific `ctx` in scope. In list form each element is evaluated in
 	// order and the last value is the result.
 	HintActionExpression Hint = "action-expression"
+	// HintPredicateExpression is a predicate: evaluated at event time like an
+	// action, with the same block-specific `ctx` in scope, but for its boolean
+	// value rather than its side effects — an fsm transition `guard`, a
+	// trigger's `skip_when`/`stop_when`, a server's `allow_send`. A completion
+	// provider should offer `ctx.*` and comparisons here, not the
+	// side-effecting functions an action wants.
+	HintPredicateExpression Hint = "predicate-expression"
 	// HintReactiveExpression is a reactive expression: it is re-evaluated for
 	// its value automatically whenever any watchable it references changes — a
 	// var, metric, condition, or fsm — rather than once at config time or in
@@ -568,6 +575,12 @@ func blockLabels(ty reflect.Type) []string {
 		}
 		name, kind, _ := strings.Cut(tag, ",")
 		if kind == "label" {
+			if name == "" {
+				// gohcl permits an unnamed label (`hcl:",label"`) and many
+				// decode structs use one. The name is documentation only, so
+				// fall back to the field's own name rather than emitting "".
+				name = strings.ToLower(ty.Field(i).Name)
+			}
 			labels = append(labels, name)
 		}
 	}
@@ -1086,10 +1099,41 @@ func mustReflect(sample any) *reflectedBody {
 // envelopeSchemas describes the attributes each typed block's handler decodes
 // before dispatching to the type-specific processor. `condition` has no
 // envelope: the whole body goes to the subtype.
+//
+// Only the attributes are emitted — spliced into every variant — so each
+// envelope's own Summary is for maintainers reading this file rather than for
+// consumers of the document.
 var envelopeSchemas = map[string]TypeSchema{
-	"client":  {Sample: &ClientDefinition{}},
-	"server":  {Sample: &ServerDefinition{}},
-	"trigger": {Sample: &TriggerDefinition{}},
+	"client": {
+		Sample:  &ClientDefinition{},
+		Summary: "Attributes every client block accepts.",
+		Attrs:   map[string]AttrMeta{"disabled": disabledAttrMeta},
+	},
+	"server": {
+		Sample:  &ServerDefinition{},
+		Summary: "Attributes every server block accepts.",
+		Attrs:   map[string]AttrMeta{"disabled": disabledAttrMeta},
+	},
+	"trigger": {
+		Sample:  &TriggerDefinition{},
+		Summary: "Attributes every trigger block accepts.",
+		Attrs: map[string]AttrMeta{
+			"disabled": disabledAttrMeta,
+			"tracing": {
+				Summary: "Where to report traces for each firing.",
+				Doc:     "A `client \"otlp\"` block. Auto-wires to the default when omitted.",
+				Hint:    HintClientRef,
+			},
+		},
+	},
+}
+
+// disabledAttrMeta documents the `disabled` attribute, which means the same
+// thing everywhere it appears.
+var disabledAttrMeta = AttrMeta{
+	Summary: "Skip this block entirely.",
+	Doc:     "The block is parsed and validated, but nothing is created from it.",
+	Hint:    HintBool,
 }
 
 // registeredTypeNames returns the variant keys of a registry-driven typed

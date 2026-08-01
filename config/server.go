@@ -27,6 +27,20 @@ func NewServerBlockHandler() *ServerBlockHandler {
 	return &ServerBlockHandler{}
 }
 
+// Schema describes the server block for `vinculum schema`. A typed block has
+// no body of its own; each server type contributes its own via WithSchema.
+func (h *ServerBlockHandler) Schema() TypeSchema {
+	return TypeSchema{
+		Summary: "A server that accepts inbound connections.",
+		Doc: `The first label selects the server type and the second names it, making it
+available in expressions as ` + "`server.<name>`" + `.
+
+Servers that expose an HTTP handler — ` + "`mcp`" + `, ` + "`metrics`" + `, ` + "`vws`" + `,
+` + "`websocket`" + ` — can either listen on their own address or be mounted on a route of
+a ` + "`server \"http\"`" + ` block with ` + "`handler = server.<name>`" + `.`,
+	}
+}
+
 func (h *ServerBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {
 	return "server." + block.Labels[1], nil
 }

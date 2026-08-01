@@ -183,7 +183,7 @@ see the FSM reference.`,
 						"guard": {
 							Summary: "Condition that must hold for the transition to be taken.",
 							Doc:     "Must evaluate to a bool. A false guard leaves the machine in its current state.",
-							Hint:    HintExpression,
+							Hint:    HintPredicateExpression,
 							Context: "fsm-hook",
 						},
 						"action": {

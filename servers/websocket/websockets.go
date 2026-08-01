@@ -31,7 +31,50 @@ type WebsocketsServerDefinition struct {
 }
 
 func init() {
-	cfg.RegisterServerType("websocket", ProcessWebsocketsServerBlock)
+	cfg.RegisterServerType("websocket", ProcessWebsocketsServerBlock, cfg.WithSchema(websocketServerSchema))
+}
+
+var websocketServerSchema = cfg.TypeSchema{
+	Sample:  &WebsocketsServerDefinition{},
+	Summary: "A WebSocket server that pushes bus messages as raw frames.",
+	Doc: `Bridges a bus to WebSocket clients using raw frames, with no subscribe protocol:
+every connected client receives the messages the server is subscribed to, and any
+frame a client sends is published to a fixed topic — ` + "`text`" + ` for text frames,
+` + "`binary`" + ` for binary ones.
+
+Use ` + "`server \"vws\"`" + ` instead when clients need to control their own subscriptions.
+Mount this on a route of a ` + "`server \"http\"`" + ` block with ` + "`handler = server.<name>`" + `.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"bus": {
+			Summary: "Bus to bridge to connected clients.",
+			Hint:    cfg.HintBusRef,
+		},
+		"queue_size": {
+			Summary: "Per-connection outbound queue depth.",
+			Doc:     "Defaults to 256.",
+		},
+		"ping_interval": {
+			Summary: "How often to send WebSocket pings, to detect dead connections.",
+			Hint:    cfg.HintDuration,
+		},
+		"write_timeout": {
+			Summary: "How long to wait writing to a client before closing the connection.",
+			Hint:    cfg.HintDuration,
+		},
+		"initial_subscriptions": {
+			Summary: "Topic patterns each new connection is subscribed to on connect.",
+			Doc:     "Matching messages are forwarded to the client.",
+			Hint:    cfg.HintTopicPattern,
+		},
+		"outbound_transforms": {
+			Summary: "Transform pipeline applied to messages going from the bus to clients.",
+			Hint:    cfg.HintTransformPipeline,
+		},
+		"inbound_transforms": {
+			Summary: "Transform pipeline applied to frames from clients before publishing.",
+			Hint:    cfg.HintTransformPipeline,
+		},
+	},
 }
 
 func ProcessWebsocketsServerBlock(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Listener, hcl.Diagnostics) {

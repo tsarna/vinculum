@@ -145,7 +145,7 @@ func TestSchemaCommonAttributes(t *testing.T) {
 // Phases of the schema rollout add to this list; a block named here must stay
 // fully documented, so adding an hcl field without an AttrMeta fails the test.
 var curatedBlocks = []string{
-	"assert", "bus", "const", "fsm", "function", "jq", "metric",
+	"assert", "bus", "const", "fsm", "function", "jq", "metric", "server",
 	"subscription", "var",
 }
 
@@ -271,6 +271,73 @@ func TestSchemaFreeAttributeBlocks(t *testing.T) {
 	require.NotNil(t, varBlock)
 	assert.False(t, varBlock.FreeAttributes)
 	assert.ElementsMatch(t, []string{"value", "type", "nullable"}, attrNamesOf(varBlock))
+}
+
+func TestSchemaServerVariants(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+	server := doc.Blocks["server"]
+
+	assert.NotEmpty(t, server.Summary, "the typed block itself needs a description")
+	for name, variant := range server.Variants {
+		assert.False(t, variant.Undocumented, "server %q is undocumented", name)
+		assert.NotEmpty(t, variant.Summary, "server %q has no summary", name)
+	}
+
+	// The http server's nested blocks, including two levels of auth.
+	http := server.Variants["http"]
+	assert.ElementsMatch(t,
+		[]string{"tls", "auth", "baggage", "real_ip", "handle", "files"},
+		keysOf(http.Blocks))
+	handle := http.Blocks["handle"]
+	require.NotNil(t, handle)
+	assert.Equal(t, []string{"route"}, handle.Labels)
+	assert.True(t, handle.Repeatable)
+	assert.Len(t, handle.Constraints, 2, "action XOR handler, and at least one of them")
+
+	// mcp recurses two levels: tool/prompt each contain param blocks.
+	mcp := server.Variants["mcp"]
+	for _, parent := range []string{"tool", "prompt"} {
+		block := mcp.Blocks[parent]
+		require.NotNil(t, block, parent)
+		param := block.Blocks["param"]
+		require.NotNil(t, param, "%s.param", parent)
+		assert.Equal(t, []string{"name"}, param.Labels)
+		assert.Equal(t, []string{"string", "number", "boolean"},
+			findAttr(&param.SchemaBody, "type").Enum)
+	}
+	// Each handler kind gets its own ctx shape, even within one block.
+	assert.Equal(t, "mcp-resource", findAttr(&mcp.Blocks["resource"].SchemaBody, "action").Context)
+	assert.Equal(t, "mcp-tool", findAttr(&mcp.Blocks["tool"].SchemaBody, "action").Context)
+	assert.Equal(t, "mcp-prompt", findAttr(&mcp.Blocks["prompt"].SchemaBody, "action").Context)
+}
+
+// TestSchemaSharedBlocks covers sub-block structs embedded by many parents:
+// they are documented once and appear wherever they are used.
+func TestSchemaSharedBlocks(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+	servers := doc.Blocks["server"].Variants
+
+	// tls is embedded by http, mcp, and metrics — same documentation in each.
+	var tlsSummary string
+	for _, name := range []string{"http", "mcp", "metrics"} {
+		tlsBlock := servers[name].Blocks["tls"]
+		require.NotNil(t, tlsBlock, "server %q has no tls block", name)
+		assert.NotEmpty(t, tlsBlock.Summary)
+		assert.NotNil(t, findAttr(&tlsBlock.SchemaBody, "ca_cert"))
+		if tlsSummary == "" {
+			tlsSummary = tlsBlock.Summary
+		}
+		assert.Equal(t, tlsSummary, tlsBlock.Summary, "server %q describes tls differently", name)
+	}
+
+	// auth reaches nested blocks too, not just the top level of a server.
+	handlerAuth := servers["http"].Blocks["handle"].Blocks["auth"]
+	require.NotNil(t, handlerAuth)
+	assert.Equal(t, []string{"mode"}, handlerAuth.Labels,
+		"an unnamed hcl label falls back to the field name")
+	assert.NotEmpty(t, handlerAuth.Summary)
+
+	assert.NotEmpty(t, servers["http"].Blocks["baggage"].Summary)
 }
 
 func TestSchemaCommandOutput(t *testing.T) {

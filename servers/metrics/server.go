@@ -163,7 +163,45 @@ type MetricsServerDefinition struct {
 }
 
 func init() {
-	cfg.RegisterServerType("metrics", ProcessMetricsServerBlock)
+	cfg.RegisterServerType("metrics", ProcessMetricsServerBlock, cfg.WithSchema(metricsServerSchema))
+}
+
+var metricsServerSchema = cfg.TypeSchema{
+	Sample:  &MetricsServerDefinition{},
+	Summary: "A Prometheus-style metrics endpoint.",
+	Doc: `Exposes metrics for scraping, and acts as a metrics backend that ` + "`metric`" + `
+blocks and instrumented blocks report through.
+
+With ` + "`listen`" + ` it runs its own HTTP server; without one, mount it on a route of a
+` + "`server \"http\"`" + ` block with ` + "`handler = server.<name>`" + `.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"listen": {
+			Summary: "Address to serve metrics on, as a standalone server.",
+			Doc:     "Omit to mount this server into a `server \"http\"` route instead.",
+			Hint:    cfg.HintListenAddr,
+		},
+		"path": {
+			Summary: "Path the metrics are served at.",
+			Doc:     "Defaults to `/metrics`. Standalone mode only.",
+		},
+		"default_metrics": {
+			Summary: "Make this the default metrics backend.",
+			Doc: `Blocks that report metrics without naming a backend use the default. A
+single metrics-capable block — this or a ` + "`client \"otlp\"`" + ` — is the default
+automatically; with several, exactly one may set this.`,
+			Hint: cfg.HintBool,
+		},
+		"include_go_metrics": {
+			Summary: "Register Go runtime metrics.",
+			Doc:     "Defaults to true; set false to omit goroutine, memory, and GC metrics.",
+			Hint:    cfg.HintBool,
+		},
+		"tracing": {
+			Summary: "Where to report traces for scrape requests.",
+			Doc:     "A `client \"otlp\"` block. Auto-wires to the default when omitted.",
+			Hint:    cfg.HintClientRef,
+		},
+	},
 }
 
 // ProcessMetricsServerBlock decodes and creates a MetricsServer from a block body.

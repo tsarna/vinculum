@@ -84,7 +84,148 @@ type mcpPromptDefinition struct {
 }
 
 func init() {
-	cfg.RegisterServerType("mcp", ProcessMcpServerBlock)
+	cfg.RegisterServerType("mcp", ProcessMcpServerBlock, cfg.WithSchema(mcpServerSchema))
+}
+
+// mcpParamSchema documents the param block shared by tools and prompts.
+var mcpParamSchema = cfg.TypeSchema{
+	Summary: "One argument the client may pass.",
+	Doc:     "The label is the parameter name; its value arrives as `ctx.args.<name>`.",
+	Attrs: map[string]cfg.AttrMeta{
+		"type": {
+			Summary: "Type of the parameter.",
+			Enum:    []string{"string", "number", "boolean"},
+		},
+		"description": {
+			Summary: "What the parameter means, shown to the model.",
+		},
+		"required": {
+			Summary: "Whether the client must supply the parameter.",
+			Hint:    cfg.HintBool,
+		},
+		"default": {
+			Summary: "Value used when the client omits the parameter.",
+			Hint:    cfg.HintExpression,
+		},
+		"enum": {
+			Summary: "Closed set of values the parameter accepts.",
+		},
+	},
+	Constraints: []cfg.Constraint{
+		cfg.MutuallyExclusive("required", "default").
+			WithMessage("A parameter with a default is not required."),
+	},
+}
+
+var mcpServerSchema = cfg.TypeSchema{
+	Sample:  &McpServerDefinition{},
+	Summary: "A Model Context Protocol server.",
+	Doc: `Exposes resources, tools, and prompts to MCP clients over streamable HTTP.
+
+With ` + "`listen`" + ` it runs its own HTTP server; without one, mount it on a route of a
+` + "`server \"http\"`" + ` block with ` + "`handler = server.<name>`" + `.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"listen": {
+			Summary: "Address to serve on, as a standalone server.",
+			Doc:     "Omit to mount this server into a `server \"http\"` route instead.",
+			Hint:    cfg.HintListenAddr,
+		},
+		"path": {
+			Summary: "Path the MCP endpoint is served at.",
+			Doc:     "Standalone mode only.",
+		},
+		"server_name": {
+			Summary: "Name reported to clients during initialization.",
+			Doc:     "Defaults to the block's name.",
+		},
+		"server_version": {
+			Summary: "Version reported to clients during initialization.",
+		},
+		"disabled": {
+			Summary: "Skip this block entirely.",
+			Hint:    cfg.HintBool,
+		},
+		"tracing": {
+			Summary: "Where to report request traces.",
+			Doc:     "A `client \"otlp\"` block. Spans follow the GenAI/MCP semantic conventions. Auto-wires to the default when omitted.",
+			Hint:    cfg.HintClientRef,
+		},
+		"metrics": {
+			Summary: "Where to report request metrics.",
+			Doc:     "A `server \"metrics\"` or `client \"otlp\"` block. Auto-wires to the default when omitted.",
+			Hint:    cfg.HintServerRef,
+		},
+	},
+	Blocks: map[string]cfg.TypeSchema{
+		"resource": {
+			Summary: "Data the server exposes to clients.",
+			Doc: `The label is the resource URI. Curly-brace placeholders make it a
+template — ` + "`db://records/{table}/{id}`" + ` — and each placeholder arrives as
+` + "`ctx.args.<name>`" + `.`,
+			Attrs: map[string]cfg.AttrMeta{
+				"name": {
+					Summary: "Display name shown to clients.",
+				},
+				"description": {
+					Summary: "What the resource holds, shown to the model.",
+				},
+				"mime_type": {
+					Summary: "Content type of the resource's contents.",
+				},
+				"action": {
+					Summary: "Expression evaluated when a client reads the resource.",
+					Doc:     "Its value becomes the contents: a string is returned as-is, anything else is JSON-encoded. `ctx.uri` is the resolved URI and `ctx.args` holds any template placeholders.",
+					Hint:    cfg.HintActionExpression,
+					Context: "mcp-resource",
+				},
+				"disabled": {
+					Summary: "Skip this resource entirely.",
+					Hint:    cfg.HintBool,
+				},
+			},
+		},
+		"tool": {
+			Summary: "An operation the model can invoke.",
+			Doc:     "The label is the tool name. Declare its arguments with `param` blocks.",
+			Attrs: map[string]cfg.AttrMeta{
+				"description": {
+					Summary: "What the tool does, shown to the model.",
+					Doc:     "This is how the model decides when to call it, so be specific.",
+				},
+				"action": {
+					Summary: "Expression evaluated when the tool is called.",
+					Doc:     "Arguments arrive as `ctx.args.<param>`. Return `mcp::error(message)` to report failure to the model.",
+					Hint:    cfg.HintActionExpression,
+					Context: "mcp-tool",
+				},
+				"disabled": {
+					Summary: "Skip this tool entirely.",
+					Hint:    cfg.HintBool,
+				},
+			},
+			Blocks: map[string]cfg.TypeSchema{"param": mcpParamSchema},
+		},
+		"prompt": {
+			Summary: "A reusable prompt template clients can render.",
+			Doc:     "The label is the prompt name. Declare its arguments with `param` blocks.",
+			Attrs: map[string]cfg.AttrMeta{
+				"description": {
+					Summary: "What the prompt is for, shown to the model.",
+				},
+				"action": {
+					Summary: "Expression evaluated when a client requests the prompt.",
+					Doc:     "Arguments arrive as `ctx.args.<param>`. Return a string, or `mcp::user_message()`/`mcp::assistant_message()` values to control message roles.",
+					Hint:    cfg.HintActionExpression,
+					Context: "mcp-prompt",
+				},
+				"disabled": {
+					Summary: "Skip this prompt entirely.",
+					Hint:    cfg.HintBool,
+				},
+			},
+			Blocks: map[string]cfg.TypeSchema{"param": mcpParamSchema},
+		},
+	},
 }
 
 // ProcessMcpServerBlock parses an "server mcp" block and creates an McpServer.

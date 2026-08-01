@@ -40,7 +40,58 @@ type VinculumWebsocketsServerDefinition struct {
 }
 
 func init() {
-	cfg.RegisterServerType("vws", ProcessVinculumWebsocketsServerBlock)
+	cfg.RegisterServerType("vws", ProcessVinculumWebsocketsServerBlock, cfg.WithSchema(vwsServerSchema))
+}
+
+var vwsServerSchema = cfg.TypeSchema{
+	Sample:  &VinculumWebsocketsServerDefinition{},
+	Summary: "A WebSocket server speaking the Vinculum (VWS) protocol.",
+	Doc: `Clients subscribe to topics over a WebSocket and receive matching bus messages,
+and — when ` + "`allow_send`" + ` permits — publish back onto the bus. Mount it on a route
+of a ` + "`server \"http\"`" + ` block with ` + "`handler = server.<name>`" + `.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"bus": {
+			Summary: "Bus that connected clients subscribe to and publish into.",
+			Hint:    cfg.HintBusRef,
+		},
+		"queue_size": {
+			Summary: "Per-connection outbound queue depth.",
+			Doc:     "Defaults to 1000.",
+		},
+		"ping_interval": {
+			Summary: "How often to send WebSocket pings, to detect dead connections.",
+			Hint:    cfg.HintDuration,
+		},
+		"write_timeout": {
+			Summary: "How long to wait writing to a client before closing the connection.",
+			Hint:    cfg.HintDuration,
+		},
+		"allow_send": {
+			Summary: "Whether clients may publish onto the bus.",
+			Doc: `Defaults to false, denying all inbound publishes. ` + "`true`" + ` allows any,
+a string allows topics matching that MQTT pattern, and an expression is evaluated
+per inbound message with ` + "`ctx.topic`" + ` and ` + "`ctx.msg`" + ` in scope.`,
+			Hint:    cfg.HintPredicateExpression,
+			Context: "message",
+		},
+		"initial_subscriptions": {
+			Summary: "Topic patterns every new client is subscribed to on connect.",
+			Hint:    cfg.HintTopicPattern,
+		},
+		"outbound_transforms": {
+			Summary: "Transform pipeline applied to messages going from the bus to clients.",
+			Hint:    cfg.HintTransformPipeline,
+		},
+		"inbound_transforms": {
+			Summary: "Transform pipeline applied to messages from clients before publishing.",
+			Hint:    cfg.HintTransformPipeline,
+		},
+		"metrics": {
+			Summary: "Where to report connection metrics.",
+			Doc:     "A `server \"metrics\"` or `client \"otlp\"` block. Auto-wires to the default when omitted.",
+			Hint:    cfg.HintServerRef,
+		},
+	},
 }
 
 func ProcessVinculumWebsocketsServerBlock(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Listener, hcl.Diagnostics) {
