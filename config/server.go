@@ -105,10 +105,12 @@ type ServerProcessor func(config *Config, block *hcl.Block, body hcl.Body) (List
 var serverRegistry = map[string]ServerProcessor{}
 
 // RegisterServerType registers a processor for a named server type.
-// Sub-packages call this from their init() function.
-func RegisterServerType(typeName string, p ServerProcessor) {
+// Sub-packages call this from their init() function, optionally passing
+// WithSchema to describe the block for `vinculum schema`.
+func RegisterServerType(typeName string, p ServerProcessor, opts ...RegisterOption) {
 	recordPlugin("server." + typeName)
 	serverRegistry[typeName] = p
+	registerTypeSchema("server", typeName, opts)
 }
 
 type BaseServer struct {

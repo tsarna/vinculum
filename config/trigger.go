@@ -47,10 +47,12 @@ type TriggerRegistration struct {
 var triggerRegistry = map[string]TriggerRegistration{}
 
 // RegisterTriggerType registers an unconditional trigger type.
-// Sub-packages call this from their init() function.
-func RegisterTriggerType(typeName string, reg TriggerRegistration) {
+// Sub-packages call this from their init() function, optionally passing
+// WithSchema to describe the block for `vinculum schema`.
+func RegisterTriggerType(typeName string, reg TriggerRegistration, opts ...RegisterOption) {
 	recordPlugin("trigger." + typeName)
 	triggerRegistry[typeName] = reg
+	registerTypeSchema("trigger", typeName, opts)
 }
 
 // ConditionalTriggerTypePlugin is evaluated once per Build(). It returns a map
@@ -64,8 +66,13 @@ var conditionalTriggerPlugins []ConditionalTriggerTypePlugin
 // depends on config state (e.g. a feature flag). Unlike RegisterTriggerType,
 // it does NOT call recordPlugin at init time; the plugin name is recorded only
 // when the factory returns a non-nil result during Build().
-func RegisterConditionalTriggerType(factory ConditionalTriggerTypePlugin) {
+//
+// The factory cannot be invoked without a *Config, so it cannot reveal its
+// type names for `vinculum schema`. Pass WithVariantSchemas to name and
+// describe them; they are emitted as the full superset, flagged conditional.
+func RegisterConditionalTriggerType(factory ConditionalTriggerTypePlugin, opts ...RegisterOption) {
 	conditionalTriggerPlugins = append(conditionalTriggerPlugins, factory)
+	registerConditionalTypeSchemas("trigger", opts)
 }
 
 // FinishPreprocessing builds the per-build trigger registry by merging

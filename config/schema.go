@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/tsarna/vinculum/version"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -206,6 +207,128 @@ func Requires(attr string, requires ...string) Constraint {
 		Attributes: append([]string{attr}, requires...),
 		Message:    fmt.Sprintf("%s requires %s.", attr, joinAttrs(requires, "and")),
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Registration
+// ---------------------------------------------------------------------------
+
+// RegisterOption customizes a Register*Type call. Supplying a schema is
+// optional and additive: a type registered without one still appears in the
+// output, flagged "undocumented", so coverage gaps are visible rather than
+// invisible.
+type RegisterOption func(*registerOptions)
+
+type registerOptions struct {
+	schema   *TypeSchema
+	variants map[string]TypeSchema
+}
+
+func applyRegisterOptions(opts []RegisterOption) registerOptions {
+	var o registerOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
+}
+
+// WithSchema attaches the machine-readable schema of the type being
+// registered. It is called from inside the defining package's init(), where
+// the (usually unexported) decode struct is in scope:
+//
+//	cfg.RegisterClientType("http", process, cfg.WithSchema(httpClientSchema))
+func WithSchema(ts TypeSchema) RegisterOption {
+	return func(o *registerOptions) {
+		o.schema = &ts
+	}
+}
+
+// WithVariantSchemas attaches schemas for a set of type names registered
+// together. It exists for RegisterConditionalTriggerType, whose factory cannot
+// be invoked without a *Config and so cannot reveal its type names any other
+// way.
+func WithVariantSchemas(schemas map[string]TypeSchema) RegisterOption {
+	return func(o *registerOptions) {
+		o.variants = schemas
+	}
+}
+
+// SchemaProvider is an optional interface a BlockHandler may implement to
+// contribute its block's schema. Handlers that don't are emitted
+// "undocumented", which lets the schema land block by block.
+type SchemaProvider interface {
+	Schema() TypeSchema
+}
+
+var (
+	// typeSchemas holds curated schemas for registry-driven typed blocks,
+	// keyed by block type ("client") then variant key ("http").
+	typeSchemas = map[string]map[string]TypeSchema{}
+
+	// conditionalTypes records variant keys whose availability depends on
+	// config state, so they can be flagged in the output.
+	conditionalTypes = map[string]map[string]bool{}
+
+	// topLevelBlockSchemas holds schemas for top-level blocks with no
+	// BlockHandler to carry them (`function`, `jq`, `editor`), registered via
+	// RegisterBlockSchema.
+	topLevelBlockSchemas = map[string]TypeSchema{}
+
+	// sharedBlockSchemas holds curated metadata for sub-block structs shared
+	// across many parents (tls, auth, reconnect, baggage), keyed by Go type.
+	sharedBlockSchemas = map[reflect.Type]TypeSchema{}
+)
+
+// registerTypeSchema records the schema supplied for one variant of a typed
+// block, if any.
+func registerTypeSchema(blockType, typeName string, opts []RegisterOption) {
+	o := applyRegisterOptions(opts)
+	if o.schema == nil {
+		return
+	}
+	setTypeSchema(blockType, typeName, *o.schema)
+}
+
+// registerConditionalTypeSchemas records the schemas of a set of conditional
+// types registered together, flagging each as conditional.
+func registerConditionalTypeSchemas(blockType string, opts []RegisterOption) {
+	o := applyRegisterOptions(opts)
+	for typeName, ts := range o.variants {
+		setTypeSchema(blockType, typeName, ts)
+		if conditionalTypes[blockType] == nil {
+			conditionalTypes[blockType] = map[string]bool{}
+		}
+		conditionalTypes[blockType][typeName] = true
+	}
+}
+
+func setTypeSchema(blockType, typeName string, ts TypeSchema) {
+	if typeSchemas[blockType] == nil {
+		typeSchemas[blockType] = map[string]TypeSchema{}
+	}
+	typeSchemas[blockType][typeName] = ts
+}
+
+// RegisterBlockSchema records the schema of a top-level block that has no
+// BlockHandler to carry it — the blocks extracted early in Build() such as
+// `function` and `jq`. Blocks with a handler implement SchemaProvider instead.
+func RegisterBlockSchema(blockType string, ts TypeSchema) {
+	topLevelBlockSchemas[blockType] = ts
+}
+
+// RegisterSharedBlockSchema records curated metadata for a sub-block struct
+// used by many parent blocks (e.g. cfg.TLSConfig), so it is documented once
+// rather than in every host. sample is a zero value of the struct, normally a
+// pointer to one. A parent that curates the same sub-block wins over this.
+func RegisterSharedBlockSchema(sample any, ts TypeSchema) {
+	ty := reflect.TypeOf(sample)
+	for ty != nil && ty.Kind() == reflect.Ptr {
+		ty = ty.Elem()
+	}
+	if ty == nil || ty.Kind() != reflect.Struct {
+		panic(fmt.Sprintf("RegisterSharedBlockSchema: sample must be a struct or pointer to one, got %T", sample))
+	}
+	sharedBlockSchemas[ty] = ts
 }
 
 // joinAttrs renders a list of attribute names as prose: "a", "a and b",
@@ -671,6 +794,11 @@ func (b *schemaBuilder) mergeBody(path string, rb *reflectedBody, ts TypeSchema)
 
 	for _, rblk := range rb.Blocks {
 		nestedTS := ts.Blocks[rblk.Name]
+		if shared, ok := sharedBlockSchemas[rblk.GoType]; ok {
+			// A sub-block struct shared by many parents (tls, auth, ...) is
+			// documented once; anything the parent says about it wins.
+			nestedTS = nestedTS.withDefaultsFrom(shared)
+		}
 		nestedBody := b.mergeBody(path+"."+rblk.Name, rblk.Body, nestedTS)
 		labels := rblk.Labels
 		if labels == nil {
@@ -699,6 +827,226 @@ func (b *schemaBuilder) mergeBody(path string, rb *reflectedBody, ts TypeSchema)
 	}
 
 	return body
+}
+
+// withDefaultsFrom layers ts over base, filling anything ts leaves empty. It
+// lets a shared sub-block definition supply the baseline documentation while a
+// particular parent overrides or extends it.
+func (ts TypeSchema) withDefaultsFrom(base TypeSchema) TypeSchema {
+	out := ts
+	out.Summary = firstNonEmptyString(ts.Summary, base.Summary)
+	out.Doc = firstNonEmptyString(ts.Doc, base.Doc)
+
+	if len(base.Attrs) > 0 {
+		attrs := make(map[string]AttrMeta, len(base.Attrs)+len(ts.Attrs))
+		for name, meta := range base.Attrs {
+			attrs[name] = meta
+		}
+		for name, meta := range ts.Attrs {
+			attrs[name] = meta
+		}
+		out.Attrs = attrs
+	}
+
+	if len(base.Blocks) > 0 {
+		blocks := make(map[string]TypeSchema, len(base.Blocks)+len(ts.Blocks))
+		for name, nested := range base.Blocks {
+			blocks[name] = nested
+		}
+		for name, nested := range ts.Blocks {
+			blocks[name] = nested.withDefaultsFrom(base.Blocks[name])
+		}
+		out.Blocks = blocks
+	}
+
+	if len(out.Constraints) == 0 {
+		out.Constraints = base.Constraints
+	}
+	return out
+}
+
+// ---------------------------------------------------------------------------
+// Generating the whole document
+// ---------------------------------------------------------------------------
+
+// GenerateSchema describes the entire VCL block language: every top-level
+// block from blockSchema, every variant of a typed block from the registry
+// that drives its parsing, and the curated metadata registered alongside them.
+//
+// It reflects the in-tree registries as populated by init(), so it describes a
+// stock binary; plugins are not loaded. Curation problems are always returned;
+// opts.Strict decides whether the caller treats them as fatal.
+func GenerateSchema(opts SchemaGenOptions) (*SchemaDocument, []error) {
+	b := &schemaBuilder{opts: opts}
+	doc := &SchemaDocument{
+		SchemaVersion:   SchemaFormatVersion,
+		VinculumVersion: version.Version,
+		Blocks:          make(map[string]*SchemaBlock, len(blockSchema)),
+	}
+
+	handlers := GetBlockHandlers()
+	for _, header := range blockSchema {
+		doc.Blocks[header.Type] = b.topLevelBlock(header, handlers)
+	}
+	return doc, b.problems
+}
+
+// topLevelBlock describes one entry of blockSchema. A block is typed — its
+// first label selects a variant — exactly when that label is named "type".
+func (b *schemaBuilder) topLevelBlock(header hcl.BlockHeaderSchema, handlers map[string]BlockHandler) *SchemaBlock {
+	blockType := header.Type
+	ts, documented := topLevelSchema(blockType, handlers)
+
+	blk := &SchemaBlock{
+		Labels:  header.LabelNames,
+		Summary: ts.Summary,
+		Doc:     ts.Doc,
+	}
+
+	if len(header.LabelNames) > 0 && header.LabelNames[0] == "type" {
+		blk.VariantLabel = header.LabelNames[0]
+		blk.Undocumented = !documented
+		blk.Variants = b.variants(blockType, ts)
+		if !documented && b.opts.RequireDocs {
+			b.problemf("%s: no block schema registered", blockType)
+		}
+		return blk
+	}
+
+	if !documented {
+		blk.Undocumented = true
+		blk.Body = newSchemaBody()
+		if b.opts.RequireDocs {
+			b.problemf("%s: no block schema registered", blockType)
+		}
+		return blk
+	}
+	blk.Body = b.bodyFromSample(blockType, ts)
+	return blk
+}
+
+// topLevelSchema finds the curated schema for a top-level block: from its
+// BlockHandler when it implements SchemaProvider, otherwise from an explicit
+// RegisterBlockSchema (for blocks extracted before handlers run).
+func topLevelSchema(blockType string, handlers map[string]BlockHandler) (TypeSchema, bool) {
+	if handler, ok := handlers[blockType]; ok {
+		if provider, ok := handler.(SchemaProvider); ok {
+			return provider.Schema(), true
+		}
+	}
+	if ts, ok := topLevelBlockSchemas[blockType]; ok {
+		return ts, true
+	}
+	return TypeSchema{}, false
+}
+
+// variants describes every variant of a typed block. The variant set comes
+// from the registry that drives parsing — or, for a typed block with no
+// registry behind it (`metric`), from the block's own curated Variants.
+func (b *schemaBuilder) variants(blockType string, blockTS TypeSchema) map[string]*SchemaBody {
+	curated := typeSchemas[blockType]
+	names := registeredTypeNames(blockType)
+	if names == nil {
+		curated = blockTS.Variants
+		names = sortedKeys(blockTS.Variants)
+	}
+
+	// Attributes the block handler decodes from every block of this type
+	// before dispatching to the variant's own processor. They are part of each
+	// variant's authored surface, so they are merged into every variant body.
+	var common []*SchemaAttr
+	if envelope, ok := envelopeSchemas[blockType]; ok {
+		common = b.mergeBody(blockType, mustReflect(envelope.Sample), envelope).Attributes
+	}
+
+	variants := make(map[string]*SchemaBody, len(names))
+	for _, name := range names {
+		path := blockType + " " + name
+		ts, ok := curated[name]
+
+		var body *SchemaBody
+		if ok {
+			body = b.bodyFromSample(path, ts)
+		} else {
+			// No schema registered: the variant's own attributes are unknown,
+			// but the block's common ones are still true of it.
+			body = newSchemaBody()
+			body.Undocumented = true
+			if b.opts.RequireDocs {
+				b.problemf("%s: no schema registered", path)
+			}
+		}
+		body.Attributes = appendCommonAttrs(body.Attributes, common)
+		body.Conditional = conditionalTypes[blockType][name]
+		variants[name] = body
+	}
+	return variants
+}
+
+// appendCommonAttrs adds the block-level attributes a variant does not itself
+// declare, after the variant's own.
+func appendCommonAttrs(attrs, common []*SchemaAttr) []*SchemaAttr {
+	for _, c := range common {
+		declared := false
+		for _, a := range attrs {
+			if a.Name == c.Name {
+				declared = true
+				break
+			}
+		}
+		if !declared {
+			attrs = append(attrs, c)
+		}
+	}
+	return attrs
+}
+
+// mustReflect reflects a sample that the config package itself supplies, where
+// failure is a programming error rather than bad curation.
+func mustReflect(sample any) *reflectedBody {
+	body, err := reflectSample(sample)
+	if err != nil {
+		panic(fmt.Sprintf("schema: %v", err))
+	}
+	return body
+}
+
+// envelopeSchemas describes the attributes each typed block's handler decodes
+// before dispatching to the type-specific processor. `condition` has no
+// envelope: the whole body goes to the subtype.
+var envelopeSchemas = map[string]TypeSchema{
+	"client":  {Sample: &ClientDefinition{}},
+	"server":  {Sample: &ServerDefinition{}},
+	"trigger": {Sample: &TriggerDefinition{}},
+}
+
+// registeredTypeNames returns the variant keys of a registry-driven typed
+// block, or nil when the block has no registry behind it.
+func registeredTypeNames(blockType string) []string {
+	switch blockType {
+	case "client":
+		return sortedKeys(clientRegistry)
+	case "server":
+		return sortedKeys(serverRegistry)
+	case "condition":
+		return sortedKeys(conditionRegistry)
+	case "wire_format":
+		return sortedKeys(wireFormatRegistry)
+	case "editor":
+		return sortedKeys(editorRegistry)
+	case "trigger":
+		// Conditional trigger types are described as the full superset: the
+		// schema says what can exist, not what a given config enables.
+		names := sortedKeys(triggerRegistry)
+		for _, name := range sortedKeys(conditionalTypes["trigger"]) {
+			if _, ok := triggerRegistry[name]; !ok {
+				names = append(names, name)
+			}
+		}
+		sort.Strings(names)
+		return names
+	}
+	return nil
 }
 
 // sortedKeys returns a map's keys in sorted order, so problems are reported

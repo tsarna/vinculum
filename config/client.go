@@ -139,10 +139,12 @@ type ClientProcessor func(config *Config, block *hcl.Block, body hcl.Body) (Clie
 var clientRegistry = map[string]ClientProcessor{}
 
 // RegisterClientType registers a processor for a named client type.
-// Sub-packages call this from their init() function.
-func RegisterClientType(typeName string, p ClientProcessor) {
+// Sub-packages call this from their init() function, optionally passing
+// WithSchema to describe the block for `vinculum schema`.
+func RegisterClientType(typeName string, p ClientProcessor, opts ...RegisterOption) {
 	recordPlugin("client." + typeName)
 	clientRegistry[typeName] = p
+	registerTypeSchema("client", typeName, opts)
 }
 
 // BusClient is a client backed by the vinculum-bus pub/sub system (e.g. VWS).

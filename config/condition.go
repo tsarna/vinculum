@@ -31,10 +31,12 @@ type ConditionRegistration struct {
 var conditionRegistry = map[string]ConditionRegistration{}
 
 // RegisterConditionSubtype registers a condition subtype
-// ("timer", "threshold", "counter"). Sub-packages call this from init().
-func RegisterConditionSubtype(typeName string, reg ConditionRegistration) {
+// ("timer", "threshold", "counter"). Sub-packages call this from init(),
+// optionally passing WithSchema to describe the block for `vinculum schema`.
+func RegisterConditionSubtype(typeName string, reg ConditionRegistration, opts ...RegisterOption) {
 	recordPlugin("condition." + typeName)
 	conditionRegistry[typeName] = reg
+	registerTypeSchema("condition", typeName, opts)
 }
 
 type ConditionBlockHandler struct {

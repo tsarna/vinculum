@@ -420,7 +420,20 @@ func init() {
 				HasDependencyId: true,
 			},
 		}
-	})
+	}, cfg.WithVariantSchemas(map[string]cfg.TypeSchema{
+		// Naming the type here is what makes it visible to
+		// `vinculum schema`: the factory above can't be called without a
+		// *Config, so nothing else can discover it. The schema describes what
+		// can exist, so the type is emitted regardless of whether a given
+		// config enables it.
+		"file": fileTriggerSchema,
+	}))
+}
+
+// fileTriggerSchema describes trigger "file" for `vinculum schema`. Available
+// only when a base directory is configured.
+var fileTriggerSchema = cfg.TypeSchema{
+	Sample: &triggerFileBody{},
 }
 
 func processFileTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {

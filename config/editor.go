@@ -28,10 +28,13 @@ type EditorDefinition struct {
 
 var editorRegistry = map[string]EditorProcessor{}
 
-// RegisterEditorType registers an editor type. Sub-packages call this from init().
-func RegisterEditorType(typeName string, p EditorProcessor) {
+// RegisterEditorType registers an editor type. Sub-packages call this from
+// init(), optionally passing WithSchema to describe the block for
+// `vinculum schema`.
+func RegisterEditorType(typeName string, p EditorProcessor, opts ...RegisterOption) {
 	recordPlugin("editor." + typeName)
 	editorRegistry[typeName] = p
+	registerTypeSchema("editor", typeName, opts)
 }
 
 // editorOuterBody is used to decode the common attributes of an editor block,

@@ -18,10 +18,12 @@ type WireFormatProcessor func(config *Config, block *hcl.Block, body hcl.Body) (
 var wireFormatRegistry = map[string]WireFormatProcessor{}
 
 // RegisterWireFormatType registers a processor for a named wire format type.
-// Sub-packages call this from their init() function.
-func RegisterWireFormatType(typeName string, p WireFormatProcessor) {
+// Sub-packages call this from their init() function, optionally passing
+// WithSchema to describe the block for `vinculum schema`.
+func RegisterWireFormatType(typeName string, p WireFormatProcessor, opts ...RegisterOption) {
 	recordPlugin("wire_format." + typeName)
 	wireFormatRegistry[typeName] = p
+	registerTypeSchema("wire_format", typeName, opts)
 }
 
 // WireFormatDefinition is the common HCL structure for wire_format blocks.
