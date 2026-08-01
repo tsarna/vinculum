@@ -18,6 +18,50 @@ type VariableBlockHandler struct {
 	functyVarInit map[string]hcl.Expression
 }
 
+// varBody documents the attributes a var block accepts. Process() below reads
+// them one at a time via JustAttributes — `type` in particular must not be
+// evaluated as a value — so this struct is not used for decoding, only for
+// `vinculum schema`. Keep the two in step.
+type varBody struct {
+	Value    hcl.Expression `hcl:"value,optional"`
+	Type     hcl.Expression `hcl:"type,optional"`
+	Nullable *bool          `hcl:"nullable,optional"`
+}
+
+// Schema describes the var block for `vinculum schema`.
+func (h *VariableBlockHandler) Schema() TypeSchema { return varSchema }
+
+var varSchema = TypeSchema{
+	Sample:  &varBody{},
+	Summary: "Declares a mutable variable.",
+	Doc: `Declares a variable available in expressions as ` + "`var.<name>`" + `.
+
+Unlike a constant, a variable's value can change at runtime via ` + "`set()`" + ` and
+` + "`increment()`" + `. Variables are goroutine-safe and may be read and written
+concurrently from subscription handlers, triggers, and hooks.`,
+	Attrs: map[string]AttrMeta{
+		"value": {
+			Summary: "Initial value.",
+			Doc:     "Evaluated at startup. The variable starts as `null` when omitted.",
+			Hint:    HintExpression,
+		},
+		"type": {
+			Summary: "Type the variable is constrained to.",
+			Doc: `A functy type spec — ` + "`number`" + `, ` + "`list(string)`" + `,
+` + "`object({ host = string, port = number })`" + `, or a host-registered named type such
+as ` + "`bus`" + `. A ` + "`set()`" + ` of an incompatible value fails; values are coerced where
+the grammar allows.
+
+The older quoted form (` + "`type = \"number\"`" + `) still works but is deprecated and warns.`,
+		},
+		"nullable": {
+			Summary: "Whether null is a valid value.",
+			Doc:     "Defaults to true. When false, `set()` to null (including `set()` with no value) fails. May be combined with `type` or used on its own.",
+			Hint:    HintBool,
+		},
+	},
+}
+
 func NewVariableBlockHandler() *VariableBlockHandler {
 	return &VariableBlockHandler{
 		variables:     make(map[string]*types.Variable),

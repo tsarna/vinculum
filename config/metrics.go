@@ -226,6 +226,78 @@ func NewMetricBlockHandler() *MetricBlockHandler {
 	}
 }
 
+// Schema describes the metric block for `vinculum schema`. The metric type is
+// a block label like any other typed block, but there is no registry behind it
+// — Preprocess accepts a fixed set — so the variants are declared here.
+func (h *MetricBlockHandler) Schema() TypeSchema { return metricSchema }
+
+// metricVariant builds the schema of one metric type. All three decode the
+// same struct, so they differ only in prose.
+func metricVariant(summary, doc string) TypeSchema {
+	return TypeSchema{
+		Sample:  &MetricDefinition{},
+		Summary: summary,
+		Doc:     doc,
+		Attrs:   metricAttrs,
+		Constraints: []Constraint{
+			Requires("computed_interval", "value"),
+		},
+	}
+}
+
+var metricAttrs = map[string]AttrMeta{
+	"help": {
+		Summary: "Human-readable description of the metric.",
+		Doc:     "Shown in `/metrics` output.",
+	},
+	"label_names": {
+		Summary: "Names of the metric's dynamic labels.",
+		Doc:     "The metric has no labels when omitted. Label values are supplied at each `set()`/`increment()`/`observe()` call.",
+	},
+	"namespace": {
+		Summary: "Prefix for the metric name.",
+		Doc:     "Emitted as `<namespace>.<name>` in OTel, underscored in Prometheus.",
+	},
+	"buckets": {
+		Summary: "Histogram bucket boundaries.",
+		Doc:     "Histograms only; ignored by gauges and counters. Defaults to the Prometheus default bucket set.",
+	},
+	"server": {
+		Summary: "Metrics backend to register with.",
+		Doc:     "A `server \"metrics\"` or `client \"otlp\"` block. Uses the default backend when omitted.",
+		Hint:    HintServerRef,
+	},
+	"value": {
+		Summary: "Expression polled to produce the metric's value.",
+		Doc:     "Makes this a computed metric: the expression is evaluated every `computed_interval` instead of the metric being updated imperatively.",
+		Hint:    HintActionExpression,
+		Context: "computed-metric",
+	},
+	"computed_interval": {
+		Summary: "How often to evaluate `value`.",
+		Doc:     "Defaults to `\"15s\"`. Only meaningful together with `value`.",
+		Hint:    HintDuration,
+	},
+}
+
+var metricSchema = TypeSchema{
+	Summary: "An application metric reported via OpenTelemetry.",
+	Doc: `Declares a metric, available in expressions as ` + "`metric.<name>`" + ` and
+reported through a ` + "`server \"metrics\"`" + ` (Prometheus pull) or ` + "`client \"otlp\"`" + `
+(OTLP push) backend.`,
+	Variants: map[string]TypeSchema{
+		"gauge": metricVariant(
+			"A value that can go up and down.",
+			"Supports `set()`, `get()`, and `increment()`."),
+		"counter": metricVariant(
+			"A monotonically increasing value.",
+			"Supports `increment()`, `get()`, and `set()` (as a delta). Names conventionally end in `_total`."),
+		"histogram": metricVariant(
+			"Sample observations bucketed by value.",
+			"Supports `observe()`. Bucket boundaries are set with `buckets`."),
+	},
+}
+
 // SetImplicitBackendDeps records the dependency IDs of server "metrics" and
 // client "otlp" blocks so that metric blocks without an explicit server
 // attribute are ordered after them.

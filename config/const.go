@@ -17,6 +17,31 @@ type ConstBlockHandler struct {
 	functyConstraints map[string]types.TypeConstraint
 }
 
+// constBody exists only to give the const block a shape to reflect. The block
+// has no fixed attributes — every attribute is a constant the config author
+// names — so the body is empty and marked FreeAttributes.
+type constBody struct{}
+
+// Schema describes the const block for `vinculum schema`.
+func (b *ConstBlockHandler) Schema() TypeSchema { return constSchema }
+
+var constSchema = TypeSchema{
+	Sample:         &constBody{},
+	FreeAttributes: true,
+	Summary:        "Defines named constants available in all expressions.",
+	Doc: `Each attribute defines one constant, evaluated once at startup and then
+available by name in every expression. Multiple ` + "`const`" + ` blocks are merged.
+
+Expressions here may reference other constants, environment variables, HTTP status
+code constants, and most functions including user-defined and jq functions.
+
+	const {
+	    pi           = 3.14159
+	    greeting     = "Hello"
+	    some_numbers = [1, 2, 3]
+	}`,
+}
+
 func NewConstBlockHandler() *ConstBlockHandler {
 	return &ConstBlockHandler{
 		consts:            make(hcl.Attributes),

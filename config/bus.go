@@ -94,6 +94,37 @@ func NewBusBlockHandler() *BusBlockHandler {
 	return &BusBlockHandler{}
 }
 
+// Schema describes the bus block for `vinculum schema`.
+func (h *BusBlockHandler) Schema() TypeSchema { return busSchema }
+
+var busSchema = TypeSchema{
+	Sample:  &BusDefinition{},
+	Summary: "An in-process publish/subscribe event bus.",
+	Doc: `Declares an event bus, available in expressions as ` + "`bus.<name>`" + `.
+
+` + "`bus.main`" + ` always exists implicitly and does not need to be declared.`,
+	Attrs: map[string]AttrMeta{
+		"type": {
+			Summary: "Bus implementation to use.",
+			Doc:     "Reserved for alternative bus implementations; omit for the default in-process bus.",
+		},
+		"queue_size": {
+			Summary: "Maximum messages queued before messages are dropped.",
+			Doc:     "Defaults to 1000.",
+		},
+		"metrics": {
+			Summary: "Where to report bus metrics.",
+			Doc:     "A `server \"metrics\"` or `client \"otlp\"` block. Auto-wires to the default metrics backend when omitted.",
+			Hint:    HintServerRef,
+		},
+		"tracing": {
+			Summary: "Where to report bus traces.",
+			Doc:     "A `client \"otlp\"` block. When set, each publish and delivery is wrapped in an OTel span. Auto-wires to the default when omitted.",
+			Hint:    HintClientRef,
+		},
+	},
+}
+
 // TODO: use preprocess hook to see if the main bus is defined, and automatically define it if not
 
 func (h *BusBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {

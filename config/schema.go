@@ -58,10 +58,23 @@ type TypeSchema struct {
 	// Every key must name an attribute that reflection found.
 	Attrs map[string]AttrMeta
 
+	// FreeAttributes marks a body whose attribute names are chosen by the
+	// config author rather than fixed by the parser (`const`, an fsm
+	// `storage` block). Consumers should not flag an unknown attribute here.
+	FreeAttributes bool
+
 	// Blocks holds curated metadata for nested sub-blocks, keyed by HCL block
-	// type name. Structure is still reflected; this only adds docs. Every key
-	// must name a sub-block that reflection found.
+	// type name. Structure is normally reflected and this only adds docs, so
+	// every key must name a sub-block reflection found — unless the entry
+	// carries its own Sample, which declares a sub-block of a body the parent
+	// parses by hand from a `,remain` body (see fsm's state/event/storage).
 	Blocks map[string]TypeSchema
+
+	// Repeatable and Required describe the header of a sub-block declared via
+	// its own Sample. They are ignored for reflected sub-blocks, whose field
+	// type already says whether the block is a slice, a pointer, or a value.
+	Repeatable bool
+	Required   bool
 
 	// Variants declares the variant bodies of a typed block whose variants are
 	// not driven by a registry (currently only `metric`). Registry-driven
@@ -119,8 +132,33 @@ const (
 	// block-specific `ctx` in scope. In list form each element is evaluated in
 	// order and the last value is the result.
 	HintActionExpression Hint = "action-expression"
-	// HintBusRef is a `bus.<name>` reference.
+	// HintReactiveExpression is a reactive expression: it is re-evaluated for
+	// its value automatically whenever any watchable it references changes — a
+	// var, metric, condition, or fsm — rather than once at config time or in
+	// response to an event. It has no `ctx`, and what it references is what
+	// makes it fire, so a completion provider should offer watchable
+	// references here. See config.ReactiveExpr.
+	HintReactiveExpression Hint = "reactive-expression"
+	// HintTransformPipeline is a list of transform functions applied in order
+	// to each message before delivery — `add_topic_prefix("out/")`, `jq(...)`,
+	// `if_topic_prefix(...)`, `stop()`, and so on.
+	//
+	// The transform functions are a DSL, not part of the general expression
+	// language: they exist only in the eval context of attributes that expect
+	// a transform list. A completion provider should offer those functions
+	// here, and only those.
+	HintTransformPipeline Hint = "transform-pipeline"
+	// HintBusRef is a reference to a bus specifically — a slot that resolves
+	// an event bus and nothing else. For the much more common slot that takes
+	// anything able to receive messages, use HintSubscriberRef.
 	HintBusRef Hint = "bus-ref"
+	// HintSubscriberRef is a reference to anything that can receive messages:
+	// any capsule whose value implements bus.Subscriber. That includes buses
+	// (`bus.<name>`) but also FSMs, subscriber-implementing servers such as
+	// `server "vws"` and `server "websocket"`, and clients that publish
+	// outbound. A completion provider should offer all of them, not just
+	// `bus.*`.
+	HintSubscriberRef Hint = "subscriber-ref"
 	// HintClientRef is a `client.<name>` reference.
 	HintClientRef Hint = "client-ref"
 	// HintServerRef is a `server.<name>` reference.
@@ -510,6 +548,15 @@ func reflectBodyType(ty reflect.Type, stack []reflect.Type) (*reflectedBody, err
 	return body, nil
 }
 
+// labelsOrEmpty returns labels, or an empty slice, so `labels` marshals as
+// `[]` rather than `null` for a label-less block.
+func labelsOrEmpty(labels []string) []string {
+	if labels == nil {
+		return []string{}
+	}
+	return labels
+}
+
 // blockLabels returns the label names of a nested block's struct type, in
 // declaration order.
 func blockLabels(ty reflect.Type) []string {
@@ -602,10 +649,14 @@ type SchemaBody struct {
 	Undocumented bool `json:"undocumented,omitempty"`
 	// Conditional is true for a variant whose availability depends on config
 	// state (see RegisterConditionalTriggerType).
-	Conditional bool                          `json:"conditional,omitempty"`
-	Attributes  []*SchemaAttr                 `json:"attributes"`
-	Blocks      map[string]*SchemaNestedBlock `json:"blocks"`
-	Constraints []Constraint                  `json:"constraints"`
+	Conditional bool `json:"conditional,omitempty"`
+	// FreeAttributes is true when attribute names here are chosen by the
+	// config author rather than fixed by the parser, so an unknown name is
+	// not an error.
+	FreeAttributes bool                          `json:"freeAttributes,omitempty"`
+	Attributes     []*SchemaAttr                 `json:"attributes"`
+	Blocks         map[string]*SchemaNestedBlock `json:"blocks"`
+	Constraints    []Constraint                  `json:"constraints"`
 }
 
 // SchemaAttr describes one HCL attribute.
@@ -764,6 +815,7 @@ func (b *schemaBuilder) mergeBody(path string, rb *reflectedBody, ts TypeSchema)
 	body := newSchemaBody()
 	body.Summary = ts.Summary
 	body.Doc = ts.Doc
+	body.FreeAttributes = ts.FreeAttributes
 
 	if b.opts.RequireDocs && ts.Summary == "" {
 		b.problemf("%s: missing summary", path)
@@ -800,20 +852,35 @@ func (b *schemaBuilder) mergeBody(path string, rb *reflectedBody, ts TypeSchema)
 			nestedTS = nestedTS.withDefaultsFrom(shared)
 		}
 		nestedBody := b.mergeBody(path+"."+rblk.Name, rblk.Body, nestedTS)
-		labels := rblk.Labels
-		if labels == nil {
-			labels = []string{}
-		}
 		body.Blocks[rblk.Name] = &SchemaNestedBlock{
-			Labels:     labels,
+			Labels:     labelsOrEmpty(rblk.Labels),
 			Repeatable: rblk.Repeatable,
 			Required:   rblk.Required,
 			SchemaBody: *nestedBody,
 		}
 	}
 	for _, name := range sortedKeys(ts.Blocks) {
-		if rb.block(name) == nil {
+		if rb.block(name) != nil {
+			continue
+		}
+		// A curated entry with its own Sample declares a sub-block the parent
+		// struct cannot contain, because the parent parses it by hand out of a
+		// `,remain` body. Anything else is stale curation.
+		declared := ts.Blocks[name]
+		if declared.Sample == nil {
 			b.problemf("%s: documented block %q does not exist", path, name)
+			continue
+		}
+		declaredRB, err := reflectSample(declared.Sample)
+		if err != nil {
+			b.problemf("%s.%s: %v", path, name, err)
+			continue
+		}
+		body.Blocks[name] = &SchemaNestedBlock{
+			Labels:     labelsOrEmpty(blockLabels(reflect.Indirect(reflect.ValueOf(declared.Sample)).Type())),
+			Repeatable: declared.Repeatable,
+			Required:   declared.Required,
+			SchemaBody: *b.mergeBody(path+"."+name, declaredRB, declared),
 		}
 	}
 
@@ -906,6 +973,11 @@ func (b *schemaBuilder) topLevelBlock(header hcl.BlockHeaderSchema, handlers map
 	if len(header.LabelNames) > 0 && header.LabelNames[0] == "type" {
 		blk.VariantLabel = header.LabelNames[0]
 		blk.Undocumented = !documented
+		// A typed block has no body of its own, so anything body-shaped in its
+		// block-level schema would be silently dropped. Say so instead.
+		if ts.Sample != nil || len(ts.Attrs) > 0 || len(ts.Blocks) > 0 || len(ts.Constraints) > 0 {
+			b.problemf("%s: block-level schema of a typed block cannot describe a body; move it to the variants", blockType)
+		}
 		blk.Variants = b.variants(blockType, ts)
 		if !documented && b.opts.RequireDocs {
 			b.problemf("%s: no block schema registered", blockType)

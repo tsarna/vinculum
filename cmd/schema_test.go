@@ -141,6 +141,138 @@ func TestSchemaCommonAttributes(t *testing.T) {
 	assert.Nil(t, findAttr(doc.Blocks["condition"].Variants["timer"], "disabled"))
 }
 
+// curatedBlocks are the top-level blocks whose documentation is complete.
+// Phases of the schema rollout add to this list; a block named here must stay
+// fully documented, so adding an hcl field without an AttrMeta fails the test.
+var curatedBlocks = []string{
+	"assert", "bus", "const", "fsm", "function", "jq", "metric",
+	"subscription", "var",
+}
+
+func TestSchemaCuratedBlocksAreFullyDocumented(t *testing.T) {
+	_, problems := config.GenerateSchema(config.SchemaGenOptions{RequireDocs: true})
+
+	for _, problem := range problems {
+		for _, block := range curatedBlocks {
+			assert.False(t, problemConcerns(problem, block),
+				"%s is documented; fix or document the new field: %v", block, problem)
+		}
+	}
+
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+	for _, name := range curatedBlocks {
+		block := doc.Blocks[name]
+		require.NotNil(t, block, name)
+		assert.False(t, block.Undocumented, "%s should not be flagged undocumented", name)
+		assert.NotEmpty(t, block.Summary, "%s has no summary", name)
+	}
+}
+
+func TestSchemaSubscriptionCuration(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+	sub := doc.Blocks["subscription"].Body
+	require.NotNil(t, sub)
+
+	topics := findAttr(sub, "topics")
+	require.NotNil(t, topics)
+	assert.True(t, topics.Required)
+	assert.Equal(t, config.HintTopicPattern, topics.Hint)
+
+	// An action is evaluated per message, not at config load, and sees a
+	// message-shaped ctx.
+	action := findAttr(sub, "action")
+	require.NotNil(t, action)
+	assert.Equal(t, config.HintActionExpression, action.Hint)
+	assert.Equal(t, "message", action.Context)
+
+	// A subscriber is anything implementing bus.Subscriber, while a target
+	// resolves an event bus and nothing else.
+	assert.Equal(t, config.HintSubscriberRef, findAttr(sub, "subscriber").Hint)
+	assert.Equal(t, config.HintBusRef, findAttr(sub, "target").Hint)
+
+	// Transform functions are a DSL of their own, not general expressions.
+	transforms := findAttr(sub, "transforms")
+	require.NotNil(t, transforms)
+	assert.Equal(t, config.HintTransformPipeline, transforms.Hint)
+
+	kinds := map[config.ConstraintKind][]string{}
+	for _, c := range sub.Constraints {
+		kinds[c.Kind] = c.Attributes
+		assert.NotEmpty(t, c.Message, "constraint %s has no message", c.Kind)
+	}
+	assert.Equal(t, []string{"action", "subscriber"}, kinds[config.ConstraintMutuallyExclusive])
+	assert.Equal(t, []string{"action", "subscriber"}, kinds[config.ConstraintAtLeastOneOf])
+}
+
+func TestSchemaMetricVariants(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+	metric := doc.Blocks["metric"]
+
+	// metric is typed but has no registry behind it: the variants come from
+	// the block's own schema.
+	assert.ElementsMatch(t, []string{"gauge", "counter", "histogram"}, keysOf(metric.Variants))
+	for name, variant := range metric.Variants {
+		help := findAttr(variant, "help")
+		require.NotNil(t, help, "metric %q has no help attribute", name)
+		assert.True(t, help.Required)
+		assert.NotEmpty(t, variant.Summary, "metric %q has no summary", name)
+		assert.False(t, variant.Undocumented)
+	}
+	assert.NotNil(t, findAttr(metric.Variants["histogram"], "buckets"))
+}
+
+// TestSchemaFsmSubBlocks covers blocks the parser reads by hand out of a
+// `,remain` body, which reflection cannot see.
+func TestSchemaFsmSubBlocks(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+	fsm := doc.Blocks["fsm"].Body
+	require.NotNil(t, fsm)
+
+	assert.ElementsMatch(t, []string{"state", "event", "storage"}, keysOf(fsm.Blocks))
+
+	state := fsm.Blocks["state"]
+	require.NotNil(t, state)
+	assert.Equal(t, []string{"name"}, state.Labels)
+	assert.True(t, state.Repeatable)
+	for _, hook := range []string{"on_init", "on_entry", "on_exit", "on_event"} {
+		attr := findAttr(&state.SchemaBody, hook)
+		require.NotNil(t, attr, "state.%s missing", hook)
+		assert.Equal(t, config.HintActionExpression, attr.Hint)
+	}
+
+	// A reactive expression is neither config-time nor event-time: it
+	// re-evaluates when what it references changes.
+	when := findAttr(&fsm.Blocks["event"].SchemaBody, "when")
+	require.NotNil(t, when)
+	assert.Equal(t, config.HintReactiveExpression, when.Hint)
+	assert.Empty(t, when.Context, "a reactive expression has no ctx")
+
+	// Sub-blocks of a declared sub-block recurse.
+	transition := fsm.Blocks["event"].Blocks["transition"]
+	require.NotNil(t, transition)
+	assert.Equal(t, []string{"from", "to"}, transition.Labels)
+	assert.NotNil(t, findAttr(&transition.SchemaBody, "guard"))
+
+	// storage keys are named by the config author.
+	assert.True(t, fsm.Blocks["storage"].FreeAttributes)
+	assert.Empty(t, fsm.Blocks["storage"].Attributes)
+}
+
+func TestSchemaFreeAttributeBlocks(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+
+	constBlock := doc.Blocks["const"].Body
+	require.NotNil(t, constBlock)
+	assert.True(t, constBlock.FreeAttributes, "every const attribute is author-named")
+	assert.Empty(t, constBlock.Attributes)
+
+	// A var, by contrast, has a fixed set.
+	varBlock := doc.Blocks["var"].Body
+	require.NotNil(t, varBlock)
+	assert.False(t, varBlock.FreeAttributes)
+	assert.ElementsMatch(t, []string{"value", "type", "nullable"}, attrNamesOf(varBlock))
+}
+
 func TestSchemaCommandOutput(t *testing.T) {
 	out, err := runSchemaCommand(t)
 	require.NoError(t, err)
@@ -225,6 +357,27 @@ func findAttr(body *config.SchemaBody, name string) *config.SchemaAttr {
 		}
 	}
 	return nil
+}
+
+// problemConcerns reports whether a schema problem is about the given
+// top-level block. Problem paths are dotted ("bus.queue_size"), and a typed
+// block's variant paths start "<block> <variant>" ("metric gauge.help").
+func problemConcerns(problem error, blockType string) bool {
+	msg := problem.Error()
+	for _, sep := range []string{":", ".", " "} {
+		if strings.HasPrefix(msg, blockType+sep) {
+			return true
+		}
+	}
+	return false
+}
+
+func attrNamesOf(body *config.SchemaBody) []string {
+	names := make([]string, len(body.Attributes))
+	for i, attr := range body.Attributes {
+		names[i] = attr.Name
+	}
+	return names
 }
 
 func attrsNamed(body *config.SchemaBody, name string) []*config.SchemaAttr {

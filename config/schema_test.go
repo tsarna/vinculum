@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 
@@ -337,6 +338,104 @@ func TestMergeBodyRequireDocs(t *testing.T) {
 	assert.NotContains(t, messages, "fixture: missing summary")
 	assert.NotContains(t, messages, "fixture.listen: missing summary")
 	assert.NotContains(t, messages, "fixture.handle: missing summary")
+}
+
+// TestMergeBodyDeclaredBlocks covers sub-blocks a parent parses by hand out of
+// a `,remain` body: reflection cannot see them, so the curated entry's own
+// Sample supplies the structure.
+func TestMergeBodyDeclaredBlocks(t *testing.T) {
+	ts := TypeSchema{
+		Sample:  &schemaFixtureSpec{},
+		Summary: "Parent.",
+		Blocks: map[string]TypeSchema{
+			"handle": {
+				Sample:     &schemaFixtureHandler{},
+				Repeatable: true,
+				Summary:    "Declared, not reflected.",
+			},
+			"spec": {
+				Sample:   &schemaFixtureSpec{},
+				Required: true,
+				Summary:  "Declared and required.",
+			},
+		},
+	}
+
+	b := &schemaBuilder{}
+	body := b.bodyFromSample("parent", ts)
+	assert.Empty(t, b.problems, "a declared block is not an orphan")
+
+	handle := body.Blocks["handle"]
+	require.NotNil(t, handle)
+	assert.Equal(t, "Declared, not reflected.", handle.Summary)
+	assert.Equal(t, []string{"route", "method"}, handle.Labels, "labels come from the sample")
+	assert.True(t, handle.Repeatable)
+	assert.False(t, handle.Required)
+	assert.NotNil(t, findAttr(&handle.SchemaBody, "action"))
+	// Declared blocks recurse like any other.
+	assert.NotNil(t, handle.Blocks["param"])
+
+	spec := body.Blocks["spec"]
+	require.NotNil(t, spec)
+	assert.True(t, spec.Required)
+	assert.Equal(t, []string{}, spec.Labels)
+
+	// Still an orphan when there is no sample to declare a structure with.
+	b = &schemaBuilder{}
+	b.bodyFromSample("parent", TypeSchema{
+		Sample: &schemaFixtureSpec{},
+		Blocks: map[string]TypeSchema{"nope": {Summary: "Typo."}},
+	})
+	require.Len(t, b.problems, 1)
+	assert.ErrorContains(t, b.problems[0], `documented block "nope" does not exist`)
+}
+
+func TestMergeBodyFreeAttributes(t *testing.T) {
+	b := &schemaBuilder{opts: SchemaGenOptions{RequireDocs: true}}
+	body := b.bodyFromSample("freeform", TypeSchema{
+		Sample:         &struct{}{},
+		Summary:        "Author-named attributes.",
+		FreeAttributes: true,
+	})
+	assert.True(t, body.FreeAttributes)
+	assert.Empty(t, body.Attributes)
+	assert.Empty(t, b.problems)
+
+	out := marshalToMap(t, &SchemaBlock{Body: body})
+	assert.Equal(t, true, out["freeAttributes"])
+}
+
+func TestSharedBlockSchemaSuppliesDefaults(t *testing.T) {
+	t.Cleanup(func() { delete(sharedBlockSchemas, reflect.TypeOf(schemaFixtureTLS{})) })
+	RegisterSharedBlockSchema(&schemaFixtureTLS{}, TypeSchema{
+		Summary: "Shared TLS settings.",
+		Attrs: map[string]AttrMeta{
+			"cert_file": {Summary: "Certificate path."},
+			"key_file":  {Summary: "Private key path."},
+		},
+	})
+
+	// A parent that says nothing about the sub-block inherits all of it.
+	b := &schemaBuilder{}
+	body := b.bodyFromSample("fixture", fixtureSchema())
+	tlsBlock := body.Blocks["tls"]
+	require.NotNil(t, tlsBlock)
+	assert.Equal(t, "Shared TLS settings.", tlsBlock.Summary)
+	assert.Equal(t, "Certificate path.", findAttr(&tlsBlock.SchemaBody, "cert_file").Summary)
+
+	// A parent that curates it wins, field by field.
+	ts := fixtureSchema()
+	ts.Blocks["tls"] = TypeSchema{
+		Summary: "TLS for this listener.",
+		Attrs:   map[string]AttrMeta{"cert_file": {Summary: "Server certificate."}},
+	}
+	b = &schemaBuilder{}
+	tlsBlock = b.bodyFromSample("fixture", ts).Blocks["tls"]
+	assert.Empty(t, b.problems)
+	assert.Equal(t, "TLS for this listener.", tlsBlock.Summary)
+	assert.Equal(t, "Server certificate.", findAttr(&tlsBlock.SchemaBody, "cert_file").Summary)
+	assert.Equal(t, "Private key path.", findAttr(&tlsBlock.SchemaBody, "key_file").Summary,
+		"uncurated attributes still come from the shared definition")
 }
 
 func TestBodyFromSampleWithoutSample(t *testing.T) {

@@ -23,6 +23,26 @@ func NewAssertBlockHandler() *AssertBlockHandler {
 	return &AssertBlockHandler{}
 }
 
+// Schema describes the assert block for `vinculum schema`.
+func (h *AssertBlockHandler) Schema() TypeSchema { return assertSchema }
+
+var assertSchema = TypeSchema{
+	Sample:  &Assert{},
+	Summary: "Aborts startup unless a condition holds.",
+	Doc: `Checks that ` + "`condition`" + ` is true while the configuration is processed, and
+aborts startup if it is not. The block's name label appears in the error message.
+
+Primarily intended for test cases, but also useful for validating that required
+environment variables are set and sensible.`,
+	Attrs: map[string]AttrMeta{
+		"condition": {
+			Summary: "Expression that must evaluate to true.",
+			Doc:     "Evaluated once, while the configuration is loaded — not at runtime.",
+			Hint:    HintExpression,
+		},
+	},
+}
+
 func (h *AssertBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {
 	return "assert." + block.Labels[0], nil
 }

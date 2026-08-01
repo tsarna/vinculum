@@ -44,6 +44,160 @@ func NewFsmBlockHandler() *FsmBlockHandler {
 	}
 }
 
+// The state, event, transition, and storage bodies are parsed by hand in
+// parseSubBlocks below — declaration order and raw expressions matter — so
+// these structs exist only to describe them to `vinculum schema`. Keep them in
+// step with the attribute switches in the parse functions.
+
+type fsmStateBody struct {
+	Name    string         `hcl:"name,label"`
+	OnInit  hcl.Expression `hcl:"on_init,optional"`
+	OnEntry hcl.Expression `hcl:"on_entry,optional"`
+	OnExit  hcl.Expression `hcl:"on_exit,optional"`
+	OnEvent hcl.Expression `hcl:"on_event,optional"`
+}
+
+type fsmEventBody struct {
+	Name        string              `hcl:"name,label"`
+	Topic       string              `hcl:"topic,optional"`
+	When        hcl.Expression      `hcl:"when,optional"`
+	Transitions []fsmTransitionBody `hcl:"transition,block"`
+}
+
+type fsmTransitionBody struct {
+	From   string         `hcl:"from,label"`
+	To     string         `hcl:"to,label"`
+	Guard  hcl.Expression `hcl:"guard,optional"`
+	Action hcl.Expression `hcl:"action,optional"`
+}
+
+// fsmStorageBody has no fixed attributes: each one is a storage key the config
+// author names.
+type fsmStorageBody struct{}
+
+// Schema describes the fsm block for `vinculum schema`.
+func (h *FsmBlockHandler) Schema() TypeSchema { return fsmSchema }
+
+var fsmSchema = TypeSchema{
+	Sample:  &FsmTopLevel{},
+	Summary: "A finite state machine.",
+	Doc: `Declares a state machine, available in expressions as ` + "`fsm.<name>`" + `.
+
+Events are delivered by ` + "`send()`" + `, by a bus subscription, or by an ` + "`event`" + `
+block's ` + "`topic`" + ` pattern; each may cause a transition, which fires the
+corresponding hooks. The FSM is also gettable, settable, countable, and watchable —
+see the FSM reference.`,
+	Attrs: map[string]AttrMeta{
+		"initial": {
+			Summary: "Name of the state the machine starts in.",
+			Doc:     "Must match one of the `state` blocks.",
+		},
+		"queue_size": {
+			Summary: "Depth of the inbound event queue.",
+			Doc:     "Defaults to 64.",
+		},
+		"shutdown_event": {
+			Summary: "Event delivered to the machine at shutdown.",
+			Doc:     "Lets the machine run its exit hooks and reach a terminal state before the process stops.",
+		},
+		"disabled": {
+			Summary: "Skip this block entirely.",
+			Hint:    HintBool,
+		},
+		"tracing": {
+			Summary: "Where to report FSM traces.",
+			Doc:     "A `client \"otlp\"` block. Auto-wires to the default when omitted.",
+			Hint:    HintClientRef,
+		},
+		"on_change": {
+			Summary: "Evaluated after every state change.",
+			Doc:     "Includes self-transitions.",
+			Hint:    HintActionExpression,
+			Context: "fsm-hook",
+		},
+		"on_error": {
+			Summary: "Evaluated when a hook or guard fails.",
+			Doc:     "`ctx.error` is the message and `ctx.hook` names the hook that failed.",
+			Hint:    HintActionExpression,
+			Context: "fsm-error",
+		},
+	},
+	Blocks: map[string]TypeSchema{
+		"storage": {
+			Sample:         &fsmStorageBody{},
+			FreeAttributes: true,
+			Summary:        "Initial values of the machine's storage keys.",
+			Doc:            "Each attribute seeds one key, readable with `get(fsm.x, \"key\")` and writable with `set(fsm.x, \"key\", value)`.",
+		},
+		"state": {
+			Sample:     &fsmStateBody{},
+			Repeatable: true,
+			Summary:    "One state of the machine, with its lifecycle hooks.",
+			Attrs: map[string]AttrMeta{
+				"on_init": {
+					Summary: "Evaluated once at startup, for the initial state only.",
+					Hint:    HintActionExpression,
+					Context: "fsm-hook",
+				},
+				"on_entry": {
+					Summary: "Evaluated on entering this state.",
+					Hint:    HintActionExpression,
+					Context: "fsm-hook",
+				},
+				"on_exit": {
+					Summary: "Evaluated on leaving this state.",
+					Hint:    HintActionExpression,
+					Context: "fsm-hook",
+				},
+				"on_event": {
+					Summary: "Evaluated for an event received in this state.",
+					Doc:     "Runs whether or not the event causes a transition.",
+					Hint:    HintActionExpression,
+					Context: "fsm-hook",
+				},
+			},
+		},
+		"event": {
+			Sample:     &fsmEventBody{},
+			Repeatable: true,
+			Summary:    "One event the machine accepts, and the transitions it causes.",
+			Attrs: map[string]AttrMeta{
+				"topic": {
+					Summary: "Topic pattern that maps a received message to this event.",
+					Doc:     "MQTT-style; named captures are available to hooks as `ctx.topic_params`.",
+					Hint:    HintTopicPattern,
+				},
+				"when": {
+					Summary: "Reactive condition that fires this event.",
+					Doc:     "Re-evaluated whenever any watchable it references changes; the event fires on a false-to-true edge.",
+					Hint:    HintReactiveExpression,
+				},
+			},
+			Blocks: map[string]TypeSchema{
+				"transition": {
+					Sample:     &fsmTransitionBody{},
+					Repeatable: true,
+					Summary:    "A transition from one state to another.",
+					Doc:        "The labels are the from-state and to-state; `*` as the from-state matches any state.",
+					Attrs: map[string]AttrMeta{
+						"guard": {
+							Summary: "Condition that must hold for the transition to be taken.",
+							Doc:     "Must evaluate to a bool. A false guard leaves the machine in its current state.",
+							Hint:    HintExpression,
+							Context: "fsm-hook",
+						},
+						"action": {
+							Summary: "Evaluated when the transition is taken.",
+							Hint:    HintActionExpression,
+							Context: "fsm-hook",
+						},
+					},
+				},
+			},
+		},
+	},
+}
+
 func (h *FsmBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {
 	if len(block.Labels) == 1 {
 		return "fsm." + block.Labels[0], nil

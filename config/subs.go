@@ -122,6 +122,63 @@ func NewSubscriptionBlockHandler() *SubscriptionBlockHandler {
 	return &SubscriptionBlockHandler{}
 }
 
+// Schema describes the subscription block for `vinculum schema`.
+func (h *SubscriptionBlockHandler) Schema() TypeSchema { return subscriptionSchema }
+
+var subscriptionSchema = TypeSchema{
+	Sample:  &SubscriptionDefinition{},
+	Summary: "Subscribes to messages from a bus or client.",
+	Doc: `Subscribes to a bus (or client) and either evaluates an ` + "`action`" + ` expression
+for each message or forwards messages to another subscriber.
+
+The ` + "`subscriber`/`action`/`transforms`/`queue_size`" + ` set is a shared delivery-target
+pattern: the same four attributes, with identical semantics, are accepted by every
+client *receiver* block.`,
+	Attrs: map[string]AttrMeta{
+		"target": {
+			Summary: "Bus to subscribe to.",
+			Doc:     "A bus — `bus.main`, `bus.events`. Defaults to `bus.main`. Unlike `subscriber`, this slot resolves an event bus and nothing else.",
+			Hint:    HintBusRef,
+		},
+		"topics": {
+			Summary: "Topic patterns to subscribe to.",
+			Doc:     "MQTT-style patterns: `+` matches one segment, `#` matches any number of trailing segments.",
+			Hint:    HintTopicPattern,
+		},
+		"action": {
+			Summary: "Expression evaluated once per message.",
+			Doc:     "`ctx.topic` is the message topic, `ctx.msg` the payload, and `ctx.fields` any string metadata attached to it.",
+			Hint:    HintActionExpression,
+			Context: "message",
+		},
+		"subscriber": {
+			Summary: "Subscriber to forward messages to, instead of evaluating an action.",
+			Doc:     "Anything that can receive messages: another bus (`bus.other`), an FSM, a subscriber-implementing server or client. Defaults to `bus.main`.",
+			Hint:    HintSubscriberRef,
+		},
+		"transforms": {
+			Summary: "Transform pipeline applied before the action or subscriber.",
+			Doc: `A list of transform functions applied in order to each message — for example
+` + "`[ drop_topic_prefix(\"in/\"), add_topic_prefix(\"out/\"), jq(\".payload\") ]`" + `.
+Only transform functions are in scope here. See the transforms reference.`,
+			Hint: HintTransformPipeline,
+		},
+		"queue_size": {
+			Summary: "Depth of an async queue wrapping the subscriber.",
+			Doc:     "When set, decouples the publisher from the action so a slow action does not block the bus.",
+		},
+		"disabled": {
+			Summary: "Skip this block entirely.",
+			Hint:    HintBool,
+		},
+	},
+	Constraints: []Constraint{
+		MutuallyExclusive("action", "subscriber"),
+		AtLeastOneOf("action", "subscriber").
+			WithMessage("A subscription needs either an action to evaluate or a subscriber to forward to."),
+	},
+}
+
 func (h *SubscriptionBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {
 	return "subscription." + block.Labels[0], nil
 }
