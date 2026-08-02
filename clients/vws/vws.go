@@ -41,7 +41,7 @@ type VinculumWebsocketsClientDefinition struct {
 	WriteQueueSize *int                     `hcl:"write_queue_size,optional"`
 	AuthExpression hcl.Expression           `hcl:"auth,optional"`
 	Headers        map[string]string        `hcl:"headers,optional"`
-	Reconnect      *cfg.ReconnectDefinition `hcl:"reconnect,optional"`
+	Reconnect      *cfg.ReconnectDefinition `hcl:"reconnect,block"`
 	DefRange       hcl.Range                `hcl:",def_range"`
 }
 
