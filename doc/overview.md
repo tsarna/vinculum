@@ -18,9 +18,10 @@
 14. [Observability](#observability)
 15. [Interactive REPL](#interactive-repl)
 16. [Formatting](#formatting)
-17. [Container Images](#container-images)
-18. [Bootstrap and Plugins](#bootstrap-and-plugins)
-19. [Block Type Reference](#block-type-reference)
+17. [Config Language Schema](#config-language-schema)
+18. [Container Images](#container-images)
+19. [Bootstrap and Plugins](#bootstrap-and-plugins)
+20. [Block Type Reference](#block-type-reference)
 
 ## Introduction
 
@@ -337,6 +338,27 @@ formatting stdin.
 ```
 vinculum fmt --plugin-path /plugins ./configs/
 ```
+
+## Config Language Schema
+
+`vinculum schema` prints a machine-readable JSON description of the whole
+configuration language — every block type, every type-specific variant, every
+attribute and nested sub-block, plus documentation, value hints, and semantic
+constraints. It is meant for editor tooling (completion, hover, linting) and
+for generating reference documentation.
+
+```
+vinculum schema                 # pretty JSON to stdout
+vinculum schema -o schema.json  # write to a file
+```
+
+The structure is reflected from the same decode structs the parser uses, so
+the document describes exactly what that binary can parse; the prose beside it
+is validated against that structure on every build, so the two cannot drift
+apart. Each release also attaches a `schema.json` for consumers that would
+rather fetch one file than run the binary.
+
+See [schema.md](schema.md) for the output format and the full reference.
 
 ## Container Images
 

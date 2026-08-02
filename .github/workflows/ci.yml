@@ -26,3 +26,8 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+      # The same invariant TestSchemaIsCompleteAndConsistent asserts, checked
+      # through the command itself so the CLI's own exit code is covered too.
+      - name: Check config-language schema
+        run: go run . schema --strict --require-docs -o /dev/null

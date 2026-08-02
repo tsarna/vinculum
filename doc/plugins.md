@@ -246,6 +246,41 @@ should not repeat the namespace.
 not a contribution point. For what plugins *cannot* do, see
 [Limitations](#limitations).
 
+### Describing a contributed block type
+
+The seven `Register*` functions that add a block type — server, client,
+trigger, conditional trigger, condition subtype, wire format, and editor —
+take optional `RegisterOption` arguments. Pass `config.WithSchema` to
+describe the block for [`vinculum schema`](schema.md), the same way in-tree
+types do:
+
+```go
+cfg.RegisterClientType("acme", process, cfg.WithSchema(cfg.TypeSchema{
+    Sample:  &acmeClientDefinition{},   // the gohcl decode struct
+    Summary: "Connects to an Acme widget broker.",
+    Attrs: map[string]cfg.AttrMeta{
+        "url":     {Summary: "Broker URL.", Hint: cfg.HintURL},
+        "timeout": {Summary: "Request deadline.", Hint: cfg.HintDuration},
+    },
+}))
+```
+
+`Sample` is the decode struct itself, so attributes, their required-ness,
+and nested sub-blocks are reflected rather than restated — only the prose,
+hints, and constraints are written by hand, and they are checked against the
+reflected structure. Documenting an attribute the struct does not have is an
+error, and so is leaving one undocumented under `--require-docs`.
+
+`vinculum schema` does not load plugins today — it has no `--plugin-path` —
+so its output describes a stock binary and a plugin's contributed types are
+absent from it. Pass `WithSchema` anyway: the description travels with the
+registration, so it is already correct whenever the command learns to load
+plugins, and it costs nothing meanwhile.
+
+`RegisterConditionalTriggerType` takes `config.WithVariantSchemas` instead:
+its factory cannot run without a `*Config`, so nothing else can discover the
+type names it would provide, and they have to be named explicitly.
+
 ### Build contract
 
 To produce a `.so` that loads, three things must line up between your

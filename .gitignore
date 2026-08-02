@@ -24,6 +24,10 @@ profile.cov
 # GoReleaser build output
 /dist/
 
+# Generated at release time and attached to the GitHub Release, never committed
+# — `vinculum schema` is the source of truth, not a checked-in copy.
+/schema.json
+
 # Go workspace file
 go.work
 go.work.sum

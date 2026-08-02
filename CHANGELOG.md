@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`vinculum schema` — a machine-readable description of the configuration language.**
+  Emits one JSON document covering every block type, every type-specific variant
+  (`client "http"` versus `client "mqtt"`), every attribute and nested sub-block, plus
+  prose documentation, value hints, and semantic constraints — for editor tooling
+  (completion, hover, linting) and generated reference docs. The structure is
+  **reflected from the same decode structs the parser uses**, so the document describes
+  exactly what that binary can parse rather than what someone believed it parsed. The
+  prose beside it is validated against that structure — documenting an attribute that
+  does not exist is an error, and so is adding one without documenting it — and CI
+  enforces both, so the two cannot drift apart. Hints distinguish the kinds of
+  expression that differ in when they run and what is in scope: config-time,
+  action (per event, with a named `ctx` shape), predicate, reactive, and the transform
+  DSL. Flags: `-o`, `--pretty`, `--strict`, `--require-docs`. Each release also attaches
+  a `schema.json` for consumers that would rather fetch one file than run the binary.
+  Plugins are not loaded, so the output describes a stock binary. See
+  [`doc/schema.md`](doc/schema.md).
 - **`vinculum test` — run a configuration's `.cty` test blocks against the running
   system.** Boots the full server exactly as `vinculum serve` would — buses, servers,
   subscriptions, triggers — runs the functy `test "..." { ... }` blocks embedded in the
@@ -46,8 +62,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   do **not** support Go plugins or the cgo-based SQLite driver (PostgreSQL and
   MySQL, which are pure-Go, still work).
 
+### Changed
+
+- **`condition` blocks accept `disabled`.** Every other block that creates a runtime
+  component already did; a condition rejected it outright. A disabled condition
+  registers nothing, so `condition.<name>` is undefined and any expression referring to
+  it fails to resolve — the same as a disabled `fsm`.
+- **Config that was silently ignored is now rejected.** Two cases, both of which used to
+  report "Configuration is valid" while doing nothing:
+  - A `condition "flipflop"` edge attribute without its wire — `set_edge` with no
+    `set_on` — was parsed and dropped, so a typo, or a wire deleted without its edge,
+    looked configured. It is now an error.
+  - A `var` block ignored any attribute other than `type`, `nullable`, and `value`, so
+    a misspelled attribute parsed cleanly and had no effect. Unknown attributes are now
+    rejected like everywhere else.
+
 ### Fixed
 
+- **Nested block labels are named in HCL diagnostics.** A missing label on a nested
+  block reported `Missing  for match; All match blocks must have 1 labels ().` — the
+  label name was blank because nearly every nested block's decode struct left it unset.
+  Affected `sender`/`receiver` sub-blocks across mqtt, kafka, rabbitmq, and redis, plus
+  `query`, `auth`, `match`, `fetch`, and the MCP `resource`/`tool`/`prompt` blocks.
+- **`client "vws"` accepts a `reconnect` block.** It was tagged as an attribute, so the
+  form shown in [`doc/server-vws.md`](doc/server-vws.md) — and used by the mqtt and
+  rabbitmq clients — did not parse at all.
 - **An explicitly named `.cty` or `.vinit` file is no longer parsed as VCL.** The
   `.vcl` pass parsed any file given by path regardless of extension, so naming a
   functy or bootstrap file directly (e.g. `vinculum test config.vcl tests.cty`)

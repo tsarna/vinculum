@@ -141,31 +141,51 @@ func TestSchemaCommonAttributes(t *testing.T) {
 	assert.Len(t, attrsNamed(doc.Blocks["trigger"].Variants["file"], "disabled"), 1)
 }
 
-// curatedBlocks are the top-level blocks whose documentation is complete.
-// Phases of the schema rollout add to this list; a block named here must stay
-// fully documented, so adding an hcl field without an AttrMeta fails the test.
-var curatedBlocks = []string{
-	"assert", "bus", "client", "condition", "const", "editor", "fsm",
-	"function", "jq", "metric", "server", "subscription", "trigger", "var",
-	"wire_format",
-}
+// TestSchemaIsCompleteAndConsistent is the anti-drift guard the whole feature
+// rests on. It is the `vinculum schema --strict --require-docs` invariant,
+// enforced by `go test ./...` rather than only by a CI step.
+//
+// Two kinds of problem are reported, and each has a different fix:
+//
+//   - "missing summary" — an `hcl` field was added without documenting it.
+//     Add an AttrMeta for it to the block's TypeSchema.
+//   - "does not exist" — curated metadata names something the decode struct no
+//     longer has. Delete or rename the AttrMeta.
+//
+// Either way the schema and the parser have diverged, which is exactly what
+// this document exists not to do.
+func TestSchemaIsCompleteAndConsistent(t *testing.T) {
+	_, problems := config.GenerateSchema(config.SchemaGenOptions{
+		Strict:      true,
+		RequireDocs: true,
+	})
+	assert.Empty(t, problemStrings(problems),
+		"the schema no longer matches the parser; see the comment on this test")
 
-func TestSchemaCuratedBlocksAreFullyDocumented(t *testing.T) {
-	_, problems := config.GenerateSchema(config.SchemaGenOptions{RequireDocs: true})
-
-	for _, problem := range problems {
-		for _, block := range curatedBlocks {
-			assert.False(t, problemConcerns(problem, block),
-				"%s is documented; fix or document the new field: %v", block, problem)
+	// Nothing may be flagged undocumented, at any depth.
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+	for name, block := range doc.Blocks {
+		require.NotNil(t, block, name)
+		assert.False(t, block.Undocumented, "block %q is undocumented", name)
+		assert.NotEmpty(t, block.Summary, "block %q has no summary", name)
+		if block.Body != nil {
+			assertBodyDocumented(t, name, block.Body)
+		}
+		for variant, body := range block.Variants {
+			assertBodyDocumented(t, name+" "+variant, body)
 		}
 	}
+}
 
-	doc := generateTestSchema(t, config.SchemaGenOptions{})
-	for _, name := range curatedBlocks {
-		block := doc.Blocks[name]
-		require.NotNil(t, block, name)
-		assert.False(t, block.Undocumented, "%s should not be flagged undocumented", name)
-		assert.NotEmpty(t, block.Summary, "%s has no summary", name)
+func assertBodyDocumented(t *testing.T, path string, body *config.SchemaBody) {
+	t.Helper()
+	assert.False(t, body.Undocumented, "%s is undocumented", path)
+	assert.NotEmpty(t, body.Summary, "%s has no summary", path)
+	for _, attr := range body.Attributes {
+		assert.NotEmpty(t, attr.Summary, "%s.%s has no summary", path, attr.Name)
+	}
+	for name, nested := range body.Blocks {
+		assertBodyDocumented(t, path+"."+name, &nested.SchemaBody)
 	}
 }
 
@@ -742,19 +762,6 @@ func findAttr(body *config.SchemaBody, name string) *config.SchemaAttr {
 		}
 	}
 	return nil
-}
-
-// problemConcerns reports whether a schema problem is about the given
-// top-level block. Problem paths are dotted ("bus.queue_size"), and a typed
-// block's variant paths start "<block> <variant>" ("metric gauge.help").
-func problemConcerns(problem error, blockType string) bool {
-	msg := problem.Error()
-	for _, sep := range []string{":", ".", " "} {
-		if strings.HasPrefix(msg, blockType+sep) {
-			return true
-		}
-	}
-	return false
 }
 
 func attrNamesOf(body *config.SchemaBody) []string {

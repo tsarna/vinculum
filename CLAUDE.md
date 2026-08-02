@@ -46,15 +46,19 @@ User-facing documentation lives in `doc/`. Each file covers one topic:
 | `doc/repl.md` | Interactive REPL (`serve -i`): live expression eval, result history, session bindings, meta-commands, log control |
 | `doc/testing.md` | `vinculum test`: run `.cty` `test` blocks against a booted runtime, `sys.testing` gating, `ctx` injection, `eventually`/`never` async assertions, `--no-serve` fast path |
 | `doc/container.md` | Published Docker images: `vinculum`, `vinculum:*-minimal`, `vinculum-build` |
+| `doc/schema.md` | `vinculum schema`: machine-readable description of the config language, output format, hints, constraints, and how to keep it in step |
 
 ---
 
 ## Repository Layout
 
 ```
-cmd/            CLI commands (serve, test, publish, subscribe, check, fmt, plugins, version)
+cmd/            CLI commands (serve, test, publish, subscribe, check, fmt, schema, plugins, version)
 config/         Core config parsing, block registries, and shared block impls
   blocks.go     BlockHandler interface + registry (GetBlockHandlers)
+  schema.go     `vinculum schema` generator: curated TypeSchema/AttrMeta authoring
+                types, gohcl-tag reflection, emitted JSON document, anti-drift
+                validation
   server.go     Listener/Startable/HandlerServer interfaces, BaseServer,
                 RegisterServerType registry + ServerBlockHandler dispatch
   client.go     Client interface, RegisterClientType registry + ClientBlockHandler dispatch
@@ -165,7 +169,10 @@ only what you need.
 ### Registering a new top-level block type
 
 Add to `GetBlockHandlers()` in `config/blocks.go` and to `blockSchema` in the same
-file.
+file. Give the handler a `Schema() TypeSchema` method (the `SchemaProvider`
+interface) so `vinculum schema` can describe it — or, for a block extracted
+before the handlers run (`function`, `jq`, `editor`), call
+`RegisterBlockSchema` from an `init()`.
 
 ---
 
@@ -207,8 +214,11 @@ struct.
 3. Define a server struct embedding `cfg.BaseServer`. Implement `Startable` if it
    runs a goroutine; implement `HandlerServer` if it can be mounted under `server "http"`.
 4. Write `ProcessMyServerBlock(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Listener, hcl.Diagnostics)`.
-5. Register it from an `init()`: `cfg.RegisterServerType("mytype", ProcessMyServerBlock)`.
-   `ServerBlockHandler.Process()` in `config/server.go` dispatches through that registry.
+5. Register it from an `init()`:
+   `cfg.RegisterServerType("mytype", ProcessMyServerBlock, cfg.WithSchema(myServerSchema))`.
+   `ServerBlockHandler.Process()` in `config/server.go` dispatches through that
+   registry. `WithSchema` is not optional in practice — `go test ./...` fails
+   without it (see [Documenting an `hcl` field](#documenting-an-hcl-field)).
 
 Servers are stored in `config.Servers["type"]["name"]` and exposed to HCL
 expressions as `server.<name>` (a cty capsule value).
@@ -230,7 +240,8 @@ Clients connect to external services. They follow the same pattern as servers
 - Implement the `Client` interface
 - Stored in `config.Clients["type"]["name"]`
 - Exposed as `client.<name>` in HCL expressions
-- Register from an `init()`: `cfg.RegisterClientType("mytype", ProcessMyClientBlock)`.
+- Register from an `init()`:
+  `cfg.RegisterClientType("mytype", ProcessMyClientBlock, cfg.WithSchema(myClientSchema))`.
   `ClientBlockHandler.Process()` in `config/client.go` dispatches through that registry.
 
 ### Shared sub-blocks
@@ -473,12 +484,46 @@ topics in user config. Examples:
 ```go
 hcl:"fieldname"           // required attribute
 hcl:"fieldname,optional"  // optional attribute
-hcl:"fieldname,label"     // block label
+hcl:"labelname,label"     // block label — always name it, see below
 hcl:",def_range"          // captures the block's definition range (hcl.Range)
 hcl:",remain"             // captures remaining undecoded body (hcl.Body)
 hcl:"blockname,block"     // nested block (single)
 hcl:"blockname,block"     // nested blocks (slice)
+hcl:"fieldname,attr_range" // that attribute's source range, for diagnostics
 ```
+
+**Always name a label.** gohcl takes a nested block's label names straight
+from the tag and uses them verbatim in its own diagnostics, so `hcl:",label"`
+produces `Missing  for match; All match blocks must have 1 labels ().`
+`vinculum schema --strict` reports an unnamed label as a problem.
+
+### Documenting an `hcl` field
+
+Adding an `hcl` attribute or sub-block without documenting it **fails
+`go test ./...`** — `TestSchemaIsCompleteAndConsistent` in `cmd/` enforces the
+`vinculum schema --strict --require-docs` invariant. Add an `AttrMeta` for it
+to that block's `TypeSchema`, which lives next to the decode struct:
+
+```go
+Attrs: map[string]cfg.AttrMeta{
+    "new_thing": {
+        Summary: "One line, sentence case, ending in a period.",
+        Doc:     "Detail that does not fit in the summary. Markdown.",
+        Hint:    cfg.HintDuration,   // what kind of value belongs here
+        Context: "message",          // for an expression: which ctx it sees
+        Enum:    []string{"a", "b"}, // when the set is fixed
+    },
+},
+```
+
+The reverse fails too: documenting an attribute the struct does not have
+reports `documented attribute "x" does not exist`. Renaming a field is a
+two-sided change by construction, which is the point of the whole feature.
+
+Reuse the shared `AttrMeta` values (`cfg.DisabledAttr`, `cfg.TracingAttr`,
+`cfg.OnConnectAttr`, …) with `cfg.MergeAttrs` rather than rewording them.
+Only state a `Constraint` the parser actually enforces — a value-sensitive
+rule belongs in the attribute's `Doc`. See `doc/schema.md`.
 
 ### Error reporting
 

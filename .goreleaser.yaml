@@ -14,6 +14,16 @@ project_name: vinculum
 before:
   hooks:
     - go mod tidy
+    # Machine-readable description of the configuration language, attached to
+    # the release for editor tooling. --strict --require-docs makes a schema
+    # that has drifted from the parser fail the release rather than ship.
+    # The version ldflag is passed explicitly so the document is stamped with
+    # the release version rather than "dev". Gitignored, so generating it does
+    # not leave the working tree dirty.
+    - >-
+      go run
+      -ldflags=-X=github.com/tsarna/vinculum/version.Version={{ .Version }}
+      . schema --strict --require-docs -o schema.json
 
 builds:
   - id: vinculum
@@ -51,6 +61,10 @@ changelog:
 
 release:
   prerelease: auto
+  # Attached alongside the archives so editor tooling can fetch one file for a
+  # given release rather than build the binary to ask it.
+  extra_files:
+    - glob: ./schema.json
 
 # Publish a Homebrew cask to tsarna/homebrew-tap so macOS users can
 # `brew install tsarna/tap/vinculum`. Casks are macOS-only; Linux users
