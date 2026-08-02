@@ -587,6 +587,25 @@ func (h *httpAction) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeHTTPResponse(h.config.Logger, w, val)
 }
 
+func init() {
+	// getHttpActionEvalContext below builds this, and so does each auth mode
+	// that evaluates an action (servers/auth), so a handler and an `auth`
+	// action see the same shape.
+	cfg.RegisterContextSchema("http-request", cfg.ContextSchema{
+		Summary: "Evaluated once per HTTP request.",
+		Fields: []cfg.ContextField{
+			{
+				Name: "request", Type: cfg.CtxTypeObject,
+				Summary: "The inbound request.",
+				Doc: "Carries `method`, `url`, `host`, `remote_addr`, `proto`, the basic-auth " +
+					"`user`/`password`/`password_set`, the route's `path` parameters, and `form`. " +
+					"Read headers, cookies, and the body through the request functions — see " +
+					"doc/server-http.md.",
+			},
+		},
+	})
+}
+
 func getHttpActionEvalContext(config *cfg.Config, r *http.Request, pathParamNames []string) (*hcl.EvalContext, error) {
 	builder := hclutil.NewEvalContext(r.Context()).
 		WithAttribute("request", types.BuildHTTPRequestObject(r, pathParamNames))

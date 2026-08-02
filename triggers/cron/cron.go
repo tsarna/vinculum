@@ -17,6 +17,16 @@ import (
 func init() {
 	cfg.RegisterTriggerType("cron", cfg.TriggerRegistration{Process: processCronTrigger, HasDependencyId: false},
 		cfg.WithSchema(cronTriggerSchema))
+
+	// One cron block holds many rules, so the context names the rule that
+	// fired rather than the block — there is no ctx.trigger or ctx.name here.
+	cfg.RegisterContextSchema("trigger-cron", cfg.ContextSchema{
+		Summary: "Evaluated each time an `at` rule's schedule fires.",
+		Fields: []cfg.ContextField{
+			{Name: "cron_name", Type: "string", Summary: "Name of the enclosing `trigger \"cron\"` block."},
+			{Name: "at_name", Type: "string", Summary: "Name of the `at` rule that fired."},
+		},
+	})
 }
 
 var cronTriggerSchema = cfg.TypeSchema{

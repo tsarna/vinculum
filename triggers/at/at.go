@@ -540,6 +540,20 @@ type triggerAtBody struct {
 func init() {
 	cfg.RegisterTriggerType("at", cfg.TriggerRegistration{Process: processAtTrigger, HasDependencyId: true},
 		cfg.WithSchema(atTriggerSchema))
+
+	cfg.RegisterContextSchema("trigger-at", cfg.ContextSchema{
+		Summary: "Evaluated each time the trigger fires.",
+		Doc: `The same shape is used for ` + "`time`" + `, so the schedule can adapt to how many
+times the trigger has already fired, and for ` + "`stop_when`" + `, which is evaluated
+after each fire with ` + "`ctx.run_count`" + ` already incremented.`,
+		Fields: []cfg.ContextField{
+			{Name: "trigger", Type: "string", Summary: "Always `\"at\"`."},
+			{Name: "name", Type: "string", Summary: "Name of this trigger block."},
+			{Name: "run_count", Type: "number", Summary: "How many times the action has fired."},
+			{Name: "last_result", Type: cfg.CtxTypeDynamic, Summary: "Result of the previous action, or null on the first fire."},
+			{Name: "last_error", Type: "string", Summary: "Error from the previous evaluation, or null if it succeeded."},
+		},
+	})
 }
 
 var atTriggerSchema = cfg.TypeSchema{

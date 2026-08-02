@@ -658,6 +658,119 @@ func TestSchemaBlockLabelsAreNamed(t *testing.T) {
 		clients["rabbitmq"].Blocks["receiver"].Blocks["binding"].Labels)
 }
 
+// TestSchemaContexts covers the `ctx` shapes. An attribute's `context` is only
+// a label; without the shape behind it a completion provider cannot see inside
+// an `action =` at all.
+func TestSchemaContexts(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+	require.NotEmpty(t, doc.Contexts)
+
+	// Both halves of the closure the generator checks: every name has a shape,
+	// and every shape is named. generateTestSchema already fails on the
+	// problems those raise; this asserts the emitted document agrees.
+	named := map[string]bool{}
+	forEachAttr(doc, func(_ string, attr *config.SchemaAttr) {
+		if attr.Context != "" {
+			named[attr.Context] = true
+		}
+	})
+	require.NotEmpty(t, named)
+	assert.ElementsMatch(t, keysOf(named), keysOf(doc.Contexts))
+
+	for name, shape := range doc.Contexts {
+		assert.NotEmpty(t, shape.Summary, "context %q has no summary", name)
+		for _, f := range shape.Fields {
+			assert.NotEmpty(t, f.Name, "context %q has an unnamed field", name)
+			assert.NotEmpty(t, f.Type, "context %s.%s has no type", name, f.Name)
+			assert.NotEmpty(t, f.Summary, "context %s.%s has no summary", name, f.Name)
+		}
+	}
+
+	// The shape a subscription action and every client receiver share.
+	msg := doc.Contexts["message"]
+	require.NotNil(t, msg)
+	assert.Equal(t, []string{"topic", "msg", "fields", "auth", "baggage", "trace_id", "span_id"},
+		contextFieldNames(msg))
+
+	// A shape may legitimately have no fields of its own: on_connect fires
+	// with no message in flight.
+	assert.Equal(t, []string{"auth", "baggage", "trace_id", "span_id"},
+		contextFieldNames(doc.Contexts["connection"]))
+
+	// An editor assembles its context object directly rather than through
+	// hclutil, so it carries none of the universal fields. Saying otherwise
+	// would send a consumer looking for a ctx.trace_id that is not there.
+	for _, name := range []string{"editor-match", "editor-content"} {
+		for _, f := range doc.Contexts[name].Fields {
+			assert.False(t, f.Universal, "%s should carry no universal fields", name)
+		}
+	}
+	assert.Equal(t, []string{"filename"}, contextFieldNames(doc.Contexts["editor-content"]))
+
+	// Optional marks a field absent from some evaluations of the same shape:
+	// on_init reports a starting state, not a transition, so it has no
+	// old_value.
+	oldValue := contextField(doc.Contexts["condition-hook"], "old_value")
+	require.NotNil(t, oldValue)
+	assert.True(t, oldValue.Optional)
+	assert.False(t, contextField(doc.Contexts["condition-hook"], "new_value").Optional)
+
+	// Every trigger type has its own shape, and no two are the same — that is
+	// why the name is per-attribute rather than per-block.
+	for _, name := range []string{
+		"trigger-after", "trigger-at", "trigger-cron", "trigger-file",
+		"trigger-interval", "trigger-once", "trigger-shutdown", "trigger-signals",
+		"trigger-start", "trigger-watch", "trigger-watchdog",
+	} {
+		assert.NotNil(t, doc.Contexts[name], "trigger context %q missing", name)
+	}
+	// trigger "cron" identifies the rule that fired, not the block, so unlike
+	// every other trigger it has no ctx.trigger or ctx.name.
+	assert.Equal(t, []string{"cron_name", "at_name", "auth", "baggage", "trace_id", "span_id"},
+		contextFieldNames(doc.Contexts["trigger-cron"]))
+}
+
+func contextFieldNames(shape *config.SchemaContext) []string {
+	if shape == nil {
+		return nil
+	}
+	names := make([]string, 0, len(shape.Fields))
+	for _, f := range shape.Fields {
+		names = append(names, f.Name)
+	}
+	return names
+}
+
+func contextField(shape *config.SchemaContext, name string) *config.SchemaContextField {
+	for _, f := range shape.Fields {
+		if f.Name == name {
+			return f
+		}
+	}
+	return nil
+}
+
+// forEachAttr visits every attribute in the document, at any depth.
+func forEachAttr(doc *config.SchemaDocument, fn func(path string, attr *config.SchemaAttr)) {
+	var walk func(path string, body *config.SchemaBody)
+	walk = func(path string, body *config.SchemaBody) {
+		for _, attr := range body.Attributes {
+			fn(path+"."+attr.Name, attr)
+		}
+		for name, nested := range body.Blocks {
+			walk(path+"."+name, &nested.SchemaBody)
+		}
+	}
+	for blockType, block := range doc.Blocks {
+		if block.Body != nil {
+			walk(blockType, block.Body)
+		}
+		for variant, body := range block.Variants {
+			walk(blockType+" "+variant, body)
+		}
+	}
+}
+
 // TestSchemaBackendHints covers the two attributes that name a backend: they
 // want a specific kind of block, not any client or any server.
 func TestSchemaBackendHints(t *testing.T) {

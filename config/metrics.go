@@ -269,9 +269,8 @@ var metricAttrs = map[string]AttrMeta{
 	},
 	"value": {
 		Summary: "Expression polled to produce the metric's value.",
-		Doc:     "Makes this a computed metric: the expression is evaluated every `computed_interval` instead of the metric being updated imperatively.",
-		Hint:    HintActionExpression,
-		Context: "computed-metric",
+		Doc:     "Makes this a computed metric: the expression is evaluated every `computed_interval` instead of the metric being updated imperatively. It is evaluated against the global namespace, so there is no `ctx` here — read state through `get(var.x)` and the like.",
+		Hint:    HintExpression,
 	},
 	"computed_interval": {
 		Summary: "How often to evaluate `value`.",

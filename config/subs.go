@@ -615,6 +615,26 @@ func init() {
 			"send::go":   SendGoFunction(nil),
 		}
 	})
+
+	// ActionSubscriber.OnEvent above builds this, and every client receiver
+	// builds the same shape — it is the delivery-target pattern's context, so
+	// it is described once here alongside SubscriberSourceAttrs.
+	RegisterContextSchema("message", ContextSchema{
+		Summary: "Evaluated once per message delivered.",
+		Fields: []ContextField{
+			{Name: "topic", Type: attrTypeString, Summary: "Topic the message was delivered on."},
+			{
+				Name: "msg", Type: CtxTypeDynamic,
+				Summary: "The message payload.",
+				Doc:     "Already decoded by the client's `wire_format`, so its type follows the data rather than the transport.",
+			},
+			{
+				Name: "fields", Type: CtxTypeObject,
+				Summary: "String metadata attached to the message.",
+				Doc:     "Always present; an empty object when the message carries no metadata.",
+			},
+		},
+	})
 }
 
 // SendFunction returns a cty function for sending a message to a bus subscriber (original behavior)

@@ -360,6 +360,18 @@ type triggerWatchdogBody struct {
 func init() {
 	cfg.RegisterTriggerType("watchdog", cfg.TriggerRegistration{Process: processWatchdogTrigger, HasDependencyId: true},
 		cfg.WithSchema(watchdogTriggerSchema))
+
+	cfg.RegisterContextSchema("trigger-watchdog", cfg.ContextSchema{
+		Summary: "Evaluated each time the window elapses without the watchdog being fed.",
+		Doc:     "The same shape is used for `stop_when`, evaluated after each fire.",
+		Fields: []cfg.ContextField{
+			{Name: "trigger", Type: "string", Summary: "Always `\"watchdog\"`."},
+			{Name: "name", Type: "string", Summary: "Name of this trigger block."},
+			{Name: "miss_count", Type: "number", Summary: "Consecutive fires since the last feed.",
+				Doc: "Reset to 0 by `set(trigger.<name>)`."},
+			{Name: "last_set", Type: cfg.CtxTypeCapsule, Summary: "Time of the last feed, or null if never fed."},
+		},
+	})
 }
 
 var watchdogTriggerSchema = cfg.TypeSchema{

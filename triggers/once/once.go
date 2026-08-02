@@ -92,6 +92,14 @@ type triggerOnceBody struct {
 func init() {
 	cfg.RegisterTriggerType("once", cfg.TriggerRegistration{Process: processOnceTrigger, HasDependencyId: true},
 		cfg.WithSchema(onceTriggerSchema))
+
+	cfg.RegisterContextSchema("trigger-once", cfg.ContextSchema{
+		Summary: "Evaluated on the first `get(trigger.<name>)`, and never again.",
+		Fields: []cfg.ContextField{
+			{Name: "trigger", Type: "string", Summary: "Always `\"once\"`."},
+			{Name: "name", Type: "string", Summary: "Name of this trigger block."},
+		},
+	})
 }
 
 var onceTriggerSchema = cfg.TypeSchema{

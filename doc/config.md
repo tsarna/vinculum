@@ -448,7 +448,7 @@ When `action` is used, `ctx` provides:
 |---|---|
 | `ctx.topic` | Topic of the received message |
 | `ctx.msg` | Message payload |
-| `ctx.fields` | Map of string metadata fields attached to the message (only present if the message has fields) |
+| `ctx.fields` | Object of string metadata fields attached to the message; always present, empty when the message carries none |
 
 #### Examples
 

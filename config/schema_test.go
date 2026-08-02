@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -583,4 +584,110 @@ func marshalToMap(t *testing.T, v any) map[string]any {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(data, &out))
 	return out
+}
+
+// withCleanContextSchemas isolates a test from the process-global context
+// registry, so registering a fixture shape cannot leak into other tests.
+func withCleanContextSchemas(t *testing.T) {
+	t.Helper()
+	saved := contextSchemas
+	contextSchemas = map[string]ContextSchema{}
+	for k, v := range saved {
+		contextSchemas[k] = v
+	}
+	t.Cleanup(func() { contextSchemas = saved })
+}
+
+// TestContextShapeClosure covers the only anti-drift check available for
+// context shapes. Their fields have no reflection source — a ctx is assembled
+// imperatively — so what can be verified is that the names on both sides agree:
+// a shape nothing names is stale, and a name with no shape leaves a consumer
+// holding a label it cannot expand.
+func TestContextShapeClosure(t *testing.T) {
+	t.Run("shape nothing names", func(t *testing.T) {
+		withCleanContextSchemas(t)
+		RegisterContextSchema("no-such-site", ContextSchema{Summary: "Fixture."})
+
+		_, problems := GenerateSchema(SchemaGenOptions{})
+		assert.Contains(t, problemStrings(problems),
+			`context "no-such-site" is described but no attribute names it`)
+	})
+
+	t.Run("name with no shape", func(t *testing.T) {
+		withCleanContextSchemas(t)
+		delete(contextSchemas, "message")
+
+		_, problems := GenerateSchema(SchemaGenOptions{})
+		found := false
+		for _, p := range problemStrings(problems) {
+			if strings.Contains(p, `context "message" is named by`) &&
+				strings.Contains(p, "no shape is registered") {
+				found = true
+			}
+		}
+		assert.True(t, found, "expected a missing-shape problem, got %v", problemStrings(problems))
+	})
+}
+
+// TestContextShapeUniversalFields covers the fields every ctx carries: they are
+// supplied once by the generator rather than repeated in 25 shapes, so they
+// cannot drift apart — except where a site builds its context directly and
+// genuinely has none.
+func TestContextShapeUniversalFields(t *testing.T) {
+	withCleanContextSchemas(t)
+	RegisterContextSchema("message", ContextSchema{
+		Summary: "Fixture.",
+		Fields:  []ContextField{{Name: "topic", Type: "string", Summary: "The topic."}},
+	})
+
+	doc, _ := GenerateSchema(SchemaGenOptions{})
+	shape := doc.Contexts["message"]
+	require.NotNil(t, shape)
+
+	var own, universal []string
+	for _, f := range shape.Fields {
+		if f.Universal {
+			universal = append(universal, f.Name)
+		} else {
+			own = append(own, f.Name)
+		}
+	}
+	assert.Equal(t, []string{"topic"}, own, "the shape's own fields come first")
+	assert.Equal(t, []string{"auth", "baggage", "trace_id", "span_id"}, universal)
+}
+
+// TestContextShapeWithoutUniversalFields covers a site that assembles its
+// context object directly instead of going through hclutil, and so carries none
+// of the universal fields. Claiming otherwise would send a completion provider
+// looking for a ctx.trace_id that is not there.
+func TestContextShapeWithoutUniversalFields(t *testing.T) {
+	withCleanContextSchemas(t)
+	RegisterContextSchema("message", ContextSchema{
+		Summary:                "Fixture.",
+		WithoutUniversalFields: true,
+		Fields:                 []ContextField{{Name: "topic", Type: "string", Summary: "The topic."}},
+	})
+
+	doc, _ := GenerateSchema(SchemaGenOptions{})
+	shape := doc.Contexts["message"]
+	require.NotNil(t, shape)
+	require.Len(t, shape.Fields, 1)
+	assert.Equal(t, "topic", shape.Fields[0].Name)
+}
+
+// TestContextShapeRejectsRedeclaredUniversal guards the one way a shape can
+// contradict the generator: restating a universal field, which would emit it
+// twice with two descriptions.
+func TestContextShapeRejectsRedeclaredUniversal(t *testing.T) {
+	withCleanContextSchemas(t)
+	RegisterContextSchema("message", ContextSchema{
+		Summary: "Fixture.",
+		Fields: []ContextField{
+			{Name: "trace_id", Type: "string", Summary: "A different story."},
+		},
+	})
+
+	_, problems := GenerateSchema(SchemaGenOptions{})
+	assert.Contains(t, problemStrings(problems),
+		`context message: "trace_id" is a universal field and must not be redeclared`)
 }

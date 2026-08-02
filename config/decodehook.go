@@ -10,6 +10,33 @@ import (
 	"go.uber.org/zap"
 )
 
+func init() {
+	// MakeDecodeErrorHook below builds this shape.
+	RegisterContextSchema("decode-error", ContextSchema{
+		Summary: "Evaluated when an inbound message cannot be decoded.",
+		Doc: `The message is dropped whatever this expression does, and whether it
+succeeds — the hook is an observer, not a recovery path.`,
+		Fields: []ContextField{
+			{Name: "raw", Type: CtxTypeObject, Summary: "The undecoded body, as a bytes object."},
+			{Name: "error", Type: attrTypeString, Summary: "The deserialize error message."},
+			{Name: "wire_format", Type: attrTypeString, Summary: "Name of the configured wire format that rejected it."},
+			{Name: "topic", Type: attrTypeString, Summary: "Best-effort vinculum topic for the message."},
+			{Name: "fields", Type: CtxTypeObject, Summary: "Metadata extracted before the failure."},
+		},
+		// Receivers also add their own identity fields — routing_key, offset,
+		// and so on. They vary per client and are documented there.
+	})
+
+	// Every client with a connection lifecycle evaluates on_connect and
+	// on_disconnect with a bare context: there is no message in flight, so
+	// nothing but the universal fields is in scope.
+	RegisterContextSchema("connection", ContextSchema{
+		Summary: "Evaluated on a connection lifecycle change.",
+		Doc: `No message is in flight, so no message fields are in scope — only the
+universal ones below.`,
+	})
+}
+
 // tolerantWireFormats are the built-in formats whose Deserialize never
 // fails, so a malformed body can't poison a receiver that uses them.
 var tolerantWireFormats = map[string]bool{

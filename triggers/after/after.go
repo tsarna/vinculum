@@ -161,6 +161,14 @@ type triggerAfterBody struct {
 func init() {
 	cfg.RegisterTriggerType("after", cfg.TriggerRegistration{Process: processAfterTrigger, HasDependencyId: true},
 		cfg.WithSchema(afterTriggerSchema))
+
+	cfg.RegisterContextSchema("trigger-after", cfg.ContextSchema{
+		Summary: "Evaluated once, when the startup delay elapses.",
+		Fields: []cfg.ContextField{
+			{Name: "trigger", Type: "string", Summary: "Always `\"after\"`."},
+			{Name: "name", Type: "string", Summary: "Name of this trigger block."},
+		},
+	})
 }
 
 var afterTriggerSchema = cfg.TypeSchema{

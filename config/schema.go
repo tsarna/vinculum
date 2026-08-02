@@ -111,9 +111,10 @@ type AttrMeta struct {
 	// ctx.topic/ctx.msg/ctx.fields, while `on_connect` on the same client sees
 	// none of them and `on_decode_error` sees the failure instead.
 	//
-	// v1 emits the name only; enumerating each shape's fields is a later
-	// revision. Use a stable kebab-case name shared by every attribute with
-	// the same shape (e.g. "message", "http-request", "connection").
+	// Use a stable kebab-case name shared by every attribute with the same
+	// shape (e.g. "message", "http-request", "connection"), and describe the
+	// shape itself with RegisterContextSchema. Naming a shape that nothing
+	// describes — or describing one nothing names — is a reported problem.
 	Context string
 
 	// Enum is the closed set of legal string values, when there is one.
@@ -124,14 +125,116 @@ type AttrMeta struct {
 	Deprecated string
 }
 
+// ContextSchema describes one shape of `ctx`: what an expression evaluated at
+// that kind of site can read. Shapes are named by AttrMeta.Context and
+// registered with RegisterContextSchema.
+//
+// Unlike the rest of the structural layer there is no reflection source — a
+// `ctx` is assembled imperatively by an hclutil.EvalContextBuilder chain — so
+// Fields is written by hand. Keep it beside the code that builds the context so
+// the two are read and edited together. The universal fields (auth, baggage,
+// trace_id, span_id) are supplied by the generator and must not be repeated.
+type ContextSchema struct {
+	// Summary is a one-line description of when an expression sees this shape.
+	Summary string
+
+	// Doc is richer Markdown for hover.
+	Doc string
+
+	// Fields are the shape's own fields, in the order worth reading them.
+	Fields []ContextField
+
+	// WithoutUniversalFields marks a shape built directly rather than through
+	// hclutil.NewEvalContext, and which therefore does not carry auth,
+	// baggage, trace_id, or span_id. The editor blocks are the case: they
+	// assemble a context object themselves.
+	WithoutUniversalFields bool
+}
+
+// ContextField is one field of a `ctx` shape.
+type ContextField struct {
+	// Name is the attribute name, read as `ctx.<name>`.
+	Name string
+
+	// Type is the coarse value type, from the same vocabulary as an
+	// attribute's: string, number, bool, list, map, or object — plus "dynamic"
+	// for a value whose type depends on the message, and "capsule" for an
+	// opaque handle passed to a function rather than read directly.
+	Type string
+
+	// Summary is a one-line description, shown as a completion item's detail.
+	Summary string
+
+	// Doc is richer Markdown for hover.
+	Doc string
+
+	// Optional marks a field that is absent from some evaluations of this
+	// shape, e.g. ctx.fields on a message that carries no metadata.
+	Optional bool
+}
+
+// Context field types beyond the attribute vocabulary.
+const (
+	// CtxTypeDynamic is a value whose type depends on the data, e.g. a
+	// decoded message payload.
+	CtxTypeDynamic = "dynamic"
+	// CtxTypeObject is a value with named attributes of its own.
+	CtxTypeObject = "object"
+	// CtxTypeCapsule is an opaque handle, passed to a function rather than
+	// read directly.
+	CtxTypeCapsule = "capsule"
+)
+
+// contextSchemas holds every registered `ctx` shape, keyed by the name
+// attributes reference it by.
+var contextSchemas = map[string]ContextSchema{}
+
+// RegisterContextSchema describes the `ctx` shape that AttrMeta.Context names.
+// Call it from an init() in the package that builds the context.
+func RegisterContextSchema(name string, cs ContextSchema) {
+	contextSchemas[name] = cs
+}
+
+// universalContextFields are added to every `ctx` by
+// hclutil.EvalContextBuilder.BuildEvalContext, whatever the site. They are
+// described once here rather than repeated in every shape.
+var universalContextFields = []ContextField{
+	{
+		Name:    "auth",
+		Type:    CtxTypeObject,
+		Summary: "The authenticated identity, or null.",
+		Doc:     "Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.",
+	},
+	{
+		Name:    "baggage",
+		Type:    CtxTypeCapsule,
+		Summary: "OpenTelemetry baggage riding with this context.",
+		Doc:     "Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See doc/baggage.md.",
+	},
+	{
+		Name:    "trace_id",
+		Type:    attrTypeString,
+		Summary: "Trace ID of the active span, or empty.",
+		Doc:     "Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client \"otlp\"` configured.",
+	},
+	{
+		Name:    "span_id",
+		Type:    attrTypeString,
+		Summary: "Span ID of the active span, or empty.",
+	},
+}
+
 // Hint is a member of a closed vocabulary describing what kind of value an
 // attribute takes, so a completion provider can offer the right candidates.
 // The provider — not Vinculum — knows how to expand each hint.
 type Hint string
 
 const (
-	// HintExpression is a generic expression, evaluated once at config load
-	// time for its value.
+	// HintExpression is a generic expression, evaluated for its value against
+	// the global namespace — const, var, metric, functions — with no `ctx`.
+	// Usually that happens once at config load; a few attributes (a computed
+	// metric's `value`) are polled at runtime but see the same namespace, and
+	// say so in their own docs.
 	HintExpression Hint = "expression"
 	// HintActionExpression is an action: an expression
 	// evaluated at event time rather than config time, largely for its side
@@ -651,6 +754,9 @@ type SchemaDocument struct {
 	SchemaVersion string `json:"schemaVersion"`
 	// VinculumVersion is the version of the binary that produced the document.
 	VinculumVersion string `json:"vinculumVersion"`
+	// Contexts maps a `ctx` shape name to its description. An attribute's
+	// `context` field names one of these.
+	Contexts map[string]*SchemaContext `json:"contexts"`
 	// Plugins lists the registry entries plugins contributed to this document,
 	// e.g. "client.acme". Absent when no plugins were loaded, so its presence
 	// is what tells a consumer the document describes more than a stock binary.
@@ -715,6 +821,28 @@ type SchemaAttr struct {
 	Context    string   `json:"context,omitempty"`
 	Enum       []string `json:"enum,omitempty"`
 	Deprecated string   `json:"deprecated,omitempty"`
+}
+
+// SchemaContext describes one `ctx` shape, named by an attribute's `context`.
+type SchemaContext struct {
+	Summary string `json:"summary,omitempty"`
+	Doc     string `json:"doc,omitempty"`
+	// Fields are the shape's own fields first, then the universal ones every
+	// `ctx` carries.
+	Fields []*SchemaContextField `json:"fields"`
+}
+
+// SchemaContextField describes one field readable as `ctx.<name>`.
+type SchemaContextField struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Summary string `json:"summary,omitempty"`
+	Doc     string `json:"doc,omitempty"`
+	// Optional is true when the field is absent from some evaluations.
+	Optional bool `json:"optional,omitempty"`
+	// Universal is true for a field every `ctx` carries whatever the site, so
+	// a consumer can group or fold them away.
+	Universal bool `json:"universal,omitempty"`
 }
 
 // SchemaNestedBlock describes a sub-block: its header plus its body.
@@ -1042,7 +1170,103 @@ func GenerateSchema(opts SchemaGenOptions) (*SchemaDocument, []error) {
 	for _, header := range blockSchema {
 		doc.Blocks[header.Type] = b.topLevelBlock(header, handlers)
 	}
+	doc.Contexts = b.contexts(doc)
 	return doc, b.problems
+}
+
+// contexts describes every `ctx` shape the document's attributes name.
+//
+// The shapes have no reflection source, so what can be checked is the closure
+// between the two halves: a name with no shape leaves a consumer holding a
+// label it cannot expand, and a shape no attribute names is curation for a
+// site that no longer exists.
+func (b *schemaBuilder) contexts(doc *SchemaDocument) map[string]*SchemaContext {
+	named := map[string][]string{} // shape name -> attribute paths naming it
+	for _, blockType := range sortedKeys(doc.Blocks) {
+		block := doc.Blocks[blockType]
+		if block.Body != nil {
+			collectContextNames(blockType, block.Body, named)
+		}
+		for _, variant := range sortedKeys(block.Variants) {
+			collectContextNames(blockType+" "+variant, block.Variants[variant], named)
+		}
+	}
+
+	out := make(map[string]*SchemaContext, len(named))
+	for _, name := range sortedKeys(named) {
+		cs, ok := contextSchemas[name]
+		if !ok {
+			b.problemf("context %q is named by %s but no shape is registered for it",
+				name, named[name][0])
+			continue
+		}
+		out[name] = b.contextShape(name, cs)
+	}
+	for _, name := range sortedKeys(contextSchemas) {
+		if _, ok := named[name]; !ok {
+			b.problemf("context %q is described but no attribute names it", name)
+		}
+	}
+	return out
+}
+
+func (b *schemaBuilder) contextShape(name string, cs ContextSchema) *SchemaContext {
+	if b.opts.RequireDocs && cs.Summary == "" {
+		b.problemf("context %s: missing summary", name)
+	}
+	out := &SchemaContext{
+		Summary: cs.Summary,
+		Doc:     cs.Doc,
+		Fields:  make([]*SchemaContextField, 0, len(cs.Fields)+len(universalContextFields)),
+	}
+	seen := map[string]bool{}
+	for _, f := range cs.Fields {
+		if b.opts.RequireDocs && f.Summary == "" {
+			b.problemf("context %s.%s: missing summary", name, f.Name)
+		}
+		if seen[f.Name] {
+			b.problemf("context %s: duplicate field %q", name, f.Name)
+			continue
+		}
+		seen[f.Name] = true
+		out.Fields = append(out.Fields, &SchemaContextField{
+			Name:     f.Name,
+			Type:     f.Type,
+			Summary:  f.Summary,
+			Doc:      f.Doc,
+			Optional: f.Optional,
+		})
+	}
+	if cs.WithoutUniversalFields {
+		return out
+	}
+	for _, f := range universalContextFields {
+		if seen[f.Name] {
+			b.problemf("context %s: %q is a universal field and must not be redeclared", name, f.Name)
+			continue
+		}
+		out.Fields = append(out.Fields, &SchemaContextField{
+			Name:      f.Name,
+			Type:      f.Type,
+			Summary:   f.Summary,
+			Doc:       f.Doc,
+			Universal: true,
+		})
+	}
+	return out
+}
+
+// collectContextNames records every context name an attribute in body refers
+// to, at any depth, along with where it was found.
+func collectContextNames(path string, body *SchemaBody, into map[string][]string) {
+	for _, attr := range body.Attributes {
+		if attr.Context != "" {
+			into[attr.Context] = append(into[attr.Context], path+"."+attr.Name)
+		}
+	}
+	for _, name := range sortedKeys(body.Blocks) {
+		collectContextNames(path+"."+name, &body.Blocks[name].SchemaBody, into)
+	}
 }
 
 // topLevelBlock describes one entry of blockSchema. A block is typed — its

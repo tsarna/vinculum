@@ -14,6 +14,24 @@ import (
 	"go.uber.org/zap"
 )
 
+func init() {
+	// SetSignalAction below builds the context a signal action sees, so its
+	// shape is described here rather than in the triggers/signals package that
+	// registers the block. Note there is no ctx.trigger or ctx.name: a signal
+	// handler is identified by the signal, not by the block it was declared in.
+	RegisterContextSchema("trigger-signals", ContextSchema{
+		Summary: "Evaluated when the named signal arrives.",
+		Fields: []ContextField{
+			{Name: "signal", Type: attrTypeString, Summary: "Signal name, e.g. `\"SIGHUP\"`."},
+			{
+				Name: "signal_num", Type: attrTypeNumber,
+				Summary: "OS-level signal number.",
+				Doc:     "Numbers vary by platform; `sys.signals.SIGHUP` is the portable way to name one.",
+			},
+		},
+	})
+}
+
 type SignalsDefinition struct {
 	SigHup   hcl.Expression `hcl:"SIGHUP,optional"`
 	SigInfo  hcl.Expression `hcl:"SIGINFO,optional"`

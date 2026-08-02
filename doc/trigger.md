@@ -668,9 +668,12 @@ When a signal fires, `ctx` provides:
 
 | Variable | Description |
 |---|---|
-| `ctx.trigger` | `"signals"` |
 | `ctx.signal` | Signal name as a string (e.g. `"SIGHUP"`) |
 | `ctx.signal_num` | OS-level signal number |
+
+Unlike the other trigger types there is no `ctx.trigger` or `ctx.name`: a
+signal handler is identified by the signal, not by the block it was declared
+in.
 
 Does **not** create a `trigger.<name>` value.
 
@@ -693,13 +696,15 @@ trigger "start" "name" {
 }
 ```
 
-Evaluates `action` once at startup, during the configuration build phase, before
-any server or client component starts. If the action expression returns an error
-the configuration build is aborted.
+Evaluates `action` once at startup, after every startable component — buses,
+servers, clients — is ready, so the action can send messages and reach
+external services. An error is logged to the user log and does not abort
+startup.
 
 The result of `action` is stored as `trigger.<name>` in the global evaluation
-context, making it available to any block declared after this trigger (dependency
-ordering is handled automatically).
+context. Because it is produced after startup rather than during the
+configuration build, a block that reads `trigger.<name>` at config load time
+sees `null`; read it at runtime with `get(trigger.<name>)` instead.
 
 When the action runs, `ctx` provides:
 

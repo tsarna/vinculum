@@ -428,6 +428,25 @@ func init() {
 		// config enables it.
 		"file": fileTriggerSchema,
 	}))
+
+	cfg.RegisterContextSchema("trigger-file", cfg.ContextSchema{
+		Summary: "Evaluated on each matching filesystem event.",
+		Doc:     "The same shape is used for `skip_when`, which is evaluated first.",
+		Fields: []cfg.ContextField{
+			{Name: "trigger", Type: "string", Summary: "Always `\"file\"`."},
+			{Name: "name", Type: "string", Summary: "Name of this trigger block."},
+			{Name: "path", Type: "string", Summary: "The configured `path` — the watched root."},
+			{
+				Name: "event_path", Type: "string",
+				Summary: "Full path of the file or directory that produced the event.",
+				Doc:     "For a `\"rename\"` event this is the **old** path. Not every OS backend reports the destination, so pair rename with the subsequent `\"create\"` when you need it.",
+			},
+			{Name: "event", Type: "string", Summary: "Event type: `\"create\"`, `\"write\"`, `\"delete\"`, `\"rename\"`, or `\"chmod\"`."},
+			{Name: "run_count", Type: "number", Summary: "Action invocations since startup."},
+			{Name: "last_result", Type: cfg.CtxTypeDynamic, Summary: "Result of the most recently completed action, or null."},
+			{Name: "last_error", Type: "string", Summary: "Error from the most recent action, or null if none."},
+		},
+	})
 }
 
 // fileTriggerSchema describes trigger "file" for `vinculum schema`. Available

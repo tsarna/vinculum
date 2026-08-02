@@ -165,6 +165,17 @@ func init() {
 		Process:         processWatchTrigger,
 		HasDependencyId: true,
 	}, cfg.WithSchema(watchTriggerSchema))
+
+	cfg.RegisterContextSchema("trigger-watch", cfg.ContextSchema{
+		Summary: "Evaluated on each observed change to the watched value.",
+		Doc:     "The same shape is used for `skip_when`, which is evaluated first.",
+		Fields: []cfg.ContextField{
+			{Name: "trigger", Type: "string", Summary: "Always `\"watch\"`."},
+			{Name: "name", Type: "string", Summary: "Name of this trigger block."},
+			{Name: "old_value", Type: cfg.CtxTypeDynamic, Summary: "The value before the change."},
+			{Name: "new_value", Type: cfg.CtxTypeDynamic, Summary: "The value after the change."},
+		},
+	})
 }
 
 var watchTriggerSchema = cfg.TypeSchema{

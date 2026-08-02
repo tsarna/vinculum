@@ -25,8 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a `schema.json` for consumers that would rather fetch one file than run the binary.
   By default the output describes a stock binary; pass `--plugin-path` together with
   config paths to load the plugins their `.vinit` files declare and describe their
-  block types too, listing what they contributed under `plugins`. See
-  [`doc/schema.md`](doc/schema.md).
+  block types too, listing what they contributed under `plugins`. A top-level
+  `contexts` map enumerates the shape of `ctx` at each kind of evaluation site, so a
+  consumer can complete inside an `action =` and not just up to it — `ctx` is
+  assembled per site, so a receiver's `action` sees the message while `on_connect` on
+  the same client sees none of it. See [`doc/schema.md`](doc/schema.md).
 - **`vinculum test` — run a configuration's `.cty` test blocks against the running
   system.** Boots the full server exactly as `vinculum serve` would — buses, servers,
   subscriptions, triggers — runs the functy `test "..." { ... }` blocks embedded in the
@@ -81,6 +84,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Documentation corrections found by building the schema.** `trigger "start"`
+  runs after every startable component is ready, not "during the configuration build
+  phase before any server or client starts", and an error in it is logged rather than
+  aborting startup. `trigger "signals"` has no `ctx.trigger`. A subscription action's
+  `ctx.fields` is always present, empty rather than absent when a message carries no
+  metadata. A computed `metric`'s `value` is evaluated against the global namespace
+  and has no `ctx` at all.
 - **Nested block labels are named in HCL diagnostics.** A missing label on a nested
   block reported `Missing  for match; All match blocks must have 1 labels ().` — the
   label name was blank because nearly every nested block's decode struct left it unset.

@@ -205,6 +205,45 @@ The rest name what a value refers to or how it is written: `subscriber-ref`,
 `tracing-ref`, `metrics-ref`, `topic-pattern`, `cron-expr`, `duration`,
 `url`, `listen-addr`, `bool`.
 
+### Contexts
+
+An attribute whose expression runs at event time carries a `context` naming
+the shape of `ctx` it sees, and the document's top-level `contexts` map says
+what is in each one:
+
+```json
+"contexts": {
+  "message": {
+    "summary": "Evaluated once per message delivered.",
+    "fields": [
+      {"name": "topic", "type": "string", "summary": "Topic the message was delivered on."},
+      {"name": "msg",   "type": "dynamic", "summary": "The message payload."},
+      {"name": "fields", "type": "object", "summary": "String metadata attached to the message."},
+      {"name": "auth",  "type": "object", "summary": "…", "universal": true}
+    ]
+  }
+}
+```
+
+`ctx` is assembled per evaluation site, so the shape varies by **attribute**,
+not by block: a receiver's `action` sees the message, while `on_connect` on the
+same client sees no message at all and `on_decode_error` sees the failure
+instead.
+
+| Field | Meaning |
+|---|---|
+| `type` | The attribute vocabulary plus `object`, `dynamic` (type follows the data), and `capsule` (an opaque handle passed to a function rather than read directly). |
+| `optional` | Absent from some evaluations of the same shape — a condition's `on_init` reports a starting state, so it has no `ctx.old_value`. |
+| `universal` | Carried by every `ctx`: `auth`, `baggage`, `trace_id`, `span_id`. Listed last, and absent from the two editor shapes, which build their context object directly. |
+
+A shape may have no fields of its own — `connection` is just the universal
+four, because nothing is in flight when a connection opens or closes.
+
+Unlike the rest of the document these field lists are hand-written: a `ctx` is
+built by imperative Go, so there is nothing to reflect. What *is* checked is
+that the two halves agree — naming a shape nothing describes, or describing one
+nothing names, is a reported problem.
+
 ### Nested blocks
 
 `blocks` maps a sub-block name to its header plus its body:

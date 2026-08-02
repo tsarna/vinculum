@@ -15,6 +15,14 @@ import (
 func init() {
 	cfg.RegisterTriggerType("start", cfg.TriggerRegistration{Process: processStartTrigger, HasDependencyId: true},
 		cfg.WithSchema(startTriggerSchema))
+
+	cfg.RegisterContextSchema("trigger-start", cfg.ContextSchema{
+		Summary: "Evaluated once at startup, after every startable component is ready.",
+		Fields: []cfg.ContextField{
+			{Name: "trigger", Type: "string", Summary: "Always `\"start\"`."},
+			{Name: "name", Type: "string", Summary: "Name of this trigger block."},
+		},
+	})
 }
 
 var startTriggerSchema = cfg.TypeSchema{

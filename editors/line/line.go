@@ -21,6 +21,48 @@ import (
 
 func init() {
 	cfg.RegisterEditorType("line", processLineEditor, cfg.WithSchema(lineEditorSchema))
+
+	// buildMatchCtx and buildBeforeCtx/buildAfterCtx below assemble their
+	// context objects directly rather than through hclutil, so neither shape
+	// carries the universal fields.
+	//
+	// Both also put `state` and the declared params in scope as top-level
+	// variables alongside `ctx`; those are not ctx fields and so are not
+	// described here.
+	cfg.RegisterContextSchema("editor-match", cfg.ContextSchema{
+		Summary:                "Evaluated for a line the rule's regex matched.",
+		Doc:                    "`state.<name>` and the editor's declared params are also in scope.",
+		WithoutUniversalFields: true,
+		Fields: []cfg.ContextField{
+			{Name: "line", Type: "string", Summary: "The original line, including its trailing newline."},
+			{Name: "lineno", Type: "number", Summary: "1-based line number in the input."},
+			{Name: "filename", Type: "string", Summary: "Resolved absolute path of the file.", Doc: "Empty in string mode."},
+			{
+				Name: "groups", Type: "list",
+				Summary: "Regex capture groups.",
+				Doc:     "`ctx.groups[0]` is the whole match, `ctx.groups[1]` the first group. Empty when the pattern has no groups.",
+			},
+			{
+				Name: "named", Type: "map",
+				Summary: "Named capture groups, from `(?P<name>...)`.",
+				Doc:     "Empty when the pattern has none.",
+			},
+			{
+				Name: "count", Type: "number",
+				Summary: "How many times this rule has matched, including this line.",
+				Doc:     "1 on the first match. In `when`, the count this match *would* have if the guard passes.",
+			},
+		},
+	})
+
+	cfg.RegisterContextSchema("editor-content", cfg.ContextSchema{
+		Summary:                "Evaluated once, after every line has been processed.",
+		Doc:                    "There is no line in scope. `state.<name>` holds the final accumulated state, and the editor's declared params are in scope too.",
+		WithoutUniversalFields: true,
+		Fields: []cfg.ContextField{
+			{Name: "filename", Type: "string", Summary: "Resolved absolute path of the file.", Doc: "Empty in string mode."},
+		},
+	})
 }
 
 var lineEditorSchema = cfg.TypeSchema{

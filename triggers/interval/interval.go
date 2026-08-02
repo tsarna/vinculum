@@ -474,6 +474,20 @@ type triggerIntervalBody struct {
 func init() {
 	cfg.RegisterTriggerType("interval", cfg.TriggerRegistration{Process: processIntervalTrigger, HasDependencyId: true},
 		cfg.WithSchema(intervalTriggerSchema))
+
+	cfg.RegisterContextSchema("trigger-interval", cfg.ContextSchema{
+		Summary: "Evaluated on each iteration, seeing the state from before it.",
+		Doc: `The same shape is used for ` + "`delay`" + ` and ` + "`error_delay`" + `, so the cadence can adapt
+at runtime, and for ` + "`stop_when`" + `, which is evaluated after the action with
+` + "`ctx.run_count`" + ` already incremented.`,
+		Fields: []cfg.ContextField{
+			{Name: "trigger", Type: "string", Summary: "Always `\"interval\"`."},
+			{Name: "name", Type: "string", Summary: "Name of this trigger block."},
+			{Name: "run_count", Type: "number", Summary: "Completed action evaluations; 0 on the first run."},
+			{Name: "last_result", Type: cfg.CtxTypeDynamic, Summary: "Result of the previous evaluation, or null on the first run."},
+			{Name: "last_error", Type: "string", Summary: "Error from the previous evaluation, or null if it succeeded."},
+		},
+	})
 }
 
 var intervalTriggerSchema = cfg.TypeSchema{

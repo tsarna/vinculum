@@ -525,6 +525,31 @@ Reuse the shared `AttrMeta` values (`cfg.DisabledAttr`, `cfg.TracingAttr`,
 Only state a `Constraint` the parser actually enforces — a value-sensitive
 rule belongs in the attribute's `Doc`. See `doc/schema.md`.
 
+### `ctx` shapes
+
+An attribute evaluated at event time sets `Context` to the name of the `ctx`
+shape it sees, and that shape is described with `cfg.RegisterContextSchema`
+**next to the code that builds it** — the `hclutil.NewEvalContext(...)` chain —
+so the two are read and edited together. Naming a shape nothing describes, or
+describing one nothing names, fails the tests.
+
+```go
+cfg.RegisterContextSchema("trigger-watch", cfg.ContextSchema{
+    Summary: "Evaluated on each observed change to the watched value.",
+    Fields: []cfg.ContextField{
+        {Name: "old_value", Type: cfg.CtxTypeDynamic, Summary: "The value before the change."},
+        {Name: "new_value", Type: cfg.CtxTypeDynamic, Summary: "The value after the change."},
+    },
+})
+```
+
+Do **not** list `auth`, `baggage`, `trace_id`, or `span_id` — the generator
+adds them, since `BuildEvalContext` does. If a site assembles its context
+object directly (as the `editor` blocks do) and therefore has none of them, set
+`WithoutUniversalFields`. Mark a field `Optional` when some evaluations of the
+same shape omit it. An expression with no `ctx` at all — a computed metric's
+`value` — takes `HintExpression` and no `Context`.
+
 ### Error reporting
 
 Always return `hcl.Diagnostics` with a meaningful `Summary`, `Detail`, and

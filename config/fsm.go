@@ -698,6 +698,39 @@ func evalHookExpr(ctx context.Context, config *Config, expr hcl.Expression, hook
 	return nil
 }
 
+// fsmHookFields are the fields buildHookEvalContext below populates for an
+// ordinary hook. Every one is conditional on the hook context carrying it, so
+// they are all optional — a reactive event has no `event_value`, `on_init` has
+// only `fsm`, and a transition not driven by a message has no `topic`.
+var fsmHookFields = []ContextField{
+	{Name: "event", Type: attrTypeString, Optional: true, Summary: "Name of the event being processed."},
+	{Name: "event_value", Type: CtxTypeDynamic, Optional: true, Summary: "Payload the event carried.", Doc: "Null for a reactive event, which has no message behind it."},
+	{Name: "event_fields", Type: CtxTypeObject, Optional: true, Summary: "String metadata the event carried.", Doc: "Null when the event carried none."},
+	{Name: "old_state", Type: attrTypeString, Optional: true, Summary: "State before the transition."},
+	{Name: "new_state", Type: attrTypeString, Optional: true, Summary: "State after the transition."},
+	{Name: "topic", Type: attrTypeString, Optional: true, Summary: "Topic the driving message arrived on."},
+	{Name: "topic_params", Type: CtxTypeObject, Optional: true, Summary: "Named captures from matching the event's topic pattern."},
+	{Name: "fsm", Type: CtxTypeCapsule, Optional: true, Summary: "The machine itself, for `get()` and `set()` on its storage."},
+}
+
+func init() {
+	// Both shapes come out of buildHookEvalContext below; which fields are
+	// populated depends on what the hook context carries.
+	RegisterContextSchema("fsm-hook", ContextSchema{
+		Summary: "Evaluated on a state-machine hook, guard, or transition action.",
+		Doc:     "Which fields are present depends on what drove the transition. `on_init` sees only `ctx.fsm`.",
+		Fields:  fsmHookFields,
+	})
+	RegisterContextSchema("fsm-error", ContextSchema{
+		Summary: "Evaluated when a hook, guard, or action fails.",
+		Doc:     "The hook shape, plus which hook failed and why.",
+		Fields: append(append([]ContextField{}, fsmHookFields...),
+			ContextField{Name: "error", Type: attrTypeString, Summary: "The error message."},
+			ContextField{Name: "hook", Type: attrTypeString, Summary: "Name of the hook that failed."},
+		),
+	})
+}
+
 // buildHookEvalContext creates a child HCL evaluation context with ctx.* variables
 // populated from the hook context.
 func buildHookEvalContext(ctx context.Context, config *Config, hookCtx *fsm.HookContext) (*hcl.EvalContext, error) {

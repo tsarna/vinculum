@@ -13,6 +13,29 @@ import (
 	cfg "github.com/tsarna/vinculum/config"
 )
 
+func init() {
+	// dispatch() below builds this shape for all three hooks.
+	cfg.RegisterContextSchema("condition-hook", cfg.ContextSchema{
+		Summary: "Evaluated on a condition's lifecycle transition.",
+		Doc: `Hooks fire inline on the goroutine that caused the transition, so the
+` + "`set()`" + ` / ` + "`clear()`" + ` / ` + "`reset()`" + ` call blocks until the hook returns.`,
+		Fields: []cfg.ContextField{
+			{Name: "trigger", Type: "string", Summary: "Always `\"condition\"`."},
+			{Name: "name", Type: "string", Summary: "Name of the condition."},
+			{
+				Name: "new_value", Type: "bool",
+				Summary: "The output after the transition.",
+				Doc:     "For `on_init`, the condition's current output at startup, whatever it is.",
+			},
+			{
+				Name: "old_value", Type: "bool", Optional: true,
+				Summary: "The output before the transition.",
+				Doc:     "Absent in `on_init`, which reports a starting state rather than a transition.",
+			},
+		},
+	})
+}
+
 // HookDispatcher evaluates condition lifecycle hooks. It is registered as an
 // internal Watcher on the condition's StateMachine so on_activate /
 // on_deactivate fire synchronously on every output transition; on_init fires

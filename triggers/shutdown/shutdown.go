@@ -14,6 +14,14 @@ import (
 func init() {
 	cfg.RegisterTriggerType("shutdown", cfg.TriggerRegistration{Process: processShutdownTrigger, HasDependencyId: false},
 		cfg.WithSchema(shutdownTriggerSchema))
+
+	cfg.RegisterContextSchema("trigger-shutdown", cfg.ContextSchema{
+		Summary: "Evaluated once during graceful shutdown.",
+		Fields: []cfg.ContextField{
+			{Name: "trigger", Type: "string", Summary: "Always `\"shutdown\"`."},
+			{Name: "name", Type: "string", Summary: "Name of this trigger block."},
+		},
+	})
 }
 
 var shutdownTriggerSchema = cfg.TypeSchema{

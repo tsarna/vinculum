@@ -629,6 +629,41 @@ func resolveAuthForSend(
 	return val, true, nil
 }
 
+func init() {
+	// evalAuthExpression and evalOnResponse below build these two shapes.
+	cfg.RegisterContextSchema("http-auth", cfg.ContextSchema{
+		Summary: "Evaluated when a client needs credentials for a request.",
+		Doc: `The expression may call back through the same client — an OAuth2 token
+endpoint, say — without recursing: the client is marked in-flight for the
+duration, so nested calls skip the auth hook.`,
+		Fields: []cfg.ContextField{
+			{
+				Name: "auth_attempt", Type: cfg.CtxTypeObject,
+				Summary: "Why credentials are being asked for.",
+				Doc: "`reason` is what triggered this attempt, `failures` how many " +
+					"consecutive attempts have failed, and `previous_status` the HTTP status " +
+					"that rejected the last credentials (0 if none did).",
+			},
+		},
+	})
+
+	cfg.RegisterContextSchema("http-response", cfg.ContextSchema{
+		Summary: "Evaluated to decide whether a response should be retried.",
+		Fields: []cfg.ContextField{
+			{
+				Name: "response", Type: cfg.CtxTypeObject,
+				Summary: "The response received.",
+				Doc:     "Carries `status`, `headers`, and the body, the same shape `http::get()` and friends return.",
+			},
+			{
+				Name: "attempt", Type: "number",
+				Summary: "Which attempt this response came from.",
+				Doc:     "1 for the first try.",
+			},
+		},
+	})
+}
+
 // evalAuthExpression evaluates the auth HCL expression for the given
 // client. The eval context contains the standard ctx attributes plus
 // ctx.auth_attempt with the structured AuthAttempt fields. The Go
