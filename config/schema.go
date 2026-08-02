@@ -651,6 +651,11 @@ type SchemaDocument struct {
 	SchemaVersion string `json:"schemaVersion"`
 	// VinculumVersion is the version of the binary that produced the document.
 	VinculumVersion string `json:"vinculumVersion"`
+	// Plugins lists the registry entries plugins contributed to this document,
+	// e.g. "client.acme". Absent when no plugins were loaded, so its presence
+	// is what tells a consumer the document describes more than a stock binary.
+	// The generator does not load plugins itself; the caller sets this.
+	Plugins []string `json:"plugins,omitempty"`
 	// Blocks maps top-level block type name to its description.
 	Blocks map[string]*SchemaBlock `json:"blocks"`
 }

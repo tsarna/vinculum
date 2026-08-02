@@ -23,7 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   action (per event, with a named `ctx` shape), predicate, reactive, and the transform
   DSL. Flags: `-o`, `--pretty`, `--strict`, `--require-docs`. Each release also attaches
   a `schema.json` for consumers that would rather fetch one file than run the binary.
-  Plugins are not loaded, so the output describes a stock binary. See
+  By default the output describes a stock binary; pass `--plugin-path` together with
+  config paths to load the plugins their `.vinit` files declare and describe their
+  block types too, listing what they contributed under `plugins`. See
   [`doc/schema.md`](doc/schema.md).
 - **`vinculum test` — run a configuration's `.cty` test blocks against the running
   system.** Boots the full server exactly as `vinculum serve` would — buses, servers,

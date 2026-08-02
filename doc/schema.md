@@ -36,8 +36,8 @@ Two consequences worth knowing:
 
 - **The output tracks the binary.** Ask the binary you are running, or take
   the `schema.json` attached to that release.
-- **Plugins are not loaded.** The document describes a stock binary. A
-  plugin's block types are absent even if the plugin would register them.
+- **Plugins are loaded only if you ask.** By default the document describes a
+  stock binary. See [Plugins](#plugins).
 
 ---
 
@@ -63,12 +63,43 @@ those two versions, which is worth reading.
 | `-o`, `--output` | — | Write to a file instead of stdout. |
 | `--strict` | `false` | Exit non-zero if curated metadata does not match the reflected structure. |
 | `--require-docs` | `false` | With `--strict`, also require everything to be documented. |
+| `--plugin-path` | — | Directory of plugin `.so` files. Requires config paths — see [Plugins](#plugins). |
 
 Problems are always printed to stderr; `--strict` decides whether they stop
 the command. `--require-docs` without `--strict` is a usage error.
 
 **Exit codes:** `0` success, `1` validation failure under `--strict`, `2`
 usage or I/O error.
+
+---
+
+## Plugins
+
+By default no plugins are loaded, so the document describes a stock binary and
+a plugin's block types are absent. Give the config paths whose `.vinit` files
+declare the plugins, together with `--plugin-path`:
+
+```
+vinculum schema --plugin-path /plugins ./configs/
+```
+
+Only the plugin bootstrap runs — `git` blocks are not materialized and no
+`.vcl` file is parsed. The paths exist solely to find `plugin` blocks, so
+passing one without the other is a usage error rather than a quietly
+stock-binary document.
+
+The registry entries the plugins contributed then appear at the top level:
+
+```json
+"plugins": ["client.acme", "functions.acme"]
+```
+
+The key is absent when no plugins were loaded, which is how a consumer tells
+the two kinds of document apart. A plugin that registers a block type without
+passing `config.WithSchema` still appears here, but its variant carries
+`"undocumented": true` and only the block's common attributes — the rest of
+its structure is reflected from a decode struct the plugin never supplied. See
+[plugins.md](plugins.md).
 
 ---
 
@@ -86,7 +117,8 @@ usage or I/O error.
 ```
 
 `schemaVersion` versions **the format**; `vinculumVersion` versions **the
-content**. See [Versioning](#versioning) below.
+content**. See [Versioning](#versioning) below. A `plugins` key is present only
+when plugins were loaded — see [Plugins](#plugins).
 
 ### Blocks
 
@@ -212,7 +244,7 @@ configuration.
 |---|---|
 | `conditional` | The variant's availability depends on config state. It is described as part of the superset — the schema says what *can* exist. `trigger "file"` needs a base directory, for instance. |
 | `freeAttributes` | Attribute names here are chosen by the config author, not fixed by the parser, so an unknown name is not an error. `const` and an `fsm` block's `storage` are the cases. |
-| `undocumented` | No curated description was registered. Never present in a release build, since CI rejects it. |
+| `undocumented` | No curated description was registered. Never present for an in-tree type, since CI rejects it — only for a plugin type registered without `WithSchema`. |
 
 ---
 

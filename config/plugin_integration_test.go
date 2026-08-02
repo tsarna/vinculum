@@ -3,6 +3,7 @@
 package config_test
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,4 +60,67 @@ func TestPluginLoader_LoadsRealSO(t *testing.T) {
 	if err != nil {
 		t.Fatalf("vinculum check failed: %v\noutput:\n%s", err, out)
 	}
+
+	t.Run("schema describes plugin-contributed types", func(t *testing.T) {
+		schema := exec.Command(binPath, "schema", "--plugin-path", pluginsDir, configDir)
+		out, err := schema.Output()
+		if err != nil {
+			t.Fatalf("vinculum schema failed: %v", err)
+		}
+
+		var doc struct {
+			Plugins []string `json:"plugins"`
+			Blocks  map[string]struct {
+				Variants map[string]struct {
+					Summary    string `json:"summary"`
+					Attributes []struct {
+						Name     string `json:"name"`
+						Required bool   `json:"required"`
+						Summary  string `json:"summary"`
+						Hint     string `json:"hint"`
+					} `json:"attributes"`
+				} `json:"variants"`
+			} `json:"blocks"`
+		}
+		require.NoError(t, json.Unmarshal(out, &doc))
+
+		// Only what the plugin added, not the whole registry — both of its
+		// contributions, the block type and the function family.
+		require.Equal(t, []string{
+			"client.plugin_sample",
+			"functions.vinculum_plugin_integration_test",
+		}, doc.Plugins)
+
+		variant, ok := doc.Blocks["client"].Variants["plugin_sample"]
+		require.True(t, ok, "plugin client type missing from schema")
+		require.Equal(t, "Integration-test fixture client contributed by a plugin.", variant.Summary)
+
+		attrs := map[string]bool{}
+		for _, a := range variant.Attributes {
+			attrs[a.Name] = a.Required
+			require.NotEmpty(t, a.Summary, "attribute %q has no summary", a.Name)
+		}
+		// The plugin's own attributes, plus `disabled` from the client envelope.
+		require.True(t, attrs["greeting"], "greeting should be required")
+		require.Contains(t, attrs, "loud")
+		require.Contains(t, attrs, "disabled")
+	})
+
+	// Without --plugin-path the same binary describes a stock binary, so the
+	// plugin's type is absent and there is no plugins key at all.
+	t.Run("schema without plugins is unchanged", func(t *testing.T) {
+		schema := exec.Command(binPath, "schema")
+		out, err := schema.Output()
+		require.NoError(t, err)
+
+		var doc struct {
+			Plugins []string `json:"plugins"`
+			Blocks  map[string]struct {
+				Variants map[string]any `json:"variants"`
+			} `json:"blocks"`
+		}
+		require.NoError(t, json.Unmarshal(out, &doc))
+		require.Empty(t, doc.Plugins)
+		require.NotContains(t, doc.Blocks["client"].Variants, "plugin_sample")
+	})
 }

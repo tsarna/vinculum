@@ -723,6 +723,26 @@ func TestSchemaCommandUsageErrors(t *testing.T) {
 	_, err = runSchemaCommand(t, "--require-docs")
 	require.Error(t, err)
 	assert.Equal(t, 2, ExitCode(err), "--require-docs without --strict is a usage error")
+
+	// Loading plugins needs both halves. Either alone would silently produce a
+	// stock-binary document, which is not what the user asked for.
+	_, err = runSchemaCommand(t, "--plugin-path", t.TempDir())
+	require.Error(t, err)
+	assert.Equal(t, 2, ExitCode(err), "--plugin-path without config paths is a usage error")
+	assert.Contains(t, err.Error(), "config paths")
+
+	_, err = runSchemaCommand(t, t.TempDir())
+	require.Error(t, err)
+	assert.Equal(t, 2, ExitCode(err), "config paths without --plugin-path is a usage error")
+	assert.Contains(t, err.Error(), "--plugin-path")
+}
+
+// TestSchemaCommandOmitsPluginsWhenNoneLoaded pins the signal a consumer reads
+// to tell a stock-binary document from one that describes plugin types too.
+func TestSchemaCommandOmitsPluginsWhenNoneLoaded(t *testing.T) {
+	out, err := runSchemaCommand(t)
+	require.NoError(t, err)
+	assert.NotContains(t, out, "\"plugins\"")
 }
 
 func TestExitCodeDefaultsToOne(t *testing.T) {
@@ -740,6 +760,7 @@ func runSchemaCommand(t *testing.T, args ...string) (string, error) {
 	// runs, so restore their declared defaults before each one.
 	schemaFormat, schemaPretty, schemaOutput = "json", true, ""
 	schemaStrict, schemaRequireDocs = false, false
+	pluginPath = ""
 
 	var stdout, stderr bytes.Buffer
 	rootCmd.SetOut(&stdout)

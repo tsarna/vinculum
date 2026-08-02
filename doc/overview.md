@@ -348,8 +348,9 @@ constraints. It is meant for editor tooling (completion, hover, linting) and
 for generating reference documentation.
 
 ```
-vinculum schema                 # pretty JSON to stdout
-vinculum schema -o schema.json  # write to a file
+vinculum schema                              # pretty JSON to stdout
+vinculum schema -o schema.json               # write to a file
+vinculum schema --plugin-path /plugins ./cfg # include plugin-contributed types
 ```
 
 The structure is reflected from the same decode structs the parser uses, so

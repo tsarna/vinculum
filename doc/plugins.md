@@ -271,11 +271,18 @@ hints, and constraints are written by hand, and they are checked against the
 reflected structure. Documenting an attribute the struct does not have is an
 error, and so is leaving one undocumented under `--require-docs`.
 
-`vinculum schema` does not load plugins today — it has no `--plugin-path` —
-so its output describes a stock binary and a plugin's contributed types are
-absent from it. Pass `WithSchema` anyway: the description travels with the
-registration, so it is already correct whenever the command learns to load
-plugins, and it costs nothing meanwhile.
+`vinculum schema` describes a stock binary unless asked otherwise, so pass it
+`--plugin-path` and the config paths whose `.vinit` files declare the plugins:
+
+```
+vinculum schema --plugin-path /plugins ./configs/
+```
+
+The contributed types then appear in the document, and the registry entries
+the plugins added are listed under `plugins`. A type registered without
+`WithSchema` still appears, flagged `"undocumented": true` with only the
+block's common attributes — enough for an editor to know the block exists, and
+nothing more.
 
 `RegisterConditionalTriggerType` takes `config.WithVariantSchemas` instead:
 its factory cannot run without a `*Config`, so nothing else can discover the
