@@ -48,6 +48,13 @@ type TypeSchema struct {
 	// parent's field type.
 	Sample any
 
+	// AlsoSamples lists further decode structs whose attributes and blocks
+	// belong to the same body. Some bodies are decoded in more than one pass —
+	// a sql client's dialect struct captures the rest with `,remain` and hands
+	// it to a second struct holding the dialect-agnostic settings — and the
+	// schema has to describe the union.
+	AlsoSamples []any
+
 	// Summary is a one-line description, used as a completion item's detail.
 	Summary string
 
@@ -825,7 +832,35 @@ func (b *schemaBuilder) bodyFromSample(path string, ts TypeSchema) *SchemaBody {
 		b.problemf("%s: %v", path, err)
 		return newSchemaBody()
 	}
+	for _, also := range ts.AlsoSamples {
+		extra, err := reflectSample(also)
+		if err != nil {
+			b.problemf("%s: %v", path, err)
+			continue
+		}
+		rb = mergeReflectedBodies(rb, extra)
+	}
 	return b.mergeBody(path, rb, ts)
+}
+
+// mergeReflectedBodies returns the union of two reflected bodies, keeping
+// base's entry when both declare the same attribute or block.
+func mergeReflectedBodies(base, extra *reflectedBody) *reflectedBody {
+	merged := &reflectedBody{
+		Attrs:  append([]reflectedAttr(nil), base.Attrs...),
+		Blocks: append([]reflectedBlock(nil), base.Blocks...),
+	}
+	for _, attr := range extra.Attrs {
+		if merged.attr(attr.Name) == nil {
+			merged.Attrs = append(merged.Attrs, attr)
+		}
+	}
+	for _, blk := range extra.Blocks {
+		if merged.block(blk.Name) == nil {
+			merged.Blocks = append(merged.Blocks, blk)
+		}
+	}
+	return merged
 }
 
 // mergeBody combines a reflected body with the curated metadata describing it.

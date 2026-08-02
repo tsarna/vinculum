@@ -24,7 +24,7 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("postgres", process)
+	cfg.RegisterClientType("postgres", process, cfg.WithSchema(postgresSchema))
 }
 
 // postgresPoolDefaults are the Postgres-flavored pool defaults from the spec's
@@ -41,6 +41,37 @@ var postgresPoolDefaults = sqlengine.PoolDefaults{
 //
 // Either dsn or the discrete host/port/user/... fields are used; dsn wins if both
 // are present.
+var postgresSchema = cfg.TypeSchema{
+	Sample:      &postgresDef{},
+	AlsoSamples: []any{sqlengine.CommonSchema.Sample},
+	Summary:     "A PostgreSQL database client.",
+	Doc: `Connects to PostgreSQL and exposes each ` + "`query`" + ` block as a callable
+statement: ` + "`call(client.<name>, \"<query>\", args…)`" + `.`,
+	Attrs: cfg.MergeAttrs(sqlengine.CommonSchema.Attrs, map[string]cfg.AttrMeta{
+		"dsn": {
+			Summary: "Full data source name, instead of the individual settings.",
+			Doc:     "When set, the host/port/user/password/database attributes are ignored.",
+		},
+		"host":     {Summary: "Server hostname.", Doc: "Defaults to `localhost`."},
+		"port":     {Summary: "Server port.", Doc: "Defaults to `5432`."},
+		"user":     {Summary: "User to connect as.", Doc: "Required unless `dsn` is set."},
+		"password": {Summary: "Password to connect with.", Doc: "Supply it from the environment rather than a literal."},
+		"database": {Summary: "Database to connect to.", Doc: "Required unless `dsn` is set."},
+		"sslmode": {
+			Summary: "How strictly to verify the server's TLS certificate.",
+			Doc:     "`verify-full` also checks the hostname; `require` encrypts without verifying anything.",
+			Enum:    []string{"disable", "require", "verify-ca", "verify-full"},
+		},
+		"search_path": {
+			Summary: "Schema search path for the session.",
+		},
+	}),
+	Blocks: sqlengine.CommonSchema.Blocks,
+	Constraints: []cfg.Constraint{
+		cfg.MutuallyExclusive("dsn", "host"),
+	},
+}
+
 type postgresDef struct {
 	DSN        string         `hcl:"dsn,optional"`
 	Host       string         `hcl:"host,optional"` // default "localhost"

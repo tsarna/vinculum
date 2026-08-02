@@ -12,30 +12,48 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
 	sqssender "github.com/tsarna/vinculum-sqs/sender"
+	wire "github.com/tsarna/vinculum-wire"
 	awsclient "github.com/tsarna/vinculum/clients/aws"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
-	wire "github.com/tsarna/vinculum-wire"
 	"github.com/zclconf/go-cty/cty"
 )
 
 func init() {
-	cfg.RegisterClientType("sqs_sender", processSender)
+	cfg.RegisterClientType("sqs_sender", processSender, cfg.WithSchema(sqsSenderSchema))
 }
 
 // SQSSenderDefinition is the HCL schema for `client "sqs_sender" "<name>"`.
+var sqsSenderSchema = cfg.TypeSchema{
+	Sample:  &SQSSenderDefinition{},
+	Summary: "Sends messages to an Amazon SQS queue.",
+	Doc:     `Acts as a subscriber: messages sent to this client are published to the queue.`,
+	Attrs: cfg.MergeAttrs(awsClientAttrs, awsMessageAttrs, map[string]cfg.AttrMeta{
+		"queue_url": {
+			Summary: "URL of the queue to send to.",
+			Hint:    cfg.HintURL,
+		},
+		"delay_seconds": {
+			Summary: "Seconds to withhold each message from receivers.",
+		},
+		"wire_format": cfg.WireFormatAttr,
+		"metrics":     cfg.MetricsAttr,
+		"tracing":     cfg.TracingAttr,
+	}),
+}
+
 type SQSSenderDefinition struct {
-	AWS             hcl.Expression   `hcl:"aws,optional"`
-	Region          string           `hcl:"region,optional"`
-	QueueURL        hcl.Expression   `hcl:"queue_url"`
-	DelaySeconds    *int             `hcl:"delay_seconds,optional"`
-	TopicAttribute  string           `hcl:"topic_attribute,optional"`
-	MessageGroupID  hcl.Expression   `hcl:"message_group_id,optional"`
-	DeduplicationID hcl.Expression   `hcl:"deduplication_id,optional"`
-	WireFormat      hcl.Expression   `hcl:"wire_format,optional"`
-	Metrics         hcl.Expression   `hcl:"metrics,optional"`
-	Tracing         hcl.Expression   `hcl:"tracing,optional"`
-	DefRange        hcl.Range        `hcl:",def_range"`
+	AWS             hcl.Expression `hcl:"aws,optional"`
+	Region          string         `hcl:"region,optional"`
+	QueueURL        hcl.Expression `hcl:"queue_url"`
+	DelaySeconds    *int           `hcl:"delay_seconds,optional"`
+	TopicAttribute  string         `hcl:"topic_attribute,optional"`
+	MessageGroupID  hcl.Expression `hcl:"message_group_id,optional"`
+	DeduplicationID hcl.Expression `hcl:"deduplication_id,optional"`
+	WireFormat      hcl.Expression `hcl:"wire_format,optional"`
+	Metrics         hcl.Expression `hcl:"metrics,optional"`
+	Tracing         hcl.Expression `hcl:"tracing,optional"`
+	DefRange        hcl.Range      `hcl:",def_range"`
 }
 
 // SQSSenderClient wraps an SQSSender for vinculum config integration.

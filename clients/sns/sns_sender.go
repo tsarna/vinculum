@@ -12,31 +12,79 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
 	snssender "github.com/tsarna/vinculum-sns/sender"
+	wire "github.com/tsarna/vinculum-wire"
 	awsclient "github.com/tsarna/vinculum/clients/aws"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
-	wire "github.com/tsarna/vinculum-wire"
 	"github.com/zclconf/go-cty/cty"
 )
 
 func init() {
-	cfg.RegisterClientType("sns_sender", processSender)
+	cfg.RegisterClientType("sns_sender", processSender, cfg.WithSchema(snsSenderSchema))
 }
 
 // SNSSenderDefinition is the HCL schema for `client "sns_sender" "<name>"`.
+// awsClientAttrs and awsMessageAttrs are declared in the sqs package's
+// receiver; SNS repeats the same two groups here because the packages are
+// separate.
+var awsClientAttrs = map[string]cfg.AttrMeta{
+	"aws": {
+		Summary: "Shared AWS configuration to use.",
+		Doc:     "A `client \"aws\"` block. Without one, the default AWS credential chain is used.",
+		Hint:    cfg.HintClientRef,
+	},
+	"region": {
+		Summary: "AWS region to operate in.",
+		Doc:     "Overrides the region of the referenced `client \"aws\"` block.",
+	},
+}
+
+var snsSenderSchema = cfg.TypeSchema{
+	Sample:  &SNSSenderDefinition{},
+	Summary: "Publishes messages to an Amazon SNS topic.",
+	Doc:     `Acts as a subscriber: messages sent to this client are published to the topic.`,
+	Attrs: cfg.MergeAttrs(awsClientAttrs, map[string]cfg.AttrMeta{
+		"sns_topic": {
+			Summary: "ARN of the topic to publish to.",
+		},
+		"subject": {
+			Summary: "Subject line for subscribers that have one, such as email.",
+		},
+		"message_structure": {
+			Summary: "Set to `json` to send a different payload per protocol.",
+			Doc:     "The message must then be a JSON object keyed by protocol, with a `default` entry.",
+		},
+		"topic_attribute": {
+			Summary: "Message attribute carrying the bus topic.",
+			Doc:     "Lets a subscriber recover the topic a message was published on.",
+		},
+		"message_group_id": {
+			Summary: "Group ID for a FIFO topic.",
+			Doc:     "Messages sharing a group are delivered in order; different groups proceed independently.",
+		},
+		"deduplication_id": {
+			Summary: "Deduplication ID for a FIFO topic.",
+			Doc:     "AWS discards a repeat of the same ID within the deduplication window.",
+		},
+		"wire_format": cfg.WireFormatAttr,
+		"metrics":     cfg.MetricsAttr,
+		"tracing":     cfg.TracingAttr,
+	}),
+}
+
 type SNSSenderDefinition struct {
-	AWS              hcl.Expression   `hcl:"aws,optional"`
-	Region           string           `hcl:"region,optional"`
-	SNSTopic         hcl.Expression   `hcl:"sns_topic,optional"`
-	Subject          hcl.Expression   `hcl:"subject,optional"`
-	MessageStructure string           `hcl:"message_structure,optional"`
-	TopicAttribute   string           `hcl:"topic_attribute,optional"`
-	MessageGroupID   hcl.Expression   `hcl:"message_group_id,optional"`
-	DeduplicationID  hcl.Expression   `hcl:"deduplication_id,optional"`
-	WireFormat       hcl.Expression   `hcl:"wire_format,optional"`
-	Metrics          hcl.Expression   `hcl:"metrics,optional"`
-	Tracing          hcl.Expression   `hcl:"tracing,optional"`
-	DefRange         hcl.Range        `hcl:",def_range"`
+	AWS              hcl.Expression `hcl:"aws,optional"`
+	Region           string         `hcl:"region,optional"`
+	SNSTopic         hcl.Expression `hcl:"sns_topic,optional"`
+	Subject          hcl.Expression `hcl:"subject,optional"`
+	MessageStructure string         `hcl:"message_structure,optional"`
+	TopicAttribute   string         `hcl:"topic_attribute,optional"`
+	MessageGroupID   hcl.Expression `hcl:"message_group_id,optional"`
+	DeduplicationID  hcl.Expression `hcl:"deduplication_id,optional"`
+	WireFormat       hcl.Expression `hcl:"wire_format,optional"`
+	Metrics          hcl.Expression `hcl:"metrics,optional"`
+	Tracing          hcl.Expression `hcl:"tracing,optional"`
+	DefRange         hcl.Range      `hcl:",def_range"`
 }
 
 // SNSSenderClient wraps an SNSSender for vinculum config integration.

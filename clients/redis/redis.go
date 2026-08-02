@@ -19,10 +19,52 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("redis", process)
+	cfg.RegisterClientType("redis", process, cfg.WithSchema(redisClientSchema))
 }
 
 // RedisConnectionDefinition is the HCL schema for `client "redis" "<name>"`.
+var redisClientSchema = cfg.TypeSchema{
+	Sample:  &RedisConnectionDefinition{},
+	Summary: "A Redis connection shared by the Redis key/value, pub/sub, and stream clients.",
+	Doc: `Holds one Redis connection, available in expressions as ` + "`client.<name>`" + ` and
+referenced by a ` + "`redis_kv`" + `, ` + "`redis_pubsub`" + `, or ` + "`redis_stream`" + ` block's
+` + "`connection`" + ` attribute, so connection settings are declared once.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"mode": {
+			Summary: "Topology to connect to.",
+			Doc:     "Defaults to `standalone`.",
+			Enum:    []string{"standalone", "cluster", "sentinel"},
+		},
+		"address": {
+			Summary: "Address of the server, for standalone mode.",
+			Doc:     "For example `\"localhost:6379\"`.",
+		},
+		"addresses": {
+			Summary: "Addresses of the cluster or sentinel nodes.",
+			Doc:     "Used by `cluster` and `sentinel` mode instead of `address`.",
+		},
+		"master_name": {
+			Summary: "Name of the master the sentinels monitor.",
+			Doc:     "Required in `sentinel` mode.",
+		},
+		"database": {
+			Summary: "Database number to select.",
+			Doc:     "Not available in `cluster` mode, which has a single keyspace.",
+		},
+		"username":          {Summary: "Username to authenticate with."},
+		"password":          {Summary: "Password to authenticate with.", Doc: "Supply it from the environment rather than a literal."},
+		"sentinel_username": {Summary: "Username to authenticate to the sentinels with.", Doc: "`sentinel` mode only."},
+		"sentinel_password": {Summary: "Password to authenticate to the sentinels with.", Doc: "`sentinel` mode only."},
+		"pool_size":         {Summary: "Maximum number of connections in the pool."},
+		"min_idle_conns":    {Summary: "Idle connections kept ready in the pool."},
+		"dial_timeout":      {Summary: "Deadline for establishing a connection.", Hint: cfg.HintDuration},
+	},
+	Constraints: []cfg.Constraint{
+		cfg.MutuallyExclusive("address", "addresses"),
+		cfg.Requires("master_name", "addresses"),
+	},
+}
+
 type RedisConnectionDefinition struct {
 	Mode             string         `hcl:"mode,optional"`
 	Address          string         `hcl:"address,optional"`

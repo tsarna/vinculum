@@ -145,8 +145,8 @@ func TestSchemaCommonAttributes(t *testing.T) {
 // Phases of the schema rollout add to this list; a block named here must stay
 // fully documented, so adding an hcl field without an AttrMeta fails the test.
 var curatedBlocks = []string{
-	"assert", "bus", "const", "fsm", "function", "jq", "metric", "server",
-	"subscription", "var",
+	"assert", "bus", "client", "const", "fsm", "function", "jq", "metric",
+	"server", "subscription", "var",
 }
 
 func TestSchemaCuratedBlocksAreFullyDocumented(t *testing.T) {
@@ -340,28 +340,49 @@ func TestSchemaSharedBlocks(t *testing.T) {
 	assert.NotEmpty(t, servers["http"].Blocks["baggage"].Summary)
 }
 
-// curatedClients are the client types documented so far. The rest follow in a
-// later pass; until then they are legitimately flagged undocumented.
-var curatedClients = []string{"aws", "http", "kafka", "mqtt", "rabbitmq", "vws"}
-
 func TestSchemaClientVariants(t *testing.T) {
 	doc := generateTestSchema(t, config.SchemaGenOptions{})
 	clients := doc.Blocks["client"]
 
 	assert.NotEmpty(t, clients.Summary, "the typed block itself needs a description")
 
+	// Every registered client type is documented, so a newly registered one
+	// fails here until it is.
 	_, problems := config.GenerateSchema(config.SchemaGenOptions{RequireDocs: true})
-	for _, name := range curatedClients {
-		variant := clients.Variants[name]
-		require.NotNil(t, variant, "client %q missing", name)
+	for name, variant := range clients.Variants {
 		assert.False(t, variant.Undocumented, "client %q is undocumented", name)
-		assert.NotEmpty(t, variant.Summary)
-
-		for _, problem := range problems {
-			assert.False(t, strings.HasPrefix(problem.Error(), "client "+name+"."),
-				"client %q is documented; fix or document the new field: %v", name, problem)
-		}
+		assert.NotEmpty(t, variant.Summary, "client %q has no summary", name)
 	}
+	for _, problem := range problems {
+		assert.False(t, strings.HasPrefix(problem.Error(), "client "),
+			"a client attribute is undocumented: %v", problem)
+	}
+}
+
+// TestSchemaTwoPassBodies covers a body decoded by more than one struct: a sql
+// dialect captures the rest of the body with `,remain` and hands it to the
+// shared connection/query struct, and the schema describes the union.
+func TestSchemaTwoPassBodies(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+
+	for _, dialect := range []string{"postgres", "mysql", "sqlite"} {
+		variant := doc.Blocks["client"].Variants[dialect]
+		require.NotNil(t, variant, "client %q missing", dialect)
+
+		// From the shared struct...
+		for _, attr := range []string{"max_open_conns", "conn_max_lifetime", "statement_timeout"} {
+			assert.NotNil(t, findAttr(variant, attr), "%s is missing %q", dialect, attr)
+		}
+		query := variant.Blocks["query"]
+		require.NotNil(t, query, "%s has no query block", dialect)
+		assert.Equal(t, []string{"name"}, query.Labels)
+		assert.Equal(t, []string{"one", "zero_or_one", "many", "exec"},
+			findAttr(&query.SchemaBody, "cardinality").Enum)
+	}
+
+	// ...and from each dialect's own struct.
+	assert.NotNil(t, findAttr(doc.Blocks["client"].Variants["postgres"], "sslmode"))
+	assert.NotNil(t, findAttr(doc.Blocks["client"].Variants["sqlite"], "path"))
 }
 
 // TestSchemaDeliveryQuartet covers the subscriber/action/transforms/queue_size
@@ -372,9 +393,11 @@ func TestSchemaDeliveryQuartet(t *testing.T) {
 	quartet := []string{"subscriber", "action", "transforms", "queue_size"}
 
 	receivers := map[string]*config.SchemaNestedBlock{
-		"mqtt":     doc.Blocks["client"].Variants["mqtt"].Blocks["receiver"],
-		"kafka":    doc.Blocks["client"].Variants["kafka"].Blocks["receiver"],
-		"rabbitmq": doc.Blocks["client"].Variants["rabbitmq"].Blocks["receiver"],
+		"mqtt":         doc.Blocks["client"].Variants["mqtt"].Blocks["receiver"],
+		"kafka":        doc.Blocks["client"].Variants["kafka"].Blocks["receiver"],
+		"rabbitmq":     doc.Blocks["client"].Variants["rabbitmq"].Blocks["receiver"],
+		"redis_pubsub": doc.Blocks["client"].Variants["redis_pubsub"].Blocks["subscriber"],
+		"redis_stream": doc.Blocks["client"].Variants["redis_stream"].Blocks["consumer"],
 	}
 	for name, receiver := range receivers {
 		require.NotNil(t, receiver, "client %q has no receiver block", name)

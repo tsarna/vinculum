@@ -22,7 +22,7 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("sqlite", process)
+	cfg.RegisterClientType("sqlite", process, cfg.WithSchema(sqliteSchema))
 }
 
 // sqlitePoolDefaults are the SQLite-flavored pool defaults: modest concurrency,
@@ -32,17 +32,6 @@ var sqlitePoolDefaults = sqlengine.PoolDefaults{
 	MaxIdleConns:    4,
 	ConnMaxLifetime: 0,
 	ConnMaxIdleTime: 0,
-}
-
-// sqliteDef decodes the SQLite-specific connection attributes. The remaining
-// body (pool knobs + query blocks) is decoded by sqlengine.DecodeCommonDef.
-type sqliteDef struct {
-	Path        string         `hcl:"path,optional"`
-	Mode        string         `hcl:"mode,optional"`         // rw|ro|rwc; default rw
-	SharedCache bool           `hcl:"shared_cache,optional"` // default false
-	Pragmas     hcl.Expression `hcl:"pragmas,optional"`
-
-	Remain hcl.Body `hcl:",remain"`
 }
 
 func process(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Client, hcl.Diagnostics) {

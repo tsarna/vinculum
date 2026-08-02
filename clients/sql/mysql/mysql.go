@@ -22,7 +22,7 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("mysql", process)
+	cfg.RegisterClientType("mysql", process, cfg.WithSchema(mysqlSchema))
 }
 
 // mysqlPoolDefaults are the MySQL-flavored pool defaults from the spec's Pooling
@@ -40,6 +40,29 @@ var mysqlPoolDefaults = sqlengine.PoolDefaults{
 // Either dsn or the discrete host/port/user/... fields are used; dsn wins if both
 // are present. MySQL has no sslmode/search_path; TLS is configured via the tls
 // block (enabled = true).
+var mysqlSchema = cfg.TypeSchema{
+	Sample:      &mysqlDef{},
+	AlsoSamples: []any{sqlengine.CommonSchema.Sample},
+	Summary:     "A MySQL or MariaDB database client.",
+	Doc: `Connects to MySQL and exposes each ` + "`query`" + ` block as a callable statement:
+` + "`call(client.<name>, \"<query>\", args…)`" + `.`,
+	Attrs: cfg.MergeAttrs(sqlengine.CommonSchema.Attrs, map[string]cfg.AttrMeta{
+		"dsn": {
+			Summary: "Full data source name, instead of the individual settings.",
+			Doc:     "When set, the host/port/user/password/database attributes are ignored.",
+		},
+		"host":     {Summary: "Server hostname.", Doc: "Defaults to `localhost`."},
+		"port":     {Summary: "Server port.", Doc: "Defaults to `3306`."},
+		"user":     {Summary: "User to connect as.", Doc: "Required unless `dsn` is set."},
+		"password": {Summary: "Password to connect with.", Doc: "Supply it from the environment rather than a literal."},
+		"database": {Summary: "Database to connect to.", Doc: "Required unless `dsn` is set."},
+	}),
+	Blocks: sqlengine.CommonSchema.Blocks,
+	Constraints: []cfg.Constraint{
+		cfg.MutuallyExclusive("dsn", "host"),
+	},
+}
+
 type mysqlDef struct {
 	DSN      string         `hcl:"dsn,optional"`
 	Host     string         `hcl:"host,optional"` // default "localhost"

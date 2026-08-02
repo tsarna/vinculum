@@ -21,7 +21,36 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("redis_kv", process)
+	cfg.RegisterClientType("redis_kv", process, cfg.WithSchema(redisKVSchema))
+}
+
+var redisKVSchema = cfg.TypeSchema{
+	Sample:  &RedisKVDefinition{},
+	Summary: "Redis-backed key/value storage.",
+	Doc: `Exposes a Redis keyspace to ` + "`get()`" + `, ` + "`set()`" + `, and ` + "`increment()`" + `,
+available in expressions as ` + "`client.<name>`" + `.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"connection": {
+			Summary: "Redis connection to use.",
+			Doc:     "A `client \"redis\"` block.",
+			Hint:    cfg.HintClientRef,
+		},
+		"key_prefix": {
+			Summary: "Prefix prepended to every key.",
+			Doc:     "Keeps this client's keys in their own namespace.",
+		},
+		"default_ttl": {
+			Summary: "Expiry applied to keys written without an explicit TTL.",
+			Doc:     "Keys do not expire when omitted.",
+			Hint:    cfg.HintDuration,
+		},
+		"hash_mode": {
+			Summary: "Store values as fields of one hash rather than as separate keys.",
+			Hint:    cfg.HintBool,
+		},
+		"wire_format": cfg.WireFormatAttr,
+		"metrics":     cfg.MetricsAttr,
+	},
 }
 
 type RedisKVDefinition struct {

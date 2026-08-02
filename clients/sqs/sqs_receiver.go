@@ -16,10 +16,85 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("sqs_receiver", processReceiver)
+	cfg.RegisterClientType("sqs_receiver", processReceiver, cfg.WithSchema(sqsReceiverSchema))
 }
 
 // SQSReceiverDefinition is the HCL schema for `client "sqs_receiver" "<name>"`.
+// awsClientAttrs documents how an AWS-backed client finds its credentials and
+// region: either a shared `client "aws"` block, or a region plus the default
+// AWS credential chain.
+var awsClientAttrs = map[string]cfg.AttrMeta{
+	"aws": {
+		Summary: "Shared AWS configuration to use.",
+		Doc:     "A `client \"aws\"` block. Without one, the default AWS credential chain is used.",
+		Hint:    cfg.HintClientRef,
+	},
+	"region": {
+		Summary: "AWS region to operate in.",
+		Doc:     "Overrides the region of the referenced `client \"aws\"` block.",
+	},
+}
+
+// awsMessageAttrs documents the attributes SQS and SNS senders share for
+// mapping a bus message onto a queue or topic message.
+var awsMessageAttrs = map[string]cfg.AttrMeta{
+	"topic_attribute": {
+		Summary: "Message attribute carrying the bus topic.",
+		Doc:     "Lets a receiver recover the topic a message was published on.",
+	},
+	"message_group_id": {
+		Summary: "Group ID for a FIFO queue or topic.",
+		Doc:     "Messages sharing a group are delivered in order; different groups proceed independently.",
+	},
+	"deduplication_id": {
+		Summary: "Deduplication ID for a FIFO queue or topic.",
+		Doc:     "AWS discards a repeat of the same ID within the deduplication window.",
+	},
+}
+
+var sqsReceiverSchema = cfg.TypeSchema{
+	Sample:  &SQSReceiverDefinition{},
+	Summary: "Receives messages from an Amazon SQS queue.",
+	Doc: `Polls an SQS queue and delivers each message to the bus or an action. Messages
+are deleted once handled, unless ` + "`auto_delete`" + ` says otherwise.`,
+	Attrs: cfg.MergeAttrs(awsClientAttrs, cfg.SubscriberSourceAttrs, map[string]cfg.AttrMeta{
+		"queue_url": {
+			Summary: "URL of the queue to receive from.",
+			Hint:    cfg.HintURL,
+		},
+		"vinculum_topic": {
+			Summary: "Bus topic to publish arriving messages to.",
+			Hint:    cfg.HintTopicPattern,
+		},
+		"wait_time": {
+			Summary: "How long a poll waits for a message before returning empty.",
+			Doc:     "Long polling: a non-zero wait cuts both latency and request count.",
+			Hint:    cfg.HintDuration,
+		},
+		"max_messages": {
+			Summary: "Maximum messages to fetch per poll.",
+		},
+		"visibility_timeout": {
+			Summary: "How long a received message stays hidden from other receivers.",
+			Doc:     "Must exceed the time handling takes, or the message is redelivered while still being processed.",
+			Hint:    cfg.HintDuration,
+		},
+		"auto_delete": {
+			Summary: "Delete a message when it is received rather than after it is handled.",
+			Doc:     "Faster, but a message is lost if handling fails.",
+			Hint:    cfg.HintBool,
+		},
+		"concurrency": {
+			Summary: "Number of messages handled at once.",
+		},
+		"on_decode_error": cfg.OnDecodeErrorAttr,
+		"wire_format":     cfg.WireFormatAttr,
+		"metrics":         cfg.MetricsAttr,
+		"tracing":         cfg.TracingAttr,
+	}),
+	Constraints: cfg.SubscriberSourceConstraints,
+}
+
 type SQSReceiverDefinition struct {
 	AWS               hcl.Expression               `hcl:"aws,optional"`
 	Region            string                       `hcl:"region,optional"`

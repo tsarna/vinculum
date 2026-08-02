@@ -27,10 +27,68 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("otlp", process)
+	cfg.RegisterClientType("otlp", process, cfg.WithSchema(otlpClientSchema))
 }
 
 // ─── HCL definition struct ────────────────────────────────────────────────────
+
+var otlpClientSchema = cfg.TypeSchema{
+	Sample:  &otlpClientDefinition{},
+	Summary: "An OpenTelemetry exporter for traces and metrics.",
+	Doc: `Exports spans, and optionally metrics, to an OTLP collector. Blocks that emit
+telemetry reference it as ` + "`tracing = client.<name>`" + ` or
+` + "`metrics = client.<name>`" + `, or pick it up automatically when it is the only
+backend of its kind.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"endpoint": {
+			Summary: "OTLP collector endpoint to export traces to.",
+			Hint:    cfg.HintURL,
+		},
+		"service_name": {
+			Summary: "Value of the `service.name` resource attribute.",
+			Doc:     "This is how the exported telemetry identifies this process.",
+		},
+		"service_version": {
+			Summary: "Value of the `service.version` resource attribute.",
+		},
+		"sampling_ratio": {
+			Summary: "Fraction of traces to sample, from 0 to 1.",
+			Doc:     "Defaults to sampling everything.",
+		},
+		"default": {
+			Summary: "Make this the default tracing backend.",
+			Doc:     "Blocks that emit traces without naming one use the default. A single otlp client is the default automatically.",
+			Hint:    cfg.HintBool,
+		},
+		"headers": {
+			Summary: "Headers sent with each export request.",
+			Doc:     "Typically an API key for a hosted collector.",
+		},
+		"record_baggage": {
+			Summary: "Baggage keys to copy onto each span as attributes.",
+			Doc:     "Nothing is copied when omitted, since baggage can carry data that should not reach a trace backend.",
+		},
+		"metric_endpoint": {
+			Summary: "Separate endpoint for metrics.",
+			Doc:     "Defaults to `endpoint`. Setting either this or `metric_interval` enables metric export.",
+			Hint:    cfg.HintURL,
+		},
+		"metric_interval": {
+			Summary: "How often metrics are pushed to the collector.",
+			Hint:    cfg.HintDuration,
+		},
+		"include_go_metrics": {
+			Summary: "Export Go runtime metrics.",
+			Doc:     "Defaults to true; set false to omit goroutine, memory, and GC metrics.",
+			Hint:    cfg.HintBool,
+		},
+		"default_metrics": {
+			Summary: "Make this the default metrics backend.",
+			Doc:     "The same rule as `default`, but for metrics: at most one backend — this or a `server \"metrics\"` — may claim it.",
+			Hint:    cfg.HintBool,
+		},
+	},
+}
 
 type otlpClientDefinition struct {
 	Endpoint       string         `hcl:"endpoint"`

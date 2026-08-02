@@ -25,10 +25,107 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("redis_stream", process)
+	cfg.RegisterClientType("redis_stream", process, cfg.WithSchema(redisStreamSchema))
 }
 
 // ─── HCL schema ───────────────────────────────────────────────────────────────
+
+// redisStreamFieldAttrs documents the field-mapping attributes a producer and a
+// consumer both accept: a stream entry is a set of fields, and these say which
+// field carries what.
+var redisStreamFieldAttrs = map[string]cfg.AttrMeta{
+	"payload_field": {
+		Summary: "Stream field carrying the message payload.",
+	},
+	"topic_field": {
+		Summary: "Stream field carrying the bus topic.",
+	},
+	"content_type_field": {
+		Summary: "Stream field carrying the payload's content type.",
+	},
+	"fields_mode": {
+		Summary: "How the rest of the entry's fields map to message fields.",
+	},
+}
+
+var redisStreamSchema = cfg.TypeSchema{
+	Sample:  &RedisStreamDefinition{},
+	Summary: "A Redis Streams client bridging streams to the bus.",
+	Doc: `Produces bus messages into Redis streams and consumes them through consumer
+groups. Unlike ` + "`redis_pubsub`" + `, entries persist in the stream and a group tracks
+what it has acknowledged, so a consumer can resume after a restart.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"connection": {
+			Summary: "Redis connection to use.",
+			Doc:     "A `client \"redis\"` block.",
+			Hint:    cfg.HintClientRef,
+		},
+		"wire_format": cfg.WireFormatAttr,
+		"metrics":     cfg.MetricsAttr,
+		"tracing":     cfg.TracingAttr,
+	},
+	Blocks: map[string]cfg.TypeSchema{
+		"producer": {
+			Summary: "Writes bus messages into a Redis stream.",
+			Attrs: cfg.MergeAttrs(redisStreamFieldAttrs, map[string]cfg.AttrMeta{
+				"stream": {Summary: "Stream to write entries to."},
+				"maxlen": {
+					Summary: "Trim the stream to roughly this many entries.",
+					Doc:     "Without a cap the stream grows without bound.",
+				},
+				"approximate_maxlen": {
+					Summary: "Let Redis trim approximately, which is much cheaper.",
+					Hint:    cfg.HintBool,
+				},
+				"default_stream_transform": {
+					Summary: "How to derive a stream name from a bus topic when `stream` is unset.",
+				},
+			}),
+		},
+		"consumer": {
+			Summary: "Consumes a Redis stream as part of a consumer group.",
+			Attrs: cfg.MergeAttrs(cfg.SubscriberSourceAttrs, redisStreamFieldAttrs, map[string]cfg.AttrMeta{
+				"stream": {Summary: "Stream to consume from."},
+				"group":  {Summary: "Consumer group to join.", Doc: "Redis distributes a stream's entries across the members of a group."},
+				"consumer_name": {
+					Summary: "Name identifying this consumer within the group.",
+					Doc:     "Pending entries are tracked per consumer name, so a stable name lets a restarted process reclaim its own work.",
+				},
+				"vinculum_topic": {
+					Summary: "Bus topic to publish arriving entries to.",
+					Hint:    cfg.HintTopicPattern,
+				},
+				"batch_size":    {Summary: "Maximum entries to read at once."},
+				"block_timeout": {Summary: "How long to wait for new entries before polling again.", Hint: cfg.HintDuration},
+				"auto_ack": {
+					Summary: "Acknowledge on read rather than after handling.",
+					Doc:     "Faster, but an entry is lost if handling fails.",
+					Hint:    cfg.HintBool,
+				},
+				"group_create": {
+					Summary: "Where a newly created group starts reading from.",
+				},
+				"reclaim_pending": {
+					Summary: "Take over entries another consumer read but never acknowledged.",
+					Doc:     "This is what recovers work left behind by a crashed consumer.",
+					Hint:    cfg.HintBool,
+				},
+				"reclaim_min_idle": {
+					Summary: "How long an entry must be idle before it can be reclaimed.",
+					Hint:    cfg.HintDuration,
+				},
+				"dead_letter_stream": {
+					Summary: "Stream to move entries to once they have failed too often.",
+				},
+				"dead_letter_after": {
+					Summary: "Delivery attempts before an entry is dead-lettered.",
+				},
+				"on_decode_error": cfg.OnDecodeErrorAttr,
+			}),
+			Constraints: cfg.SubscriberSourceConstraints,
+		},
+	},
+}
 
 type RedisStreamDefinition struct {
 	Connection hcl.Expression `hcl:"connection"`

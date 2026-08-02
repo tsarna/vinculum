@@ -29,6 +29,64 @@ type CommonDef struct {
 	Queries []QueryDef `hcl:"query,block"`
 }
 
+// CommonSchema documents CommonDef for `vinculum schema`. A dialect's schema
+// names its own struct as the Sample and this one in AlsoSamples, mirroring the
+// two-pass decode: the dialect struct captures its own attributes with
+// `,remain`, and DecodeCommonDef decodes the rest.
+var CommonSchema = cfg.TypeSchema{
+	Sample: &CommonDef{},
+	Attrs: map[string]cfg.AttrMeta{
+		"max_open_conns": {
+			Summary: "Maximum simultaneous connections to the database.",
+		},
+		"max_idle_conns": {
+			Summary: "Idle connections kept in the pool.",
+		},
+		"conn_max_lifetime": {
+			Summary: "How long a connection may be reused before it is retired.",
+			Hint:    cfg.HintDuration,
+		},
+		"conn_max_idle_time": {
+			Summary: "How long an idle connection is kept before it is closed.",
+			Hint:    cfg.HintDuration,
+		},
+		"statement_timeout": {
+			Summary: "Deadline applied to every query on this client.",
+			Doc:     "A `query` block can override it.",
+			Hint:    cfg.HintDuration,
+		},
+	},
+	Blocks: map[string]cfg.TypeSchema{
+		"query": {
+			Summary: "A named, callable SQL statement.",
+			Doc: `The label is the name it is called by: ` + "`call(client.<name>, \"<query>\", args…)`" + `.
+Parameters are bound positionally, so values are never interpolated into the SQL.`,
+			Attrs: map[string]cfg.AttrMeta{
+				"sql": {
+					Summary: "The SQL statement to run.",
+					Doc:     "Use the dialect's placeholder syntax for parameters rather than interpolating values.",
+				},
+				"cardinality": {
+					Summary: "Shape of the result.",
+					Doc:     "`one` returns a single row and errors otherwise; `zero_or_one` allows none; `many` returns a list; `exec` runs a statement that returns no rows.",
+					Enum:    []string{"one", "zero_or_one", "many", "exec"},
+				},
+				"on_zero": {
+					Summary: "What a `zero_or_one` query does when nothing matches.",
+					Doc:     "Defaults to `null`.",
+					Enum:    []string{"null", "error"},
+				},
+				"statement_timeout": {
+					Summary: "Deadline for this query.",
+					Doc:     "Overrides the client's `statement_timeout`.",
+					Hint:    cfg.HintDuration,
+				},
+				"disabled": cfg.DisabledAttr,
+			},
+		},
+	},
+}
+
 // DecodeCommonDef decodes the dialect-agnostic configuration from the remaining
 // body of a SQL client block (after the dialect has decoded its own fields via
 // hcl:",remain").

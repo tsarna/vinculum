@@ -24,10 +24,71 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("redis_pubsub", process)
+	cfg.RegisterClientType("redis_pubsub", process, cfg.WithSchema(redisPubSubSchema))
 }
 
 // ─── HCL schema ───────────────────────────────────────────────────────────────
+
+var redisPubSubSchema = cfg.TypeSchema{
+	Sample:  &RedisPubSubDefinition{},
+	Summary: "A Redis pub/sub client bridging channels to the bus.",
+	Doc: `Publishes bus messages to Redis channels and subscribes to channels, delivering
+what arrives to the bus or an action. Redis pub/sub is fire-and-forget: a message
+published while nothing is subscribed is simply lost. Use ` + "`redis_stream`" + ` when
+delivery has to survive a restart.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"connection": {
+			Summary: "Redis connection to use.",
+			Doc:     "A `client \"redis\"` block.",
+			Hint:    cfg.HintClientRef,
+		},
+		"wire_format": cfg.WireFormatAttr,
+		"metrics":     cfg.MetricsAttr,
+		"tracing":     cfg.TracingAttr,
+	},
+	Blocks: map[string]cfg.TypeSchema{
+		"publisher": {
+			Summary: "Publishes bus messages to Redis channels.",
+			Attrs: map[string]cfg.AttrMeta{
+				"channel_transform": {
+					Summary: "Expression deriving a channel name from a message.",
+				},
+				"default_channel_transform": {
+					Summary: "How to derive a channel from a bus topic with no `channel_mapping` block.",
+				},
+			},
+			Blocks: map[string]cfg.TypeSchema{
+				"channel_mapping": {
+					Summary: "Maps bus topics matching a pattern to a Redis channel.",
+					Attrs: map[string]cfg.AttrMeta{
+						"pattern": {Summary: "Bus topic pattern to match.", Hint: cfg.HintTopicPattern},
+						"channel": {Summary: "Redis channel to publish to."},
+					},
+				},
+			},
+		},
+		"subscriber": {
+			Summary: "Subscribes to Redis channels and delivers what arrives.",
+			Attrs: cfg.MergeAttrs(cfg.SubscriberSourceAttrs, map[string]cfg.AttrMeta{
+				"on_decode_error": cfg.OnDecodeErrorAttr,
+			}),
+			Constraints: cfg.SubscriberSourceConstraints,
+			Blocks: map[string]cfg.TypeSchema{
+				"channel_subscription": {
+					Summary: "One Redis channel or channel pattern to subscribe to.",
+					Attrs: map[string]cfg.AttrMeta{
+						"channel": {Summary: "Redis channel or glob pattern to subscribe to."},
+						"vinculum_topic": {
+							Summary: "Bus topic to publish arriving messages to.",
+							Doc:     "Defaults to the channel name.",
+							Hint:    cfg.HintTopicPattern,
+						},
+					},
+				},
+			},
+		},
+	},
+}
 
 type RedisPubSubDefinition struct {
 	Connection  hcl.Expression  `hcl:"connection"`

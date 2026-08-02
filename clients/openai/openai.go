@@ -25,7 +25,51 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("openai", process)
+	cfg.RegisterClientType("openai", process, cfg.WithSchema(openaiClientSchema))
+}
+
+var openaiClientSchema = cfg.TypeSchema{
+	Sample:  &OpenAIClientDefinition{},
+	Summary: "A client for an OpenAI-compatible chat completion API.",
+	Doc: `Calls a large language model, available in expressions as ` + "`client.<name>`" + `.
+Works with any provider exposing an OpenAI-compatible API, selected with
+` + "`provider`" + ` or by pointing ` + "`base_url`" + ` at it directly.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"api_key": {
+			Summary: "API key to authenticate with.",
+			Doc:     "Supply it from the environment rather than a literal.",
+		},
+		"model": {
+			Summary: "Model to send requests to.",
+		},
+		"provider": {
+			Summary: "Named provider preset, which supplies the base URL.",
+		},
+		"base_url": {
+			Summary: "API base URL, for a provider with no preset.",
+			Hint:    cfg.HintURL,
+		},
+		"max_tokens": {
+			Summary: "Cap on the tokens generated per response.",
+		},
+		"temperature": {
+			Summary: "Sampling temperature.",
+			Doc:     "Lower is more deterministic; higher is more varied.",
+		},
+		"timeout": {
+			Summary: "Deadline for a single request.",
+			Hint:    cfg.HintDuration,
+		},
+		"max_input_length": {
+			Summary: "Reject prompts longer than this many characters.",
+			Doc:     "A guard against sending an unbounded amount of text — and paying for it.",
+		},
+		"tracing": cfg.TracingAttr,
+		"metrics": cfg.MetricsAttr,
+	},
+	Constraints: []cfg.Constraint{
+		cfg.MutuallyExclusive("provider", "base_url"),
+	},
 }
 
 type OpenAIClientDefinition struct {
