@@ -199,7 +199,7 @@ automatically; with several, exactly one may set this.`,
 		"tracing": {
 			Summary: "Where to report traces for scrape requests.",
 			Doc:     "A `client \"otlp\"` block. Auto-wires to the default when omitted.",
-			Hint:    cfg.HintClientRef,
+			Hint:    cfg.HintTracingRef,
 		},
 	},
 }

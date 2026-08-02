@@ -19,7 +19,7 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("http", process)
+	cfg.RegisterClientType("http", process, cfg.WithSchema(httpClientSchema))
 	// Make the http client's specific capsule nameable as "http_client" in .cty
 	// annotations. It is a closed (identity) type — client.<name> for an http
 	// client is a bare HTTPClientCapsuleType capsule, not a rich object, so
@@ -77,6 +77,166 @@ type httpClientDefinition struct {
 	Metrics hcl.Expression `hcl:"metrics,optional"`
 
 	DefRange hcl.Range `hcl:",def_range"`
+}
+
+var httpClientSchema = cfg.TypeSchema{
+	Sample:  &httpClientDefinition{},
+	Summary: "An HTTP(S) client for making outbound requests.",
+	Doc: `Defines an HTTP client, available in expressions as ` + "`client.<name>`" + ` and used
+by the ` + "`http::get()`" + `, ` + "`http::post()`" + `, and related functions.
+
+Supports connection pooling, redirects, retries, cookies, and pluggable auth.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"base_url": {
+			Summary: "URL prepended to relative request paths.",
+			Doc:     "With a base URL set, calls can pass just `\"/items\"` rather than a full URL.",
+			Hint:    cfg.HintURL,
+		},
+		"user_agent": {
+			Summary: "Value of the `User-Agent` header.",
+		},
+		"headers": {
+			Summary: "Headers sent with every request.",
+			Doc:     "A map of header name to value. Per-request headers are merged over these.",
+		},
+		"timeout": {
+			Summary: "Deadline for a whole request, including the body.",
+			Hint:    cfg.HintDuration,
+		},
+		"http2": {
+			Summary: "Allow HTTP/2.",
+			Hint:    cfg.HintBool,
+		},
+		"max_connections_per_host": {
+			Summary: "Cap on simultaneous connections to any one host.",
+		},
+		"max_idle_connections": {
+			Summary: "Cap on idle connections kept in the pool.",
+		},
+		"disable_keep_alives": {
+			Summary: "Close each connection after a single request.",
+			Hint:    cfg.HintBool,
+		},
+		"auth": {
+			Summary: "Expression that produces credentials for each request.",
+			Doc: `Evaluated when credentials are needed and re-evaluated when they expire or
+are rejected. It may call back through this same client — an OAuth2 token
+endpoint, for example — because ` + "`auth`" + ` is not a config-time dependency.`,
+			Hint:    cfg.HintActionExpression,
+			Context: "http-auth",
+		},
+		"auth_max_lifetime": {
+			Summary: "How long to reuse credentials before re-evaluating `auth`.",
+			Hint:    cfg.HintDuration,
+		},
+		"auth_max_failures": {
+			Summary: "Consecutive auth failures before the client stops retrying.",
+		},
+		"tracing": cfg.TracingAttr,
+		"metrics": cfg.MetricsAttr,
+	},
+	Blocks: map[string]cfg.TypeSchema{
+		"redirects": {
+			Summary: "How to handle redirect responses.",
+			Attrs: map[string]cfg.AttrMeta{
+				"follow": {
+					Summary: "Follow redirects rather than returning them.",
+					Hint:    cfg.HintBool,
+				},
+				"max": {
+					Summary: "Maximum number of redirects to follow.",
+				},
+				"keep_auth_on_redirect": {
+					Summary: "Keep sending credentials after a cross-host redirect.",
+					Doc:     "Off by default, since it would leak credentials to the redirect target.",
+					Hint:    cfg.HintBool,
+				},
+			},
+		},
+		"retry": {
+			Summary: "When and how to retry a failed request.",
+			Attrs: map[string]cfg.AttrMeta{
+				"max_attempts": {
+					Summary: "Total attempts, including the first.",
+				},
+				"initial_delay": {
+					Summary: "Wait before the first retry.",
+					Hint:    cfg.HintDuration,
+				},
+				"max_delay": {
+					Summary: "Ceiling on the wait between retries.",
+					Hint:    cfg.HintDuration,
+				},
+				"backoff_factor": {
+					Summary: "Multiplier applied to the wait after each attempt.",
+				},
+				"jitter": {
+					Summary: "Randomize each wait, to avoid synchronized retries.",
+					Hint:    cfg.HintBool,
+				},
+				"retry_on": {
+					Summary: "Status codes that should be retried.",
+					Doc:     "For example `[429, 502, 503, 504]`.",
+				},
+				"respect_retry_after": {
+					Summary: "Honor a `Retry-After` header in preference to the backoff schedule.",
+					Hint:    cfg.HintBool,
+				},
+				"allow_non_idempotent": {
+					Summary: "Retry POST and other non-idempotent methods too.",
+					Doc:     "Off by default: retrying them can duplicate an effect that already happened.",
+					Hint:    cfg.HintBool,
+				},
+				"on_response": {
+					Summary: "Expression deciding whether a response should be retried.",
+					Doc:     "Overrides `retry_on` when set.",
+					Hint:    cfg.HintPredicateExpression,
+					Context: "http-response",
+				},
+			},
+		},
+		"auth_retry_backoff": {
+			Summary: "Backoff between re-evaluations of `auth` after a failure.",
+			Attrs: map[string]cfg.AttrMeta{
+				"initial_delay": {
+					Summary: "Wait before the first re-evaluation.",
+					Hint:    cfg.HintDuration,
+				},
+				"max_delay": {
+					Summary: "Ceiling on the wait between re-evaluations.",
+					Hint:    cfg.HintDuration,
+				},
+				"backoff_factor": {
+					Summary: "Multiplier applied to the wait after each failure.",
+				},
+			},
+		},
+		"cookies": {
+			Summary: "Cookie jar settings.",
+			Attrs: map[string]cfg.AttrMeta{
+				"enabled": {
+					Summary: "Keep a cookie jar across requests.",
+					Hint:    cfg.HintBool,
+				},
+				"public_suffix": {
+					Summary: "Apply public-suffix rules when deciding cookie scope.",
+					Doc:     "Stops a site setting a cookie for a whole registry domain.",
+					Hint:    cfg.HintBool,
+				},
+			},
+		},
+		"otel": {
+			Summary: "OpenTelemetry propagation settings.",
+			Doc:     "Spans and metrics are wired in automatically when a tracing or metrics backend is configured; this block only controls header propagation.",
+			Attrs: map[string]cfg.AttrMeta{
+				"propagate": {
+					Summary: "Inject `traceparent`, `tracestate`, and `baggage` into outbound requests.",
+					Doc:     "Defaults to true. Individual calls can override it.",
+					Hint:    cfg.HintBool,
+				},
+			},
+		},
+	},
 }
 
 // otelBlock is the `otel { ... }` sub-block.

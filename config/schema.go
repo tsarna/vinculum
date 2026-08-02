@@ -172,6 +172,13 @@ const (
 	HintServerRef Hint = "server-ref"
 	// HintMetricRef is a `metric.<name>` reference.
 	HintMetricRef Hint = "metric-ref"
+	// HintTracingRef is a reference to a tracing backend: a `client "otlp"`
+	// block. Narrower than HintClientRef, which would offer every client.
+	HintTracingRef Hint = "tracing-ref"
+	// HintMetricsRef is a reference to a metrics backend: a `server "metrics"`
+	// or a `client "otlp"` block. Narrower than HintServerRef/HintClientRef,
+	// and it spans both namespaces, which neither of those can express.
+	HintMetricsRef Hint = "metrics-ref"
 	// HintVarRef is a `var.<name>` reference.
 	HintVarRef Hint = "var-ref"
 	// HintTopicPattern is an MQTT-style topic pattern (`+`, `#`).
@@ -1107,33 +1114,97 @@ var envelopeSchemas = map[string]TypeSchema{
 	"client": {
 		Sample:  &ClientDefinition{},
 		Summary: "Attributes every client block accepts.",
-		Attrs:   map[string]AttrMeta{"disabled": disabledAttrMeta},
+		Attrs:   map[string]AttrMeta{"disabled": DisabledAttr},
 	},
 	"server": {
 		Sample:  &ServerDefinition{},
 		Summary: "Attributes every server block accepts.",
-		Attrs:   map[string]AttrMeta{"disabled": disabledAttrMeta},
+		Attrs:   map[string]AttrMeta{"disabled": DisabledAttr},
 	},
 	"trigger": {
 		Sample:  &TriggerDefinition{},
 		Summary: "Attributes every trigger block accepts.",
 		Attrs: map[string]AttrMeta{
-			"disabled": disabledAttrMeta,
-			"tracing": {
-				Summary: "Where to report traces for each firing.",
-				Doc:     "A `client \"otlp\"` block. Auto-wires to the default when omitted.",
-				Hint:    HintClientRef,
-			},
+			"disabled": DisabledAttr,
+			"tracing":  TracingAttr,
 		},
 	},
 }
 
-// disabledAttrMeta documents the `disabled` attribute, which means the same
-// thing everywhere it appears.
-var disabledAttrMeta = AttrMeta{
-	Summary: "Skip this block entirely.",
-	Doc:     "The block is parsed and validated, but nothing is created from it.",
-	Hint:    HintBool,
+// Attribute metadata for attributes that recur across many blocks with
+// identical meaning. Curating them once keeps the wording consistent and keeps
+// each block's own schema to what is actually specific to it. Blocks fold them
+// in with MergeAttrs.
+var (
+	// DisabledAttr documents `disabled`.
+	DisabledAttr = AttrMeta{
+		Summary: "Skip this block entirely.",
+		Doc:     "The block is parsed and validated, but nothing is created from it.",
+		Hint:    HintBool,
+	}
+
+	// TracingAttr documents `tracing`, which selects a tracing backend.
+	TracingAttr = AttrMeta{
+		Summary: "Where to report traces.",
+		Doc:     "A `client \"otlp\"` block. Auto-wires to the default tracing backend when omitted.",
+		Hint:    HintTracingRef,
+	}
+
+	// MetricsAttr documents `metrics`, which selects a metrics backend.
+	MetricsAttr = AttrMeta{
+		Summary: "Where to report metrics.",
+		Doc:     "A `server \"metrics\"` or `client \"otlp\"` block. Auto-wires to the default metrics backend when omitted.",
+		Hint:    HintMetricsRef,
+	}
+
+	// WireFormatAttr documents `wire_format`, which selects how message
+	// payloads are encoded and decoded on the wire.
+	WireFormatAttr = AttrMeta{
+		Summary: "How to encode and decode message payloads.",
+		Doc:     "A `wire_format` block. Payloads are passed through unchanged when omitted.",
+		Hint:    HintExpression,
+	}
+
+	// OnConnectAttr documents `on_connect`, which every client with a
+	// meaningful connection lifecycle accepts.
+	OnConnectAttr = AttrMeta{
+		Summary: "Evaluated after the connection is established and ready.",
+		Doc:     "Runs synchronously: no messages are produced or consumed until it returns. There is no message in flight, so no message variables are in scope.",
+		Hint:    HintActionExpression,
+		Context: "connection",
+	}
+
+	// OnDisconnectAttr documents `on_disconnect`, the counterpart to
+	// OnConnectAttr.
+	OnDisconnectAttr = AttrMeta{
+		Summary: "Evaluated when the connection is lost or closed.",
+		Doc:     "Always runs before any reconnection attempt, and on a graceful shutdown before the connection is torn down. Every `on_connect` after the first is preceded by one.",
+		Hint:    HintActionExpression,
+		Context: "connection",
+	}
+
+	// OnDecodeErrorAttr documents `on_decode_error`, which receivers accept to
+	// handle a payload their wire format cannot decode.
+	OnDecodeErrorAttr = AttrMeta{
+		Summary: "Evaluated when an inbound message cannot be decoded.",
+		Doc:     "The message is dropped rather than delivered. Use this to publish to a dead-letter destination or record the failure.",
+		Hint:    HintActionExpression,
+		Context: "decode-error",
+	}
+)
+
+// MergeAttrs combines attribute metadata maps into a new one, with later maps
+// winning on conflict. Use it to fold shared attributes into a block's own:
+//
+//	Attrs: cfg.MergeAttrs(cfg.SubscriberSourceAttrs, map[string]cfg.AttrMeta{…})
+func MergeAttrs(maps ...map[string]AttrMeta) map[string]AttrMeta {
+	merged := map[string]AttrMeta{}
+	for _, m := range maps {
+		for name, meta := range m {
+			merged[name] = meta
+		}
+	}
+	return merged
 }
 
 // registeredTypeNames returns the variant keys of a registry-driven typed

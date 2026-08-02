@@ -27,7 +27,111 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("mqtt", process)
+	cfg.RegisterClientType("mqtt", process, cfg.WithSchema(mqttClientSchema))
+}
+
+var mqttClientSchema = cfg.TypeSchema{
+	Sample:  &MQTTClientDefinition{},
+	Summary: "An MQTT client bridging an MQTT broker to the bus.",
+	Doc: `Connects to an MQTT broker, available in expressions as ` + "`client.<name>`" + `.
+
+` + "`sender`" + ` blocks publish bus messages to MQTT topics; ` + "`receiver`" + ` blocks
+subscribe to MQTT topics and deliver what arrives to the bus or an action.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"brokers": {
+			Summary: "Broker addresses to connect to.",
+			Doc:     "For example `[\"tcp://mqtt.example.com:1883\"]`. Several addresses are tried in order.",
+			Hint:    cfg.HintURL,
+		},
+		"client_id": {
+			Summary: "MQTT client identifier presented to the broker.",
+			Doc:     "Must be unique per connection. A random one is generated when omitted.",
+		},
+		"keep_alive": {
+			Summary: "Interval at which to send keep-alive pings.",
+			Hint:    cfg.HintDuration,
+		},
+		"clean_start": {
+			Summary: "Discard any session the broker holds for this client id.",
+			Doc:     "When false, the broker resumes the existing session and replays queued messages.",
+			Hint:    cfg.HintBool,
+		},
+		"session_expiry_interval": {
+			Summary: "How long the broker keeps the session after disconnect.",
+			Hint:    cfg.HintDuration,
+		},
+		"on_connect":    cfg.OnConnectAttr,
+		"on_disconnect": cfg.OnDisconnectAttr,
+		"wire_format":   cfg.WireFormatAttr,
+		"metrics":       cfg.MetricsAttr,
+		"tracing":       cfg.TracingAttr,
+	},
+	Blocks: map[string]cfg.TypeSchema{
+		"auth": {
+			Summary: "Credentials presented to the broker.",
+			Attrs: map[string]cfg.AttrMeta{
+				"username": {Summary: "Username to authenticate with."},
+				"password": {Summary: "Password to authenticate with.", Doc: "Supply it from the environment rather than a literal."},
+			},
+		},
+		"will": {
+			Summary: "Message the broker publishes if this client disconnects ungracefully.",
+			Attrs: map[string]cfg.AttrMeta{
+				"topic":   {Summary: "MQTT topic to publish the will to.", Hint: cfg.HintTopicPattern},
+				"payload": {Summary: "Payload of the will message."},
+				"qos":     {Summary: "MQTT quality of service for the will.", Doc: "`0` at most once, `1` at least once, `2` exactly once."},
+				"retain":  {Summary: "Ask the broker to retain the will message.", Hint: cfg.HintBool},
+			},
+		},
+		"sender": {
+			Summary: "Publishes bus messages to MQTT topics.",
+			Attrs: map[string]cfg.AttrMeta{
+				"qos":    {Summary: "Default quality of service for published messages.", Doc: "`0` at most once, `1` at least once, `2` exactly once."},
+				"retain": {Summary: "Ask the broker to retain published messages.", Hint: cfg.HintBool},
+				"default_topic_transform": {
+					Summary: "How to derive an MQTT topic from a bus topic with no `topic` block.",
+				},
+			},
+			Blocks: map[string]cfg.TypeSchema{
+				"topic": {
+					Summary: "Maps bus topics matching a pattern to an MQTT topic.",
+					Doc:     "The label is the bus topic pattern.",
+					Attrs: map[string]cfg.AttrMeta{
+						"mqtt_topic": {Summary: "MQTT topic to publish to.", Hint: cfg.HintTopicPattern},
+						"qos":        {Summary: "Quality of service for this mapping.", Doc: "Overrides the sender's default."},
+						"retain":     {Summary: "Retain flag for this mapping.", Doc: "Overrides the sender's default.", Hint: cfg.HintBool},
+					},
+				},
+			},
+		},
+		"receiver": {
+			Summary: "Subscribes to MQTT topics and delivers what arrives.",
+			Attrs: cfg.MergeAttrs(cfg.SubscriberSourceAttrs, map[string]cfg.AttrMeta{
+				"on_decode_error": cfg.OnDecodeErrorAttr,
+				"qos":             {Summary: "Default quality of service to subscribe with.", Doc: "`0` at most once, `1` at least once, `2` exactly once."},
+				"handle_retained": {Summary: "Deliver messages the broker retained before this subscription.", Hint: cfg.HintBool},
+				"shared_group": {
+					Summary: "Shared subscription group name.",
+					Doc:     "Instances in the same group share the topic's messages rather than each receiving all of them.",
+				},
+			}),
+			Constraints: cfg.SubscriberSourceConstraints,
+			Blocks: map[string]cfg.TypeSchema{
+				"subscription": {
+					Summary: "One MQTT topic filter to subscribe to.",
+					Doc:     "The label is the MQTT topic filter.",
+					Attrs: map[string]cfg.AttrMeta{
+						"vinculum_topic": {
+							Summary: "Bus topic to publish arriving messages to.",
+							Doc:     "Defaults to the MQTT topic. Placeholders captured by the filter can be interpolated.",
+							Hint:    cfg.HintTopicPattern,
+						},
+						"qos": {Summary: "Quality of service for this subscription.", Doc: "Overrides the receiver's default."},
+					},
+				},
+			},
+		},
+	},
 }
 
 // ─── HCL definition structs ──────────────────────────────────────────────────

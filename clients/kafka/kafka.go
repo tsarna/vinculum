@@ -26,10 +26,132 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("kafka", process)
+	cfg.RegisterClientType("kafka", process, cfg.WithSchema(kafkaClientSchema))
 }
 
 // ─── HCL definition structs ──────────────────────────────────────────────────
+
+var kafkaClientSchema = cfg.TypeSchema{
+	Sample:  &KafkaClientDefinition{},
+	Summary: "A Kafka client bridging Kafka topics to the bus.",
+	Doc: `Connects to a Kafka cluster, available in expressions as ` + "`client.<name>`" + `.
+
+` + "`sender`" + ` blocks produce bus messages to Kafka topics; ` + "`receiver`" + ` blocks
+consume from Kafka topics as part of a consumer group.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"brokers": {
+			Summary: "Bootstrap broker addresses.",
+			Doc:     "For example `[\"kafka-1:9092\", \"kafka-2:9092\"]`.",
+		},
+		"acks": {
+			Summary: "How many replicas must acknowledge a produced record.",
+			Enum:    []string{"none", "leader", "all"},
+		},
+		"compression": {
+			Summary: "Compression applied to produced records.",
+			Enum:    []string{"none", "gzip", "snappy", "lz4", "zstd"},
+		},
+		"idempotent": {
+			Summary: "Enable idempotent production, so retries cannot duplicate a record.",
+			Hint:    cfg.HintBool,
+		},
+		"linger": {
+			Summary: "How long to wait for more records before sending a batch.",
+			Doc:     "Trades latency for throughput.",
+			Hint:    cfg.HintDuration,
+		},
+		"max_records": {
+			Summary: "Maximum records fetched in a single request.",
+		},
+		"dial_timeout": {
+			Summary: "Deadline for establishing a connection to a broker.",
+			Hint:    cfg.HintDuration,
+		},
+		"request_timeout": {
+			Summary: "Deadline for a single broker request.",
+			Hint:    cfg.HintDuration,
+		},
+		"metadata_max_age": {
+			Summary: "How long cluster metadata may be reused before it is refreshed.",
+			Hint:    cfg.HintDuration,
+		},
+		"wire_format": cfg.WireFormatAttr,
+		"metrics":     cfg.MetricsAttr,
+		"tracing":     cfg.TracingAttr,
+	},
+	Blocks: map[string]cfg.TypeSchema{
+		"sasl": {
+			Summary: "SASL credentials presented to the brokers.",
+			Attrs: map[string]cfg.AttrMeta{
+				"mechanism": {
+					Summary: "SASL mechanism to authenticate with.",
+					Enum:    []string{"plain", "scram-sha-256", "scram-sha-512"},
+				},
+				"username": {Summary: "Username to authenticate with."},
+				"password": {Summary: "Password to authenticate with.", Doc: "Supply it from the environment rather than a literal."},
+			},
+		},
+		"sender": {
+			Summary: "Produces bus messages to Kafka topics.",
+			Attrs: map[string]cfg.AttrMeta{
+				"produce_mode": {
+					Summary: "Whether to wait for the broker to acknowledge each record.",
+					Doc:     "Asynchronous production is faster; synchronous surfaces failures to the caller.",
+				},
+				"default_topic_transform": {
+					Summary: "How to derive a Kafka topic from a bus topic with no `topic` block.",
+				},
+			},
+			Blocks: map[string]cfg.TypeSchema{
+				"topic": {
+					Summary: "Maps bus topics matching a pattern to a Kafka topic.",
+					Doc:     "The label is the bus topic pattern.",
+					Attrs: map[string]cfg.AttrMeta{
+						"kafka_topic": {Summary: "Kafka topic to produce to."},
+						"key": {
+							Summary: "Expression producing the record key.",
+							Doc:     "Records sharing a key land on the same partition, so a key is what preserves per-entity ordering.",
+						},
+					},
+				},
+			},
+		},
+		"receiver": {
+			Summary: "Consumes Kafka topics as part of a consumer group.",
+			Attrs: cfg.MergeAttrs(cfg.SubscriberSourceAttrs, map[string]cfg.AttrMeta{
+				"group_id": {
+					Summary: "Consumer group this receiver joins.",
+					Doc:     "Kafka distributes each topic's partitions across the members of a group.",
+				},
+				"start_offset": {
+					Summary: "Where to start when the group has no committed offset.",
+					Enum:    []string{"earliest", "latest"},
+				},
+				"commit_mode": {
+					Summary: "When to commit consumed offsets.",
+					Doc:     "Committing after delivery risks reprocessing on restart; committing before risks loss.",
+				},
+				"dlq_topic": {
+					Summary: "Kafka topic to publish messages that could not be handled.",
+				},
+				"on_decode_error": cfg.OnDecodeErrorAttr,
+			}),
+			Constraints: cfg.SubscriberSourceConstraints,
+			Blocks: map[string]cfg.TypeSchema{
+				"subscription": {
+					Summary: "One Kafka topic to consume.",
+					Doc:     "The label is the Kafka topic.",
+					Attrs: map[string]cfg.AttrMeta{
+						"vinculum_topic": {
+							Summary: "Bus topic to publish arriving records to.",
+							Hint:    cfg.HintTopicPattern,
+						},
+					},
+				},
+			},
+		},
+	},
+}
 
 type TopicMappingDefinition struct {
 	Pattern    string         `hcl:",label"`

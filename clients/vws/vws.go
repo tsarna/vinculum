@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("vws", process)
+	cfg.RegisterClientType("vws", process, cfg.WithSchema(vwsClientSchema))
 }
 
 type VinculumWebsocketClient struct {
@@ -33,6 +33,37 @@ func (c *VinculumWebsocketClient) Build() (bus.Client, error) {
 	c.Client = busClient
 
 	return busClient, nil
+}
+
+var vwsClientSchema = cfg.TypeSchema{
+	Sample:  &VinculumWebsocketsClientDefinition{},
+	Summary: "A client connection to a Vinculum (VWS) WebSocket server.",
+	Doc: `Connects outbound to a ` + "`server \"vws\"`" + ` endpoint and joins its bus, so two
+Vinculum instances can be bridged over a WebSocket. Available in expressions as
+` + "`client.<name>`" + `.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"url": {
+			Summary: "WebSocket URL of the VWS server.",
+			Doc:     "For example `\"wss://events.example.com/ws\"`.",
+			Hint:    cfg.HintURL,
+		},
+		"dial_timeout": {
+			Summary: "Deadline for establishing the connection.",
+			Hint:    cfg.HintDuration,
+		},
+		"write_queue_size": {
+			Summary: "Outbound message queue depth.",
+		},
+		"auth": {
+			Summary: "Expression producing credentials for the connection.",
+			Doc:     "Evaluated when connecting, so a token can be refreshed on each reconnect.",
+			Hint:    cfg.HintActionExpression,
+			Context: "connection",
+		},
+		"headers": {
+			Summary: "Extra headers sent with the WebSocket handshake.",
+		},
+	},
 }
 
 type VinculumWebsocketsClientDefinition struct {

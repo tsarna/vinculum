@@ -100,15 +100,8 @@ see the FSM reference.`,
 			Summary: "Event delivered to the machine at shutdown.",
 			Doc:     "Lets the machine run its exit hooks and reach a terminal state before the process stops.",
 		},
-		"disabled": {
-			Summary: "Skip this block entirely.",
-			Hint:    HintBool,
-		},
-		"tracing": {
-			Summary: "Where to report FSM traces.",
-			Doc:     "A `client \"otlp\"` block. Auto-wires to the default when omitted.",
-			Hint:    HintClientRef,
-		},
+		"disabled": DisabledAttr,
+		"tracing":  TracingAttr,
 		"on_change": {
 			Summary: "Evaluated after every state change.",
 			Doc:     "Includes self-transitions.",

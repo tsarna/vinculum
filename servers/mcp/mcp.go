@@ -141,20 +141,13 @@ With ` + "`listen`" + ` it runs its own HTTP server; without one, mount it on a 
 		"server_version": {
 			Summary: "Version reported to clients during initialization.",
 		},
-		"disabled": {
-			Summary: "Skip this block entirely.",
-			Hint:    cfg.HintBool,
-		},
+		"disabled": cfg.DisabledAttr,
 		"tracing": {
 			Summary: "Where to report request traces.",
 			Doc:     "A `client \"otlp\"` block. Spans follow the GenAI/MCP semantic conventions. Auto-wires to the default when omitted.",
-			Hint:    cfg.HintClientRef,
+			Hint:    cfg.HintTracingRef,
 		},
-		"metrics": {
-			Summary: "Where to report request metrics.",
-			Doc:     "A `server \"metrics\"` or `client \"otlp\"` block. Auto-wires to the default when omitted.",
-			Hint:    cfg.HintServerRef,
-		},
+		"metrics": cfg.MetricsAttr,
 	},
 	Blocks: map[string]cfg.TypeSchema{
 		"resource": {

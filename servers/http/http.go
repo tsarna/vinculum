@@ -88,16 +88,8 @@ metrics — can be mounted into a route with ` + "`handler = server.<name>`" + `
 			Doc:     "For example `\":8080\"` or `\"127.0.0.1:9090\"`.",
 			Hint:    cfg.HintListenAddr,
 		},
-		"tracing": {
-			Summary: "Where to report request traces.",
-			Doc:     "A `client \"otlp\"` block. Auto-wires to the default when omitted.",
-			Hint:    cfg.HintClientRef,
-		},
-		"metrics": {
-			Summary: "Where to report request metrics.",
-			Doc:     "A `server \"metrics\"` or `client \"otlp\"` block. Auto-wires to the default when omitted.",
-			Hint:    cfg.HintServerRef,
-		},
+		"tracing": cfg.TracingAttr,
+		"metrics": cfg.MetricsAttr,
 	},
 	Blocks: map[string]cfg.TypeSchema{
 		"real_ip": {

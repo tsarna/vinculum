@@ -22,7 +22,52 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("aws", process)
+	cfg.RegisterClientType("aws", process, cfg.WithSchema(awsClientSchema))
+}
+
+var awsClientSchema = cfg.TypeSchema{
+	Sample:  &AWSConfigDefinition{},
+	Summary: "Shared AWS credentials and region for other AWS clients.",
+	Doc: `Holds one AWS configuration that the SQS and SNS clients reference, so
+credentials and region are declared once rather than per queue or topic.
+
+With no explicit credentials it uses the default AWS credential chain —
+environment, shared config file, or instance role.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"region": {
+			Summary: "AWS region to operate in.",
+			Doc:     "For example `\"us-east-1\"`.",
+		},
+		"access_key_id": {
+			Summary: "Static access key ID.",
+			Doc:     "Prefer the default credential chain or a role; supply this from the environment if you must set it.",
+		},
+		"secret_access_key": {
+			Summary: "Static secret access key.",
+			Doc:     "Supply it from the environment rather than a literal.",
+		},
+		"session_token": {
+			Summary: "Session token accompanying temporary credentials.",
+		},
+		"role_arn": {
+			Summary: "Role to assume once the base credentials are resolved.",
+		},
+		"external_id": {
+			Summary: "External ID required by the assumed role's trust policy.",
+		},
+		"endpoint": {
+			Summary: "Override the service endpoint URL.",
+			Doc:     "For a local stack such as LocalStack, or a VPC endpoint.",
+			Hint:    cfg.HintURL,
+		},
+		"profile": {
+			Summary: "Named profile to read from the shared AWS config file.",
+		},
+	},
+	Constraints: []cfg.Constraint{
+		cfg.RequiredTogether("access_key_id", "secret_access_key"),
+		cfg.Requires("external_id", "role_arn"),
+	},
 }
 
 // AWSConnector is the interface child clients use to obtain the shared
@@ -34,15 +79,15 @@ type AWSConnector interface {
 
 // AWSConfigDefinition is the HCL schema for `client "aws" "<name>"`.
 type AWSConfigDefinition struct {
-	Region         string         `hcl:"region"`
-	AccessKeyID    hcl.Expression `hcl:"access_key_id,optional"`
+	Region          string         `hcl:"region"`
+	AccessKeyID     hcl.Expression `hcl:"access_key_id,optional"`
 	SecretAccessKey hcl.Expression `hcl:"secret_access_key,optional"`
-	SessionToken   hcl.Expression `hcl:"session_token,optional"`
-	RoleARN        string         `hcl:"role_arn,optional"`
-	ExternalID     string         `hcl:"external_id,optional"`
-	Endpoint       hcl.Expression `hcl:"endpoint,optional"`
-	Profile        string         `hcl:"profile,optional"`
-	DefRange       hcl.Range      `hcl:",def_range"`
+	SessionToken    hcl.Expression `hcl:"session_token,optional"`
+	RoleARN         string         `hcl:"role_arn,optional"`
+	ExternalID      string         `hcl:"external_id,optional"`
+	Endpoint        hcl.Expression `hcl:"endpoint,optional"`
+	Profile         string         `hcl:"profile,optional"`
+	DefRange        hcl.Range      `hcl:",def_range"`
 }
 
 // AWSClient is the runtime representation of a `client "aws"` block.

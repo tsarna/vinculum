@@ -28,6 +28,20 @@ func NewClientBlockHandler() *ClientBlockHandler {
 	return &ClientBlockHandler{}
 }
 
+// Schema describes the client block for `vinculum schema`. A typed block has
+// no body of its own; each client type contributes its own via WithSchema.
+func (h *ClientBlockHandler) Schema() TypeSchema {
+	return TypeSchema{
+		Summary: "A connection to an external service.",
+		Doc: `The first label selects the client type and the second names it, making it
+available in expressions as ` + "`client.<name>`" + `.
+
+Message-oriented clients bridge an external system to the bus with ` + "`sender`" + ` and
+` + "`receiver`" + ` sub-blocks; others expose functions or act as a backend for tracing,
+metrics, or storage.`,
+	}
+}
+
 func (h *ClientBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {
 	return "client." + block.Labels[1], nil
 }

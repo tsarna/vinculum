@@ -57,6 +57,45 @@ type SubscriberSource struct {
 	QueueSize  *int
 }
 
+// SubscriberSourceAttrs documents the four attributes of a SubscriberSource,
+// for every block that accepts the pattern — the subscription block and every
+// client receiver. Fold it into a block's own attributes with MergeAttrs, and
+// pair it with SubscriberSourceConstraints.
+//
+// The `action` entry names no ctx shape, because that genuinely differs per
+// block: a receiver's action sees the fields its protocol extracted. Override
+// that one entry where the shape is known.
+var SubscriberSourceAttrs = map[string]AttrMeta{
+	"subscriber": {
+		Summary: "Subscriber to forward messages to, instead of evaluating an action.",
+		Doc:     "Anything that can receive messages: a bus, an FSM, a subscriber-implementing server or client.",
+		Hint:    HintSubscriberRef,
+	},
+	"action": {
+		Summary: "Expression evaluated once per message.",
+		Doc:     "`ctx.topic` is the message topic and `ctx.msg` the payload; a protocol that extracts metadata also provides `ctx.fields`.",
+		Hint:    HintActionExpression,
+		Context: "message",
+	},
+	"transforms": {
+		Summary: "Transform pipeline applied before the action or subscriber.",
+		Doc:     "A list of transform functions applied in order to each message. Only transform functions are in scope here.",
+		Hint:    HintTransformPipeline,
+	},
+	"queue_size": {
+		Summary: "Depth of an async queue wrapping the subscriber.",
+		Doc:     "When set, decouples delivery from the action so a slow action does not block the source.",
+	},
+}
+
+// SubscriberSourceConstraints states the rule Resolve enforces: exactly one of
+// subscriber or action.
+var SubscriberSourceConstraints = []Constraint{
+	MutuallyExclusive("action", "subscriber"),
+	AtLeastOneOf("action", "subscriber").
+		WithMessage("Specify either an action to evaluate or a subscriber to forward to."),
+}
+
 // Resolve produces the bus.Subscriber specified by the source. Wrappers are
 // applied in order: action|subscriber → transforms → async queue. Exactly one
 // of Subscriber or Action must be provided.
@@ -134,7 +173,7 @@ for each message or forwards messages to another subscriber.
 The ` + "`subscriber`/`action`/`transforms`/`queue_size`" + ` set is a shared delivery-target
 pattern: the same four attributes, with identical semantics, are accepted by every
 client *receiver* block.`,
-	Attrs: map[string]AttrMeta{
+	Attrs: MergeAttrs(SubscriberSourceAttrs, map[string]AttrMeta{
 		"target": {
 			Summary: "Bus to subscribe to.",
 			Doc:     "A bus — `bus.main`, `bus.events`. Defaults to `bus.main`. Unlike `subscriber`, this slot resolves an event bus and nothing else.",
@@ -151,32 +190,9 @@ client *receiver* block.`,
 			Hint:    HintActionExpression,
 			Context: "message",
 		},
-		"subscriber": {
-			Summary: "Subscriber to forward messages to, instead of evaluating an action.",
-			Doc:     "Anything that can receive messages: another bus (`bus.other`), an FSM, a subscriber-implementing server or client. Defaults to `bus.main`.",
-			Hint:    HintSubscriberRef,
-		},
-		"transforms": {
-			Summary: "Transform pipeline applied before the action or subscriber.",
-			Doc: `A list of transform functions applied in order to each message — for example
-` + "`[ drop_topic_prefix(\"in/\"), add_topic_prefix(\"out/\"), jq(\".payload\") ]`" + `.
-Only transform functions are in scope here. See the transforms reference.`,
-			Hint: HintTransformPipeline,
-		},
-		"queue_size": {
-			Summary: "Depth of an async queue wrapping the subscriber.",
-			Doc:     "When set, decouples the publisher from the action so a slow action does not block the bus.",
-		},
-		"disabled": {
-			Summary: "Skip this block entirely.",
-			Hint:    HintBool,
-		},
-	},
-	Constraints: []Constraint{
-		MutuallyExclusive("action", "subscriber"),
-		AtLeastOneOf("action", "subscriber").
-			WithMessage("A subscription needs either an action to evaluate or a subscriber to forward to."),
-	},
+		"disabled": DisabledAttr,
+	}),
+	Constraints: SubscriberSourceConstraints,
 }
 
 func (h *SubscriptionBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {

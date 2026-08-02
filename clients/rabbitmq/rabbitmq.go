@@ -28,10 +28,132 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("rabbitmq", process)
+	cfg.RegisterClientType("rabbitmq", process, cfg.WithSchema(rabbitmqClientSchema))
 }
 
 // ─── HCL definition structs ──────────────────────────────────────────────────
+
+var rabbitmqClientSchema = cfg.TypeSchema{
+	Sample:  &RMQClientDefinition{},
+	Summary: "A RabbitMQ (AMQP 0-9-1) client bridging exchanges and queues to the bus.",
+	Doc: `Connects to a RabbitMQ broker, available in expressions as ` + "`client.<name>`" + `.
+
+` + "`sender`" + ` blocks publish bus messages to an exchange; ` + "`receiver`" + ` blocks
+consume a queue and deliver what arrives to the bus or an action.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"brokers": {
+			Summary: "Broker URLs to connect to.",
+			Doc:     "For example `[\"amqp://guest:guest@rabbit:5672/\"]`. Several are tried in order.",
+			Hint:    cfg.HintURL,
+		},
+		"heartbeat": {
+			Summary: "Interval between AMQP heartbeats.",
+			Hint:    cfg.HintDuration,
+		},
+		"connection_timeout": {
+			Summary: "Deadline for establishing a connection.",
+			Hint:    cfg.HintDuration,
+		},
+		"on_connect":    cfg.OnConnectAttr,
+		"on_disconnect": cfg.OnDisconnectAttr,
+		"wire_format":   cfg.WireFormatAttr,
+		"metrics":       cfg.MetricsAttr,
+		"tracing":       cfg.TracingAttr,
+	},
+	Blocks: map[string]cfg.TypeSchema{
+		"auth": {
+			Summary: "Credentials presented to the broker.",
+			Doc:     "Overrides any credentials embedded in the broker URL.",
+			Attrs: map[string]cfg.AttrMeta{
+				"username": {Summary: "Username to authenticate with."},
+				"password": {Summary: "Password to authenticate with.", Doc: "Supply it from the environment rather than a literal."},
+			},
+		},
+		"sender": {
+			Summary: "Publishes bus messages to an exchange.",
+			Attrs: map[string]cfg.AttrMeta{
+				"exchange": {Summary: "Exchange to publish to."},
+				"confirm_mode": {
+					Summary: "Wait for the broker to confirm each publish.",
+					Hint:    cfg.HintBool,
+				},
+				"mandatory": {
+					Summary: "Return messages the exchange cannot route to any queue.",
+					Doc:     "Without this, an unroutable message is silently discarded.",
+					Hint:    cfg.HintBool,
+				},
+				"persistent": {
+					Summary: "Mark messages persistent so they survive a broker restart.",
+					Hint:    cfg.HintBool,
+				},
+				"default_topic_transform": {
+					Summary: "How to derive a routing key from a bus topic with no `topic` block.",
+				},
+			},
+			Blocks: map[string]cfg.TypeSchema{
+				"topic": {
+					Summary: "Maps bus topics matching a pattern to a routing key.",
+					Doc:     "The label is the bus topic pattern.",
+					Attrs: map[string]cfg.AttrMeta{
+						"routing_key": {Summary: "Routing key to publish with."},
+						"exchange":    {Summary: "Exchange for this mapping.", Doc: "Overrides the sender's exchange."},
+						"persistent":  {Summary: "Persistence for this mapping.", Doc: "Overrides the sender's default.", Hint: cfg.HintBool},
+					},
+				},
+			},
+		},
+		"receiver": {
+			Summary: "Consumes a queue and delivers what arrives.",
+			Attrs: cfg.MergeAttrs(cfg.SubscriberSourceAttrs, map[string]cfg.AttrMeta{
+				"queue": {Summary: "Queue to consume from."},
+				"prefetch": {
+					Summary: "Unacknowledged messages the broker may have in flight.",
+					Doc:     "Bounds how much work is outstanding at once.",
+				},
+				"exclusive": {
+					Summary: "Claim the queue exclusively for this connection.",
+					Hint:    cfg.HintBool,
+				},
+				"auto_ack": {
+					Summary: "Acknowledge on delivery rather than after handling.",
+					Doc:     "Faster, but a message is lost if handling fails.",
+					Hint:    cfg.HintBool,
+				},
+				"default_routing_key_transform": {
+					Summary: "How to derive a bus topic from a routing key with no `subscription` block.",
+				},
+				"on_decode_error": cfg.OnDecodeErrorAttr,
+			}),
+			Constraints: cfg.SubscriberSourceConstraints,
+			Blocks: map[string]cfg.TypeSchema{
+				"declare": {
+					Summary: "Declare the queue if it does not already exist.",
+					Attrs: map[string]cfg.AttrMeta{
+						"durable":     {Summary: "Keep the queue across broker restarts.", Hint: cfg.HintBool},
+						"auto_delete": {Summary: "Delete the queue once its last consumer disconnects.", Hint: cfg.HintBool},
+					},
+				},
+				"binding": {
+					Summary: "Bind the queue to an exchange with a routing key.",
+					Doc:     "The label is the routing key pattern.",
+					Attrs: map[string]cfg.AttrMeta{
+						"exchange": {Summary: "Exchange to bind to."},
+					},
+				},
+				"subscription": {
+					Summary: "Maps arriving routing keys to a bus topic.",
+					Doc:     "The label is the routing key pattern.",
+					Attrs: map[string]cfg.AttrMeta{
+						"vinculum_topic": {
+							Summary: "Bus topic to publish arriving messages to.",
+							Hint:    cfg.HintTopicPattern,
+						},
+					},
+				},
+			},
+		},
+	},
+}
 
 type RMQClientDefinition struct {
 	Brokers           []string                 `hcl:"brokers"`

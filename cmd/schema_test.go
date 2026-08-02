@@ -340,6 +340,83 @@ func TestSchemaSharedBlocks(t *testing.T) {
 	assert.NotEmpty(t, servers["http"].Blocks["baggage"].Summary)
 }
 
+// curatedClients are the client types documented so far. The rest follow in a
+// later pass; until then they are legitimately flagged undocumented.
+var curatedClients = []string{"aws", "http", "kafka", "mqtt", "rabbitmq", "vws"}
+
+func TestSchemaClientVariants(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+	clients := doc.Blocks["client"]
+
+	assert.NotEmpty(t, clients.Summary, "the typed block itself needs a description")
+
+	_, problems := config.GenerateSchema(config.SchemaGenOptions{RequireDocs: true})
+	for _, name := range curatedClients {
+		variant := clients.Variants[name]
+		require.NotNil(t, variant, "client %q missing", name)
+		assert.False(t, variant.Undocumented, "client %q is undocumented", name)
+		assert.NotEmpty(t, variant.Summary)
+
+		for _, problem := range problems {
+			assert.False(t, strings.HasPrefix(problem.Error(), "client "+name+"."),
+				"client %q is documented; fix or document the new field: %v", name, problem)
+		}
+	}
+}
+
+// TestSchemaDeliveryQuartet covers the subscriber/action/transforms/queue_size
+// pattern shared by the subscription block and every client receiver: it is
+// curated once and folded in wherever it appears.
+func TestSchemaDeliveryQuartet(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+	quartet := []string{"subscriber", "action", "transforms", "queue_size"}
+
+	receivers := map[string]*config.SchemaNestedBlock{
+		"mqtt":     doc.Blocks["client"].Variants["mqtt"].Blocks["receiver"],
+		"kafka":    doc.Blocks["client"].Variants["kafka"].Blocks["receiver"],
+		"rabbitmq": doc.Blocks["client"].Variants["rabbitmq"].Blocks["receiver"],
+	}
+	for name, receiver := range receivers {
+		require.NotNil(t, receiver, "client %q has no receiver block", name)
+		for _, attr := range quartet {
+			meta := findAttr(&receiver.SchemaBody, attr)
+			require.NotNil(t, meta, "client %q receiver is missing %q", name, attr)
+			assert.NotEmpty(t, meta.Summary)
+		}
+		assert.Equal(t, config.HintSubscriberRef, findAttr(&receiver.SchemaBody, "subscriber").Hint)
+		assert.Equal(t, config.HintTransformPipeline, findAttr(&receiver.SchemaBody, "transforms").Hint)
+		assert.Len(t, receiver.Constraints, 2, "client %q receiver: action XOR subscriber", name)
+	}
+
+	// The subscription block uses the same wording for the same attributes.
+	sub := doc.Blocks["subscription"].Body
+	mqttReceiver := &receivers["mqtt"].SchemaBody
+	for _, attr := range []string{"subscriber", "transforms", "queue_size"} {
+		assert.Equal(t, findAttr(sub, attr).Summary, findAttr(mqttReceiver, attr).Summary,
+			"%q is described differently in a subscription and a receiver", attr)
+	}
+}
+
+// TestSchemaBackendHints covers the two attributes that name a backend: they
+// want a specific kind of block, not any client or any server.
+func TestSchemaBackendHints(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+
+	for _, body := range []*config.SchemaBody{
+		doc.Blocks["bus"].Body,
+		doc.Blocks["client"].Variants["mqtt"],
+		doc.Blocks["client"].Variants["kafka"],
+		doc.Blocks["server"].Variants["http"],
+	} {
+		if metrics := findAttr(body, "metrics"); metrics != nil {
+			assert.Equal(t, config.HintMetricsRef, metrics.Hint)
+		}
+		if tracing := findAttr(body, "tracing"); tracing != nil {
+			assert.Equal(t, config.HintTracingRef, tracing.Hint)
+		}
+	}
+}
+
 func TestSchemaCommandOutput(t *testing.T) {
 	out, err := runSchemaCommand(t)
 	require.NoError(t, err)

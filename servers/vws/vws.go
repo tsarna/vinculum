@@ -86,11 +86,7 @@ per inbound message with ` + "`ctx.topic`" + ` and ` + "`ctx.msg`" + ` in scope.
 			Summary: "Transform pipeline applied to messages from clients before publishing.",
 			Hint:    cfg.HintTransformPipeline,
 		},
-		"metrics": {
-			Summary: "Where to report connection metrics.",
-			Doc:     "A `server \"metrics\"` or `client \"otlp\"` block. Auto-wires to the default when omitted.",
-			Hint:    cfg.HintServerRef,
-		},
+		"metrics": cfg.MetricsAttr,
 	},
 }
 

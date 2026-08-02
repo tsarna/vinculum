@@ -265,7 +265,7 @@ var metricAttrs = map[string]AttrMeta{
 	"server": {
 		Summary: "Metrics backend to register with.",
 		Doc:     "A `server \"metrics\"` or `client \"otlp\"` block. Uses the default backend when omitted.",
-		Hint:    HintServerRef,
+		Hint:    HintMetricsRef,
 	},
 	"value": {
 		Summary: "Expression polled to produce the metric's value.",

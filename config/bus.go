@@ -112,15 +112,11 @@ var busSchema = TypeSchema{
 			Summary: "Maximum messages queued before messages are dropped.",
 			Doc:     "Defaults to 1000.",
 		},
-		"metrics": {
-			Summary: "Where to report bus metrics.",
-			Doc:     "A `server \"metrics\"` or `client \"otlp\"` block. Auto-wires to the default metrics backend when omitted.",
-			Hint:    HintServerRef,
-		},
+		"metrics": MetricsAttr,
 		"tracing": {
 			Summary: "Where to report bus traces.",
 			Doc:     "A `client \"otlp\"` block. When set, each publish and delivery is wrapped in an OTel span. Auto-wires to the default when omitted.",
-			Hint:    HintClientRef,
+			Hint:    HintTracingRef,
 		},
 	},
 }
