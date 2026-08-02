@@ -36,16 +36,6 @@ func init() {
 	cfg.RegisterWireFormatType("protobuf", Process, cfg.WithSchema(protobufSchema))
 }
 
-// protobufBody exists only to describe the block for `vinculum schema`.
-// Process decodes the body by hand against blockSchema in block.go rather than
-// through gohcl, so — unlike a gohcl-decoded block — this struct is not what
-// the parser reads and the two must be kept in step by hand.
-type protobufBody struct {
-	DescriptorSet string  `hcl:"descriptor_set"`
-	Message       *string `hcl:"message,optional"`
-	Mode          *string `hcl:"mode,optional"`
-}
-
 var protobufSchema = cfg.TypeSchema{
 	Sample:  &protobufBody{},
 	Summary: "Protocol Buffers binary, decoded and encoded against a supplied schema.",

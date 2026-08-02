@@ -5,7 +5,6 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/tsarna/go2cty2go"
-	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -22,27 +21,17 @@ const (
 	modeJSON
 )
 
-// decodeMode reads and validates the optional mode attribute.
-func decodeMode(config *cfg.Config, content *hcl.BodyContent) (mode, hcl.Diagnostics) {
-	attr, ok := content.Attributes["mode"]
-	if !ok {
-		return modeNative, nil
-	}
-	val, diags := attr.Expr.Value(config.EvalCtx())
-	if diags.HasErrors() {
-		return modeNative, diags
-	}
-	if val.IsNull() || val.Type() != cty.String {
-		return modeNative, diagAt("Invalid mode", "mode must be a string", attr.Range)
-	}
-	switch val.AsString() {
-	case "native":
+// decodeMode validates the already-decoded mode attribute. An empty string is
+// the attribute being absent, since gohcl leaves it at the zero value.
+func decodeMode(name string, r hcl.Range) (mode, hcl.Diagnostics) {
+	switch name {
+	case "", "native":
 		return modeNative, nil
 	case "json":
 		return modeJSON, nil
 	default:
 		return modeNative, diagAt("Invalid mode",
-			fmt.Sprintf("mode must be \"native\" or \"json\", got %q", val.AsString()), attr.Range)
+			fmt.Sprintf("mode must be \"native\" or \"json\", got %q", name), r)
 	}
 }
 

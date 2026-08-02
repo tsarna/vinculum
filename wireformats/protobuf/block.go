@@ -5,20 +5,24 @@ import (
 	"os"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/dynamicpb"
 )
 
-// blockSchema is the closed schema for a wire_format "protobuf" body. Content()
-// against it rejects unknown attributes for free.
-var blockSchema = &hcl.BodySchema{
-	Attributes: []hcl.AttributeSchema{
-		{Name: "descriptor_set", Required: true},
-		{Name: "message", Required: false},
-		{Name: "mode", Required: false},
-	},
+// protobufBody is the decode struct for a wire_format "protobuf" body. It has
+// no `,remain` field, so gohcl rejects any attribute not listed here. The
+// *Range fields carry each attribute's source location for diagnostics that
+// point at the offending attribute rather than the whole block.
+type protobufBody struct {
+	DescriptorSet      string    `hcl:"descriptor_set"`
+	DescriptorSetRange hcl.Range `hcl:"descriptor_set,attr_range"`
+	Message            string    `hcl:"message,optional"`
+	MessageRange       hcl.Range `hcl:"message,attr_range"`
+	Mode               string    `hcl:"mode,optional"`
+	ModeRange          hcl.Range `hcl:"mode,attr_range"`
 }
 
 // Process is the WireFormatProcessor for the "protobuf" type. It decodes the
@@ -26,22 +30,16 @@ var blockSchema = &hcl.BodySchema{
 // wire_format capsule (when message is set) or an object of capsules, one per
 // message in the set (when message is omitted).
 func Process(config *cfg.Config, block *hcl.Block, body hcl.Body) (cty.Value, hcl.Diagnostics) {
-	content, diags := body.Content(blockSchema)
+	var decoded protobufBody
+	diags := gohcl.DecodeBody(body, config.EvalCtx(), &decoded)
 	if diags.HasErrors() {
 		return cty.NilVal, diags
 	}
 
-	descriptorSet, dsRange, diags := stringAttr(config, content, "descriptor_set")
-	if diags.HasErrors() {
-		return cty.NilVal, diags
-	}
+	descriptorSet, dsRange := decoded.DescriptorSet, decoded.DescriptorSetRange
+	message, messageRange := decoded.Message, decoded.MessageRange
 
-	message, messageRange, diags := optionalStringAttr(config, content, "message")
-	if diags.HasErrors() {
-		return cty.NilVal, diags
-	}
-
-	mode, diags := decodeMode(config, content)
+	mode, diags := decodeMode(decoded.Mode, decoded.ModeRange)
 	if diags.HasErrors() {
 		return cty.NilVal, diags
 	}
@@ -107,38 +105,6 @@ func newProtoFormat(sch *schema, md protoreflect.MessageDescriptor, mode mode) *
 		mt:     dynamicpb.NewMessageType(md),
 		mode:   mode,
 	}
-}
-
-func stringAttr(config *cfg.Config, content *hcl.BodyContent, name string) (string, hcl.Range, hcl.Diagnostics) {
-	attr := content.Attributes[name]
-	val, diags := attr.Expr.Value(config.EvalCtx())
-	if diags.HasErrors() {
-		return "", attr.Range, diags
-	}
-	if val.IsNull() || val.Type() != cty.String {
-		return "", attr.Range, diagAt(fmt.Sprintf("Invalid %s", name),
-			fmt.Sprintf("%s must be a string", name), attr.Range)
-	}
-	return val.AsString(), attr.Range, nil
-}
-
-func optionalStringAttr(config *cfg.Config, content *hcl.BodyContent, name string) (string, hcl.Range, hcl.Diagnostics) {
-	attr, ok := content.Attributes[name]
-	if !ok {
-		return "", hcl.Range{}, nil
-	}
-	val, diags := attr.Expr.Value(config.EvalCtx())
-	if diags.HasErrors() {
-		return "", attr.Range, diags
-	}
-	if val.IsNull() {
-		return "", attr.Range, nil
-	}
-	if val.Type() != cty.String {
-		return "", attr.Range, diagAt(fmt.Sprintf("Invalid %s", name),
-			fmt.Sprintf("%s must be a string", name), attr.Range)
-	}
-	return val.AsString(), attr.Range, nil
 }
 
 func diagAt(summary, detail string, r hcl.Range) hcl.Diagnostics {
