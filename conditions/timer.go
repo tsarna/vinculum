@@ -277,7 +277,33 @@ func init() {
 	cfg.RegisterConditionSubtype("timer", cfg.ConditionRegistration{
 		Process:         processTimerCondition,
 		HasDependencyId: true,
-	})
+	}, cfg.WithSchema(timerConditionSchema))
+}
+
+var timerConditionSchema = cfg.TypeSchema{
+	Sample:  &timerBody{},
+	Summary: "Applies temporal rules to a boolean signal.",
+	Doc: `Equivalent in capability to the IEC 61131-3 timer function blocks (TON, TOF,
+TP, TONR) plus the SR bistable. With no attributes at all it tracks its input
+one-to-one; the attributes below add delay, hold, noise filtering, and latching.
+` + conditionDoc,
+	Attrs: cfg.MergeAttrs(hookAttrs, map[string]cfg.AttrMeta{
+		"input": {
+			Summary: "Boolean expression driving the condition.",
+			Doc:     "Re-evaluated whenever any watchable it references changes. Omit it to drive the condition imperatively with `set(condition.<name>, bool)` instead — calling `set()` on a condition that declares `input` is a runtime error.",
+			Hint:    cfg.HintReactiveExpression,
+		},
+		"activate_after":   activateAfterAttr,
+		"deactivate_after": deactivateAfterAttr,
+		"timeout":          timeoutAttr,
+		"cooldown":         cooldownAttr,
+		"latch":            latchAttr,
+		"invert":           invertAttr,
+		"retentive":        retentiveAttr,
+		"start_active":     startActiveAttr,
+		"inhibit":          inhibitAttr,
+		"debounce":         debounceAttr,
+	}),
 }
 
 func processTimerCondition(config *cfg.Config, block *hcl.Block, def *cfg.ConditionDefinition) hcl.Diagnostics {

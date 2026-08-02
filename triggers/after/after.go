@@ -159,7 +159,31 @@ type triggerAfterBody struct {
 }
 
 func init() {
-	cfg.RegisterTriggerType("after", cfg.TriggerRegistration{Process: processAfterTrigger, HasDependencyId: true})
+	cfg.RegisterTriggerType("after", cfg.TriggerRegistration{Process: processAfterTrigger, HasDependencyId: true},
+		cfg.WithSchema(afterTriggerSchema))
+}
+
+var afterTriggerSchema = cfg.TypeSchema{
+	Sample:  &triggerAfterBody{},
+	Summary: "Waits a fixed duration after startup, then fires once.",
+	Doc: `The time-deferred analogue of ` + "`trigger \"once\"`" + `: rather than firing on demand,
+it fires automatically when the delay elapses.
+
+` + "`get(trigger.<name>)`" + ` returns ` + "`null`" + ` until the action fires, then its cached
+result on every later call. If shutdown happens first the action is abandoned
+and ` + "`get()`" + ` keeps returning ` + "`null`" + `.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"delay": {
+			Summary: "How long to wait after startup before firing.",
+			Doc:     "Parsed at config load time. Accepts a number of seconds, a Go duration string (`\"500ms\"`, `\"2m30s\"`), or an ISO 8601 duration (`\"PT5M\"`).",
+			Hint:    cfg.HintDuration,
+		},
+		"action": {
+			Summary: "Evaluated once when the delay elapses.",
+			Hint:    cfg.HintActionExpression,
+			Context: "trigger-after",
+		},
+	},
 }
 
 func processAfterTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {

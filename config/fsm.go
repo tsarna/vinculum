@@ -168,10 +168,11 @@ see the FSM reference.`,
 			},
 			Blocks: map[string]TypeSchema{
 				"transition": {
-					Sample:     &fsmTransitionBody{},
-					Repeatable: true,
-					Summary:    "A transition from one state to another.",
-					Doc:        "The labels are the from-state and to-state; `*` as the from-state matches any state.",
+					// fsmEventBody declares transitions as a slice, so the
+					// structure already says this block repeats.
+					Sample:  &fsmTransitionBody{},
+					Summary: "A transition from one state to another.",
+					Doc:     "The labels are the from-state and to-state; `*` as the from-state matches any state.",
 					Attrs: map[string]AttrMeta{
 						"guard": {
 							Summary: "Condition that must hold for the transition to be taken.",

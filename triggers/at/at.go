@@ -48,9 +48,9 @@ type AtTrigger struct {
 	tracerProvider trace.TracerProvider
 
 	mu            sync.RWMutex
-	scheduledTime time.Time  // zero = not yet evaluated
+	scheduledTime time.Time // zero = not yet evaluated
 	runCount      int64
-	lastResult    cty.Value  // cty.NilVal until first fire
+	lastResult    cty.Value // cty.NilVal until first fire
 	lastError     error
 	timeOverride  *time.Time // non-nil when set() provided an explicit time
 
@@ -538,7 +538,48 @@ type triggerAtBody struct {
 }
 
 func init() {
-	cfg.RegisterTriggerType("at", cfg.TriggerRegistration{Process: processAtTrigger, HasDependencyId: true})
+	cfg.RegisterTriggerType("at", cfg.TriggerRegistration{Process: processAtTrigger, HasDependencyId: true},
+		cfg.WithSchema(atTriggerSchema))
+}
+
+var atTriggerSchema = cfg.TypeSchema{
+	Sample:  &triggerAtBody{},
+	Summary: "Fires at a computed absolute time, rescheduling after each firing.",
+	Doc: `The fit for non-uniform recurring schedules — sunrise, sunset, an estimated
+arrival — where the gap between firings varies and depends on runtime state.
+Unlike ` + "`trigger \"cron\"`" + ` (fixed schedule strings) and ` + "`trigger \"interval\"`" + `
+(a delay relative to the previous firing), this works in absolute wall-clock
+times, re-evaluating ` + "`time`" + ` after every fire.
+
+` + "`get(trigger.<name>)`" + ` returns the currently scheduled fire time as a time
+capsule, so other expressions can ask how far away it is.
+` + "`set(trigger.<name>, time)`" + ` overrides the next fire and revives a dormant trigger;
+` + "`set(trigger.<name>)`" + ` with no argument re-evaluates ` + "`time`" + ` without firing;
+` + "`reset(trigger.<name>)`" + ` cancels the timer and goes dormant.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"time": {
+			Summary: "When to fire next.",
+			Doc:     "Must evaluate to a time capsule. Re-evaluated after each firing, so it can return a different time every cycle. A time in the past fires immediately and logs a warning; an evaluation error is logged and retried after a minute. Omit it to start dormant, waiting for the first `set(trigger.<name>, time)`.",
+			Hint:    cfg.HintActionExpression,
+			Context: "trigger-at",
+		},
+		"repeat": {
+			Summary: "Keep rescheduling after each firing. Defaults to true.",
+			Doc:     "When false, the trigger fires once and goes dormant until `set()` revives it. Combined with no `time`, that is a classic one-shot alarm.",
+			Hint:    cfg.HintBool,
+		},
+		"stop_when": {
+			Summary: "Stop the trigger when this evaluates true.",
+			Doc:     "Evaluated after each fire, with `ctx.run_count` already incremented.",
+			Hint:    cfg.HintPredicateExpression,
+			Context: "trigger-at",
+		},
+		"action": {
+			Summary: "Evaluated each time the trigger fires.",
+			Hint:    cfg.HintActionExpression,
+			Context: "trigger-at",
+		},
+	},
 }
 
 func processAtTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {

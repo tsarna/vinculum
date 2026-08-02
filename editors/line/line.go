@@ -20,7 +20,110 @@ import (
 )
 
 func init() {
-	cfg.RegisterEditorType("line", processLineEditor)
+	cfg.RegisterEditorType("line", processLineEditor, cfg.WithSchema(lineEditorSchema))
+}
+
+var lineEditorSchema = cfg.TypeSchema{
+	Sample:  &lineEditorBody{},
+	Summary: "Edits text line by line with ordered regex rules.",
+	Doc: `Compiles into ` + "`<name>(ctx, filename, ...)`" + ` in file mode, or
+` + "`<name>(ctx, input, ...)`" + ` in string mode, with any declared ` + "`params`" + ` following.
+
+Each input line is offered to the ` + "`match`" + ` rules in declaration order; the
+first rule whose guards pass and whose regex matches wins, and its ` + "`replace`" + `
+produces that line's output. Lines matching no rule are copied through
+unchanged.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"mode": {
+			Summary: "Whether the function edits a file or a string. Defaults to `\"file\"`.",
+			Doc:     "File mode edits a file on disk and returns whether it was written; it requires `--write-path`, resolves relative paths against it, and rejects paths outside it. String mode processes its argument in memory and returns the result, with `backup`, `create_if_absent`, `lock`, and the path restrictions not applying.",
+			Enum:    []string{"file", "string"},
+		},
+		"backup": {
+			Summary: "Suffix for a hard-link backup of the original file.",
+			Doc:     "For example `\"~\"` keeps the previous contents as `file~`. File mode only.",
+		},
+		"create_if_absent": {
+			Summary: "Treat a missing file as empty rather than an error.",
+			Doc:     "File mode only.",
+			Hint:    cfg.HintBool,
+		},
+		"lock": {
+			Summary: "Take an exclusive lock on the file for the duration of the edit.",
+			Doc:     "File mode only.",
+			Hint:    cfg.HintBool,
+		},
+		"state": {
+			Summary: "Initial values for the state accumulated across lines.",
+			Doc:     "An object. `update_state` on a match rule merges into it, and every expression in the block reads it as `state.<name>`.",
+		},
+	},
+	Blocks: map[string]cfg.TypeSchema{
+		"match": {
+			Summary: "One match-and-replace rule.",
+			Doc: `The label is a Go RE2 regular expression. Rules are tried in declaration
+order and the first that matches a line wins it.`,
+			Attrs: map[string]cfg.AttrMeta{
+				"required": {
+					Summary: "This rule must match at least this many lines.",
+					Doc:     "Otherwise the edit is abandoned cleanly: the file is left alone and the function returns false. `required = true` means 1. Evaluated once at config load, not per line.",
+				},
+				"max": {
+					Summary: "Stop applying this rule after this many matches.",
+					Doc:     "Further lines that would have matched fall through to later rules instead. `required = 1, max = 1` means the pattern must match exactly once. Evaluated once at config load, not per line.",
+				},
+				"when": {
+					Summary: "Guard evaluated after the regex matches; skip the rule if false.",
+					Doc:     "Matching continues with the next rule. The full match context is in scope, so the guard can inspect capture groups — `ctx.count` reflects the count this match *would* have if the guard passes.",
+					Hint:    cfg.HintPredicateExpression,
+					Context: "editor-match",
+				},
+				"replace": {
+					Summary: "The output for this line.",
+					Doc:     "Should end with `\\n`. Absent, the line is written unchanged but still counts toward `required`. `\"\"` deletes the line; `\"${ctx.line}extra\\n\"` inserts after it; `error(\"...\")` aborts with an error.",
+					Context: "editor-match",
+				},
+				"abort": {
+					Summary: "When true, discard the whole edit immediately.",
+					Doc:     "Returns false in file mode, an error in string mode. For when a match shows the edit is unnecessary rather than wrong.",
+					Hint:    cfg.HintPredicateExpression,
+					Context: "editor-match",
+				},
+				"update_state": {
+					Summary: "Object merged into the running state after this match.",
+					Doc:     "Evaluated after `replace` and `abort`. Keys it does not mention are left as they were, and later rules see the result.",
+					Context: "editor-match",
+				},
+				"incidental": {
+					Summary: "Don't let this rule's replacement count as a change on its own.",
+					Doc:     "The replacement still happens. If every modification in the whole edit was incidental, the file is not written and the function returns false — so housekeeping edits like a timestamp bump ride along with a real change without causing a write by themselves. Evaluated once at config load, not per line.",
+				},
+			},
+		},
+		"before": {
+			Sample:  &contentBlock{},
+			Summary: "Content prepended to the output.",
+			Attrs:   editorContentAttrs,
+		},
+		"after": {
+			Sample:  &contentBlock{},
+			Summary: "Content appended to the output.",
+			Attrs:   editorContentAttrs,
+		},
+	},
+}
+
+// editorContentAttrs documents the before/after blocks, which share a body.
+var editorContentAttrs = map[string]cfg.AttrMeta{
+	"content": {
+		Summary: "The text to add.",
+		Doc:     "Evaluated once, after every line has been processed, so it sees the final accumulated `state`.",
+		Context: "editor-content",
+	},
+	"incidental": {
+		Summary: "Don't let this content count as a change on its own.",
+		Doc:     "As on a `match` rule: if every modification in the edit was incidental, nothing is written. Evaluated once at config load.",
+	},
 }
 
 // --- Config-time structs ---

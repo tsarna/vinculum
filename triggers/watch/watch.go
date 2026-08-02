@@ -164,7 +164,47 @@ func init() {
 	cfg.RegisterTriggerType("watch", cfg.TriggerRegistration{
 		Process:         processWatchTrigger,
 		HasDependencyId: true,
-	})
+	}, cfg.WithSchema(watchTriggerSchema))
+}
+
+var watchTriggerSchema = cfg.TypeSchema{
+	Sample:  &triggerWatchBody{},
+	Summary: "Fires each time a watched value changes.",
+	Doc: `Watchable values are ` + "`var`" + `, non-computed gauge and counter ` + "`metric`" + `,
+` + "`condition`" + `, and ` + "`fsm`" + ` values. They notify on **every** ` + "`set()`" + ` /
+` + "`increment()`" + `, even when the new value equals the old — a producer rewriting
+the same value is still alive. For changes-only semantics, say
+` + "`skip_when = ctx.old_value == ctx.new_value`" + `.
+
+The action is dispatched to its own goroutine, so the caller of ` + "`set()`" + ` is not
+blocked. It keeps the caller's context values (trace span, auth) but not its
+cancellation, so a short-lived caller cannot interrupt an in-flight action. On
+shutdown the trigger unregisters and waits for in-flight actions to finish.
+
+` + "`get(trigger.<name>)`" + ` returns the most recently observed new value.
+
+For reactions local to one condition, the condition's own ` + "`on_activate`" + ` /
+` + "`on_deactivate`" + ` / ` + "`on_init`" + ` hooks are usually a better fit: they dispatch
+synchronously and guarantee post-bootstrap ordering. Use this trigger for async
+dispatch and cross-cutting observers.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"watch": {
+			Summary: "The value to watch.",
+			Doc:     "Evaluated once at config build time and must produce a watchable capsule; anything else is a config error.",
+			Hint:    cfg.HintExpression,
+		},
+		"action": {
+			Summary: "Evaluated on each observed change.",
+			Hint:    cfg.HintActionExpression,
+			Context: "trigger-watch",
+		},
+		"skip_when": {
+			Summary: "Skip this firing when true.",
+			Doc:     "Evaluated first, in the same goroutine, against the same `ctx`. Each firing evaluates it independently.",
+			Hint:    cfg.HintPredicateExpression,
+			Context: "trigger-watch",
+		},
+	},
 }
 
 func processWatchTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {

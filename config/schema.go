@@ -520,12 +520,14 @@ func reflectBodyType(ty reflect.Type, stack []reflect.Type) (*reflectedBody, err
 		case "attr", "optional":
 			body.Attrs = append(body.Attrs, reflectedAttr{
 				Name: name,
-				// Required is the author's intent — an attribute with no
-				// `,optional` and a non-pointer field. This deliberately
-				// differs from gohcl.ImpliedBodySchema for hcl.Expression
-				// fields, which gohcl always reports as optional because it
-				// signals absence with a null value rather than an error.
-				Required: kind == "attr" && field.Type.Kind() != reflect.Ptr,
+				// Required is the author's intent: an attribute whose tag does
+				// not say `,optional`. This deliberately differs from
+				// gohcl.ImpliedBodySchema, which additionally reports
+				// hcl.Expression and pointer fields as optional because it
+				// signals their absence with a null rather than an error —
+				// leaving the block's own processor to enforce the
+				// requirement and report it.
+				Required: kind == "attr",
 				Type:     coarseAttrType(field.Type),
 				GoType:   field.Type,
 			})
@@ -901,6 +903,12 @@ func (b *schemaBuilder) mergeBody(path string, rb *reflectedBody, ts TypeSchema)
 
 	for _, rblk := range rb.Blocks {
 		nestedTS := ts.Blocks[rblk.Name]
+		// The parent struct already says how this sub-block may appear, so
+		// curation restating it is either redundant or a disagreement the
+		// reflected structure would silently win. Say so either way.
+		if nestedTS.Repeatable || nestedTS.Required {
+			b.problemf("%s.%s: repeatable/required come from the parent struct and cannot be curated", path, rblk.Name)
+		}
 		if shared, ok := sharedBlockSchemas[rblk.GoType]; ok {
 			// A sub-block struct shared by many parents (tls, auth, ...) is
 			// documented once; anything the parent says about it wins.
@@ -1163,6 +1171,11 @@ var envelopeSchemas = map[string]TypeSchema{
 			"disabled": DisabledAttr,
 			"tracing":  TracingAttr,
 		},
+	},
+	"editor": {
+		Sample:  &editorOuterBody{},
+		Summary: "Attributes every editor block accepts.",
+		Attrs:   EditorParamAttrs,
 	},
 }
 

@@ -451,7 +451,105 @@ func init() {
 	cfg.RegisterConditionSubtype("flipflop", cfg.ConditionRegistration{
 		Process:         processFlipflopCondition,
 		HasDependencyId: true,
-	})
+	}, cfg.WithSchema(flipflopConditionSchema))
+}
+
+var flipflopConditionSchema = cfg.TypeSchema{
+	Sample:  &flipflopBody{},
+	Summary: "Edge-driven bistable: T, SR, JK, D, D-latch, and gated variants.",
+	Doc: `Each *wire* is a boolean expression watched reactively; the combination of
+wires declared is what names the variant:
+
+| Wires declared | Variant |
+|---|---|
+| ` + "`toggle_on`" + ` | T flip-flop |
+| ` + "`set_on`" + ` + ` + "`reset_on`" + ` | SR flip-flop |
+| ` + "`set_on`" + ` + ` + "`reset_on`" + ` + ` + "`toggle_on`" + ` | JK flip-flop |
+| ` + "`set_on`" + ` + ` + "`reset_on`" + ` + level ` + "`gate_on`" + ` | gated SR |
+| ` + "`set_from`" + ` + edge ` + "`gate_on`" + ` | D flip-flop |
+| ` + "`set_from`" + ` + level ` + "`gate_on`" + ` | D latch |
+| ` + "`toggle_on`" + ` + level ` + "`gate_on`" + ` | gated T |
+
+At least one of ` + "`set_on`" + `, ` + "`reset_on`" + `, ` + "`toggle_on`" + `, or ` + "`set_from`" + ` must be
+declared. A wire that evaluates to null or a non-boolean is logged to the user
+log and ignored. The first evaluation of every wire only establishes a
+baseline and fires no edge, so a source already asserting at boot does not
+spuriously drive the flipflop — use ` + "`start_active`" + ` to boot the output true.
+
+When one notification fires several wires at once, the flipflop resolves to a
+single output: the gate is applied first and suppresses everything if its
+criterion is not met; then ` + "`dominant`" + ` settles a set/reset tie; a set or reset
+beats a toggle; and a ` + "`set_from`" + ` sample is applied before a toggle. This is
+atomic only *within* one notification — two different sources changing at once
+arrive as sequential notifications, so a watcher may briefly see the
+intermediate value. Funnel inputs through a single derived source upstream if
+you need strict cross-input atomicity.
+
+A flipflop responds to its inputs immediately: it supports no temporal
+attributes. For "active for N seconds" behavior use ` + "`condition \"timer\"`" + `, and
+debounce the signal at its source.
+` + conditionDoc,
+	Attrs: cfg.MergeAttrs(hookAttrs, map[string]cfg.AttrMeta{
+		"set_on": {
+			Summary: "On this wire's edge, drive the output true.",
+			Hint:    cfg.HintReactiveExpression,
+		},
+		"set_edge": {
+			Summary: "Which edge of `set_on` fires. Defaults to `\"rising\"`.",
+			Enum:    []string{"rising", "falling", "both"},
+		},
+		"reset_on": {
+			Summary: "On this wire's edge, drive the output false.",
+			Hint:    cfg.HintReactiveExpression,
+		},
+		"reset_edge": {
+			Summary: "Which edge of `reset_on` fires. Defaults to `\"rising\"`.",
+			Enum:    []string{"rising", "falling", "both"},
+		},
+		"toggle_on": {
+			Summary: "On this wire's edge, flip the output.",
+			Hint:    cfg.HintReactiveExpression,
+		},
+		"toggle_edge": {
+			Summary: "Which edge of `toggle_on` fires. Defaults to `\"rising\"`.",
+			Enum:    []string{"rising", "falling", "both"},
+		},
+		"set_from": {
+			Summary: "Level sampled into the output when the gate permits.",
+			Doc:     "Never edge-detected on its own — this is the D input. Requires `gate_on`.",
+			Hint:    cfg.HintReactiveExpression,
+		},
+		"gate_on": {
+			Summary: "Gate controlling when the other wires take effect.",
+			Doc:     "With `set_from`, it clocks the sample. Without `set_from`, it is an enable that gates the effective window of `set_on` / `reset_on` / `toggle_on` — edges outside the window are ignored.",
+			Hint:    cfg.HintReactiveExpression,
+		},
+		"gate_edge": {
+			Summary: "How `gate_on` gates. Defaults to `\"rising\"`.",
+			Doc:     "`\"rising\"`, `\"falling\"`, and `\"both\"` sample on that edge, giving an edge-triggered D flip-flop. `\"high\"` makes the output track `set_from` reactively while the gate is true and hold the last sample when it goes false — an active-high D latch; `\"low\"` is the active-low counterpart.",
+			Enum:    []string{"rising", "falling", "both", "high", "low"},
+		},
+		"dominant": {
+			Summary: "Which wire wins when `set_on` and `reset_on` fire together. Defaults to `\"reset\"`.",
+			Enum:    []string{"reset", "set"},
+		},
+		"start_active": startActiveAttr,
+		"latch": {
+			Summary: latchAttr.Summary,
+			Doc:     "A latched flipflop ignores `reset_on`, gate drop-out, and deactivating `toggle_on` flips until released with `clear(condition.<name>)`.",
+			Hint:    cfg.HintBool,
+		},
+		"invert":   invertAttr,
+		"cooldown": cooldownAttr,
+		"inhibit":  inhibitAttr,
+	}),
+	Constraints: []cfg.Constraint{
+		cfg.AtLeastOneOf("set_on", "reset_on", "toggle_on", "set_from").
+			WithMessage("a flipflop needs at least one of set_on, reset_on, toggle_on, or set_from"),
+		cfg.Requires("set_from", "gate_on"),
+		// An edge attribute without its wire is accepted and ignored by the
+		// parser, so it is not stated as a constraint here.
+	},
 }
 
 // parseEventEdge parses a set/reset/toggle edge string. nil defaults to rising.

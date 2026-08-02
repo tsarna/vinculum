@@ -268,7 +268,79 @@ func init() {
 	cfg.RegisterConditionSubtype("threshold", cfg.ConditionRegistration{
 		Process:         processThresholdCondition,
 		HasDependencyId: true,
-	})
+	}, cfg.WithSchema(thresholdConditionSchema))
+}
+
+var thresholdConditionSchema = cfg.TypeSchema{
+	Sample:  &thresholdBody{},
+	Summary: "Derives a boolean from a numeric input, with hysteresis.",
+	Doc: `Separate activation and deactivation thresholds leave a **deadband** between
+them — a region where the output does not change — so a value hovering near one
+level cannot toggle the output rapidly.
+
+Declare one complete pair. The high form activates on the way up
+(` + "`on_above`" + ` with ` + "`off_below`" + `, and ` + "`on_above > off_below`" + `); the low form
+activates on the way down (` + "`on_below`" + ` with ` + "`off_above`" + `, and
+` + "`off_above > on_below`" + `). Mixing the two forms is a config error.
+
+An input starting inside the deadband leaves the output inactive: the condition
+activates only on an unambiguous crossing. Use ` + "`start_active`" + ` to override that.
+` + conditionDoc,
+	Attrs: cfg.MergeAttrs(hookAttrs, map[string]cfg.AttrMeta{
+		"input": {
+			Summary: "Numeric expression to compare against the thresholds.",
+			Doc:     "Re-evaluated whenever any watchable it references changes. There is no imperative `set()` for a threshold condition.",
+			Hint:    cfg.HintReactiveExpression,
+		},
+		"on_above": {
+			Summary: "Activate when the value crosses above this.",
+			Doc:     "Pairs with `off_below`.",
+		},
+		"off_below": {
+			Summary: "Deactivate when the value crosses below this.",
+			Doc:     "Pairs with `on_above`.",
+		},
+		"on_below": {
+			Summary: "Activate when the value crosses below this.",
+			Doc:     "Pairs with `off_above`.",
+		},
+		"off_above": {
+			Summary: "Deactivate when the value crosses above this.",
+			Doc:     "Pairs with `on_below`.",
+		},
+		"activate_after":   activateAfterAttr,
+		"deactivate_after": deactivateAfterAttr,
+		"timeout":          timeoutAttr,
+		"cooldown":         cooldownAttr,
+		"latch":            latchAttr,
+		"invert":           invertAttr,
+		"retentive": {
+			Summary: retentiveAttr.Summary,
+			Doc:     "Time spent above (or below) the threshold accumulates across separate crossings; time in the deadband or on the inactive side does not.",
+			Hint:    cfg.HintBool,
+		},
+		"start_active": startActiveAttr,
+		"inhibit":      inhibitAttr,
+		"debounce": {
+			Summary: debounceAttr.Summary,
+			Doc:     "Applies to the derived boolean — has the threshold been crossed? — not to the raw numeric value.",
+			Hint:    cfg.HintDuration,
+		},
+	}),
+	// The parser's rule is group-versus-group: naming any of on_above/off_below
+	// selects the high form, any of on_below/off_above the low form, and the
+	// two forms cannot be mixed. Stated as pairwise constraints, which compose
+	// to the same thing.
+	Constraints: []cfg.Constraint{
+		cfg.RequiredTogether("on_above", "off_below"),
+		cfg.RequiredTogether("on_below", "off_above"),
+		cfg.MutuallyExclusive("on_above", "on_below").
+			WithMessage("the high form (on_above/off_below) and the low form (on_below/off_above) cannot be mixed"),
+		cfg.MutuallyExclusive("off_below", "off_above").
+			WithMessage("the high form (on_above/off_below) and the low form (on_below/off_above) cannot be mixed"),
+		cfg.AtLeastOneOf("on_above", "on_below").
+			WithMessage("a threshold condition needs one complete pair: on_above/off_below or on_below/off_above"),
+	},
 }
 
 func processThresholdCondition(config *cfg.Config, block *hcl.Block, def *cfg.ConditionDefinition) hcl.Diagnostics {

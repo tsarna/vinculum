@@ -45,6 +45,32 @@ type editorOuterBody struct {
 	RemainingBody hcl.Body       `hcl:",remain"`
 }
 
+func init() {
+	// editor blocks are extracted before the block handlers run, so there is
+	// no BlockHandler to carry the block-level schema.
+	RegisterBlockSchema("editor", TypeSchema{
+		Summary: "A compiled text-editing function.",
+		Doc: `The first label selects the editor type and the second names the function it
+compiles into, callable from any expression as ` + "`<name>(ctx, target, ...)`" + `.
+
+Editor blocks are processed early, alongside ` + "`function`" + ` and ` + "`jq`" + `, so the
+functions they produce are available to the rest of the config.`,
+	})
+}
+
+// EditorParamAttrs documents the parameter-naming attributes every editor
+// block accepts, whatever its type. They are spliced into each variant.
+var EditorParamAttrs = map[string]AttrMeta{
+	"params": {
+		Summary: "Names of the parameters the compiled function takes.",
+		Doc:     "Written as bare identifiers, e.g. `params = [host, port]`. They come after the target argument: `params = [a, b]` yields `name(ctx, target, a, b)`. Each is in scope in every expression in the block.",
+	},
+	"variadic_param": {
+		Summary: "Name for a parameter collecting any extra arguments.",
+		Doc:     "A bare identifier. Arguments beyond the declared `params` are gathered into it as a list.",
+	},
+}
+
 var editorBlockSchema = &hcl.BodySchema{
 	Blocks: []hcl.BlockHeaderSchema{
 		{Type: "editor", LabelNames: []string{"type", "name"}},

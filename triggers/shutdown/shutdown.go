@@ -12,7 +12,25 @@ import (
 )
 
 func init() {
-	cfg.RegisterTriggerType("shutdown", cfg.TriggerRegistration{Process: processShutdownTrigger, HasDependencyId: false})
+	cfg.RegisterTriggerType("shutdown", cfg.TriggerRegistration{Process: processShutdownTrigger, HasDependencyId: false},
+		cfg.WithSchema(shutdownTriggerSchema))
+}
+
+var shutdownTriggerSchema = cfg.TypeSchema{
+	Sample:  &triggerShutdownBody{},
+	Summary: "Evaluates an action once during graceful shutdown.",
+	Doc: `Runs after SIGINT or SIGTERM, in the reverse of the order stoppable
+components were registered, and before they are torn down. Errors are logged
+but do not abort the shutdown sequence.
+
+Does **not** create a ` + "`trigger.<name>`" + ` value.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"action": {
+			Summary: "Evaluated once during shutdown.",
+			Hint:    cfg.HintActionExpression,
+			Context: "trigger-shutdown",
+		},
+	},
 }
 
 type triggerShutdownBody struct {

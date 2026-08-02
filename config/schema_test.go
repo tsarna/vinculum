@@ -207,10 +207,10 @@ func TestReflectMatchesGohcl(t *testing.T) {
 		for _, ia := range implied.Attributes {
 			ra := body.attr(ia.Name)
 			require.NotNil(t, ra)
-			if ra.Type == attrTypeExpression && ra.GoType == hclExpressionType {
-				// gohcl always reports hcl.Expression attributes as optional
-				// because it signals absence with a null value. The schema
-				// reports the author's intent instead.
+			if ra.GoType == hclExpressionType || ra.GoType.Kind() == reflect.Ptr {
+				// gohcl always reports hcl.Expression and pointer attributes
+				// as optional because it signals their absence with a null
+				// value. The schema reports the author's intent instead.
 				continue
 			}
 			assert.Equal(t, ia.Required, ra.Required, "%T.%s required", sample, ia.Name)

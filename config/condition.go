@@ -47,6 +47,22 @@ func NewConditionBlockHandler() *ConditionBlockHandler {
 	return &ConditionBlockHandler{}
 }
 
+func (h *ConditionBlockHandler) Schema() TypeSchema {
+	return TypeSchema{
+		Summary: "A named boolean output derived from an input and behavioral rules.",
+		Doc: `The first label selects the subtype and the second names it, making it
+available in expressions as ` + "`condition.<name>`" + `. Conditions encode *when*
+something should count as true — "has the temperature been above 80° for
+30 seconds?", "have five errors arrived within a minute?".
+
+Every subtype shares a four-state model (` + "`inactive`" + `, ` + "`pending_activation`" + `,
+` + "`active`" + `, ` + "`pending_deactivation`" + `); ` + "`get()`" + ` returns the stable output and
+` + "`state()`" + ` the full internal state. Conditions are watchable, so they compose:
+one condition's ` + "`input`" + ` can read another, and ` + "`trigger \"watch\"`" + ` can observe
+any of them.`,
+	}
+}
+
 // GetBlockDependencyId returns "condition.<name>" so blocks referencing the
 // condition are ordered after it.
 func (h *ConditionBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {

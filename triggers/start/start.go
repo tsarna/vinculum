@@ -13,7 +13,23 @@ import (
 )
 
 func init() {
-	cfg.RegisterTriggerType("start", cfg.TriggerRegistration{Process: processStartTrigger, HasDependencyId: true})
+	cfg.RegisterTriggerType("start", cfg.TriggerRegistration{Process: processStartTrigger, HasDependencyId: true},
+		cfg.WithSchema(startTriggerSchema))
+}
+
+var startTriggerSchema = cfg.TypeSchema{
+	Sample:  &triggerStartBody{},
+	Summary: "Evaluates an action once at startup.",
+	Doc: `Runs after every startable component is ready. The action's result becomes
+` + "`trigger.<name>`" + ` in the global context, so any block may read it — dependency
+ordering is handled automatically.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"action": {
+			Summary: "Evaluated once at startup; its result becomes `trigger.<name>`.",
+			Hint:    cfg.HintActionExpression,
+			Context: "trigger-start",
+		},
+	},
 }
 
 type triggerStartBody struct {

@@ -15,7 +15,41 @@ import (
 )
 
 func init() {
-	cfg.RegisterTriggerType("cron", cfg.TriggerRegistration{Process: processCronTrigger, HasDependencyId: false})
+	cfg.RegisterTriggerType("cron", cfg.TriggerRegistration{Process: processCronTrigger, HasDependencyId: false},
+		cfg.WithSchema(cronTriggerSchema))
+}
+
+var cronTriggerSchema = cfg.TypeSchema{
+	Sample:  &CronDefinition{},
+	Summary: "A cron-style scheduler holding one or more scheduled rules.",
+	Doc: `Unlike the other trigger types, one block carries many schedules: each ` + "`at`" + `
+sub-block is an independent rule with its own schedule and action. Declaring
+several ` + "`trigger \"cron\"`" + ` blocks is useful mainly to run rules in different
+time zones.
+
+Does **not** create a ` + "`trigger.<name>`" + ` value.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"timezone": {
+			Summary: "IANA time zone the schedules are interpreted in.",
+			Doc:     "For example `\"UTC\"` or `\"America/New_York\"`. Defaults to the host's local time zone.",
+		},
+	},
+	Blocks: map[string]cfg.TypeSchema{
+		"at": {
+			Summary: "One scheduled rule.",
+			Doc: `The first label is the schedule and the second names the rule. A schedule is
+standard five-field cron (minute, hour, day-of-month, month, day-of-week), the
+six-field form where the first field is seconds, or a descriptor such as
+` + "`@hourly`" + ` or ` + "`@every 30s`" + `.`,
+			Attrs: map[string]cfg.AttrMeta{
+				"action": {
+					Summary: "Evaluated each time this rule's schedule fires.",
+					Hint:    cfg.HintActionExpression,
+					Context: "trigger-cron",
+				},
+			},
+		},
+	},
 }
 
 func processCronTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {

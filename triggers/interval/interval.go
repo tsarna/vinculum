@@ -51,8 +51,8 @@ type IntervalTrigger struct {
 	tracerProvider   trace.TracerProvider
 
 	mu            sync.RWMutex
-	runCount      int64          // number of completed action evaluations
-	lastResult    cty.Value      // cty.NilVal until first run
+	runCount      int64     // number of completed action evaluations
+	lastResult    cty.Value // cty.NilVal until first run
 	lastError     error
 	delayOverride *time.Duration // non-nil when set() provided an explicit duration
 
@@ -472,7 +472,62 @@ type triggerIntervalBody struct {
 }
 
 func init() {
-	cfg.RegisterTriggerType("interval", cfg.TriggerRegistration{Process: processIntervalTrigger, HasDependencyId: true})
+	cfg.RegisterTriggerType("interval", cfg.TriggerRegistration{Process: processIntervalTrigger, HasDependencyId: true},
+		cfg.WithSchema(intervalTriggerSchema))
+}
+
+var intervalTriggerSchema = cfg.TypeSchema{
+	Sample:  &triggerIntervalBody{},
+	Summary: "Repeatedly evaluates an action on a dynamic schedule.",
+	Doc: `Waits the computed delay, evaluates the action, repeats. Both ` + "`delay`" + ` and
+` + "`action`" + ` are re-evaluated every iteration against a context carrying the run
+count and the previous result, so the cadence can adapt at runtime — polling
+faster while an object is moving, backing off after errors.
+
+` + "`get(trigger.<name>)`" + ` returns the most recent result.
+` + "`set(trigger.<name>, duration)`" + ` restarts with that delay and revives a stopped
+trigger; ` + "`set(trigger.<name>)`" + ` restarts using the configured ` + "`delay`" + `;
+` + "`reset(trigger.<name>)`" + ` cancels the timer and goes dormant.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"delay": {
+			Summary: "How long to wait between runs.",
+			Doc:     "Re-evaluated each iteration. Accepts a number of seconds, a Go duration string, an ISO 8601 duration, or a duration capsule. Omit it to start dormant, waiting for the first `set()`; `initial_delay` and `error_delay` cannot be used without it.",
+			Hint:    cfg.HintActionExpression,
+			Context: "trigger-interval",
+		},
+		"initial_delay": {
+			Summary: "How long to wait before the very first run.",
+			Doc:     "Defaults to `delay`. Set `\"0s\"` to run immediately at startup.",
+			Hint:    cfg.HintDuration,
+		},
+		"error_delay": {
+			Summary: "How long to wait after a run that failed.",
+			Doc:     "Defaults to `delay`. Re-evaluated each iteration, like `delay`.",
+			Hint:    cfg.HintActionExpression,
+			Context: "trigger-interval",
+		},
+		"jitter": {
+			Summary: "Fraction of the delay to randomize by, in [0, 1].",
+			Doc:     "The actual wait is drawn uniformly from `[delay*(1-jitter/2), delay*(1+jitter/2)]`, so the average is unchanged. Use it to desynchronize instances running the same schedule. Applies to a `set()` override as well.",
+		},
+		"repeat": {
+			Summary: "Keep rescheduling after each run. Defaults to true.",
+			Doc:     "When false, the trigger fires once and goes dormant until `set()` revives it — a one-shot timer driven by external state, such as an FSM whose `on_entry` hooks set a different delay per state.",
+			Hint:    cfg.HintBool,
+		},
+		"stop_when": {
+			Summary: "Stop the trigger when this evaluates true.",
+			Doc:     "Evaluated after the action completes, with `ctx.run_count` already incremented.",
+			Hint:    cfg.HintPredicateExpression,
+			Context: "trigger-interval",
+		},
+		"action": {
+			Summary: "Evaluated each time the delay elapses.",
+			Doc:     "Sees the state from *before* this iteration: `ctx.run_count` is 0 on the first run.",
+			Hint:    cfg.HintActionExpression,
+			Context: "trigger-interval",
+		},
+	},
 }
 
 func processIntervalTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {

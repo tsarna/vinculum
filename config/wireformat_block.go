@@ -43,6 +43,20 @@ func NewWireFormatBlockHandler() *WireFormatBlockHandler {
 	return &WireFormatBlockHandler{}
 }
 
+func (h *WireFormatBlockHandler) Schema() TypeSchema {
+	return TypeSchema{
+		Summary: "A named encoder/decoder for message payloads.",
+		Doc: `The first label selects the format type and the second names it, making it
+available in expressions as ` + "`wire_format.<name>`" + `. Assign it to a client's
+` + "`wire_format`" + ` attribute to control how that client's payloads are decoded on
+the way in and encoded on the way out.
+
+Declared formats sit alongside the built-in ` + "`auto`" + `, ` + "`json`" + `, ` + "`string`" + `, and
+` + "`bytes`" + ` values and are used interchangeably with them. A block is needed only
+for formats that cannot decode blind — ones that require a schema.`,
+	}
+}
+
 func (h *WireFormatBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {
 	return "wire_format." + block.Labels[1], nil
 }

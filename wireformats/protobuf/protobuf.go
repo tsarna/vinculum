@@ -33,5 +33,52 @@ import (
 )
 
 func init() {
-	cfg.RegisterWireFormatType("protobuf", Process)
+	cfg.RegisterWireFormatType("protobuf", Process, cfg.WithSchema(protobufSchema))
+}
+
+// protobufBody exists only to describe the block for `vinculum schema`.
+// Process decodes the body by hand against blockSchema in block.go rather than
+// through gohcl, so — unlike a gohcl-decoded block — this struct is not what
+// the parser reads and the two must be kept in step by hand.
+type protobufBody struct {
+	DescriptorSet string  `hcl:"descriptor_set"`
+	Message       *string `hcl:"message,optional"`
+	Mode          *string `hcl:"mode,optional"`
+}
+
+var protobufSchema = cfg.TypeSchema{
+	Sample:  &protobufBody{},
+	Summary: "Protocol Buffers binary, decoded and encoded against a supplied schema.",
+	Doc: `Protobuf binary is not self-describing: the same bytes decode differently
+depending on the message type, and field names never appear on the wire. So a
+protobuf wire format is bound to exactly one message type, and a schema — a
+compiled ` + "`FileDescriptorSet`" + ` — is mandatory.
+
+Naming a ` + "`message`" + ` makes ` + "`wire_format.<name>`" + ` a single format,
+interchangeable with a built-in one. Omitting it makes the block an object of
+formats, one per message in the set, keyed by full name plus a bare short-name
+alias wherever that short name is unique: ` + "`wire_format.<name>.acme.v1.Order`" + `
+or just ` + "`wire_format.<name>.Order`" + `.
+
+Every Vinculum transport delivers a discrete payload — one MQTT message, one
+Kafka record, one HTTP body — so each payload is exactly one message.
+Length-delimited stream framing is out of scope.
+
+The implementation is pure Go, with no ` + "`protoc`" + ` at run time, so it ships in the
+minimal container image.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"descriptor_set": {
+			Summary: "Path to a compiled `FileDescriptorSet`.",
+			Doc:     "Produce one with `protoc --include_imports --descriptor_set_out=x.binpb x.proto` or `buf build -o x.binpb`. Relative paths resolve against the config directory, so a `git`-materialized schema tree works. `--include_imports` is recommended but not required: the `google/protobuf/*` well-known types are bundled and resolved automatically.",
+		},
+		"message": {
+			Summary: "Fully-qualified name of the message to bind to.",
+			Doc:     "For example `\"acme.orders.v1.Order\"`. Omit it to expose every message in the set.",
+		},
+		"mode": {
+			Summary: "How messages are represented as VCL values. Defaults to `\"native\"`.",
+			Doc:     "Native maps protobuf types to their natural VCL counterparts; json round-trips through protojson's canonical JSON mapping. Applies to every message the block exposes.",
+			Enum:    []string{"native", "json"},
+		},
+	},
 }

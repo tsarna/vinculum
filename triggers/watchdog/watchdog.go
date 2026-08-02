@@ -358,7 +358,58 @@ type triggerWatchdogBody struct {
 }
 
 func init() {
-	cfg.RegisterTriggerType("watchdog", cfg.TriggerRegistration{Process: processWatchdogTrigger, HasDependencyId: true})
+	cfg.RegisterTriggerType("watchdog", cfg.TriggerRegistration{Process: processWatchdogTrigger, HasDependencyId: true},
+		cfg.WithSchema(watchdogTriggerSchema))
+}
+
+var watchdogTriggerSchema = cfg.TypeSchema{
+	Sample:  &triggerWatchdogBody{},
+	Summary: "Fires when a window elapses without being fed.",
+	Doc: `The inverse of ` + "`trigger \"interval\"`" + `: rather than doing work on a schedule, it
+detects when expected work *stops* happening.
+
+` + "`set(trigger.<name>, value)`" + ` resets the countdown and stores the value;
+` + "`set(trigger.<name>)`" + ` resets it and stores null. ` + "`get(trigger.<name>)`" + `
+returns the last stored value. ` + "`reset(trigger.<name>)`" + ` returns the watchdog to
+its post-startup state — history discarded, miss count zeroed, countdown
+re-armed — reviving it if it had auto-stopped. For the usual
+acknowledge-and-rearm flow, ` + "`set()`" + ` is the right call.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"window": {
+			Summary: "Fire if not fed within this duration.",
+			Hint:    cfg.HintDuration,
+		},
+		"action": {
+			Summary: "Evaluated each time the watchdog fires.",
+			Hint:    cfg.HintActionExpression,
+			Context: "trigger-watchdog",
+		},
+		"watch": {
+			Summary: "A watchable value that feeds the watchdog automatically.",
+			Doc:     "Each change to it counts as `set(trigger.<name>, newValue)`, which decouples the producer from the watchdog: the producer only updates the variable and need not know a watchdog exists. Manual `set()` calls still work alongside it.",
+			Hint:    cfg.HintExpression,
+		},
+		"initial_grace": {
+			Summary: "Grace period before the first countdown.",
+			Doc:     "Defaults to `window`. Gives components time to start up and feed the watchdog once before it can fire.",
+			Hint:    cfg.HintDuration,
+		},
+		"repeat": {
+			Summary: "Keep firing every window until fed. Defaults to false.",
+			Doc:     "When false the watchdog goes dormant after firing and waits to be fed again, so a known-broken condition does not flood alerts. Set true for paging systems where ongoing alerting is wanted.",
+			Hint:    cfg.HintBool,
+		},
+		"max_misses": {
+			Summary: "Auto-stop after this many consecutive fires.",
+			Doc:     "At least 1. Feeding the watchdog resets the miss count to 0 and re-arms it immediately, so this caps how many times an alert repeats before an explicit acknowledgement.",
+		},
+		"stop_when": {
+			Summary: "Auto-stop when this evaluates true.",
+			Doc:     "Evaluated after each fire with the same `ctx` as the action, including the updated `ctx.miss_count`. Feeding the watchdog re-evaluates it against the post-`set()` state, re-arming if it is now false. `stop_when = ctx.miss_count >= N` is equivalent to `max_misses = N`.",
+			Hint:    cfg.HintPredicateExpression,
+			Context: "trigger-watchdog",
+		},
+	},
 }
 
 func processWatchdogTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {

@@ -145,8 +145,9 @@ func TestSchemaCommonAttributes(t *testing.T) {
 // Phases of the schema rollout add to this list; a block named here must stay
 // fully documented, so adding an hcl field without an AttrMeta fails the test.
 var curatedBlocks = []string{
-	"assert", "bus", "client", "const", "fsm", "function", "jq", "metric",
-	"server", "subscription", "var",
+	"assert", "bus", "client", "condition", "const", "editor", "fsm",
+	"function", "jq", "metric", "server", "subscription", "trigger", "var",
+	"wire_format",
 }
 
 func TestSchemaCuratedBlocksAreFullyDocumented(t *testing.T) {
@@ -418,6 +419,182 @@ func TestSchemaDeliveryQuartet(t *testing.T) {
 		assert.Equal(t, findAttr(sub, attr).Summary, findAttr(mqttReceiver, attr).Summary,
 			"%q is described differently in a subscription and a receiver", attr)
 	}
+}
+
+func TestSchemaTriggerVariants(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+	triggers := doc.Blocks["trigger"]
+
+	assert.NotEmpty(t, triggers.Summary, "the typed block itself needs a description")
+	for name, variant := range triggers.Variants {
+		assert.False(t, variant.Undocumented, "trigger %q is undocumented", name)
+		assert.NotEmpty(t, variant.Summary, "trigger %q has no summary", name)
+	}
+
+	// Every trigger fires an action, and every action is evaluated per firing
+	// against a ctx shaped by that trigger type — never the same ctx twice.
+	contexts := map[string]string{}
+	for name, variant := range triggers.Variants {
+		if name == "cron" || name == "signals" {
+			continue // these carry their actions elsewhere; covered below
+		}
+		action := findAttr(variant, "action")
+		require.NotNil(t, action, "trigger %q has no action", name)
+		assert.Equal(t, config.HintActionExpression, action.Hint, "trigger %q action", name)
+		require.NotEmpty(t, action.Context, "trigger %q action has no ctx", name)
+		assert.NotContains(t, contexts, action.Context,
+			"trigger %q reuses the ctx name of %q", name, contexts[action.Context])
+		contexts[action.Context] = name
+	}
+
+	// A stop/skip predicate is a boolean gate, not a side-effecting action.
+	for name, attr := range map[string]string{
+		"at": "stop_when", "interval": "stop_when", "watchdog": "stop_when",
+		"watch": "skip_when", "file": "skip_when",
+	} {
+		meta := findAttr(triggers.Variants[name], attr)
+		require.NotNil(t, meta, "trigger %q has no %s", name, attr)
+		assert.Equal(t, config.HintPredicateExpression, meta.Hint, "trigger %q %s", name, attr)
+	}
+
+	// cron is the one trigger holding many schedules: the action lives on each
+	// `at` rule, whose two labels are the schedule and the rule name.
+	cronAt := triggers.Variants["cron"].Blocks["at"]
+	require.NotNil(t, cronAt)
+	assert.Equal(t, []string{"schedule", "name"}, cronAt.Labels)
+	assert.True(t, cronAt.Repeatable)
+	assert.False(t, cronAt.Required, "a cron block with no rules parses; it just schedules nothing")
+	assert.Equal(t, config.HintActionExpression, findAttr(&cronAt.SchemaBody, "action").Hint)
+	assert.Nil(t, findAttr(triggers.Variants["cron"], "action"))
+
+	// signals names its actions after the signals they handle.
+	signals := triggers.Variants["signals"]
+	for _, sig := range []string{"SIGHUP", "SIGINFO", "SIGUSR1", "SIGUSR2"} {
+		attr := findAttr(signals, sig)
+		require.NotNil(t, attr, "signals has no %s", sig)
+		assert.Equal(t, config.HintActionExpression, attr.Hint)
+	}
+
+	// file is registered conditionally, so it is emitted as available-if rather
+	// than omitted, and still fully documented.
+	assert.True(t, triggers.Variants["file"].Conditional)
+	assert.Equal(t, []string{"create", "write", "delete", "rename", "chmod"},
+		findAttr(triggers.Variants["file"], "events").Enum)
+}
+
+func TestSchemaConditionSubtypes(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+	conditions := doc.Blocks["condition"]
+
+	assert.NotEmpty(t, conditions.Summary)
+	assert.ElementsMatch(t, []string{"timer", "threshold", "counter", "flipflop"},
+		keysOf(conditions.Variants))
+
+	// The lifecycle hooks are curated once and are identical on every subtype.
+	var hookSummary string
+	for name, variant := range conditions.Variants {
+		assert.NotEmpty(t, variant.Summary, "condition %q has no summary", name)
+		for _, hook := range []string{"on_init", "on_activate", "on_deactivate"} {
+			attr := findAttr(variant, hook)
+			require.NotNil(t, attr, "condition %q has no %s", name, hook)
+			assert.Equal(t, config.HintActionExpression, attr.Hint)
+			assert.Equal(t, "condition-hook", attr.Context)
+		}
+		// inhibit is reactive everywhere: it re-evaluates when a watchable it
+		// references changes, rather than at config load or per event.
+		inhibit := findAttr(variant, "inhibit")
+		require.NotNil(t, inhibit, "condition %q has no inhibit", name)
+		assert.Equal(t, config.HintReactiveExpression, inhibit.Hint)
+		assert.Empty(t, inhibit.Context, "a reactive expression has no ctx")
+
+		summary := findAttr(variant, "on_activate").Summary
+		if hookSummary == "" {
+			hookSummary = summary
+		}
+		assert.Equal(t, hookSummary, summary, "condition %q describes on_activate differently", name)
+	}
+
+	// Threshold's two forms are exclusive and each is all-or-nothing.
+	threshold := conditions.Variants["threshold"]
+	assert.Equal(t, config.HintReactiveExpression, findAttr(threshold, "input").Hint)
+	kinds := map[config.ConstraintKind][][]string{}
+	for _, c := range threshold.Constraints {
+		kinds[c.Kind] = append(kinds[c.Kind], c.Attributes)
+	}
+	assert.Contains(t, kinds[config.ConstraintRequiredTogether], []string{"on_above", "off_below"})
+	assert.Contains(t, kinds[config.ConstraintRequiredTogether], []string{"on_below", "off_above"})
+	assert.Contains(t, kinds[config.ConstraintMutuallyExclusive], []string{"on_above", "on_below"})
+
+	// A counter declares input/debounce/retentive only so it can reject them
+	// with a friendly message, so the schema says they are not supported
+	// rather than pretending they work.
+	counter := conditions.Variants["counter"]
+	for _, attr := range []string{"input", "debounce", "retentive"} {
+		meta := findAttr(counter, attr)
+		require.NotNil(t, meta, "counter should still declare %q", attr)
+		assert.Contains(t, meta.Summary, "Not supported", "counter %q", attr)
+	}
+	assert.True(t, findAttr(counter, "preset").Required)
+
+	// A flipflop needs at least one wire, and a D input needs its gate.
+	flipflop := conditions.Variants["flipflop"]
+	for _, wire := range []string{"set_on", "reset_on", "toggle_on", "set_from", "gate_on"} {
+		assert.Equal(t, config.HintReactiveExpression, findAttr(flipflop, wire).Hint, wire)
+	}
+	assert.Equal(t, []string{"rising", "falling", "both", "high", "low"},
+		findAttr(flipflop, "gate_edge").Enum)
+	assert.Equal(t, []string{"reset", "set"}, findAttr(flipflop, "dominant").Enum)
+	ffKinds := map[config.ConstraintKind][]string{}
+	for _, c := range flipflop.Constraints {
+		ffKinds[c.Kind] = c.Attributes
+	}
+	assert.Equal(t, []string{"set_on", "reset_on", "toggle_on", "set_from"},
+		ffKinds[config.ConstraintAtLeastOneOf])
+	assert.Equal(t, []string{"set_from", "gate_on"}, ffKinds[config.ConstraintRequires])
+}
+
+func TestSchemaEditorAndWireFormat(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+
+	line := doc.Blocks["editor"].Variants["line"]
+	require.NotNil(t, line)
+	assert.False(t, line.Undocumented)
+	assert.Equal(t, []string{"file", "string"}, findAttr(line, "mode").Enum)
+
+	// params and variadic_param are decoded from the outer editor block, so
+	// they are spliced into every editor type like any other envelope.
+	assert.NotNil(t, findAttr(line, "params"))
+	assert.NotNil(t, findAttr(line, "variadic_param"))
+
+	match := line.Blocks["match"]
+	require.NotNil(t, match)
+	assert.True(t, match.Repeatable)
+	assert.Equal(t, []string{"pattern"}, match.Labels,
+		"an unnamed hcl label falls back to the field name")
+
+	// Within one block, per-line expressions carry a ctx and config-time ones
+	// do not — `when` is evaluated per matching line, `required` once at load.
+	when := findAttr(&match.SchemaBody, "when")
+	require.NotNil(t, when)
+	assert.Equal(t, config.HintPredicateExpression, when.Hint)
+	assert.Equal(t, "editor-match", when.Context)
+	assert.Empty(t, findAttr(&match.SchemaBody, "required").Context)
+
+	// before and after share a body, and are described identically.
+	before, after := line.Blocks["before"], line.Blocks["after"]
+	require.NotNil(t, before)
+	require.NotNil(t, after)
+	assert.False(t, before.Repeatable, "before appears at most once")
+	assert.Equal(t,
+		findAttr(&before.SchemaBody, "content").Summary,
+		findAttr(&after.SchemaBody, "content").Summary)
+
+	protobuf := doc.Blocks["wire_format"].Variants["protobuf"]
+	require.NotNil(t, protobuf)
+	assert.True(t, findAttr(protobuf, "descriptor_set").Required)
+	assert.False(t, findAttr(protobuf, "message").Required,
+		"omitting message exposes every message in the set")
+	assert.Equal(t, []string{"native", "json"}, findAttr(protobuf, "mode").Enum)
 }
 
 // TestSchemaBackendHints covers the two attributes that name a backend: they

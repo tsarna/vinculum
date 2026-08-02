@@ -433,7 +433,60 @@ func init() {
 // fileTriggerSchema describes trigger "file" for `vinculum schema`. Available
 // only when a base directory is configured.
 var fileTriggerSchema = cfg.TypeSchema{
-	Sample: &triggerFileBody{},
+	Sample:  &triggerFileBody{},
+	Summary: "Fires in response to filesystem events.",
+	Doc: `Watches a file or directory for creates, writes, deletes, renames, and
+permission changes, using OS-native notification (inotify, kqueue/FSEvents,
+ReadDirectoryChangesW) via fsnotify.
+
+` + "`path`" + ` must exist at startup; a missing path is a startup error. Watch several
+paths by declaring several blocks. ` + "`get(trigger.<name>)`" + ` returns the most
+recently completed action's result.
+
+Kernel notifications do not see remote writes on NFS, SMB/CIFS, SSHFS, or FUSE
+mounts — poll those with ` + "`trigger \"interval\"`" + ` instead.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"path": {
+			Summary: "File or directory to watch.",
+		},
+		"action": {
+			Summary: "Evaluated on each matching event.",
+			Doc:     "A failure is logged and surfaced as `ctx.last_error` on the next invocation; watching continues.",
+			Hint:    cfg.HintActionExpression,
+			Context: "trigger-file",
+		},
+		"events": {
+			Summary: "Which event types fire the action.",
+			Doc:     "A list; all five by default. On some platforms inotify reports a permission change as `\"write\"`, so rely on `\"chmod\"` only where portability does not matter.",
+			Enum:    []string{"create", "write", "delete", "rename", "chmod"},
+		},
+		"recursive": {
+			Summary: "Watch subdirectories too.",
+			Doc:     "Subdirectories created after startup are picked up automatically. On Linux each one consumes an inotify watch descriptor, so a very large tree may need `fs.inotify.max_user_watches` raised.",
+			Hint:    cfg.HintBool,
+		},
+		"filter": {
+			Summary: "Glob pattern the event path must match.",
+			Doc:     "Uses Go `path.Match` semantics against `ctx.event_path`; non-matching events are discarded without evaluating the action. `**` is not supported — `*` matches within one directory component.",
+		},
+		"debounce": {
+			Summary: "Quiet period that coalesces rapid events on the same path.",
+			Doc:     "The timer restarts on each new event; the action fires once the path has been quiet for the full duration. Per-path, so two files each dispatch after their own window. Useful for editors that emit several events per save.",
+			Hint:    cfg.HintDuration,
+		},
+		"on_start_existing": {
+			Summary: "Emit a synthetic create for files already present at startup.",
+			Doc:     "Lets a spool-directory handler pick up files that arrived while vinculum was not running. Synthetic events respect `filter` and `debounce`, and are dispatched after every startable component is ready.",
+			Hint:    cfg.HintBool,
+		},
+		"skip_when": {
+			Summary: "Skip this firing when true.",
+			Doc:     "Evaluated before the action, against the same `ctx`.",
+			Hint:    cfg.HintPredicateExpression,
+			Context: "trigger-file",
+		},
+		"disabled": cfg.DisabledAttr,
+	},
 }
 
 func processFileTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {

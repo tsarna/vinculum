@@ -316,7 +316,71 @@ func init() {
 	cfg.RegisterConditionSubtype("counter", cfg.ConditionRegistration{
 		Process:         processCounterCondition,
 		HasDependencyId: true,
-	})
+	}, cfg.WithSchema(counterConditionSchema))
+}
+
+var counterConditionSchema = cfg.TypeSchema{
+	Sample:  &counterBody{},
+	Summary: "Counts events and activates when the count reaches a preset.",
+	Doc: `Corresponds to the IEC 61131-3 CTU, CTD, and CTUD function blocks. The count
+is driven exclusively by ` + "`increment(condition.<name> [, n])`" + ` and
+` + "`decrement(condition.<name> [, n])`" + ` — there is no ` + "`input`" + ` expression.
+
+` + "`reset(condition.<name>)`" + ` returns the count to ` + "`initial`" + ` and releases any
+latch. Counters have no input to re-sample, so ` + "`clear()`" + ` does the same thing.
+` + conditionDoc,
+	Attrs: cfg.MergeAttrs(hookAttrs, map[string]cfg.AttrMeta{
+		"preset": {
+			Summary: "The count at which the output activates.",
+			Doc:     "After any `activate_after` delay.",
+		},
+		"initial": {
+			Summary: "The count assigned at startup and after `reset()`. Defaults to 0.",
+			Doc:     "Starting non-zero supports the CTUD pattern of counting down from a preset toward zero.",
+		},
+		"rollover": {
+			Summary: "Reset the count to `initial` on reaching `preset`. Defaults to false.",
+			Doc:     "When false the count saturates: it stops at `preset` going up and at 0 going down, and the output stays active until `reset()`. When true, reaching `preset` fires and snaps the count back — a one-shot pulse. `decrement()` clamps at 0 either way. If `latch` is also set the latch wins: the count snaps back but the output stays continuously active, with no spurious deactivate/reactivate edge.",
+			Hint:    cfg.HintBool,
+		},
+		"count_down": {
+			Summary: "Activate when the count falls to `preset` rather than rising to it. Defaults to false.",
+			Doc:     "Only the comparison direction flips; everything else behaves the same. Typically paired with `initial = N` and `preset = 0` for the classic load-N-and-count-to-zero pattern.",
+			Hint:    cfg.HintBool,
+		},
+		"window": {
+			Summary: "Count only events from the last this-long.",
+			Doc:     "Switches the counter to sliding-window mode, the classic \"N events in T\" rate primitive: each increment is timestamped and entries age out automatically. `decrement()` pops the oldest entries. Cannot be combined with `rollover = true`, `count_down = true`, or a non-zero `initial`, all of which need a current count independent of event timestamps.",
+			Hint:    cfg.HintDuration,
+		},
+		"activate_after":   activateAfterAttr,
+		"deactivate_after": deactivateAfterAttr,
+		"timeout":          timeoutAttr,
+		"cooldown":         cooldownAttr,
+		"latch":            latchAttr,
+		"invert":           invertAttr,
+		"start_active":     startActiveAttr,
+		"inhibit":          inhibitAttr,
+
+		// Declared by counterBody purely to produce a friendly diagnostic
+		// rather than HCL's generic "argument not expected".
+		"input": {
+			Summary: "Not supported on a counter.",
+			Doc:     "The count is driven by `increment()` and `decrement()` calls.",
+		},
+		"debounce": {
+			Summary: "Not supported on a counter.",
+			Doc:     "The count is a discrete integer, not a noisy continuous signal.",
+		},
+		"retentive": {
+			Summary: "Not supported on a counter.",
+			Doc:     "The counter is itself the accumulator; `retentive` is a timer concept.",
+		},
+	}),
+	// window's incompatibilities are value-sensitive — `rollover = false`,
+	// `count_down = false`, and `initial = 0` alongside a window are all fine —
+	// so they are documented on the attribute rather than stated as
+	// presence-based constraints that would fire on legal configurations.
 }
 
 func processCounterCondition(config *cfg.Config, block *hcl.Block, def *cfg.ConditionDefinition) hcl.Diagnostics {

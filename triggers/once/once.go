@@ -90,7 +90,24 @@ type triggerOnceBody struct {
 }
 
 func init() {
-	cfg.RegisterTriggerType("once", cfg.TriggerRegistration{Process: processOnceTrigger, HasDependencyId: true})
+	cfg.RegisterTriggerType("once", cfg.TriggerRegistration{Process: processOnceTrigger, HasDependencyId: true},
+		cfg.WithSchema(onceTriggerSchema))
+}
+
+var onceTriggerSchema = cfg.TypeSchema{
+	Sample:  &triggerOnceBody{},
+	Summary: "Evaluates an action lazily, at most once, and caches the result.",
+	Doc: `Nothing happens until the first ` + "`get(trigger.<name>)`" + `. From then on every
+call returns the same value without re-evaluating — the tool for lazy
+initialization of something expensive or side-effecting that should run once,
+on demand. An error on the first call is cached and returned just the same.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"action": {
+			Summary: "Evaluated on the first `get(trigger.<name>)`.",
+			Hint:    cfg.HintActionExpression,
+			Context: "trigger-once",
+		},
+	},
 }
 
 func processOnceTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {

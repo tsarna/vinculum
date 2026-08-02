@@ -33,6 +33,20 @@ func NewTriggerBlockHandler() *TriggerBlockHandler {
 	return &TriggerBlockHandler{}
 }
 
+func (h *TriggerBlockHandler) Schema() TypeSchema {
+	return TypeSchema{
+		Summary: "An action that fires at a particular moment.",
+		Doc: `The first label selects the trigger type and the second names it. Triggers
+fire on a schedule, at startup or shutdown, on an OS signal, when a watched
+value changes, or when a filesystem event occurs.
+
+All trigger types share one name namespace: two non-disabled triggers cannot
+share a name even if their types differ. Most types publish their result as
+` + "`trigger.<name>`" + `, readable with ` + "`get()`" + ` and, for the schedulable types,
+steerable with ` + "`set()`" + ` and ` + "`reset()`" + `.`,
+	}
+}
+
 // TriggerProcessor is a function that processes a trigger block.
 type TriggerProcessor func(config *Config, block *hcl.Block, def *TriggerDefinition) hcl.Diagnostics
 
