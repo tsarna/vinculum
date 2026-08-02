@@ -145,7 +145,7 @@ type contentBlock struct {
 }
 
 type matchBlock struct {
-	Pattern     string         `hcl:",label"`
+	Pattern     string         `hcl:"pattern,label"`
 	Required    hcl.Expression `hcl:"required,optional"`
 	Max         hcl.Expression `hcl:"max,optional"`
 	When        hcl.Expression `hcl:"when,optional"`

@@ -46,7 +46,7 @@ type McpServerDefinition struct {
 }
 
 type mcpResourceDefinition struct {
-	URI         string         `hcl:",label"`
+	URI         string         `hcl:"uri,label"`
 	Name        string         `hcl:"name"`
 	Description string         `hcl:"description,optional"`
 	MimeType    string         `hcl:"mime_type,optional"`
@@ -56,7 +56,7 @@ type mcpResourceDefinition struct {
 }
 
 type mcpParamDefinition struct {
-	Name        string         `hcl:",label"`
+	Name        string         `hcl:"name,label"`
 	Type        string         `hcl:"type"`
 	Description string         `hcl:"description,optional"`
 	Required    bool           `hcl:"required,optional"`
@@ -66,7 +66,7 @@ type mcpParamDefinition struct {
 }
 
 type mcpToolDefinition struct {
-	Name        string               `hcl:",label"`
+	Name        string               `hcl:"name,label"`
 	Description string               `hcl:"description"`
 	Disabled    bool                 `hcl:"disabled,optional"`
 	Params      []mcpParamDefinition `hcl:"param,block"`
@@ -75,7 +75,7 @@ type mcpToolDefinition struct {
 }
 
 type mcpPromptDefinition struct {
-	Name        string               `hcl:",label"`
+	Name        string               `hcl:"name,label"`
 	Description string               `hcl:"description,optional"`
 	Disabled    bool                 `hcl:"disabled,optional"`
 	Params      []mcpParamDefinition `hcl:"param,block"`

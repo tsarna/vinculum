@@ -11,8 +11,8 @@ import (
 )
 
 type ServerDefinition struct {
-	Type string `hcl:",label"`
-	Name string `hcl:",label"`
+	Type string `hcl:"type,label"`
+	Name string `hcl:"name,label"`
 
 	Disabled      bool      `hcl:"disabled,optional"`
 	DefRange      hcl.Range `hcl:",def_range"`

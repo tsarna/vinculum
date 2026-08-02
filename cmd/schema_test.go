@@ -597,6 +597,39 @@ func TestSchemaEditorAndWireFormat(t *testing.T) {
 	assert.Equal(t, []string{"native", "json"}, findAttr(protobuf, "mode").Enum)
 }
 
+// TestSchemaBlockLabelsAreNamed guards a defect the schema work surfaced:
+// gohcl takes a nested block's label names straight from the `hcl` tag, and
+// nearly every nested block used to leave the name empty. HCL then emitted
+// "Missing  for match; All match blocks must have 1 labels ()", and the schema
+// fell back to the lowercase field name — publishing labels like "kafkatopic".
+//
+// GenerateSchema reports an unnamed label as a problem, so this asserts none
+// are left, then pins the names that were mangled before.
+func TestSchemaBlockLabelsAreNamed(t *testing.T) {
+	_, problems := config.GenerateSchema(config.SchemaGenOptions{})
+	for _, problem := range problems {
+		assert.NotContains(t, problem.Error(), "has no name in its hcl tag", "%v", problem)
+	}
+
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+	clients := doc.Blocks["client"].Variants
+
+	// A sender's `topic` label is a vinculum topic pattern; a receiver's
+	// `subscription` label is the external topic it maps in from.
+	for _, name := range []string{"mqtt", "kafka", "rabbitmq"} {
+		assert.Equal(t, []string{"pattern"}, clients[name].Blocks["sender"].Blocks["topic"].Labels,
+			"client %q sender topic", name)
+	}
+	assert.Equal(t, []string{"mqtt_topic"},
+		clients["mqtt"].Blocks["receiver"].Blocks["subscription"].Labels)
+	assert.Equal(t, []string{"kafka_topic"},
+		clients["kafka"].Blocks["receiver"].Blocks["subscription"].Labels)
+	assert.Equal(t, []string{"routing_key_pattern"},
+		clients["rabbitmq"].Blocks["receiver"].Blocks["subscription"].Labels)
+	assert.Equal(t, []string{"routing_key"},
+		clients["rabbitmq"].Blocks["receiver"].Blocks["binding"].Labels)
+}
+
 // TestSchemaBackendHints covers the two attributes that name a backend: they
 // want a specific kind of block, not any client or any server.
 func TestSchemaBackendHints(t *testing.T) {

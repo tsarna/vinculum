@@ -179,7 +179,7 @@ type RMQAuthDefinition struct {
 }
 
 type RMQSenderDefinition struct {
-	Name                  string               `hcl:",label"`
+	Name                  string               `hcl:"name,label"`
 	Exchange              string               `hcl:"exchange"`
 	ConfirmMode           *bool                `hcl:"confirm_mode,optional"`
 	Mandatory             *bool                `hcl:"mandatory,optional"`
@@ -190,7 +190,7 @@ type RMQSenderDefinition struct {
 }
 
 type RMQTopicDefinition struct {
-	Pattern    string         `hcl:",label"`
+	Pattern    string         `hcl:"pattern,label"`
 	RoutingKey hcl.Expression `hcl:"routing_key,optional"`
 	Exchange   string         `hcl:"exchange,optional"`
 	Persistent *bool          `hcl:"persistent,optional"`
@@ -198,7 +198,7 @@ type RMQTopicDefinition struct {
 }
 
 type RMQReceiverDefinition struct {
-	Name                       string                       `hcl:",label"`
+	Name                       string                       `hcl:"name,label"`
 	Queue                      string                       `hcl:"queue"`
 	Subscriber                 hcl.Expression               `hcl:"subscriber,optional"`
 	Action                     hcl.Expression               `hcl:"action,optional"`
@@ -223,13 +223,13 @@ type RMQQueueDeclareDefinition struct {
 }
 
 type RMQBindingDefinition struct {
-	RoutingKey string    `hcl:",label"`
+	RoutingKey string    `hcl:"routing_key,label"`
 	Exchange   string    `hcl:"exchange"`
 	DefRange   hcl.Range `hcl:",def_range"`
 }
 
 type RMQSubscriptionDefinition struct {
-	RoutingKeyPattern string         `hcl:",label"`
+	RoutingKeyPattern string         `hcl:"routing_key_pattern,label"`
 	VinculumTopic     hcl.Expression `hcl:"vinculum_topic,optional"`
 	DefRange          hcl.Range      `hcl:",def_range"`
 }

@@ -171,7 +171,7 @@ type MQTTWillDefinition struct {
 }
 
 type MQTTPublisherDef struct {
-	Name                  string                `hcl:",label"`
+	Name                  string                `hcl:"name,label"`
 	QoS                   *int                  `hcl:"qos,optional"`
 	Retain                *bool                 `hcl:"retain,optional"`
 	TopicMappings         []MQTTTopicMappingDef `hcl:"topic,block"`
@@ -180,7 +180,7 @@ type MQTTPublisherDef struct {
 }
 
 type MQTTTopicMappingDef struct {
-	Pattern   string         `hcl:",label"`
+	Pattern   string         `hcl:"pattern,label"`
 	MQTTTopic hcl.Expression `hcl:"mqtt_topic,optional"`
 	QoS       *int           `hcl:"qos,optional"`
 	Retain    *bool          `hcl:"retain,optional"`
@@ -188,7 +188,7 @@ type MQTTTopicMappingDef struct {
 }
 
 type MQTTSubscriberDef struct {
-	Name           string                       `hcl:",label"`
+	Name           string                       `hcl:"name,label"`
 	Subscriber     hcl.Expression               `hcl:"subscriber,optional"`
 	Action         hcl.Expression               `hcl:"action,optional"`
 	Transforms     hcl.Expression               `hcl:"transforms,optional"`
@@ -203,7 +203,7 @@ type MQTTSubscriberDef struct {
 }
 
 type MQTTTopicSubscriptionDef struct {
-	MQTTTopic     string         `hcl:",label"`
+	MQTTTopic     string         `hcl:"mqtt_topic,label"`
 	VinculumTopic hcl.Expression `hcl:"vinculum_topic,optional"`
 	QoS           *int           `hcl:"qos,optional"`
 	DefRange      hcl.Range      `hcl:",def_range"`

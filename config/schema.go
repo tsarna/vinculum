@@ -442,8 +442,9 @@ type reflectedAttr struct {
 type reflectedBlock struct {
 	Name       string
 	Labels     []string
-	Repeatable bool // field was a slice
-	Required   bool // field was a plain struct (not a pointer or slice)
+	Unnamed    []string // labels whose tag gave no name, in declaration order
+	Repeatable bool     // field was a slice
+	Required   bool     // field was a plain struct (not a pointer or slice)
 	GoType     reflect.Type
 	Body       *reflectedBody
 }
@@ -551,9 +552,11 @@ func reflectBodyType(ty reflect.Type, stack []reflect.Type) (*reflectedBody, err
 			if err != nil {
 				return nil, fmt.Errorf("%s.%s: %w", ty.Name(), field.Name, err)
 			}
+			labels, unnamed := blockLabels(fty)
 			body.Blocks = append(body.Blocks, reflectedBlock{
 				Name:       name,
-				Labels:     blockLabels(fty),
+				Labels:     labels,
+				Unnamed:    unnamed,
 				Repeatable: repeatable,
 				Required:   !optional,
 				GoType:     fty,
@@ -581,9 +584,15 @@ func labelsOrEmpty(labels []string) []string {
 }
 
 // blockLabels returns the label names of a nested block's struct type, in
-// declaration order.
-func blockLabels(ty reflect.Type) []string {
-	var labels []string
+// declaration order, along with the names of any labels whose tag left the
+// name empty.
+//
+// gohcl permits `hcl:",label"` and takes the label name straight from the tag,
+// so an unnamed one makes HCL's own diagnostic read "Missing  for match; All
+// match blocks must have 1 labels ()". Falling back to the field name keeps
+// the schema readable, but the fallback is a guess at a name the author never
+// wrote — so it is reported rather than applied silently.
+func blockLabels(ty reflect.Type) (labels, unnamed []string) {
 	for i := 0; i < ty.NumField(); i++ {
 		tag := ty.Field(i).Tag.Get("hcl")
 		if tag == "" {
@@ -592,15 +601,13 @@ func blockLabels(ty reflect.Type) []string {
 		name, kind, _ := strings.Cut(tag, ",")
 		if kind == "label" {
 			if name == "" {
-				// gohcl permits an unnamed label (`hcl:",label"`) and many
-				// decode structs use one. The name is documentation only, so
-				// fall back to the field's own name rather than emitting "".
 				name = strings.ToLower(ty.Field(i).Name)
+				unnamed = append(unnamed, name)
 			}
 			labels = append(labels, name)
 		}
 	}
-	return labels
+	return labels, unnamed
 }
 
 // coarseAttrType maps a Go field type to the coarse value type emitted in the
@@ -825,6 +832,15 @@ func (b *schemaBuilder) problemf(format string, args ...any) {
 	b.problems = append(b.problems, fmt.Errorf(format, args...))
 }
 
+// reportUnnamedLabels records the labels blockLabels had to name for itself.
+// The name it guesses is only ever documentation, but the missing tag name is
+// not: HCL uses it verbatim in its own "missing label" diagnostic.
+func (b *schemaBuilder) reportUnnamedLabels(path string, unnamed []string) {
+	for _, label := range unnamed {
+		b.problemf("%s: label %q has no name in its hcl tag; write `hcl:%q` so HCL's own diagnostics can name it", path, label, label+",label")
+	}
+}
+
 // bodyFromSample reflects the sample in ts and merges ts's curated metadata
 // into the result. A missing or unreflectable sample yields an empty body and
 // a recorded problem.
@@ -909,6 +925,7 @@ func (b *schemaBuilder) mergeBody(path string, rb *reflectedBody, ts TypeSchema)
 		if nestedTS.Repeatable || nestedTS.Required {
 			b.problemf("%s.%s: repeatable/required come from the parent struct and cannot be curated", path, rblk.Name)
 		}
+		b.reportUnnamedLabels(path+"."+rblk.Name, rblk.Unnamed)
 		if shared, ok := sharedBlockSchemas[rblk.GoType]; ok {
 			// A sub-block struct shared by many parents (tls, auth, ...) is
 			// documented once; anything the parent says about it wins.
@@ -939,8 +956,10 @@ func (b *schemaBuilder) mergeBody(path string, rb *reflectedBody, ts TypeSchema)
 			b.problemf("%s.%s: %v", path, name, err)
 			continue
 		}
+		labels, unnamed := blockLabels(reflect.Indirect(reflect.ValueOf(declared.Sample)).Type())
+		b.reportUnnamedLabels(path+"."+name, unnamed)
 		body.Blocks[name] = &SchemaNestedBlock{
-			Labels:     labelsOrEmpty(blockLabels(reflect.Indirect(reflect.ValueOf(declared.Sample)).Type())),
+			Labels:     labelsOrEmpty(labels),
 			Repeatable: declared.Repeatable,
 			Required:   declared.Required,
 			SchemaBody: *b.mergeBody(path+"."+name, declaredRB, declared),

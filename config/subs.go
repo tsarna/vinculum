@@ -19,7 +19,7 @@ import (
 )
 
 type SubscriptionDefinition struct {
-	Name       string         `hcl:",label"`
+	Name       string         `hcl:"name,label"`
 	TargetExpr hcl.Expression `hcl:"target,optional"`
 	Topics     []string       `hcl:"topics"`
 	QueueSize  *int           `hcl:"queue_size,optional"`

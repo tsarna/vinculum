@@ -22,7 +22,7 @@ func init() {
 
 // QueryDef is a `query "name" { ... }` sub-block inside a SQL client block.
 type QueryDef struct {
-	Name             string    `hcl:",label"`
+	Name             string    `hcl:"name,label"`
 	SQL              string    `hcl:"sql"`
 	Cardinality      string    `hcl:"cardinality,optional"` // one|zero_or_one|many|exec; default "many"
 	OnZero           string    `hcl:"on_zero,optional"`     // null|error; default "null" (zero_or_one only)

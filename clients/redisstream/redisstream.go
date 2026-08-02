@@ -138,7 +138,7 @@ type RedisStreamDefinition struct {
 }
 
 type ConsumerDef struct {
-	Name             string                       `hcl:",label"`
+	Name             string                       `hcl:"name,label"`
 	Stream           hcl.Expression               `hcl:"stream"`
 	Group            string                       `hcl:"group"`
 	ConsumerName     hcl.Expression               `hcl:"consumer_name,optional"`
@@ -165,7 +165,7 @@ type ConsumerDef struct {
 }
 
 type ProducerDef struct {
-	Name                   string         `hcl:",label"`
+	Name                   string         `hcl:"name,label"`
 	Stream                 hcl.Expression `hcl:"stream,optional"`
 	MaxLen                 *int64         `hcl:"maxlen,optional"`
 	ApproximateMaxLen      *bool          `hcl:"approximate_maxlen,optional"`

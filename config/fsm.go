@@ -18,7 +18,7 @@ import (
 // (state, event, storage) are parsed manually from RemainingBody because
 // we need declaration-order iteration and raw hcl.Expression access.
 type FsmTopLevel struct {
-	Name          string         `hcl:",label"`
+	Name          string         `hcl:"name,label"`
 	Initial       string         `hcl:"initial"`
 	QueueSize     *int           `hcl:"queue_size,optional"`
 	ShutdownEvent *string        `hcl:"shutdown_event,optional"`

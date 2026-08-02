@@ -33,7 +33,7 @@ var pluginLabelRegex = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]*$`)
 // block in a .vinit file. Disabled is consumed by Vinculum; the remaining
 // body is handed to the plugin's VinculumPluginInit for its own decoding.
 type PluginDefinition struct {
-	Label    string   `hcl:",label"`
+	Label    string   `hcl:"name,label"`
 	Disabled bool     `hcl:"disabled,optional"`
 	Body     hcl.Body `hcl:",remain"`
 }

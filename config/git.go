@@ -16,7 +16,7 @@ import (
 // materializes one or more subtrees onto the local filesystem before any .vcl
 // is parsed.
 type GitDefinition struct {
-	Label      string     `hcl:",label"`
+	Label      string     `hcl:"name,label"`
 	Disabled   bool       `hcl:"disabled,optional"`
 	Repo       string     `hcl:"repo"`
 	Branch     string     `hcl:"branch,optional"`
@@ -48,7 +48,7 @@ type GitAuth struct {
 // destination. A git block has one or more fetch sub-blocks sharing a single
 // clone.
 type GitFetch struct {
-	Name      string    `hcl:",label"`
+	Name      string    `hcl:"name,label"`
 	From      string    `hcl:"from,optional"`
 	Into      string    `hcl:"into"`
 	Overwrite bool      `hcl:"overwrite,optional"`

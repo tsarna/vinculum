@@ -101,7 +101,7 @@ type RedisPubSubDefinition struct {
 }
 
 type SubscriberDef struct {
-	Name          string                   `hcl:",label"`
+	Name          string                   `hcl:"name,label"`
 	Subscriber    hcl.Expression           `hcl:"subscriber,optional"`
 	Action        hcl.Expression           `hcl:"action,optional"`
 	Transforms    hcl.Expression           `hcl:"transforms,optional"`
@@ -118,7 +118,7 @@ type ChannelSubscriptionDef struct {
 }
 
 type PublisherDef struct {
-	Name                    string              `hcl:",label"`
+	Name                    string              `hcl:"name,label"`
 	ChannelTransform        hcl.Expression      `hcl:"channel_transform,optional"`
 	DefaultChannelTransform string              `hcl:"default_channel_transform,optional"`
 	ChannelMappings         []ChannelMappingDef `hcl:"channel_mapping,block"`

@@ -28,8 +28,8 @@ func RegisterWireFormatType(typeName string, p WireFormatProcessor, opts ...Regi
 
 // WireFormatDefinition is the common HCL structure for wire_format blocks.
 type WireFormatDefinition struct {
-	Type          string    `hcl:",label"`
-	Name          string    `hcl:",label"`
+	Type          string    `hcl:"type,label"`
+	Name          string    `hcl:"name,label"`
 	DefRange      hcl.Range `hcl:",def_range"`
 	RemainingBody hcl.Body  `hcl:",remain"`
 }

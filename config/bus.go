@@ -11,7 +11,7 @@ import (
 )
 
 type BusDefinition struct {
-	Name      string         `hcl:",label"`
+	Name      string         `hcl:"name,label"`
 	Type      *string        `hcl:"type,optional"`
 	QueueSize *int           `hcl:"queue_size,optional"`
 	Metrics   hcl.Expression `hcl:"metrics,optional"`

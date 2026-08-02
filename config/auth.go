@@ -18,7 +18,7 @@ import (
 //	auth "custom" { action = lookup_session(ctx.request.cookie("session")) }
 //	auth "none"   {}   # explicitly opt out of inherited server-level auth
 type AuthConfig struct {
-	Mode string `hcl:",label"` // "basic" | "oidc" | "oauth2" | "custom" | "none"
+	Mode string `hcl:"mode,label"` // "basic" | "oidc" | "oauth2" | "custom" | "none"
 
 	// disabled — when true the block is parsed but inert, exactly as if it were
 	// absent (server-level auth) or "none" (block-level). Mode-specific required

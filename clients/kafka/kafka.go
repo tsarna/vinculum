@@ -154,14 +154,14 @@ consume from Kafka topics as part of a consumer group.`,
 }
 
 type TopicMappingDefinition struct {
-	Pattern    string         `hcl:",label"`
+	Pattern    string         `hcl:"pattern,label"`
 	KafkaTopic string         `hcl:"kafka_topic"`
 	Key        hcl.Expression `hcl:"key,optional"`
 	DefRange   hcl.Range      `hcl:",def_range"`
 }
 
 type ProducerDefinition struct {
-	Name                  string                   `hcl:",label"`
+	Name                  string                   `hcl:"name,label"`
 	ProduceMode           string                   `hcl:"produce_mode,optional"`
 	TopicMappings         []TopicMappingDefinition `hcl:"topic,block"`
 	DefaultTopicTransform string                   `hcl:"default_topic_transform,optional"`
@@ -176,13 +176,13 @@ type SASLDefinition struct {
 }
 
 type TopicSubscriptionDefinition struct {
-	KafkaTopic    string         `hcl:",label"`
+	KafkaTopic    string         `hcl:"kafka_topic,label"`
 	VinculumTopic hcl.Expression `hcl:"vinculum_topic"`
 	DefRange      hcl.Range      `hcl:",def_range"`
 }
 
 type ConsumerDefinition struct {
-	Name          string                        `hcl:",label"`
+	Name          string                        `hcl:"name,label"`
 	GroupID       string                        `hcl:"group_id"`
 	StartOffset   string                        `hcl:"start_offset,optional"`
 	Subscriber    hcl.Expression                `hcl:"subscriber,optional"`
