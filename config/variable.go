@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -18,15 +19,24 @@ type VariableBlockHandler struct {
 	functyVarInit map[string]hcl.Expression
 }
 
-// varBody documents the attributes a var block accepts. Process() below reads
-// them one at a time via JustAttributes — `type` in particular must not be
-// evaluated as a value — so this struct is not used for decoding, only for
-// `vinculum schema`. Keep the two in step.
+// varBody declares the attributes a var block accepts. Process() below reads
+// them one at a time rather than decoding through gohcl — `type` in particular
+// must not be evaluated as a value — but it splits the body against this
+// struct's implied schema, so the struct still decides what is accepted and
+// `vinculum schema` still reflects what the parser reads.
 type varBody struct {
 	Value    hcl.Expression `hcl:"value,optional"`
 	Type     hcl.Expression `hcl:"type,optional"`
 	Nullable *bool          `hcl:"nullable,optional"`
 }
+
+// varBodySchema splits a var block's body without evaluating anything. Unlike
+// JustAttributes it is closed, so an attribute that is not declared above is
+// rejected rather than silently ignored.
+var varBodySchema = func() *hcl.BodySchema {
+	schema, _ := gohcl.ImpliedBodySchema(&varBody{})
+	return schema
+}()
 
 // Schema describes the var block for `vinculum schema`.
 func (h *VariableBlockHandler) Schema() TypeSchema { return varSchema }
@@ -178,11 +188,13 @@ func (h *VariableBlockHandler) Process(config *Config, block *hcl.Block) hcl.Dia
 	name := block.Labels[0]
 	v := h.variables[name]
 
-	// Parse optional attributes
-	attrs, diags := block.Body.JustAttributes()
+	// Split the body without evaluating anything, rejecting any attribute
+	// varBody does not declare.
+	content, diags := block.Body.Content(varBodySchema)
 	if diags.HasErrors() {
 		return diags
 	}
+	attrs := content.Attributes
 
 	// Handle optional nullable constraint (default true)
 	v.SetNullable(true)

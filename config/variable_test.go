@@ -103,3 +103,34 @@ func TestVariableNullRejectedBlock(t *testing.T) {
 	_, diags := NewConfig().WithSources(variablenullrejectedtest).WithLogger(logger).Build()
 	assert.True(t, diags.HasErrors(), "expected diagnostics error for null on non-nullable variable")
 }
+
+// TestVariableRejectsUnknownAttribute guards against a var block silently
+// swallowing an attribute it does not understand. Process reads attributes one
+// at a time rather than decoding through gohcl, and used JustAttributes, so a
+// typo parsed cleanly and did nothing.
+func TestVariableRejectsUnknownAttribute(t *testing.T) {
+	src := []byte(`
+var "v" {
+    value          = 1
+    typo_attribute = "silently ignored?"
+}
+`)
+	_, diags := NewConfig().WithSources(src).WithLogger(zap.NewNop()).Build()
+	assert.True(t, diags.HasErrors(), "an unknown var attribute should be rejected")
+	assert.Contains(t, diags.Error(), "typo_attribute")
+}
+
+// TestVariableAcceptsEveryDocumentedAttribute is the other half: varBody is
+// what both the parser's schema and `vinculum schema` are derived from, so
+// every attribute it declares must actually parse.
+func TestVariableAcceptsEveryDocumentedAttribute(t *testing.T) {
+	src := []byte(`
+var "v" {
+    type     = number
+    nullable = false
+    value    = 1
+}
+`)
+	_, diags := NewConfig().WithSources(src).WithLogger(zap.NewNop()).Build()
+	assert.False(t, diags.HasErrors(), "config should be valid: %s", diags.Error())
+}

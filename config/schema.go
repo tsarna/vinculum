@@ -1166,8 +1166,7 @@ func mustReflect(sample any) *reflectedBody {
 }
 
 // envelopeSchemas describes the attributes each typed block's handler decodes
-// before dispatching to the type-specific processor. `condition` has no
-// envelope: the whole body goes to the subtype.
+// before dispatching to the type-specific processor.
 //
 // Only the attributes are emitted — spliced into every variant — so each
 // envelope's own Summary is for maintainers reading this file rather than for
@@ -1190,6 +1189,11 @@ var envelopeSchemas = map[string]TypeSchema{
 			"disabled": DisabledAttr,
 			"tracing":  TracingAttr,
 		},
+	},
+	"condition": {
+		Sample:  &ConditionDefinition{},
+		Summary: "Attributes every condition block accepts.",
+		Attrs:   map[string]AttrMeta{"disabled": DisabledAttr},
 	},
 	"editor": {
 		Sample:  &editorOuterBody{},

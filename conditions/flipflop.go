@@ -547,8 +547,10 @@ debounce the signal at its source.
 		cfg.AtLeastOneOf("set_on", "reset_on", "toggle_on", "set_from").
 			WithMessage("a flipflop needs at least one of set_on, reset_on, toggle_on, or set_from"),
 		cfg.Requires("set_from", "gate_on"),
-		// An edge attribute without its wire is accepted and ignored by the
-		// parser, so it is not stated as a constraint here.
+		cfg.Requires("set_edge", "set_on"),
+		cfg.Requires("reset_edge", "reset_on"),
+		cfg.Requires("toggle_edge", "toggle_on"),
+		cfg.Requires("gate_edge", "gate_on"),
 	},
 }
 
@@ -638,6 +640,33 @@ func processFlipflopCondition(config *cfg.Config, block *hcl.Block, def *cfg.Con
 			Detail:   "set_from is sampled when the gate fires and so requires gate_on; for continuous level-tracking use condition \"timer\" with input =",
 			Subject:  &def.DefRange,
 		})
+	}
+
+	// An edge attribute only means something alongside its wire. Without one
+	// it was silently ignored, which turns a typo — or a wire deleted without
+	// its edge — into config that looks configured and is not.
+	for _, e := range []struct {
+		edge     *string
+		attr     string
+		wire     string
+		declared bool
+	}{
+		{body.SetEdge, "set_edge", "set_on", hasSet},
+		{body.ResetEdge, "reset_edge", "reset_on", hasReset},
+		{body.ToggleEdge, "toggle_edge", "toggle_on", hasToggle},
+		{body.GateEdge, "gate_edge", "gate_on", hasGate},
+	} {
+		if e.edge != nil && !e.declared {
+			diags = append(diags, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Edge attribute without its wire",
+				Detail:   fmt.Sprintf("%s selects which edge of %s fires, so it requires %s", e.attr, e.wire, e.wire),
+				Subject:  &def.DefRange,
+			})
+		}
+	}
+	if diags.HasErrors() {
+		return diags
 	}
 
 	// --- edges ---

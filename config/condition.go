@@ -4,16 +4,18 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
 )
 
 // ConditionDefinition is the common envelope for every condition subtype.
 // Subtype-specific attributes live in RemainingBody and are decoded by the
 // registered ConditionProcessor.
 type ConditionDefinition struct {
-	Type          string
-	Name          string
-	DefRange      hcl.Range
-	RemainingBody hcl.Body
+	Type          string    `hcl:"type,label"`
+	Name          string    `hcl:"name,label"`
+	Disabled      bool      `hcl:"disabled,optional"`
+	DefRange      hcl.Range `hcl:",def_range"`
+	RemainingBody hcl.Body  `hcl:",remain"`
 }
 
 // ConditionProcessor processes a single condition block of a given subtype.
@@ -95,11 +97,22 @@ func (h *ConditionBlockHandler) Process(config *Config, block *hcl.Block) hcl.Di
 		}}
 	}
 
-	def := &ConditionDefinition{
-		Type:          subtype,
-		Name:          block.Labels[1],
-		RemainingBody: block.Body,
-		DefRange:      block.DefRange,
+	// Decode the attributes every condition accepts, whatever its subtype,
+	// leaving the rest of the body to the subtype's own decode struct.
+	def := &ConditionDefinition{}
+	if diags := gohcl.DecodeBody(block.Body, config.evalCtx, def); diags.HasErrors() {
+		return diags
 	}
+	// gohcl.DecodeBody does not populate label fields from a bare body.
+	def.Type = subtype
+	def.Name = block.Labels[1]
+	def.DefRange = block.DefRange
+
+	if def.Disabled {
+		// Nothing is registered, so condition.<name> stays undefined and any
+		// reference to it fails — the same as a disabled fsm.
+		return nil
+	}
+
 	return reg.Process(config, block, def)
 }

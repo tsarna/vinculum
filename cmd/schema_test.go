@@ -132,13 +132,13 @@ func TestSchemaCommonAttributes(t *testing.T) {
 		assert.NotNil(t, findAttr(variant, "tracing"), "trigger %q is missing tracing", name)
 	}
 
+	for name, variant := range doc.Blocks["condition"].Variants {
+		assert.NotNil(t, findAttr(variant, "disabled"), "condition %q is missing disabled", name)
+	}
+
 	// A variant that declares a common attribute itself is not given a
 	// duplicate: trigger "file" has its own `disabled`.
 	assert.Len(t, attrsNamed(doc.Blocks["trigger"].Variants["file"], "disabled"), 1)
-
-	// condition blocks have no such envelope — the whole body goes to the
-	// subtype — so nothing is spliced in.
-	assert.Nil(t, findAttr(doc.Blocks["condition"].Variants["timer"], "disabled"))
 }
 
 // curatedBlocks are the top-level blocks whose documentation is complete.
@@ -544,13 +544,21 @@ func TestSchemaConditionSubtypes(t *testing.T) {
 	assert.Equal(t, []string{"rising", "falling", "both", "high", "low"},
 		findAttr(flipflop, "gate_edge").Enum)
 	assert.Equal(t, []string{"reset", "set"}, findAttr(flipflop, "dominant").Enum)
-	ffKinds := map[config.ConstraintKind][]string{}
+	ffKinds := map[config.ConstraintKind][][]string{}
 	for _, c := range flipflop.Constraints {
-		ffKinds[c.Kind] = c.Attributes
+		ffKinds[c.Kind] = append(ffKinds[c.Kind], c.Attributes)
 	}
-	assert.Equal(t, []string{"set_on", "reset_on", "toggle_on", "set_from"},
+	assert.Equal(t, [][]string{{"set_on", "reset_on", "toggle_on", "set_from"}},
 		ffKinds[config.ConstraintAtLeastOneOf])
-	assert.Equal(t, []string{"set_from", "gate_on"}, ffKinds[config.ConstraintRequires])
+	// Each edge attribute requires its wire — the parser rejects an orphaned
+	// edge rather than ignoring it, so the schema can say so.
+	assert.Equal(t, [][]string{
+		{"set_from", "gate_on"},
+		{"set_edge", "set_on"},
+		{"reset_edge", "reset_on"},
+		{"toggle_edge", "toggle_on"},
+		{"gate_edge", "gate_on"},
+	}, ffKinds[config.ConstraintRequires])
 }
 
 func TestSchemaEditorAndWireFormat(t *testing.T) {

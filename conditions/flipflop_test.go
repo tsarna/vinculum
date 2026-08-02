@@ -55,6 +55,9 @@ var flipflopBadDominantVCL []byte
 //go:embed testdata/flipflop_unsupported_attr.vcl
 var flipflopUnsupportedAttrVCL []byte
 
+//go:embed testdata/flipflop_edge_no_wire.vcl
+var flipflopEdgeNoWireVCL []byte
+
 // --- helpers ---
 
 func startFlipflops(t *testing.T, c *cfg.Config) {
@@ -488,6 +491,7 @@ func TestFlipflopValidationErrors(t *testing.T) {
 		{"bad edge", flipflopBadEdgeVCL, "Invalid edge mode"},
 		{"bad dominant", flipflopBadDominantVCL, "Invalid dominant"},
 		{"unsupported attr", flipflopUnsupportedAttrVCL, "Unsupported argument"},
+		{"edge without wire", flipflopEdgeNoWireVCL, "set_edge selects which edge of set_on fires"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

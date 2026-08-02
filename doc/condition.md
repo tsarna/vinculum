@@ -8,9 +8,15 @@ like "has the temperature been above 80° for at least 30 seconds?" or
 
 ```hcl
 condition "type" "name" {
+    disabled = false  # optional — if true, block is skipped entirely
+
     # ... behavioral attributes
 }
 ```
+
+`disabled = true` skips the block: nothing is created and `condition.<name>`
+is never defined, so any expression referring to it fails to resolve. Disable
+the blocks that read it too, or delete the reference.
 
 Every condition implements the [Watchable](trigger.md#watchables) interface,
 so it can be referenced from `trigger "watch"`, composed into other
@@ -714,6 +720,10 @@ expression. The edge attribute is `"rising"` (default), `"falling"`, or
 | `"rising"` | previous evaluation was `false`, current is `true` |
 | `"falling"` | previous was `true`, current is `false` |
 | `"both"` | value changed in either direction |
+
+An edge attribute only means something alongside its wire, so declaring one
+without the other — `set_edge` with no `set_on` — is a configuration error
+rather than a silently ignored line.
 
 The **first evaluation** of every wire (at startup) only establishes the
 baseline and fires **no** edge — a source that happens to be asserting at boot
