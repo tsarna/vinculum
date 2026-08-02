@@ -365,7 +365,15 @@ receiver "in" {
 | `ctx.wire_format` | The configured format name (`"json"`, …) |
 | `ctx.topic` | Best-effort vinculum topic |
 | `ctx.fields` | Fields extracted before the failure |
-| `ctx.topic` | The MQTT topic the message arrived on |
+| `ctx.mqtt_topic` | The MQTT topic the message arrived on |
+
+`ctx.topic` and `ctx.mqtt_topic` carry the same string here, because a vinculum
+topic that depends on the payload cannot be computed once the payload has failed
+to decode, so `ctx.topic` falls back to the MQTT topic.
+
+> **Changed in 0.45.0.** This field was previously offered under the name
+> `topic`, which collides with `ctx.topic` above; the collision was resolved in
+> favour of the fixed field, so it was dropped and never reached a config at all.
 
 
 Use `wire_format = "auto_bytes"` if you want best-effort decoding instead: it

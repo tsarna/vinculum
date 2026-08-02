@@ -103,10 +103,17 @@ func MakeDecodeErrorHook(config *Config, expr hcl.Expression, label string) wire
 			WithStringMapAttribute("fields", e.Fields)
 
 		// Per-client identity fields. Set after the fixed attributes so a
-		// client can't accidentally shadow them.
+		// client can't accidentally shadow them. wire.IsReservedAttr is the
+		// one definition of that set, shared with the receivers that choose
+		// these keys.
+		//
+		// A dropped key is a bug in the receiver, not in the user's config —
+		// nothing they can write makes it appear or go away — so it is logged
+		// operationally rather than to UserLogger.
 		for k, v := range e.Attrs {
-			switch k {
-			case "raw", "error", "wire_format", "topic", "fields":
+			if wire.IsReservedAttr(k) {
+				config.Logger.Warn(label+": decode error attribute dropped; it collides with a fixed hook field",
+					zap.String("attribute", k))
 				continue
 			}
 			builder = builder.WithStringAttribute(k, v)

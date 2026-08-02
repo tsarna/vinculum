@@ -85,7 +85,7 @@ func TestMakeDecodeErrorHook_EmptyFieldsIsIndexableObject(t *testing.T) {
 }
 
 func TestMakeDecodeErrorHook_AttrsCannotShadowFixedAttributes(t *testing.T) {
-	config, _ := newHookTestConfig(t)
+	config, logs := newHookTestConfig(t)
 
 	var captured map[string]string
 	expr := parseExpr(t, `{ wire_format = ctx.wire_format, topic = ctx.topic }`)
@@ -104,6 +104,20 @@ func TestMakeDecodeErrorHook_AttrsCannotShadowFixedAttributes(t *testing.T) {
 
 	assert.Equal(t, "json", captured["wire_format"])
 	assert.Equal(t, "real/topic", captured["topic"])
+
+	// A dropped key is a receiver bug the user cannot see from their config,
+	// so it must not vanish silently.
+	entries := logs.FilterMessageSnippet("collides with a fixed hook field").All()
+	require.Len(t, entries, 2)
+	var dropped []string
+	for _, e := range entries {
+		for _, f := range e.Context {
+			if f.Key == "attribute" {
+				dropped = append(dropped, f.String)
+			}
+		}
+	}
+	assert.ElementsMatch(t, []string{"wire_format", "topic"}, dropped)
 }
 
 func TestMakeDecodeErrorHook_EvalFailureIsLoggedNotPropagated(t *testing.T) {

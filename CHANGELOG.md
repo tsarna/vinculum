@@ -91,6 +91,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ctx.fields` is always present, empty rather than absent when a message carries no
   metadata. A computed `metric`'s `value` is evaluated against the global namespace
   and has no `ctx` at all.
+- **An `on_decode_error` hook on an mqtt receiver can read the MQTT topic.** The
+  client offered it under the key `topic`, which collides with the hook's own
+  `ctx.topic`; the collision is resolved in favour of the fixed field, so the key
+  was dropped and `ctx` never carried it. It is now `ctx.mqtt_topic` (requires
+  `vinculum-mqtt` v0.10.0), and the reserved set has one definition —
+  `wire.IsReservedAttr` in `vinculum-wire` v0.5.0 — shared with the receivers that
+  choose these keys, so a receiver author reads the constraint before picking one.
+  A key that still collides is now logged rather than dropped in silence.
+  [`doc/client-mqtt.md`](doc/client-mqtt.md) had listed `ctx.topic` twice, the second
+  row describing this field that never existed at runtime.
 - **Nested block labels are named in HCL diagnostics.** A missing label on a nested
   block reported `Missing  for match; All match blocks must have 1 labels ().` — the
   label name was blank because nearly every nested block's decode struct left it unset.
