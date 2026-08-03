@@ -549,8 +549,10 @@ adds them, since `BuildEvalContext` does. Every `ctx` must be built through
 there; a test in `hclutil` fails the build if anything else calls
 `richcty.NewContextObject`, and there is no way to describe a shape that lacks
 them. Mark a field `Optional` when some evaluations of the same shape omit it.
-An expression with no `ctx` at all — a computed metric's `value` — takes
-`HintExpression` and no `Context`.
+`HintExpression` with no `Context` means evaluated *once, at config load* — if
+an expression is evaluated repeatedly at runtime it needs a `ctx` and a shape,
+even when nothing called it (a computed metric's `value` polls on a timer and
+gets `metric-value`).
 
 When one shape is shared by sites that each carry a few fields of their own —
 `on_decode_error`, where the receiver adds its transport identity — set

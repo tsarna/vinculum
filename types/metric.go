@@ -406,63 +406,118 @@ type computedMetric interface {
 	isComputed()
 }
 
+// --- computed metrics ---
+
+// PollScope is the environment for one poll of a computed metric: a context to
+// evaluate against, the HCL eval context built from it, and a function to end
+// the poll with whatever went wrong.
+type PollScope struct {
+	Ctx     context.Context
+	EvalCtx *hcl.EvalContext
+	Done    func(error)
+}
+
+// PollScopeFunc opens the scope for one poll. It is supplied by the config
+// layer rather than built here: assembling a `ctx` goes through hclutil, which
+// depends on this package, so this package cannot depend on it.
+type PollScopeFunc func(context.Context) (PollScope, error)
+
+// computedEval is the part every computed metric shares: evaluating its
+// expression once per interval and reporting what went wrong.
+type computedEval struct {
+	kind     string // "gauge", "counter", "histogram" — for messages
+	expr     hcl.Expression
+	scopeFn  PollScopeFunc
+	logger   *zap.Logger // UserLogger: these errors are all caused by the VCL
+	interval time.Duration
+}
+
+// evaluate runs one poll, returning false when no value could be produced.
+// The returned context is the poll's own — recording the value against it
+// keeps the metric write inside the poll's span.
+func (c *computedEval) evaluate(ctx context.Context) (context.Context, float64, bool) {
+	scope, err := c.scopeFn(ctx)
+	if err != nil {
+		c.logger.Error("computed "+c.kind+": building poll context", zap.Error(err))
+		return ctx, 0, false
+	}
+
+	val, diags := c.expr.Value(scope.EvalCtx)
+	if diags.HasErrors() {
+		c.logger.Error("computed "+c.kind+": expression evaluation failed",
+			zap.String("err", diags.Error()))
+		scope.Done(diags)
+		return scope.Ctx, 0, false
+	}
+
+	f, err := valueToFloat64(val)
+	if err != nil {
+		c.logger.Error("computed "+c.kind+": expression did not return a number",
+			zap.Error(err))
+		scope.Done(err)
+		return scope.Ctx, 0, false
+	}
+
+	scope.Done(nil)
+	return scope.Ctx, f, true
+}
+
+// startPolling runs poll immediately and then every interval until ctx is done.
+func startPolling(ctx context.Context, interval time.Duration, poll func(context.Context)) {
+	go func() {
+		poll(ctx)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				poll(ctx)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
 // --- ComputedGaugeMetric ---
 
 // ComputedGaugeMetric implements richcty.Gettable and Startable.
 // Its value is derived by evaluating a stored hcl.Expression on a polling
 // interval. set() and increment() are not supported.
 type ComputedGaugeMetric struct {
-	inst     metric.Float64UpDownCounter
-	expr     hcl.Expression
-	evalCtx  *hcl.EvalContext
-	logger   *zap.Logger
-	interval time.Duration
-	mu       sync.Mutex
-	cached   float64
+	computedEval
+	inst   metric.Float64UpDownCounter
+	mu     sync.Mutex
+	cached float64
 }
 
-func NewComputedGaugeMetric(inst metric.Float64UpDownCounter, expr hcl.Expression, evalCtx *hcl.EvalContext, logger *zap.Logger, interval time.Duration) *ComputedGaugeMetric {
-	return &ComputedGaugeMetric{inst: inst, expr: expr, evalCtx: evalCtx, logger: logger, interval: interval}
+func NewComputedGaugeMetric(inst metric.Float64UpDownCounter, expr hcl.Expression, scopeFn PollScopeFunc, logger *zap.Logger, interval time.Duration) *ComputedGaugeMetric {
+	return &ComputedGaugeMetric{
+		computedEval: computedEval{kind: "gauge", expr: expr, scopeFn: scopeFn, logger: logger, interval: interval},
+		inst:         inst,
+	}
 }
 
 func (m *ComputedGaugeMetric) metricValue() {}
 func (m *ComputedGaugeMetric) isComputed()  {}
 
 func (m *ComputedGaugeMetric) poll(ctx context.Context) {
-	val, diags := m.expr.Value(m.evalCtx)
+	pollCtx, f, ok := m.evaluate(ctx)
+	if !ok {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if !diags.HasErrors() {
-		if f, err := valueToFloat64(val); err == nil {
-			delta := f - m.cached
-			m.cached = f
-			if delta != 0 {
-				m.inst.Add(ctx, delta)
-			}
-		} else {
-			m.logger.Error("computed gauge: expression did not return a number", zap.Error(err))
-		}
-	} else {
-		m.logger.Error("computed gauge: expression evaluation failed", zap.String("err", diags.Error()))
+	delta := f - m.cached
+	m.cached = f
+	if delta != 0 {
+		m.inst.Add(pollCtx, delta)
 	}
 }
 
 // Start launches the polling goroutine. Implements config.Startable.
 func (m *ComputedGaugeMetric) Start(ctx context.Context) {
-	go func() {
-		// Poll once immediately
-		m.poll(ctx)
-		ticker := time.NewTicker(m.interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				m.poll(ctx)
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
+	startPolling(ctx, m.interval, m.poll)
 }
 
 func (m *ComputedGaugeMetric) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
@@ -477,56 +532,39 @@ func (m *ComputedGaugeMetric) Get(_ context.Context, args []cty.Value) (cty.Valu
 // Its value is derived by evaluating a stored hcl.Expression on a polling
 // interval. Only positive deltas are forwarded to the OTel counter.
 type ComputedCounterMetric struct {
-	inst     metric.Float64Counter
-	expr     hcl.Expression
-	evalCtx  *hcl.EvalContext
-	logger   *zap.Logger
-	interval time.Duration
-	mu       sync.Mutex
-	cached   float64
+	computedEval
+	inst   metric.Float64Counter
+	mu     sync.Mutex
+	cached float64
 }
 
-func NewComputedCounterMetric(inst metric.Float64Counter, expr hcl.Expression, evalCtx *hcl.EvalContext, logger *zap.Logger, interval time.Duration) *ComputedCounterMetric {
-	return &ComputedCounterMetric{inst: inst, expr: expr, evalCtx: evalCtx, logger: logger, interval: interval}
+func NewComputedCounterMetric(inst metric.Float64Counter, expr hcl.Expression, scopeFn PollScopeFunc, logger *zap.Logger, interval time.Duration) *ComputedCounterMetric {
+	return &ComputedCounterMetric{
+		computedEval: computedEval{kind: "counter", expr: expr, scopeFn: scopeFn, logger: logger, interval: interval},
+		inst:         inst,
+	}
 }
 
 func (m *ComputedCounterMetric) metricValue() {}
 func (m *ComputedCounterMetric) isComputed()  {}
 
 func (m *ComputedCounterMetric) poll(ctx context.Context) {
-	val, diags := m.expr.Value(m.evalCtx)
+	pollCtx, f, ok := m.evaluate(ctx)
+	if !ok {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if !diags.HasErrors() {
-		if f, err := valueToFloat64(val); err == nil {
-			delta := f - m.cached
-			if delta > 0 {
-				m.cached = f
-				m.inst.Add(ctx, delta)
-			}
-		} else {
-			m.logger.Error("computed counter: expression did not return a number", zap.Error(err))
-		}
-	} else {
-		m.logger.Error("computed counter: expression evaluation failed", zap.String("err", diags.Error()))
+	delta := f - m.cached
+	if delta > 0 {
+		m.cached = f
+		m.inst.Add(pollCtx, delta)
 	}
 }
 
 // Start launches the polling goroutine. Implements config.Startable.
 func (m *ComputedCounterMetric) Start(ctx context.Context) {
-	go func() {
-		m.poll(ctx)
-		ticker := time.NewTicker(m.interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				m.poll(ctx)
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
+	startPolling(ctx, m.interval, m.poll)
 }
 
 func (m *ComputedCounterMetric) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
@@ -541,48 +579,31 @@ func (m *ComputedCounterMetric) Get(_ context.Context, args []cty.Value) (cty.Va
 // At each polling interval it evaluates the stored expression and records one
 // observation. Manual Observe() calls are also supported.
 type ComputedHistogramMetric struct {
-	inst     metric.Float64Histogram
-	expr     hcl.Expression
-	evalCtx  *hcl.EvalContext
-	logger   *zap.Logger
-	interval time.Duration
+	computedEval
+	inst metric.Float64Histogram
 }
 
-func NewComputedHistogramMetric(inst metric.Float64Histogram, expr hcl.Expression, evalCtx *hcl.EvalContext, logger *zap.Logger, interval time.Duration) *ComputedHistogramMetric {
-	return &ComputedHistogramMetric{inst: inst, expr: expr, evalCtx: evalCtx, logger: logger, interval: interval}
+func NewComputedHistogramMetric(inst metric.Float64Histogram, expr hcl.Expression, scopeFn PollScopeFunc, logger *zap.Logger, interval time.Duration) *ComputedHistogramMetric {
+	return &ComputedHistogramMetric{
+		computedEval: computedEval{kind: "histogram", expr: expr, scopeFn: scopeFn, logger: logger, interval: interval},
+		inst:         inst,
+	}
 }
 
 func (m *ComputedHistogramMetric) metricValue() {}
 func (m *ComputedHistogramMetric) isComputed()  {}
 
 func (m *ComputedHistogramMetric) poll(ctx context.Context) {
-	val, diags := m.expr.Value(m.evalCtx)
-	if !diags.HasErrors() {
-		if f, err := valueToFloat64(val); err == nil {
-			m.inst.Record(ctx, f)
-		} else {
-			m.logger.Error("computed histogram: expression did not return a number", zap.Error(err))
-		}
-	} else {
-		m.logger.Error("computed histogram: expression evaluation failed", zap.String("err", diags.Error()))
+	pollCtx, f, ok := m.evaluate(ctx)
+	if !ok {
+		return
 	}
+	m.inst.Record(pollCtx, f)
 }
 
 // Start launches the polling goroutine. Implements config.Startable.
 func (m *ComputedHistogramMetric) Start(ctx context.Context) {
-	go func() {
-		m.poll(ctx)
-		ticker := time.NewTicker(m.interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				m.poll(ctx)
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
+	startPolling(ctx, m.interval, m.poll)
 }
 
 // Observe allows manual observations in addition to the automatic polling one.

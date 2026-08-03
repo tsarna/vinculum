@@ -10,9 +10,11 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/tsarna/vinculum/hclutil"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // --- InstrumentMetrics interface ---
@@ -269,13 +271,19 @@ var metricAttrs = map[string]AttrMeta{
 	},
 	"value": {
 		Summary: "Expression polled to produce the metric's value.",
-		Doc:     "Makes this a computed metric: the expression is evaluated every `computed_interval` instead of the metric being updated imperatively. It is evaluated against the global namespace, so there is no `ctx` here — read state through `get(var.x)` and the like.",
-		Hint:    HintExpression,
+		Doc:     "Makes this a computed metric: the expression is evaluated every `computed_interval` instead of the metric being updated imperatively. Each poll is a runtime evaluation with its own `ctx`, so it can call `http::get()`, `sql::query()`, and anything else that takes one.",
+		Hint:    HintActionExpression,
+		Context: "metric-value",
 	},
 	"computed_interval": {
 		Summary: "How often to evaluate `value`.",
 		Doc:     "Defaults to `\"15s\"`. Only meaningful together with `value`.",
 		Hint:    HintDuration,
+	},
+	"tracing": {
+		Summary: TracingAttr.Summary,
+		Doc:     TracingAttr.Doc + " Each poll of `value` runs in a `metric.poll` span, so whatever the expression does is traced beneath it. Only meaningful together with `value`.",
+		Hint:    TracingAttr.Hint,
 	},
 }
 
@@ -382,7 +390,42 @@ type MetricDefinition struct {
 	Server           hcl.Expression `hcl:"server,optional"`
 	Value            hcl.Expression `hcl:"value,optional"`
 	ComputedInterval *string        `hcl:"computed_interval,optional"`
+	Tracing          hcl.Expression `hcl:"tracing,optional"`
 	DefRange         hcl.Range      `hcl:",def_range"`
+}
+
+func init() {
+	// metricPollScope below builds this shape.
+	RegisterContextSchema("metric-value", ContextSchema{
+		Summary: "Evaluated on each poll of a computed metric.",
+		Doc: `The poll is an autonomous timer event, so there is no caller: ` + "`ctx.auth`" + ` is
+null and the trace is one the poll starts itself, rooted at a ` + "`metric.poll`" + ` span
+that whatever the expression does hangs off.`,
+		Fields: []ContextField{
+			{Name: "metric", Type: attrTypeString, Summary: "Name of the metric being polled."},
+		},
+	})
+}
+
+// metricPollScope returns the poll scope for one computed metric: a span per
+// poll, and a ctx built the way every other runtime evaluation builds one.
+//
+// It lives here rather than in the types package because assembling a ctx goes
+// through hclutil, which depends on types.
+func (c *Config) metricPollScope(name string, tp trace.TracerProvider) types.PollScopeFunc {
+	return func(ctx context.Context) (types.PollScope, error) {
+		spanCtx, done := hclutil.StartMetricPollSpan(ctx, tp, name)
+
+		evalCtx, err := hclutil.NewEvalContext(spanCtx).
+			WithStringAttribute("metric", name).
+			BuildEvalContext(c.EvalCtx())
+		if err != nil {
+			done(err)
+			return types.PollScope{}, err
+		}
+
+		return types.PollScope{Ctx: spanCtx, EvalCtx: evalCtx, Done: done}, nil
+	}
 }
 
 // computedMetricStarter wraps a computed metric's Start(ctx) method as a
@@ -498,6 +541,18 @@ func (h *MetricBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 		computedInterval = d
 	}
 
+	// Only a computed metric evaluates anything at runtime, so only it needs a
+	// poll scope. Resolving tracing for an imperative metric would be a config
+	// error about a facility it never uses.
+	var pollScope types.PollScopeFunc
+	if isComputed {
+		tp, tpDiags := config.ResolveTracerProvider(def.Tracing)
+		if tpDiags.HasErrors() {
+			return tpDiags
+		}
+		pollScope = config.metricPollScope(name, tp)
+	}
+
 	var capsule cty.Value
 
 	switch kind {
@@ -512,7 +567,7 @@ func (h *MetricBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 			}}
 		}
 		if isComputed {
-			m := types.NewComputedGaugeMetric(inst, def.Value, config.evalCtx, config.Logger, computedInterval)
+			m := types.NewComputedGaugeMetric(inst, def.Value, pollScope, config.UserLogger, computedInterval)
 			starter := &computedMetricStarter{startFn: m.Start}
 			config.Startables = append(config.Startables, starter)
 			config.Stoppables = append(config.Stoppables, starter)
@@ -532,7 +587,7 @@ func (h *MetricBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 			}}
 		}
 		if isComputed {
-			m := types.NewComputedCounterMetric(inst, def.Value, config.evalCtx, config.Logger, computedInterval)
+			m := types.NewComputedCounterMetric(inst, def.Value, pollScope, config.UserLogger, computedInterval)
 			starter := &computedMetricStarter{startFn: m.Start}
 			config.Startables = append(config.Startables, starter)
 			config.Stoppables = append(config.Stoppables, starter)
@@ -556,7 +611,7 @@ func (h *MetricBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 			}}
 		}
 		if isComputed {
-			m := types.NewComputedHistogramMetric(inst, def.Value, config.evalCtx, config.Logger, computedInterval)
+			m := types.NewComputedHistogramMetric(inst, def.Value, pollScope, config.UserLogger, computedInterval)
 			starter := &computedMetricStarter{startFn: m.Start}
 			config.Startables = append(config.Startables, starter)
 			config.Stoppables = append(config.Stoppables, starter)

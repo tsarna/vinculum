@@ -89,8 +89,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   phase before any server or client starts", and an error in it is logged rather than
   aborting startup. `trigger "signals"` has no `ctx.trigger`. A subscription action's
   `ctx.fields` is always present, empty rather than absent when a message carries no
-  metadata. A computed `metric`'s `value` is evaluated against the global namespace
-  and has no `ctx` at all.
+  metadata. (Writing down that a computed `metric`'s `value` had no `ctx` at all is
+  what made it obvious that it should — see above.)
+- **A computed `metric`'s `value` is evaluated with a `ctx`.** It used to be
+  evaluated against the bare global namespace, so no function taking a context could
+  be called from it — no `http::get()` to poll an upstream, no `sql::query()`, not
+  even `log::warn()` when something went wrong. A computed metric could only be a
+  projection of state already in memory, which is not what "polled" suggests. Each
+  poll now runs in a `metric.poll <name>` span, so an HTTP call inside the expression
+  is traced beneath it rather than emitting an orphan, and the block accepts
+  `tracing` to select the backend. `ctx.metric` names the metric being polled.
+
+  The old failure was quiet: nothing evaluates `value` at config time, so
+  `vinculum check` reported a configuration valid and it then failed at *every*
+  poll, forever, with `There is no variable named "ctx"`. Those errors also went to
+  the operational logger, printing a Go stacktrace into the polling plumbing; they
+  are the user's expression failing and now go to `UserLogger` like every other
+  expression error.
 - **An `editor` expression can read `ctx.auth`, `ctx.baggage`, `ctx.trace_id`, and
   `ctx.span_id`.** Every other evaluation site builds its `ctx` through the one
   helper that supplies those four; the editor blocks assembled their context object

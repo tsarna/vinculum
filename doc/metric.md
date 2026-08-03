@@ -61,6 +61,7 @@ metric "histogram" "job_duration_seconds" {
 | `server` | expression | no | Reference to a `server "metrics"` or `client "otlp"` block |
 | `value` | expression | no | Expression evaluated on a polling interval (see [Computed Metrics](#computed-metrics)) |
 | `computed_interval` | string | no | Polling interval for computed metrics (default `"15s"`) |
+| `tracing` | expression | no | Tracing backend for the poll span; only meaningful with `value` |
 
 If `server` is omitted, the default metrics backend is used automatically. See
 [server-metrics.md#default](server-metrics.md#the-default-metrics-backend)
@@ -184,6 +185,40 @@ metric "histogram" "sampled_latency_seconds" {
     value = get(var.latest_latency_seconds)
 }
 ```
+
+### What the expression can see
+
+Each poll is a runtime evaluation with its own `ctx`, so `value` can call
+anything that takes one — the metric does not have to be a projection of state
+already in memory:
+
+```hcl
+metric "gauge" "upstream_queue_depth" {
+    help              = "Depth reported by the upstream API"
+    computed_interval = "30s"
+    value             = http::get(ctx, "https://upstream/stats").body.depth
+}
+```
+
+| Variable | Description |
+|---|---|
+| `ctx.metric` | Name of the metric being polled |
+| `ctx.baggage` | OpenTelemetry baggage — see [baggage](baggage.md) |
+| `ctx.trace_id` / `ctx.span_id` | The poll's own span (see below) |
+| `ctx.auth` | Always null: a poll is a timer event with no caller |
+
+Each poll runs in a `metric.poll <name>` span, so an HTTP call or query inside
+the expression is traced beneath it rather than emitting an orphan. Set
+`tracing = client.<name>` to choose the backend; the default is used otherwise.
+
+A slow expression delays only its own metric — each computed metric polls on its
+own goroutine, and a poll that overruns its interval simply yields fewer samples.
+
+> **Changed in 0.45.0.** `value` used to be evaluated against the global
+> namespace with no `ctx` at all, so no context-taking function could be called
+> from it. An expression that tried failed at every poll with
+> `There is no variable named "ctx"`, and — because nothing evaluates `value` at
+> config time — `vinculum check` still reported the configuration valid.
 
 ### Per-type behaviour
 
