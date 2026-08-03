@@ -190,7 +190,6 @@ github.com/lestrrat-go/iter v1.0.2 h1:gMXo1q4c2pHmC3dn8LzRhJfP1ceCbgSiT9lUydIzlt
 github.com/lestrrat-go/iter v1.0.2/go.mod h1:Momfcq3AnRlRjI5b5O8/G5/BvpzrhoFTZcn06fEOPt4=
 github.com/lestrrat-go/jwx/v2 v2.1.7 h1:bnYeET+S8IOyAw6W4LTc6SEeK7Xs58SKKZkR7scb3Ko=
 github.com/lestrrat-go/jwx/v2 v2.1.7/go.mod h1:exQ9ZBuN1cMLYmxwhTlHUru08ykONG0z+HbLEeDG9qo=
-github.com/lestrrat-go/jwx/v4 v4.2.0/go.mod h1:1V1wOmyFnMLltrTKXZSRMZ/GWq8UeMW1JmUaBNqD3E4=
 github.com/lestrrat-go/option v1.0.1 h1:oAzP2fvZGQKWkvHa1/SAcFolBEca1oN+mQ7eooNBEYU=
 github.com/lestrrat-go/option v1.0.1/go.mod h1:5ZHFbivi4xwXxhxY9XHDe2FHo6/Z7WWmtT7T5nBBp3I=
 github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw=
@@ -296,8 +295,8 @@ github.com/tsarna/vinculum-bus v0.15.1 h1:PPpDL+JmHLVvekLLplcQuEhWzXFqTbi1NI/IaY
 github.com/tsarna/vinculum-bus v0.15.1/go.mod h1:7FSTpdKcFpzDZ6Wycp88hKtndJBPSWMOXGRpT7At+cc=
 github.com/tsarna/vinculum-fsm v0.5.1 h1:GJGTcDZqAtabfsfdCzzD/FlcfCKeB2l/omTdSeNYmE8=
 github.com/tsarna/vinculum-fsm v0.5.1/go.mod h1:1fpjr9HuYybpD0iWM0mQ4N9yvVvC9W4HZqrTCpheTRo=
-github.com/tsarna/vinculum-kafka v0.11.0 h1:5C6DoA7a65FiTPjiLtNQnRDTYUJBNaS5tk2JM6XUMJg=
-github.com/tsarna/vinculum-kafka v0.11.0/go.mod h1:AE0gTbe42JtBDnkJQaPJci7oONY1BsS5SI4ptQSWCwQ=
+github.com/tsarna/vinculum-kafka v0.12.0 h1:xem5qFzaLSf97XYRTtnMYky73hAnkbr91c+IwdoAmNE=
+github.com/tsarna/vinculum-kafka v0.12.0/go.mod h1:sq9mfIElFf8/hG+3WnUcFv2F16zIz5PwAWif/zPn7wY=
 github.com/tsarna/vinculum-mqtt v0.9.0 h1:rMpZ5enoxep2nu5FA71C/sivNr6F+vh9ciHjnkPHwNc=
 github.com/tsarna/vinculum-mqtt v0.9.0/go.mod h1:2ALugNbA1bDrlkzB9QICUPo1qw1cWfXbCxAQL7XFYCo=
 github.com/tsarna/vinculum-rabbitmq v0.2.0 h1:f4PqhsBzg8lo9VQg5i2IQqx1PEomOFzotuqv9xy82NU=
@@ -310,8 +309,8 @@ github.com/tsarna/vinculum-sqs v0.4.0 h1:2LLAecWqjk+jXTOeA/8yPLGkQLNwwCjSRm9b4Yp
 github.com/tsarna/vinculum-sqs v0.4.0/go.mod h1:sy0XzfwaVdyWtLOEkeBGP9tqH33UhUhjXkVtApAxeoA=
 github.com/tsarna/vinculum-vws v0.13.0 h1:mlP7oIyPVhQ1YQdNOa8lL3O0jMv/T3DvDEk/EJYyw/M=
 github.com/tsarna/vinculum-vws v0.13.0/go.mod h1:hOPMHCjyNbAUAUSdu3Sd+7SOVYoIj1ndCDeKNzSOgKw=
-github.com/tsarna/vinculum-wire v0.4.0 h1:aGNeCsqi2bxf5UvtlUCP9IntE7/rD6e2KGiZf5L8/0g=
-github.com/tsarna/vinculum-wire v0.4.0/go.mod h1:hh64ALOi1PX+YfFpnKTFL/y0X79mvaDuTepRaiNHN7w=
+github.com/tsarna/vinculum-wire v0.5.0 h1:MHqu1L+7ieNsxrcHuLxhaKPn3euTDqFchUdn9AnUfvw=
+github.com/tsarna/vinculum-wire v0.5.0/go.mod h1:hh64ALOi1PX+YfFpnKTFL/y0X79mvaDuTepRaiNHN7w=
 github.com/twmb/franz-go v1.21.5 h1:cVYI2+JTTKSvohhy8bCOleYrS7G79ZBrLVFIJsoHm8M=
 github.com/twmb/franz-go v1.21.5/go.mod h1:rfoMTnVk7107fhTGxfEKIHP/e7tPe6oyij/ywzO0czk=
 github.com/twmb/franz-go/pkg/kadm v1.18.0 h1:WRf/LZmDdcDXwX7WMbtDU++v+b3NzYh2bCGoPMmzirw=
