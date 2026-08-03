@@ -76,6 +76,29 @@ func testDoc() *config.SchemaDocument {
 		},
 	}
 
+	// A server "http" as well as a client "http", because that collision is
+	// real — http and vws are each both a client type and a server type — and
+	// it is what makes a short path ambiguous.
+	serverHTTP := &config.SchemaBody{
+		Summary: "An HTTP server.",
+		Attributes: []*config.SchemaAttr{
+			{Name: "listen", Type: "string", Required: true, Summary: "Listen address.", Hint: config.HintListenAddr},
+		},
+		Blocks: map[string]*config.SchemaNestedBlock{
+			"handle": {
+				Labels:     []string{"route"},
+				Repeatable: true,
+				SchemaBody: config.SchemaBody{
+					Summary: "An HTTP route handler.",
+					Attributes: []*config.SchemaAttr{
+						{Name: "action", Type: "expression", Summary: "Evaluated per request.", Context: "message"},
+					},
+					Blocks: map[string]*config.SchemaNestedBlock{},
+				},
+			},
+		},
+	}
+
 	return &config.SchemaDocument{
 		SchemaVersion:   "1",
 		VinculumVersion: "0.0.0-test",
@@ -85,6 +108,12 @@ func testDoc() *config.SchemaDocument {
 				VariantLabel: "type",
 				Summary:      "A connection to an external service.",
 				Variants:     map[string]*config.SchemaBody{"mqtt": mqtt, "http": http},
+			},
+			"server": {
+				Labels:       []string{"type", "name"},
+				VariantLabel: "type",
+				Summary:      "A network server.",
+				Variants:     map[string]*config.SchemaBody{"http": serverHTTP},
 			},
 			"subscription": {
 				Labels: []string{"name"},
