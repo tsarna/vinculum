@@ -155,7 +155,10 @@ func (meta AttrMeta) WithContextFields(fields ...ContextField) AttrMeta {
 // `ctx` is assembled imperatively by an hclutil.EvalContextBuilder chain — so
 // Fields is written by hand. Keep it beside the code that builds the context so
 // the two are read and edited together. The universal fields (auth, baggage,
-// trace_id, span_id) are supplied by the generator and must not be repeated.
+// trace_id, span_id) are supplied by the generator and must not be repeated:
+// every `ctx` goes through hclutil, which is what puts them there, and there is
+// deliberately no way to describe a shape that lacks them. A site that would
+// need one is a site that should be building its context through hclutil.
 type ContextSchema struct {
 	// Summary is a one-line description of when an expression sees this shape.
 	Summary string
@@ -165,12 +168,6 @@ type ContextSchema struct {
 
 	// Fields are the shape's own fields, in the order worth reading them.
 	Fields []ContextField
-
-	// WithoutUniversalFields marks a shape built directly rather than through
-	// hclutil.NewEvalContext, and which therefore does not carry auth,
-	// baggage, trace_id, or span_id. The editor blocks are the case: they
-	// assemble a context object themselves.
-	WithoutUniversalFields bool
 
 	// OpenFields marks a shape whose Fields are a floor rather than the whole
 	// list: every site carries them, and a site may carry more. Attributes
@@ -1281,9 +1278,6 @@ func (b *schemaBuilder) contextShape(name string, cs ContextSchema) *SchemaConte
 			Doc:      f.Doc,
 			Optional: f.Optional,
 		})
-	}
-	if cs.WithoutUniversalFields {
-		return out
 	}
 	for _, f := range universalContextFields {
 		if seen[f.Name] {

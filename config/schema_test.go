@@ -656,25 +656,6 @@ func TestContextShapeUniversalFields(t *testing.T) {
 	assert.Equal(t, []string{"auth", "baggage", "trace_id", "span_id"}, universal)
 }
 
-// TestContextShapeWithoutUniversalFields covers a site that assembles its
-// context object directly instead of going through hclutil, and so carries none
-// of the universal fields. Claiming otherwise would send a completion provider
-// looking for a ctx.trace_id that is not there.
-func TestContextShapeWithoutUniversalFields(t *testing.T) {
-	withCleanContextSchemas(t)
-	RegisterContextSchema("message", ContextSchema{
-		Summary:                "Fixture.",
-		WithoutUniversalFields: true,
-		Fields:                 []ContextField{{Name: "topic", Type: "string", Summary: "The topic."}},
-	})
-
-	doc, _ := GenerateSchema(SchemaGenOptions{})
-	shape := doc.Contexts["message"]
-	require.NotNil(t, shape)
-	require.Len(t, shape.Fields, 1)
-	assert.Equal(t, "topic", shape.Fields[0].Name)
-}
-
 // TestContextShapeRejectsRedeclaredUniversal guards the one way a shape can
 // contradict the generator: restating a universal field, which would emit it
 // twice with two descriptions.

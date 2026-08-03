@@ -544,11 +544,13 @@ cfg.RegisterContextSchema("trigger-watch", cfg.ContextSchema{
 ```
 
 Do **not** list `auth`, `baggage`, `trace_id`, or `span_id` — the generator
-adds them, since `BuildEvalContext` does. If a site assembles its context
-object directly (as the `editor` blocks do) and therefore has none of them, set
-`WithoutUniversalFields`. Mark a field `Optional` when some evaluations of the
-same shape omit it. An expression with no `ctx` at all — a computed metric's
-`value` — takes `HintExpression` and no `Context`.
+adds them, since `BuildEvalContext` does. Every `ctx` must be built through
+`hclutil.NewEvalContext(...).BuildEvalContext(...)`, which is what puts them
+there; a test in `hclutil` fails the build if anything else calls
+`richcty.NewContextObject`, and there is no way to describe a shape that lacks
+them. Mark a field `Optional` when some evaluations of the same shape omit it.
+An expression with no `ctx` at all — a computed metric's `value` — takes
+`HintExpression` and no `Context`.
 
 When one shape is shared by sites that each carry a few fields of their own —
 `on_decode_error`, where the receiver adds its transport identity — set

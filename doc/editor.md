@@ -187,6 +187,26 @@ have if `when` passes (i.e. one more than the current count).
 | `state` | Final accumulated state (all rules have been processed) |
 | `<param>` | Declared function parameters, by name |
 
+### Universal context fields
+
+Every expression above also sees the fields every `ctx` carries, taken from the
+context passed as the editor function's first argument:
+
+| Variable | Description |
+|---|---|
+| `ctx.auth` | The authenticated identity of the caller, or null |
+| `ctx.baggage` | OpenTelemetry baggage — see [baggage](baggage.md) |
+| `ctx.trace_id` | Trace ID of the active span, or empty |
+| `ctx.span_id` | Span ID of the active span, or empty |
+
+So an editor called from an HTTP handler can log against the request's trace, or
+make an edit that depends on who is asking.
+
+> **Changed in 0.45.0.** These four were missing: the editor built its context
+> object directly instead of the way every other evaluation site does, so
+> `ctx.trace_id` and friends were an "unsupported attribute" error even though
+> the caller's context carried them.
+
 ---
 
 ## State Variables

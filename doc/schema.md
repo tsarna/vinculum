@@ -235,7 +235,7 @@ instead.
 |---|---|
 | `type` | The attribute vocabulary plus `object`, `dynamic` (type follows the data), and `capsule` (an opaque handle passed to a function rather than read directly). |
 | `optional` | Absent from some evaluations of the same shape — a condition's `on_init` reports a starting state, so it has no `ctx.old_value`. |
-| `universal` | Carried by every `ctx`: `auth`, `baggage`, `trace_id`, `span_id`. Listed last, and absent from the two editor shapes, which build their context object directly. |
+| `universal` | Carried by every `ctx`: `auth`, `baggage`, `trace_id`, `span_id`. Listed last, and present in every shape without exception. |
 
 A shape may have no fields of its own — `connection` is just the universal
 four, because nothing is in flight when a connection opens or closes.

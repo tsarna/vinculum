@@ -15,6 +15,7 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	richcty "github.com/tsarna/rich-cty-types"
 	cfg "github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 )
@@ -22,17 +23,12 @@ import (
 func init() {
 	cfg.RegisterEditorType("line", processLineEditor, cfg.WithSchema(lineEditorSchema))
 
-	// buildMatchCtx and buildBeforeCtx/buildAfterCtx below assemble their
-	// context objects directly rather than through hclutil, so neither shape
-	// carries the universal fields.
-	//
-	// Both also put `state` and the declared params in scope as top-level
-	// variables alongside `ctx`; those are not ctx fields and so are not
-	// described here.
+	// buildMatchCtx and buildContentCtx below also put `state` and the declared
+	// params in scope as top-level variables alongside `ctx`; those are not ctx
+	// fields and so are not described here.
 	cfg.RegisterContextSchema("editor-match", cfg.ContextSchema{
-		Summary:                "Evaluated for a line the rule's regex matched.",
-		Doc:                    "`state.<name>` and the editor's declared params are also in scope.",
-		WithoutUniversalFields: true,
+		Summary: "Evaluated for a line the rule's regex matched.",
+		Doc:     "`state.<name>` and the editor's declared params are also in scope.",
 		Fields: []cfg.ContextField{
 			{Name: "line", Type: "string", Summary: "The original line, including its trailing newline."},
 			{Name: "lineno", Type: "number", Summary: "1-based line number in the input."},
@@ -56,9 +52,8 @@ func init() {
 	})
 
 	cfg.RegisterContextSchema("editor-content", cfg.ContextSchema{
-		Summary:                "Evaluated once, after every line has been processed.",
-		Doc:                    "There is no line in scope. `state.<name>` holds the final accumulated state, and the editor's declared params are in scope too.",
-		WithoutUniversalFields: true,
+		Summary: "Evaluated once, after every line has been processed.",
+		Doc:     "There is no line in scope. `state.<name>` holds the final accumulated state, and the editor's declared params are in scope too.",
 		Fields: []cfg.ContextField{
 			{Name: "filename", Type: "string", Summary: "Resolved absolute path of the file.", Doc: "Empty in string mode."},
 		},
@@ -520,7 +515,10 @@ func (ed *lineEditor) runRules(
 				// ctx.count reflects the value this match would have if it fires.
 				// If falsy, the line continues to the next rule uncounted.
 				if rule.when != nil {
-					whenCtx := ed.buildMatchCtx(goCtx, filename, lineno, line, groups, rule.re, matchCounts[ri]+1, userParams, state)
+					whenCtx, ctxErr := ed.buildMatchCtx(goCtx, filename, lineno, line, groups, rule.re, matchCounts[ri]+1, userParams, state)
+					if ctxErr != nil {
+						return false, false, state, fmt.Errorf("line %d when expression: %w", lineno, ctxErr)
+					}
 					whenVal, whenErr := rule.when.Value(whenCtx)
 					if whenErr != nil {
 						return false, false, state, fmt.Errorf("line %d when expression: %w", lineno, whenErr)
@@ -534,7 +532,10 @@ func (ed *lineEditor) runRules(
 				matchCounts[ri]++
 
 				// replace, abort, update_state: state in scope
-				matchCtx := ed.buildMatchCtx(goCtx, filename, lineno, line, groups, rule.re, matchCounts[ri], userParams, state)
+				matchCtx, ctxErr := ed.buildMatchCtx(goCtx, filename, lineno, line, groups, rule.re, matchCounts[ri], userParams, state)
+				if ctxErr != nil {
+					return false, false, state, fmt.Errorf("line %d: %w", lineno, ctxErr)
+				}
 
 				if rule.abort != nil {
 					abortVal, abortErr := rule.abort.Value(matchCtx)
@@ -688,7 +689,11 @@ func (ed *lineEditor) impl(args []cty.Value, _ cty.Type) (cty.Value, error) {
 
 	// Write after block (final state in scope)
 	if ed.after != nil {
-		evalCtx := ed.buildAfterCtx(goCtx, filePath, userParams, finalState)
+		evalCtx, ctxErr := ed.buildContentCtx(goCtx, filePath, userParams, finalState)
+		if ctxErr != nil {
+			cleanup()
+			return cty.False, ctxErr
+		}
 		afterContent, evalErr := ed.evalStringExpr(ed.after, evalCtx)
 		if evalErr != nil {
 			cleanup()
@@ -707,7 +712,11 @@ func (ed *lineEditor) impl(args []cty.Value, _ cty.Type) (cty.Value, error) {
 
 	// Write before block (final state in scope — two-pass prepend)
 	if ed.before != nil {
-		evalCtx := ed.buildBeforeCtx(goCtx, filePath, userParams, finalState)
+		evalCtx, ctxErr := ed.buildContentCtx(goCtx, filePath, userParams, finalState)
+		if ctxErr != nil {
+			cleanup()
+			return cty.False, ctxErr
+		}
 		beforeContent, evalErr := ed.evalStringExpr(ed.before, evalCtx)
 		if evalErr != nil {
 			cleanup()
@@ -808,14 +817,20 @@ func (ed *lineEditor) implString(args []cty.Value, _ cty.Type) (cty.Value, error
 
 	var beforeStr, afterStr string
 	if ed.before != nil {
-		evalCtx := ed.buildBeforeCtx(goCtx, "", userParams, finalState)
+		evalCtx, ctxErr := ed.buildContentCtx(goCtx, "", userParams, finalState)
+		if ctxErr != nil {
+			return cty.NullVal(cty.String), ctxErr
+		}
 		beforeStr, runErr = ed.evalStringExpr(ed.before, evalCtx)
 		if runErr != nil {
 			return cty.NullVal(cty.String), fmt.Errorf("editor %s: before block: %w", ed.name, runErr)
 		}
 	}
 	if ed.after != nil {
-		evalCtx := ed.buildAfterCtx(goCtx, "", userParams, finalState)
+		evalCtx, ctxErr := ed.buildContentCtx(goCtx, "", userParams, finalState)
+		if ctxErr != nil {
+			return cty.NullVal(cty.String), ctxErr
+		}
 		afterStr, runErr = ed.evalStringExpr(ed.after, evalCtx)
 		if runErr != nil {
 			return cty.NullVal(cty.String), fmt.Errorf("editor %s: after block: %w", ed.name, runErr)
@@ -825,50 +840,32 @@ func (ed *lineEditor) implString(args []cty.Value, _ cty.Type) (cty.Value, error
 	return cty.StringVal(beforeStr + bodyBuf.String() + afterStr), nil
 }
 
-// buildBeforeCtx builds an eval context for before blocks (no line context, final state in scope).
-func (ed *lineEditor) buildBeforeCtx(goCtx context.Context, filename string, userParams map[string]cty.Value, state map[string]cty.Value) *hcl.EvalContext {
-	ctxObj := richcty.NewContextObject(goCtx)
-	ctxObj.WithStringAttribute("filename", filename)
-	ctxObjVal, _ := ctxObj.Build()
+// buildContentCtx builds the eval context for before and after blocks, which
+// see no line and the final state. Both blocks see the same shape, so they
+// share one builder.
+func (ed *lineEditor) buildContentCtx(goCtx context.Context, filename string, userParams map[string]cty.Value, state map[string]cty.Value) (*hcl.EvalContext, error) {
+	builder := hclutil.NewEvalContext(goCtx).
+		WithStringAttribute("filename", filename)
 
-	evalCtx := ed.evalCtxFn().NewChild()
-	evalCtx.Variables = make(map[string]cty.Value, len(userParams)+2)
-	evalCtx.Variables["ctx"] = ctxObjVal
-	evalCtx.Variables["state"] = stateToValue(state)
-	maps.Copy(evalCtx.Variables, userParams)
-	return evalCtx
-}
-
-// buildAfterCtx builds an eval context for after blocks (no line context, final state in scope).
-func (ed *lineEditor) buildAfterCtx(goCtx context.Context, filename string, userParams map[string]cty.Value, state map[string]cty.Value) *hcl.EvalContext {
-	ctxObj := richcty.NewContextObject(goCtx)
-	ctxObj.WithStringAttribute("filename", filename)
-	ctxObjVal, _ := ctxObj.Build()
-
-	evalCtx := ed.evalCtxFn().NewChild()
-	evalCtx.Variables = make(map[string]cty.Value, len(userParams)+2)
-	evalCtx.Variables["ctx"] = ctxObjVal
-	evalCtx.Variables["state"] = stateToValue(state)
-	maps.Copy(evalCtx.Variables, userParams)
-	return evalCtx
+	return ed.finishCtx(builder, userParams, state)
 }
 
 // buildMatchCtx builds an eval context for replace/abort/update_state expressions (post-regex match, state in scope).
-func (ed *lineEditor) buildMatchCtx(goCtx context.Context, filename string, lineno int, line string, groups []string, re *regexp.Regexp, count int, userParams map[string]cty.Value, state map[string]cty.Value) *hcl.EvalContext {
-	ctxObj := richcty.NewContextObject(goCtx)
-	ctxObj.WithStringAttribute("filename", filename)
-	ctxObj.WithInt64Attribute("lineno", int64(lineno))
-	ctxObj.WithStringAttribute("line", line)
-	ctxObj.WithInt64Attribute("count", int64(count))
+func (ed *lineEditor) buildMatchCtx(goCtx context.Context, filename string, lineno int, line string, groups []string, re *regexp.Regexp, count int, userParams map[string]cty.Value, state map[string]cty.Value) (*hcl.EvalContext, error) {
+	builder := hclutil.NewEvalContext(goCtx).
+		WithStringAttribute("filename", filename).
+		WithInt64Attribute("lineno", int64(lineno)).
+		WithStringAttribute("line", line).
+		WithInt64Attribute("count", int64(count))
 
 	groupVals := make([]cty.Value, len(groups))
 	for i, g := range groups {
 		groupVals[i] = cty.StringVal(g)
 	}
 	if len(groupVals) > 0 {
-		ctxObj.WithAttribute("groups", cty.ListVal(groupVals))
+		builder.WithAttribute("groups", cty.ListVal(groupVals))
 	} else {
-		ctxObj.WithAttribute("groups", cty.ListValEmpty(cty.String))
+		builder.WithAttribute("groups", cty.ListValEmpty(cty.String))
 	}
 
 	namedMap := make(map[string]cty.Value)
@@ -878,19 +875,26 @@ func (ed *lineEditor) buildMatchCtx(goCtx context.Context, filename string, line
 		}
 	}
 	if len(namedMap) > 0 {
-		ctxObj.WithAttribute("named", cty.MapVal(namedMap))
+		builder.WithAttribute("named", cty.MapVal(namedMap))
 	} else {
-		ctxObj.WithAttribute("named", cty.MapValEmpty(cty.String))
+		builder.WithAttribute("named", cty.MapValEmpty(cty.String))
 	}
 
-	ctxObjVal, _ := ctxObj.Build()
+	return ed.finishCtx(builder, userParams, state)
+}
 
-	evalCtx := ed.evalCtxFn().NewChild()
-	evalCtx.Variables = make(map[string]cty.Value, len(userParams)+2)
-	evalCtx.Variables["ctx"] = ctxObjVal
+// finishCtx builds the ctx object and puts `state` and the editor's declared
+// params in scope beside it. Params are copied last, so one named `ctx` or
+// `state` shadows the built-in of that name — the behavior before these
+// contexts went through hclutil.
+func (ed *lineEditor) finishCtx(builder *hclutil.EvalContextBuilder, userParams map[string]cty.Value, state map[string]cty.Value) (*hcl.EvalContext, error) {
+	evalCtx, err := builder.BuildEvalContext(ed.evalCtxFn())
+	if err != nil {
+		return nil, fmt.Errorf("editor %s: building context: %w", ed.name, err)
+	}
 	evalCtx.Variables["state"] = stateToValue(state)
 	maps.Copy(evalCtx.Variables, userParams)
-	return evalCtx
+	return evalCtx, nil
 }
 
 // evalStringExpr evaluates an expression and returns its string value.

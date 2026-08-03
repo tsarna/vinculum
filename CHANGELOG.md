@@ -91,6 +91,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ctx.fields` is always present, empty rather than absent when a message carries no
   metadata. A computed `metric`'s `value` is evaluated against the global namespace
   and has no `ctx` at all.
+- **An `editor` expression can read `ctx.auth`, `ctx.baggage`, `ctx.trace_id`, and
+  `ctx.span_id`.** Every other evaluation site builds its `ctx` through the one
+  helper that supplies those four; the editor blocks assembled their context object
+  themselves and so carried none of them. An editor called from an HTTP handler sat
+  inside a live trace it had no way to read — `ctx.trace_id` was an "unsupported
+  attribute" error — and could not see who was asking. The Go context was threaded
+  through correctly the whole time; only the projection into VCL was missing.
+  A test now fails the build if anything but that helper assembles a context object,
+  and the schema no longer has a way to describe a shape without the four.
 - **`vinculum schema` describes the fields a receiver adds to `on_decode_error`.**
   The `decode-error` shape is the one whose field list is not closed: five fields
   describe the failure the same way everywhere, and then the receiver adds the

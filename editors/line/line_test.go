@@ -15,6 +15,8 @@ import (
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	"github.com/zclconf/go-cty/cty/function/stdlib"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 // testEvalCtx returns an HCL eval context with a basic set of functions for tests.
@@ -863,4 +865,36 @@ after {
 	require.NoError(t, err)
 	assert.False(t, changed)
 	assert.Equal(t, "body\n", readFile(t, path))
+}
+
+// TestUniversalContextFieldsAreInScope covers the fields every ctx carries.
+// The editor's contexts used to be assembled directly rather than through
+// hclutil, so an editor called from inside a live trace could not see it: no
+// ctx.trace_id to log against, no ctx.auth to make an authorization-aware
+// edit, no ctx.baggage.
+func TestUniversalContextFieldsAreInScope(t *testing.T) {
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(tracetest.NewInMemoryExporter()))
+	goCtx, span := tp.Tracer("test").Start(context.Background(), "editing")
+	defer span.End()
+	wantTraceID := span.SpanContext().TraceID().String()
+
+	ctxValue, err := richcty.NewContextObject(goCtx).Build()
+	require.NoError(t, err)
+
+	// Both shapes: a match rule and an after block.
+	fn := buildEditor(t, "", `
+mode = "string"
+match "line" {
+    replace = "${ctx.trace_id}\n"
+}
+after {
+    content = "auth-null=${ctx.auth == null}\n"
+}
+`)
+
+	result, err := fn.Call([]cty.Value{ctxValue, cty.StringVal("line\n")})
+	require.NoError(t, err)
+	assert.Equal(t, wantTraceID+"\nauth-null=true\n", result.AsString(),
+		"the trace the caller is inside must be visible to the editor")
+	assert.NotEqual(t, "00000000000000000000000000000000", wantTraceID)
 }

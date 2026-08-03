@@ -697,15 +697,21 @@ func TestSchemaContexts(t *testing.T) {
 	assert.Equal(t, []string{"auth", "baggage", "trace_id", "span_id"},
 		contextFieldNames(doc.Contexts["connection"]))
 
-	// An editor assembles its context object directly rather than through
-	// hclutil, so it carries none of the universal fields. Saying otherwise
-	// would send a consumer looking for a ctx.trace_id that is not there.
-	for _, name := range []string{"editor-match", "editor-content"} {
-		for _, f := range doc.Contexts[name].Fields {
-			assert.False(t, f.Universal, "%s should carry no universal fields", name)
+	// Every shape carries the universal fields, editors included: an editor is
+	// called from a handler that is inside a live trace, and used to be unable
+	// to see it.
+	for name, shape := range doc.Contexts {
+		var universal []string
+		for _, f := range shape.Fields {
+			if f.Universal {
+				universal = append(universal, f.Name)
+			}
 		}
+		assert.Equal(t, []string{"auth", "baggage", "trace_id", "span_id"}, universal,
+			"context %q", name)
 	}
-	assert.Equal(t, []string{"filename"}, contextFieldNames(doc.Contexts["editor-content"]))
+	assert.Equal(t, []string{"filename", "auth", "baggage", "trace_id", "span_id"},
+		contextFieldNames(doc.Contexts["editor-content"]))
 
 	// Optional marks a field absent from some evaluations of the same shape:
 	// on_init reports a starting state, not a transition, so it has no
