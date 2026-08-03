@@ -120,7 +120,12 @@ what it has acknowledged, so a consumer can resume after a restart.`,
 				"dead_letter_after": {
 					Summary: "Delivery attempts before an entry is dead-lettered.",
 				},
-				"on_decode_error": cfg.OnDecodeErrorAttr,
+				"on_decode_error": cfg.OnDecodeErrorAttr.WithContextFields(
+					cfg.ContextField{Name: "stream", Type: "string", Summary: "Stream the entry was read from."},
+					cfg.ContextField{Name: "entry_id", Type: "string", Summary: "Redis entry ID, e.g. `1700000000000-0`."},
+					cfg.ContextField{Name: "group", Type: "string", Summary: "Consumer group this receiver reads as."},
+					cfg.ContextField{Name: "consumer", Type: "string", Summary: "This receiver's consumer name within the group."},
+				),
 			}),
 			Constraints: cfg.SubscriberSourceConstraints,
 		},

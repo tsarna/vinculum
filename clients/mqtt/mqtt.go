@@ -107,7 +107,13 @@ subscribe to MQTT topics and deliver what arrives to the bus or an action.`,
 		"receiver": {
 			Summary: "Subscribes to MQTT topics and delivers what arrives.",
 			Attrs: cfg.MergeAttrs(cfg.SubscriberSourceAttrs, map[string]cfg.AttrMeta{
-				"on_decode_error": cfg.OnDecodeErrorAttr,
+				"on_decode_error": cfg.OnDecodeErrorAttr.WithContextFields(
+					cfg.ContextField{
+						Name: "mqtt_topic", Type: "string",
+						Summary: "The MQTT topic the message arrived on.",
+						Doc:     "Equal to `ctx.topic` here: a vinculum topic derived from the payload cannot be computed once the payload has failed to decode, so `ctx.topic` falls back to this.",
+					},
+				),
 				"qos":             {Summary: "Default quality of service to subscribe with.", Doc: "`0` at most once, `1` at least once, `2` exactly once."},
 				"handle_retained": {Summary: "Deliver messages the broker retained before this subscription.", Hint: cfg.HintBool},
 				"shared_group": {

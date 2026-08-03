@@ -134,7 +134,20 @@ consume from Kafka topics as part of a consumer group.`,
 				"dlq_topic": {
 					Summary: "Kafka topic to publish messages that could not be handled.",
 				},
-				"on_decode_error": cfg.OnDecodeErrorAttr,
+				"on_decode_error": cfg.OnDecodeErrorAttr.WithContextFields(
+					cfg.ContextField{
+						Name: "kafka_topic", Type: "string",
+						Summary: "The Kafka topic the record was read from.",
+						Doc:     "Equal to `ctx.topic` here: a vinculum topic derived from the payload cannot be computed once the payload has failed to decode, so `ctx.topic` falls back to this.",
+					},
+					cfg.ContextField{Name: "partition", Type: "string", Summary: "Partition the record was read from."},
+					cfg.ContextField{Name: "offset", Type: "string", Summary: "Offset of the record within its partition."},
+					cfg.ContextField{
+						Name: "key", Type: "string", Optional: true,
+						Summary: "The record's key.",
+						Doc:     "Absent when the record was produced without one.",
+					},
+				),
 			}),
 			Constraints: cfg.SubscriberSourceConstraints,
 			Blocks: map[string]cfg.TypeSchema{

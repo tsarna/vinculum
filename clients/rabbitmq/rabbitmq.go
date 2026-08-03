@@ -122,7 +122,11 @@ consume a queue and deliver what arrives to the bus or an action.`,
 				"default_routing_key_transform": {
 					Summary: "How to derive a bus topic from a routing key with no `subscription` block.",
 				},
-				"on_decode_error": cfg.OnDecodeErrorAttr,
+				"on_decode_error": cfg.OnDecodeErrorAttr.WithContextFields(
+					cfg.ContextField{Name: "routing_key", Type: "string", Summary: "Routing key the message was delivered with."},
+					cfg.ContextField{Name: "exchange", Type: "string", Summary: "Exchange the message was published to."},
+					cfg.ContextField{Name: "queue", Type: "string", Summary: "Queue this receiver consumes from."},
+				),
 			}),
 			Constraints: cfg.SubscriberSourceConstraints,
 			Blocks: map[string]cfg.TypeSchema{

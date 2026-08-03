@@ -47,7 +47,7 @@ require (
 	github.com/tsarna/sqid-cty-funcs v0.2.0
 	github.com/tsarna/time-cty-funcs v0.4.0
 	github.com/tsarna/vinculum-bus v0.15.1
-	github.com/tsarna/vinculum-kafka v0.11.0
+	github.com/tsarna/vinculum-kafka v0.12.0
 	github.com/tsarna/vinculum-mqtt v0.10.0
 	github.com/tsarna/vinculum-rabbitmq v0.2.0
 	github.com/tsarna/vinculum-redis v0.4.0

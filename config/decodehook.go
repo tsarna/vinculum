@@ -15,7 +15,12 @@ func init() {
 	RegisterContextSchema("decode-error", ContextSchema{
 		Summary: "Evaluated when an inbound message cannot be decoded.",
 		Doc: `The message is dropped whatever this expression does, and whether it
-succeeds — the hook is an observer, not a recovery path.`,
+succeeds — the hook is an observer, not a recovery path.
+
+The fields below are carried by every receiver. Each also adds its own
+transport identity — ` + "`routing_key`" + ` on rabbitmq, ` + "`stream`" + ` and ` + "`entry_id`" + ` on a
+redis stream — listed with that receiver's own ` + "`on_decode_error`" + `.`,
+		OpenFields: true,
 		Fields: []ContextField{
 			{Name: "raw", Type: CtxTypeObject, Summary: "The undecoded body, as a bytes object."},
 			{Name: "error", Type: attrTypeString, Summary: "The deserialize error message."},
@@ -23,8 +28,6 @@ succeeds — the hook is an observer, not a recovery path.`,
 			{Name: "topic", Type: attrTypeString, Summary: "Best-effort vinculum topic for the message."},
 			{Name: "fields", Type: CtxTypeObject, Summary: "Metadata extracted before the failure."},
 		},
-		// Receivers also add their own identity fields — routing_key, offset,
-		// and so on. They vary per client and are documented there.
 	})
 
 	// Every client with a connection lifecycle evaluates on_connect and

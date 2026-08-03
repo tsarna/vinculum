@@ -550,6 +550,20 @@ object directly (as the `editor` blocks do) and therefore has none of them, set
 same shape omit it. An expression with no `ctx` at all — a computed metric's
 `value` — takes `HintExpression` and no `Context`.
 
+When one shape is shared by sites that each carry a few fields of their own —
+`on_decode_error`, where the receiver adds its transport identity — set
+`OpenFields` on the shape and let each site name its additions:
+
+```go
+"on_decode_error": cfg.OnDecodeErrorAttr.WithContextFields(
+    cfg.ContextField{Name: "routing_key", Type: "string", Summary: "…"},
+),
+```
+
+A site may not add a name the shape or a universal field already has: at
+runtime the fixed field wins and the site's value is dropped, so the schema
+rejects it rather than describe a field that never appears.
+
 ### Error reporting
 
 Always return `hcl.Diagnostics` with a meaningful `Summary`, `Detail`, and

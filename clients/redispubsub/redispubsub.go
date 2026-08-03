@@ -70,7 +70,14 @@ delivery has to survive a restart.`,
 		"subscriber": {
 			Summary: "Subscribes to Redis channels and delivers what arrives.",
 			Attrs: cfg.MergeAttrs(cfg.SubscriberSourceAttrs, map[string]cfg.AttrMeta{
-				"on_decode_error": cfg.OnDecodeErrorAttr,
+				"on_decode_error": cfg.OnDecodeErrorAttr.WithContextFields(
+					cfg.ContextField{Name: "channel", Type: "string", Summary: "Channel the message was published to."},
+					cfg.ContextField{
+						Name: "matched_pattern", Type: "string", Optional: true,
+						Summary: "The `channel_subscription` pattern that matched.",
+						Doc:     "Absent when the subscription named the channel exactly rather than by pattern.",
+					},
+				),
 			}),
 			Constraints: cfg.SubscriberSourceConstraints,
 			Blocks: map[string]cfg.TypeSchema{

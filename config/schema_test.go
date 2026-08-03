@@ -691,3 +691,88 @@ func TestContextShapeRejectsRedeclaredUniversal(t *testing.T) {
 	assert.Contains(t, problemStrings(problems),
 		`context message: "trace_id" is a universal field and must not be redeclared`)
 }
+
+// checkContextFieldsProblems runs the site-additions validator against a shape
+// with the given fields, returning what it reported.
+func checkContextFieldsProblems(open bool, shapeFields []string, added ...ContextField) []string {
+	shape := &SchemaContext{OpenFields: open}
+	for _, name := range shapeFields {
+		shape.Fields = append(shape.Fields, &SchemaContextField{Name: name})
+	}
+	attr := &SchemaAttr{Name: "on_decode_error", Context: "decode-error", ContextFields: schemaContextFields(added)}
+
+	b := &schemaBuilder{opts: SchemaGenOptions{RequireDocs: true}}
+	b.checkContextFields("decode-error", shape, contextRef{"client mqtt.receiver.on_decode_error", attr})
+	return problemStrings(b.problems)
+}
+
+// TestContextFieldsRejectCollisions covers the check that would have caught the
+// bug this mechanism came from: vinculum-mqtt offering the MQTT topic as
+// `topic`, which the hook already uses, so the runtime dropped it. A field
+// documented at a site where it can never appear is worse than an absent one.
+func TestContextFieldsRejectCollisions(t *testing.T) {
+	t.Run("collides with a shape field", func(t *testing.T) {
+		problems := checkContextFieldsProblems(true, []string{"raw", "topic"},
+			ContextField{Name: "topic", Type: "string", Summary: "The MQTT topic."})
+
+		assert.Contains(t, problems,
+			`client mqtt.receiver.on_decode_error: context field "topic" is already a field of "decode-error", so the site's value is dropped at runtime`)
+	})
+
+	t.Run("collides with a universal field", func(t *testing.T) {
+		// Universals are spliced into Fields before this runs, so they are
+		// covered by the same check rather than a separate one.
+		problems := checkContextFieldsProblems(true, []string{"raw", "trace_id"},
+			ContextField{Name: "trace_id", Type: "string", Summary: "Something else."})
+
+		assert.Len(t, problems, 1)
+		assert.Contains(t, problems[0], `context field "trace_id" is already a field`)
+	})
+
+	t.Run("duplicate within the site's own list", func(t *testing.T) {
+		problems := checkContextFieldsProblems(true, []string{"raw"},
+			ContextField{Name: "queue", Type: "string", Summary: "The queue."},
+			ContextField{Name: "queue", Type: "string", Summary: "The queue, again."})
+
+		assert.Contains(t, problems,
+			`client mqtt.receiver.on_decode_error: duplicate context field "queue"`)
+	})
+}
+
+// TestContextFieldsRequireAnOpenShape guards the other direction: a closed
+// shape lists every field a site can see, so adding to one means the shape is
+// wrong, not that the site is special.
+func TestContextFieldsRequireAnOpenShape(t *testing.T) {
+	problems := checkContextFieldsProblems(false, []string{"raw"},
+		ContextField{Name: "mqtt_topic", Type: "string", Summary: "The MQTT topic."})
+
+	assert.Contains(t, problems,
+		`client mqtt.receiver.on_decode_error: adds fields to context "decode-error", whose field list is closed`)
+}
+
+// TestContextFieldsRequireDocs holds site additions to the same standard as
+// every other curated description under --require-docs.
+func TestContextFieldsRequireDocs(t *testing.T) {
+	problems := checkContextFieldsProblems(true, []string{"raw"},
+		ContextField{Name: "mqtt_topic", Type: "string"})
+
+	assert.Contains(t, problems,
+		`client mqtt.receiver.on_decode_error: context field "mqtt_topic": missing summary`)
+}
+
+// TestContextFieldsDropRejected covers what the document says after a problem
+// is reported: a rejected field must not also be emitted, or a consumer of a
+// schema generated without --strict would still see it.
+func TestContextFieldsDropRejected(t *testing.T) {
+	shape := &SchemaContext{OpenFields: true, Fields: []*SchemaContextField{{Name: "topic"}}}
+	attr := &SchemaAttr{Name: "on_decode_error", ContextFields: schemaContextFields([]ContextField{
+		{Name: "topic", Type: "string", Summary: "Dropped at runtime."},
+		{Name: "mqtt_topic", Type: "string", Summary: "The MQTT topic."},
+	})}
+
+	b := &schemaBuilder{}
+	b.checkContextFields("decode-error", shape, contextRef{"client mqtt.receiver.on_decode_error", attr})
+
+	require.Len(t, attr.ContextFields, 1)
+	assert.Equal(t, "mqtt_topic", attr.ContextFields[0].Name)
+}

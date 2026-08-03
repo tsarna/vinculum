@@ -183,6 +183,7 @@ omitted rather than emitted empty:
 | `type` | Coarse: `expression`, `string`, `bool`, `number`, `list`, or `map`. |
 | `hint` | What kind of value belongs here — see below. |
 | `context` | Names the `ctx` shape an expression here sees. |
+| `contextFields` | Fields this site adds to that shape, for an open shape only — see below. |
 | `enum` | The accepted values, when there is a fixed set. |
 | `deprecated` | Present only when the attribute is deprecated; the text says what to use instead. |
 
@@ -243,6 +244,34 @@ Unlike the rest of the document these field lists are hand-written: a `ctx` is
 built by imperative Go, so there is nothing to reflect. What *is* checked is
 that the two halves agree — naming a shape nothing describes, or describing one
 nothing names, is a reported problem.
+
+#### Open shapes
+
+A shape marked `"openFields": true` lists what every site carries, not the whole
+list: individual sites carry more, and each says which in its attribute's
+`contextFields`.
+
+```json
+{
+  "name": "on_decode_error",
+  "context": "decode-error",
+  "contextFields": [
+    {"name": "routing_key", "type": "string", "summary": "Routing key the message was delivered with."}
+  ]
+}
+```
+
+Read those as appended to the shape's own fields, for that attribute only.
+`decode-error` is the case: the five fields describing the failure are the same
+everywhere, and then the receiver adds the identity of its transport —
+`routing_key` on rabbitmq, `mqtt_topic` on mqtt, `stream` and `entry_id` on a
+redis stream. Treat an unlisted field on an open shape as unknown-but-possible
+rather than as an error.
+
+A site's field may not shadow one the shape already declares — including a
+universal — because at runtime the fixed field wins and the site's value is
+dropped. Trying to declare one is a reported problem, and the field is left out
+of the document.
 
 ### Nested blocks
 

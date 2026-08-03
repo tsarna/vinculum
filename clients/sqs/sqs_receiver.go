@@ -87,10 +87,17 @@ are deleted once handled, unless ` + "`auto_delete`" + ` says otherwise.`,
 		"concurrency": {
 			Summary: "Number of messages handled at once.",
 		},
-		"on_decode_error": cfg.OnDecodeErrorAttr,
-		"wire_format":     cfg.WireFormatAttr,
-		"metrics":         cfg.MetricsAttr,
-		"tracing":         cfg.TracingAttr,
+		"on_decode_error": cfg.OnDecodeErrorAttr.WithContextFields(
+			cfg.ContextField{Name: "queue", Type: "string", Summary: "Queue the message was received from."},
+			cfg.ContextField{
+				Name: "message_id", Type: "string", Optional: true,
+				Summary: "SQS message ID.",
+				Doc:     "Absent in the unusual case that SQS returned a message without one.",
+			},
+		),
+		"wire_format": cfg.WireFormatAttr,
+		"metrics":     cfg.MetricsAttr,
+		"tracing":     cfg.TracingAttr,
 	}),
 	Constraints: cfg.SubscriberSourceConstraints,
 }

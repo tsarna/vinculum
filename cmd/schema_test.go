@@ -730,6 +730,49 @@ func TestSchemaContexts(t *testing.T) {
 		contextFieldNames(doc.Contexts["trigger-cron"]))
 }
 
+// TestSchemaOpenContextFields covers the one shape whose fields are a floor
+// rather than the whole list. Every receiver's on_decode_error carries the same
+// five, then adds the identity of its own transport — so a consumer completing
+// inside one gets ctx.routing_key on rabbitmq and ctx.mqtt_topic on mqtt, and
+// neither on the other.
+func TestSchemaOpenContextFields(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{RequireDocs: true})
+
+	shape := doc.Contexts["decode-error"]
+	require.NotNil(t, shape)
+	assert.True(t, shape.OpenFields, "decode-error must say its field list is open")
+	assert.Equal(t, []string{"raw", "error", "wire_format", "topic", "fields",
+		"auth", "baggage", "trace_id", "span_id"}, contextFieldNames(shape))
+
+	// Only an open shape may be added to, so no other shape carries additions.
+	sites := map[string][]string{}
+	forEachAttr(doc, func(path string, attr *config.SchemaAttr) {
+		if len(attr.ContextFields) == 0 {
+			return
+		}
+		assert.Equal(t, "decode-error", attr.Context,
+			"%s adds fields to a shape that is not open", path)
+		var names []string
+		for _, f := range attr.ContextFields {
+			assert.NotEmpty(t, f.Type, "%s: context field %q has no type", path, f.Name)
+			assert.NotEmpty(t, f.Summary, "%s: context field %q has no summary", path, f.Name)
+			names = append(names, f.Name)
+		}
+		sites[path] = names
+	})
+
+	// Every receiver that accepts on_decode_error declares what it adds, so a
+	// new one cannot quietly inherit the bare five.
+	assert.Equal(t, map[string][]string{
+		"client kafka.receiver.on_decode_error":          {"kafka_topic", "partition", "offset", "key"},
+		"client mqtt.receiver.on_decode_error":           {"mqtt_topic"},
+		"client rabbitmq.receiver.on_decode_error":       {"routing_key", "exchange", "queue"},
+		"client redis_pubsub.subscriber.on_decode_error": {"channel", "matched_pattern"},
+		"client redis_stream.consumer.on_decode_error":   {"stream", "entry_id", "group", "consumer"},
+		"client sqs_receiver.on_decode_error":            {"queue", "message_id"},
+	}, sites)
+}
+
 func contextFieldNames(shape *config.SchemaContext) []string {
 	if shape == nil {
 		return nil

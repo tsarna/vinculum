@@ -117,12 +117,34 @@ type AttrMeta struct {
 	// describes — or describing one nothing names — is a reported problem.
 	Context string
 
+	// ContextFields are fields this attribute's `ctx` carries in addition to
+	// the ones its shape declares. Only an open shape — one whose OpenFields
+	// is set — accepts them: `on_decode_error` has the same five fixed fields
+	// everywhere, plus identity fields chosen by the receiver, so the mqtt
+	// receiver adds `mqtt_topic` where the rabbitmq one adds `routing_key`.
+	//
+	// A name that the shape already declares, or that a universal field takes,
+	// is a reported problem — it is exactly the collision the runtime resolves
+	// by dropping the site's field.
+	ContextFields []ContextField
+
 	// Enum is the closed set of legal string values, when there is one.
 	Enum []string
 
 	// Deprecated, when non-empty, marks the attribute deprecated and explains
 	// the replacement.
 	Deprecated string
+}
+
+// WithContextFields returns a copy of meta carrying the given additional `ctx`
+// fields. Use it to specialize a shared AttrMeta per site:
+//
+//	"on_decode_error": cfg.OnDecodeErrorAttr.WithContextFields(
+//	    cfg.ContextField{Name: "routing_key", Type: "string", Summary: "…"},
+//	),
+func (meta AttrMeta) WithContextFields(fields ...ContextField) AttrMeta {
+	meta.ContextFields = fields
+	return meta
 }
 
 // ContextSchema describes one shape of `ctx`: what an expression evaluated at
@@ -149,6 +171,17 @@ type ContextSchema struct {
 	// baggage, trace_id, or span_id. The editor blocks are the case: they
 	// assemble a context object themselves.
 	WithoutUniversalFields bool
+
+	// OpenFields marks a shape whose Fields are a floor rather than the whole
+	// list: every site carries them, and a site may carry more. Attributes
+	// naming an open shape declare their additions with
+	// AttrMeta.ContextFields; only an open shape may.
+	//
+	// `decode-error` is the case — five fields are fixed by
+	// MakeDecodeErrorHook and the receiver adds its own transport identity —
+	// and a consumer that treated the list as closed would report a correct
+	// `ctx.routing_key` as an unknown field.
+	OpenFields bool
 }
 
 // ContextField is one field of a `ctx` shape.
@@ -816,11 +849,14 @@ type SchemaAttr struct {
 	Summary string `json:"summary,omitempty"`
 	Doc     string `json:"doc,omitempty"`
 	Hint    Hint   `json:"hint,omitempty"`
-	// Context names the `ctx` shape this attribute's expression sees. Shapes
-	// are enumerated in a later revision of the format.
-	Context    string   `json:"context,omitempty"`
-	Enum       []string `json:"enum,omitempty"`
-	Deprecated string   `json:"deprecated,omitempty"`
+	// Context names the `ctx` shape this attribute's expression sees; look it
+	// up in the document's top-level `contexts`.
+	Context string `json:"context,omitempty"`
+	// ContextFields are fields this site adds to that shape, present only for
+	// an open shape. Read them as appended to the shape's own fields.
+	ContextFields []*SchemaContextField `json:"contextFields,omitempty"`
+	Enum          []string              `json:"enum,omitempty"`
+	Deprecated    string                `json:"deprecated,omitempty"`
 }
 
 // SchemaContext describes one `ctx` shape, named by an attribute's `context`.
@@ -830,6 +866,10 @@ type SchemaContext struct {
 	// Fields are the shape's own fields first, then the universal ones every
 	// `ctx` carries.
 	Fields []*SchemaContextField `json:"fields"`
+	// OpenFields is true when Fields is a floor rather than the whole list: a
+	// site may carry more, named by its attribute's `contextFields`. Treat an
+	// unlisted field as unknown-but-possible rather than as an error.
+	OpenFields bool `json:"openFields,omitempty"`
 }
 
 // SchemaContextField describes one field readable as `ctx.<name>`.
@@ -1033,15 +1073,16 @@ func (b *schemaBuilder) mergeBody(path string, rb *reflectedBody, ts TypeSchema)
 			b.problemf("%s.%s: missing summary", path, ra.Name)
 		}
 		body.Attributes = append(body.Attributes, &SchemaAttr{
-			Name:       ra.Name,
-			Required:   ra.Required,
-			Type:       ra.Type,
-			Summary:    meta.Summary,
-			Doc:        meta.Doc,
-			Hint:       meta.Hint,
-			Context:    meta.Context,
-			Enum:       meta.Enum,
-			Deprecated: meta.Deprecated,
+			Name:          ra.Name,
+			Required:      ra.Required,
+			Type:          ra.Type,
+			Summary:       meta.Summary,
+			Doc:           meta.Doc,
+			Hint:          meta.Hint,
+			Context:       meta.Context,
+			ContextFields: schemaContextFields(meta.ContextFields),
+			Enum:          meta.Enum,
+			Deprecated:    meta.Deprecated,
 		})
 	}
 	for _, name := range sortedKeys(ts.Attrs) {
@@ -1181,7 +1222,7 @@ func GenerateSchema(opts SchemaGenOptions) (*SchemaDocument, []error) {
 // label it cannot expand, and a shape no attribute names is curation for a
 // site that no longer exists.
 func (b *schemaBuilder) contexts(doc *SchemaDocument) map[string]*SchemaContext {
-	named := map[string][]string{} // shape name -> attribute paths naming it
+	named := map[string][]contextRef{} // shape name -> attributes naming it
 	for _, blockType := range sortedKeys(doc.Blocks) {
 		block := doc.Blocks[blockType]
 		if block.Body != nil {
@@ -1197,10 +1238,13 @@ func (b *schemaBuilder) contexts(doc *SchemaDocument) map[string]*SchemaContext 
 		cs, ok := contextSchemas[name]
 		if !ok {
 			b.problemf("context %q is named by %s but no shape is registered for it",
-				name, named[name][0])
+				name, named[name][0].path)
 			continue
 		}
 		out[name] = b.contextShape(name, cs)
+		for _, ref := range named[name] {
+			b.checkContextFields(name, out[name], ref)
+		}
 	}
 	for _, name := range sortedKeys(contextSchemas) {
 		if _, ok := named[name]; !ok {
@@ -1215,9 +1259,10 @@ func (b *schemaBuilder) contextShape(name string, cs ContextSchema) *SchemaConte
 		b.problemf("context %s: missing summary", name)
 	}
 	out := &SchemaContext{
-		Summary: cs.Summary,
-		Doc:     cs.Doc,
-		Fields:  make([]*SchemaContextField, 0, len(cs.Fields)+len(universalContextFields)),
+		Summary:    cs.Summary,
+		Doc:        cs.Doc,
+		OpenFields: cs.OpenFields,
+		Fields:     make([]*SchemaContextField, 0, len(cs.Fields)+len(universalContextFields)),
 	}
 	seen := map[string]bool{}
 	for _, f := range cs.Fields {
@@ -1256,17 +1301,77 @@ func (b *schemaBuilder) contextShape(name string, cs ContextSchema) *SchemaConte
 	return out
 }
 
+// contextRef is one attribute naming a `ctx` shape, and where it was found.
+type contextRef struct {
+	path string
+	attr *SchemaAttr
+}
+
 // collectContextNames records every context name an attribute in body refers
 // to, at any depth, along with where it was found.
-func collectContextNames(path string, body *SchemaBody, into map[string][]string) {
+func collectContextNames(path string, body *SchemaBody, into map[string][]contextRef) {
 	for _, attr := range body.Attributes {
 		if attr.Context != "" {
-			into[attr.Context] = append(into[attr.Context], path+"."+attr.Name)
+			into[attr.Context] = append(into[attr.Context], contextRef{path + "." + attr.Name, attr})
 		}
 	}
 	for _, name := range sortedKeys(body.Blocks) {
 		collectContextNames(path+"."+name, &body.Blocks[name].SchemaBody, into)
 	}
+}
+
+// checkContextFields validates one site's additions to an open shape. The
+// collisions it reports are the ones the runtime resolves by dropping the
+// site's field, so the field would be documented and then never appear.
+func (b *schemaBuilder) checkContextFields(name string, shape *SchemaContext, ref contextRef) {
+	if len(ref.attr.ContextFields) == 0 {
+		return
+	}
+	if !shape.OpenFields {
+		b.problemf("%s: adds fields to context %q, whose field list is closed", ref.path, name)
+		ref.attr.ContextFields = nil
+		return
+	}
+	declared := make(map[string]bool, len(shape.Fields))
+	for _, f := range shape.Fields {
+		declared[f.Name] = true
+	}
+	added := map[string]bool{}
+	kept := ref.attr.ContextFields[:0]
+	for _, f := range ref.attr.ContextFields {
+		switch {
+		case declared[f.Name]:
+			b.problemf("%s: context field %q is already a field of %q, so the site's value is dropped at runtime",
+				ref.path, f.Name, name)
+			continue
+		case added[f.Name]:
+			b.problemf("%s: duplicate context field %q", ref.path, f.Name)
+			continue
+		case b.opts.RequireDocs && f.Summary == "":
+			b.problemf("%s: context field %q: missing summary", ref.path, f.Name)
+		}
+		added[f.Name] = true
+		kept = append(kept, f)
+	}
+	ref.attr.ContextFields = kept
+}
+
+// schemaContextFields converts curated context fields to their emitted form.
+func schemaContextFields(fields []ContextField) []*SchemaContextField {
+	if len(fields) == 0 {
+		return nil
+	}
+	out := make([]*SchemaContextField, 0, len(fields))
+	for _, f := range fields {
+		out = append(out, &SchemaContextField{
+			Name:     f.Name,
+			Type:     f.Type,
+			Summary:  f.Summary,
+			Doc:      f.Doc,
+			Optional: f.Optional,
+		})
+	}
+	return out
 }
 
 // topLevelBlock describes one entry of blockSchema. A block is typed — its
