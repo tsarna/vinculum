@@ -84,6 +84,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`client "redis_pubsub"` no longer hangs at startup on a short channel name.**
+  Subscribing to a channel of six characters or fewer (or a pattern of four or fewer)
+  blocked forever inside `Start()`, so the whole runtime failed to come up on a
+  configuration that parsed and validated cleanly, with no error and no timeout.
+
+  The cause was `github.com/redis/go-redis/v9` v9.21.0, which changed
+  `PeekPushNotificationName` from a peek clamped to what was already buffered into an
+  unconditional `bufio` `Peek(36)`. A subscribe confirmation is 29 bytes plus the
+  channel name, so a short one has no 36th byte to read; nothing more arrives until
+  someone publishes, and the read carries no deadline. Fixed upstream in v9.22.0
+  ([redis/go-redis#3935](https://github.com/redis/go-redis/issues/3935)), which
+  Vinculum now requires. A regression test subscribes to a single short channel, so
+  the defect would have failed CI rather than shipping. (The existing subscriber test
+  missed it: it declares an exact channel *and* a pattern, which pipelines two
+  confirmations into the buffer and clears 36 bytes between them.)
 - **Documentation corrections found by building the schema.** `trigger "start"`
   runs after every startable component is ready, not "during the configuration build
   phase before any server or client starts", and an error in it is logged rather than
