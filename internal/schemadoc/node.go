@@ -16,13 +16,16 @@ const (
 	KindBlock Kind = "block"
 	// KindContext is a `ctx` shape, named by an attribute's context field.
 	KindContext Kind = "context"
-	// KindFunction is a callable function. Added in a later phase; declared
-	// here so the vocabulary has one definition.
+	// KindFunction is a callable function.
 	KindFunction Kind = "function"
 )
 
 // Kinds are the kinds a topic may be resolved in, in the order they are tried.
-var Kinds = []Kind{KindBlock, KindContext, KindFunction}
+//
+// KindFunction is declared above but absent here until something resolves in
+// it: offering a reader a --type that finds nothing would be worse than not
+// offering it.
+var Kinds = []Kind{KindBlock, KindContext}
 
 // ValidKind reports whether s names a kind.
 func ValidKind(s string) bool {

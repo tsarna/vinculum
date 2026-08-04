@@ -180,6 +180,56 @@ func LeadingNames(doc *config.SchemaDocument, kind Kind) []string {
 	return out
 }
 
+// Members returns the names that could continue path — the next word a reader
+// could type. For a typed block that is its variants; for a body it is its
+// attributes and sub-blocks; for anything with no members it is nothing.
+//
+// It is completion's half of resolution, and shares its rules: what it offers
+// always resolves, and it never offers a name that Resolve would not accept in
+// that position.
+func Members(doc *config.SchemaDocument, kind Kind, path []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(name string) {
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+
+	// Every candidate contributes, because an ambiguous prefix has more than
+	// one continuation and a reader has not yet chosen between them.
+	for _, n := range Resolve(doc, kind, path) {
+		switch n.shape {
+		case shapeBlock:
+			if n.block.VariantLabel != "" {
+				for _, v := range sortedBodyNames(n.block.Variants) {
+					add(v)
+				}
+				continue
+			}
+			if n.block.Body != nil {
+				bodyMembers(n.block.Body, add)
+			}
+		case shapeVariant:
+			bodyMembers(n.body, add)
+		case shapeNested:
+			bodyMembers(&n.nested.SchemaBody, add)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func bodyMembers(body *config.SchemaBody, add func(string)) {
+	for _, name := range sortedBlockNames(body.Blocks) {
+		add(name)
+	}
+	for _, a := range body.Attributes {
+		add(a.Name)
+	}
+}
+
 // Speller renders the invocation that names one candidate, in the idiom of the
 // front door a menu is being printed at: a shell command for `vinculum man`, a
 // meta-command for the REPL, a function call for help().
@@ -205,6 +255,19 @@ func CommandSpeller(kind Kind, path []string, qualify bool) string {
 // and a server type — the longer path is the disambiguator, and it is what a
 // person would rather type than a flag.
 func MenuFor(query []string, candidates []Node, spell Speller) Menu {
+	return Menu{
+		Intro: fmt.Sprintf("%q is ambiguous, choose one of:", strings.Join(query, " ")),
+		Items: menuItems(candidates, spell),
+	}
+}
+
+// SuggestMenu renders near misses as the "did you mean" after a failed
+// resolution. Same items, different question.
+func SuggestMenu(candidates []Node, spell Speller) Menu {
+	return Menu{Intro: "did you mean:", Items: menuItems(candidates, spell)}
+}
+
+func menuItems(candidates []Node, spell Speller) []string {
 	qualify := distinctKinds(candidates) > 1
 
 	seen := map[string]bool{}
@@ -217,11 +280,7 @@ func MenuFor(query []string, candidates []Node, spell Speller) Menu {
 		seen[item] = true
 		items = append(items, item)
 	}
-
-	return Menu{
-		Intro: fmt.Sprintf("%q is ambiguous, choose one of:", strings.Join(query, " ")),
-		Items: items,
-	}
+	return items
 }
 
 func distinctKinds(candidates []Node) int {

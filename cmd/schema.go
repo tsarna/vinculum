@@ -171,6 +171,12 @@ func schemaProblemLabel() string {
 type ExitCodeError struct {
 	Code int
 	Err  error
+	// Reported says the command has already explained the failure to the user,
+	// so main should take the exit code and print nothing more. For a failure
+	// whose explanation is itself the output — `vinculum man` answering an
+	// ambiguous topic with the commands that resolve it — a trailing
+	// "Error: ..." line restates the headline and buries the answer.
+	Reported bool
 }
 
 func (e *ExitCodeError) Error() string { return e.Err.Error() }
@@ -185,4 +191,11 @@ func ExitCode(err error) int {
 		return ece.Code
 	}
 	return 1
+}
+
+// Reported reports whether the command has already explained this failure, so
+// that main prints nothing further and only sets the exit code.
+func Reported(err error) bool {
+	var ece *ExitCodeError
+	return errors.As(err, &ece) && ece.Reported
 }
