@@ -38,6 +38,7 @@ func (c *VinculumWebsocketClient) Build() (bus.Client, error) {
 var vwsClientSchema = cfg.TypeSchema{
 	Sample:  &VinculumWebsocketsClientDefinition{},
 	Summary: "A client connection to a Vinculum (VWS) WebSocket server.",
+	DocPage: "server-vws.md#client-vws",
 	Doc: `Connects outbound to a ` + "`server \"vws\"`" + ` endpoint and joins its bus, so two
 Vinculum instances can be bridged over a WebSocket. Available in expressions as
 ` + "`client.<name>`" + `.`,

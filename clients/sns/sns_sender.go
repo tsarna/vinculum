@@ -42,6 +42,7 @@ var awsClientAttrs = map[string]cfg.AttrMeta{
 var snsSenderSchema = cfg.TypeSchema{
 	Sample:  &SNSSenderDefinition{},
 	Summary: "Publishes messages to an Amazon SNS topic.",
+	DocPage: "client-sns.md#client-sns_sender-name",
 	Doc:     `Acts as a subscriber: messages sent to this client are published to the topic.`,
 	Attrs: cfg.MergeAttrs(awsClientAttrs, map[string]cfg.AttrMeta{
 		"sns_topic": {

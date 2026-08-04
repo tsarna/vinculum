@@ -27,6 +27,7 @@ func init() {
 var redisKVSchema = cfg.TypeSchema{
 	Sample:  &RedisKVDefinition{},
 	Summary: "Redis-backed key/value storage.",
+	DocPage: "client-redis.md#client-redis_kv-name",
 	Doc: `Exposes a Redis keyspace to ` + "`get()`" + `, ` + "`set()`" + `, and ` + "`increment()`" + `,
 available in expressions as ` + "`client.<name>`" + `.`,
 	Attrs: map[string]cfg.AttrMeta{

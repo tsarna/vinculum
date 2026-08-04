@@ -120,6 +120,7 @@ var mcpParamSchema = cfg.TypeSchema{
 var mcpServerSchema = cfg.TypeSchema{
 	Sample:  &McpServerDefinition{},
 	Summary: "A Model Context Protocol server.",
+	DocPage: "server-mcp.md",
 	Doc: `Exposes resources, tools, and prompts to MCP clients over streamable HTTP.
 
 With ` + "`listen`" + ` it runs its own HTTP server; without one, mount it on a route of a

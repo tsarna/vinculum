@@ -493,6 +493,7 @@ at runtime, and for ` + "`stop_when`" + `, which is evaluated after the action w
 var intervalTriggerSchema = cfg.TypeSchema{
 	Sample:  &triggerIntervalBody{},
 	Summary: "Repeatedly evaluates an action on a dynamic schedule.",
+	DocPage: "trigger.md#trigger-interval",
 	Doc: `Waits the computed delay, evaluates the action, repeats. Both ` + "`delay`" + ` and
 ` + "`action`" + ` are re-evaluated every iteration against a context carrying the run
 count and the previous result, so the cadence can adapt at runtime — polling

@@ -51,6 +51,7 @@ var redisStreamFieldAttrs = map[string]cfg.AttrMeta{
 var redisStreamSchema = cfg.TypeSchema{
 	Sample:  &RedisStreamDefinition{},
 	Summary: "A Redis Streams client bridging streams to the bus.",
+	DocPage: "client-redis.md#client-redis_stream-name",
 	Doc: `Produces bus messages into Redis streams and consumes them through consumer
 groups. Unlike ` + "`redis_pubsub`" + `, entries persist in the stream and a group tracks
 what it has acknowledged, so a consumer can resume after a restart.`,

@@ -86,7 +86,7 @@ func TestManRendersAContextShape(t *testing.T) {
 	assert.Contains(t, out, "`ctx` — message")
 	assert.Contains(t, out, "`ctx.trace_id`")
 	// The shape's page says which attributes see it.
-	assert.Contains(t, out, "**See also**")
+	assert.Contains(t, out, "## Evaluated by")
 	assert.Contains(t, out, "`subscription` › `action`")
 }
 

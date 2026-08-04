@@ -354,11 +354,12 @@ func (t *termSink) seeAlso(s SeeAlso) {
 		return
 	}
 	t.gap()
-	t.line(t.pad() + t.st.apply(spanStrong, "See also"))
-	t.blank()
 	for _, l := range s.Items {
 		text := l.Text
-		if l.Target != "" {
+		// A terminal cannot follow a link, so the target is shown — unless it
+		// is already what the text says, which is the usual case for a page
+		// referred to by its filename.
+		if l.Target != "" && l.Target != l.Text {
 			text += " (" + l.Target + ")"
 		}
 		t.column("•", text, 1)

@@ -79,6 +79,7 @@ func init() {
 var httpServerSchema = cfg.TypeSchema{
 	Sample:  &HttpServerDefinition{},
 	Summary: "An HTTP server exposing request handlers and static files.",
+	DocPage: "server-http.md",
 	Doc: `Serves ` + "`handle`" + ` routes and ` + "`files`" + ` trees over HTTP, and is available in
 expressions as ` + "`server.<name>`" + `. Other servers that expose an HTTP handler — MCP,
 metrics — can be mounted into a route with ` + "`handler = server.<name>`" + `.`,

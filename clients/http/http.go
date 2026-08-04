@@ -82,6 +82,7 @@ type httpClientDefinition struct {
 var httpClientSchema = cfg.TypeSchema{
 	Sample:  &httpClientDefinition{},
 	Summary: "An HTTP(S) client for making outbound requests.",
+	DocPage: "client-http.md",
 	Doc: `Defines an HTTP client, available in expressions as ` + "`client.<name>`" + ` and used
 by the ` + "`http::get()`" + `, ` + "`http::post()`" + `, and related functions.
 

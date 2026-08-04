@@ -105,6 +105,7 @@ func init() {
 var onceTriggerSchema = cfg.TypeSchema{
 	Sample:  &triggerOnceBody{},
 	Summary: "Evaluates an action lazily, at most once, and caches the result.",
+	DocPage: "trigger.md#trigger-once",
 	Doc: `Nothing happens until the first ` + "`get(trigger.<name>)`" + `. From then on every
 call returns the same value without re-evaluating — the tool for lazy
 initialization of something expensive or side-effecting that should run once,

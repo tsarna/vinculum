@@ -63,6 +63,7 @@ func init() {
 var lineEditorSchema = cfg.TypeSchema{
 	Sample:  &lineEditorBody{},
 	Summary: "Edits text line by line with ordered regex rules.",
+	DocPage: "editor.md",
 	Doc: `Compiles into ` + "`<name>(ctx, filename, ...)`" + ` in file mode, or
 ` + "`<name>(ctx, input, ...)`" + ` in string mode, with any declared ` + "`params`" + ` following.
 

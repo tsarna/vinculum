@@ -55,6 +55,7 @@ var awsMessageAttrs = map[string]cfg.AttrMeta{
 var sqsReceiverSchema = cfg.TypeSchema{
 	Sample:  &SQSReceiverDefinition{},
 	Summary: "Receives messages from an Amazon SQS queue.",
+	DocPage: "client-sqs.md#client-sqs_receiver-name",
 	Doc: `Polls an SQS queue and delivers each message to the bus or an action. Messages
 are deleted once handled, unless ` + "`auto_delete`" + ` says otherwise.`,
 	Attrs: cfg.MergeAttrs(awsClientAttrs, cfg.SubscriberSourceAttrs, map[string]cfg.AttrMeta{

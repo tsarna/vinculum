@@ -45,6 +45,7 @@ var postgresSchema = cfg.TypeSchema{
 	Sample:      &postgresDef{},
 	AlsoSamples: []any{sqlengine.CommonSchema.Sample},
 	Summary:     "A PostgreSQL database client.",
+	DocPage:     "client-sql.md#client-postgres-name",
 	Doc: `Connects to PostgreSQL and exposes each ` + "`query`" + ` block as a callable
 statement: ` + "`call(client.<name>, \"<query>\", args…)`" + `.`,
 	Attrs: cfg.MergeAttrs(sqlengine.CommonSchema.Attrs, map[string]cfg.AttrMeta{

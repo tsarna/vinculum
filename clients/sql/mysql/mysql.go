@@ -44,6 +44,7 @@ var mysqlSchema = cfg.TypeSchema{
 	Sample:      &mysqlDef{},
 	AlsoSamples: []any{sqlengine.CommonSchema.Sample},
 	Summary:     "A MySQL or MariaDB database client.",
+	DocPage:     "client-sql.md#client-mysql-name",
 	Doc: `Connects to MySQL and exposes each ` + "`query`" + ` block as a callable statement:
 ` + "`call(client.<name>, \"<query>\", args…)`" + `.`,
 	Attrs: cfg.MergeAttrs(sqlengine.CommonSchema.Attrs, map[string]cfg.AttrMeta{

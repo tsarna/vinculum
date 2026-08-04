@@ -457,6 +457,7 @@ func init() {
 var flipflopConditionSchema = cfg.TypeSchema{
 	Sample:  &flipflopBody{},
 	Summary: "Edge-driven bistable: T, SR, JK, D, D-latch, and gated variants.",
+	DocPage: "condition.md#condition-flipflop-name",
 	Doc: `Each *wire* is a boolean expression watched reactively; the combination of
 wires declared is what names the variant:
 

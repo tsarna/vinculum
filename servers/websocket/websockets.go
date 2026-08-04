@@ -37,6 +37,7 @@ func init() {
 var websocketServerSchema = cfg.TypeSchema{
 	Sample:  &WebsocketsServerDefinition{},
 	Summary: "A WebSocket server that pushes bus messages as raw frames.",
+	DocPage: "server-websocket.md",
 	Doc: `Bridges a bus to WebSocket clients using raw frames, with no subscribe protocol:
 every connected client receives the messages the server is subscribed to, and any
 frame a client sends is published to a fixed topic — ` + "`text`" + ` for text frames,

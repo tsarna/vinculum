@@ -31,6 +31,7 @@ func init() {
 var openaiClientSchema = cfg.TypeSchema{
 	Sample:  &OpenAIClientDefinition{},
 	Summary: "A client for an OpenAI-compatible chat completion API.",
+	DocPage: "client-llm.md#client-openai-name",
 	Doc: `Calls a large language model, available in expressions as ` + "`client.<name>`" + `.
 Works with any provider exposing an OpenAI-compatible API, selected with
 ` + "`provider`" + ` or by pointing ` + "`base_url`" + ` at it directly.`,

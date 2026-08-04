@@ -322,6 +322,7 @@ func init() {
 var counterConditionSchema = cfg.TypeSchema{
 	Sample:  &counterBody{},
 	Summary: "Counts events and activates when the count reaches a preset.",
+	DocPage: "condition.md#condition-counter-name",
 	Doc: `Corresponds to the IEC 61131-3 CTU, CTD, and CTUD function blocks. The count
 is driven exclusively by ` + "`increment(condition.<name> [, n])`" + ` and
 ` + "`decrement(condition.<name> [, n])`" + ` — there is no ` + "`input`" + ` expression.

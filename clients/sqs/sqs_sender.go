@@ -27,6 +27,7 @@ func init() {
 var sqsSenderSchema = cfg.TypeSchema{
 	Sample:  &SQSSenderDefinition{},
 	Summary: "Sends messages to an Amazon SQS queue.",
+	DocPage: "client-sqs.md#client-sqs_sender-name",
 	Doc:     `Acts as a subscriber: messages sent to this client are published to the queue.`,
 	Attrs: cfg.MergeAttrs(awsClientAttrs, awsMessageAttrs, map[string]cfg.AttrMeta{
 		"queue_url": {

@@ -169,6 +169,7 @@ func init() {
 var metricsServerSchema = cfg.TypeSchema{
 	Sample:  &MetricsServerDefinition{},
 	Summary: "A Prometheus-style metrics endpoint.",
+	DocPage: "server-metrics.md",
 	Doc: `Exposes metrics for scraping, and acts as a metrics backend that ` + "`metric`" + `
 blocks and instrumented blocks report through.
 

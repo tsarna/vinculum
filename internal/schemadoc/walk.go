@@ -54,6 +54,19 @@ func Walk(n Node, opts WalkOptions) []Event {
 	case shapeContext:
 		w.walkContext(n, level)
 	}
+
+	// The hand-written page last, after everything generated: it is where to
+	// go for what the schema cannot say — worked examples, and the prose that
+	// explains why rather than what.
+	//
+	// It gets its own heading at the page's level rather than trailing the
+	// last thing emitted. A sink that indents by heading depth would otherwise
+	// file the page's own footer under whatever sub-block happened to come
+	// last, which reads as documentation of that sub-block.
+	if page := n.DocPage(); page != "" {
+		w.emit(Heading{Level: level + 1, Text: "See also"})
+		w.emit(SeeAlso{Items: []Link{{Text: page, Target: page}}})
+	}
 	return w.events
 }
 
@@ -114,6 +127,7 @@ func (w *walker) walkBlock(n Node, level int) {
 			Name:    name,
 			Summary: strings.TrimSpace(summary),
 			Path:    []string{n.Path[0], name},
+			DocPage: body.DocPage,
 		})
 	}
 	w.emit(Heading{Level: level + 1, Text: "Types"})
@@ -159,7 +173,11 @@ func (w *walker) walkAttr(n Node, level int) {
 func (w *walker) walkContext(n Node, level int) {
 	w.describe(n.Summary(), n.Description(), false)
 	w.emit(contextTable(n.Path[0], n.ctx, nil))
-	w.emit(w.contextUsers(n.Path[0]))
+
+	if users := w.contextUsers(n.Path[0]); len(users.Items) > 0 {
+		w.emit(Heading{Level: level + 1, Text: "Evaluated by"})
+		w.emit(users)
+	}
 }
 
 // walkBody renders the members of a body: its attributes, its constraints, and

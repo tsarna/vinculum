@@ -61,6 +61,20 @@ type TypeSchema struct {
 	// Doc is richer Markdown used for hover; may be multi-paragraph.
 	Doc string
 
+	// DocPage names the hand-written reference page for this type, relative to
+	// doc/ — "client-mqtt.md", or "server-vws.md#client-vws" for a type
+	// documented in a section of another page.
+	//
+	// It exists because a generated index has to link somewhere, and a link
+	// target synthesized by convention is exactly the kind of thing that rots
+	// silently: the page gets renamed and the index still points at it. A test
+	// checks that every DocPage names a file that exists and, for a fragment,
+	// a heading that is in it.
+	//
+	// Required for a variant of a typed block under --require-docs; those are
+	// what the generated per-type indexes link to.
+	DocPage string
+
 	// Attrs holds curated per-attribute metadata, keyed by HCL attribute name.
 	// Every key must name an attribute that reflection found.
 	Attrs map[string]AttrMeta
@@ -809,6 +823,8 @@ type SchemaBlock struct {
 	// Summary and Doc describe the block type as a whole.
 	Summary string
 	Doc     string
+	// DocPage is the hand-written reference page for the block type.
+	DocPage string
 	// Undocumented is true when no curated schema was registered for the block.
 	Undocumented bool
 	// Body is the single body of a plain block; nil for typed blocks.
@@ -822,6 +838,9 @@ type SchemaBlock struct {
 type SchemaBody struct {
 	Summary string `json:"summary,omitempty"`
 	Doc     string `json:"doc,omitempty"`
+	// DocPage is the hand-written reference page for this type, relative to
+	// doc/. A consumer generating an index links to it.
+	DocPage string `json:"docPage,omitempty"`
 	// Undocumented is true when no curated schema was registered for this body.
 	Undocumented bool `json:"undocumented,omitempty"`
 	// Conditional is true for a variant whose availability depends on config
@@ -907,6 +926,7 @@ type plainBlockJSON struct {
 	Labels       []string `json:"labels"`
 	Summary      string   `json:"summary,omitempty"`
 	Doc          string   `json:"doc,omitempty"`
+	DocPage      string   `json:"docPage,omitempty"`
 	Undocumented bool     `json:"undocumented,omitempty"`
 	SchemaBody
 }
@@ -918,6 +938,7 @@ type typedBlockJSON struct {
 	VariantLabel string                 `json:"variantLabel"`
 	Summary      string                 `json:"summary,omitempty"`
 	Doc          string                 `json:"doc,omitempty"`
+	DocPage      string                 `json:"docPage,omitempty"`
 	Undocumented bool                   `json:"undocumented,omitempty"`
 	Variants     map[string]*SchemaBody `json:"variants"`
 }
@@ -935,6 +956,7 @@ func (b SchemaBlock) MarshalJSON() ([]byte, error) {
 			VariantLabel: b.VariantLabel,
 			Summary:      b.Summary,
 			Doc:          b.Doc,
+			DocPage:      b.DocPage,
 			Undocumented: b.Undocumented,
 			Variants:     variants,
 		})
@@ -951,6 +973,7 @@ func (b SchemaBlock) MarshalJSON() ([]byte, error) {
 		Labels:       b.labels(),
 		Summary:      firstNonEmptyString(b.Summary, body.Summary),
 		Doc:          firstNonEmptyString(b.Doc, body.Doc),
+		DocPage:      firstNonEmptyString(b.DocPage, body.DocPage),
 		Undocumented: b.Undocumented || body.Undocumented,
 		SchemaBody:   *body,
 	})
@@ -1058,6 +1081,7 @@ func (b *schemaBuilder) mergeBody(path string, rb *reflectedBody, ts TypeSchema)
 	body := newSchemaBody()
 	body.Summary = ts.Summary
 	body.Doc = ts.Doc
+	body.DocPage = ts.DocPage
 	body.FreeAttributes = ts.FreeAttributes
 
 	if b.opts.RequireDocs && ts.Summary == "" {
@@ -1378,6 +1402,7 @@ func (b *schemaBuilder) topLevelBlock(header hcl.BlockHeaderSchema, handlers map
 		Labels:  header.LabelNames,
 		Summary: ts.Summary,
 		Doc:     ts.Doc,
+		DocPage: ts.DocPage,
 	}
 
 	if len(header.LabelNames) > 0 && header.LabelNames[0] == "type" {
@@ -1460,6 +1485,11 @@ func (b *schemaBuilder) variants(blockType string, blockTS TypeSchema) map[strin
 		}
 		body.Attributes = appendCommonAttrs(body.Attributes, common)
 		body.Conditional = conditionalTypes[blockType][name]
+		// A variant is what a generated per-type index links to, so it is the
+		// one place a reference page is required rather than optional.
+		if b.opts.RequireDocs && ok && ts.DocPage == "" {
+			b.problemf("%s: no DocPage; a generated index has nothing to link to", path)
+		}
 		variants[name] = body
 	}
 	return variants

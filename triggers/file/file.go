@@ -454,6 +454,7 @@ func init() {
 var fileTriggerSchema = cfg.TypeSchema{
 	Sample:  &triggerFileBody{},
 	Summary: "Fires in response to filesystem events.",
+	DocPage: "trigger.md#trigger-file",
 	Doc: `Watches a file or directory for creates, writes, deletes, renames, and
 permission changes, using OS-native notification (inotify, kqueue/FSEvents,
 ReadDirectoryChangesW) via fsnotify.

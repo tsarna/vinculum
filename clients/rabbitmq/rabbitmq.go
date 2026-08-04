@@ -36,6 +36,7 @@ func init() {
 var rabbitmqClientSchema = cfg.TypeSchema{
 	Sample:  &RMQClientDefinition{},
 	Summary: "A RabbitMQ (AMQP 0-9-1) client bridging exchanges and queues to the bus.",
+	DocPage: "client-rabbitmq.md",
 	Doc: `Connects to a RabbitMQ broker, available in expressions as ` + "`client.<name>`" + `.
 
 ` + "`sender`" + ` blocks publish bus messages to an exchange; ` + "`receiver`" + ` blocks

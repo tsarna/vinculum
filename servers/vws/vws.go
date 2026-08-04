@@ -46,6 +46,7 @@ func init() {
 var vwsServerSchema = cfg.TypeSchema{
 	Sample:  &VinculumWebsocketsServerDefinition{},
 	Summary: "A WebSocket server speaking the Vinculum (VWS) protocol.",
+	DocPage: "server-vws.md#server-vws",
 	Doc: `Clients subscribe to topics over a WebSocket and receive matching bus messages,
 and — when ` + "`allow_send`" + ` permits — publish back onto the bus. Mount it on a route
 of a ` + "`server \"http\"`" + ` block with ` + "`handler = server.<name>`" + `.`,

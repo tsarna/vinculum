@@ -28,6 +28,7 @@ func init() {
 var startTriggerSchema = cfg.TypeSchema{
 	Sample:  &triggerStartBody{},
 	Summary: "Evaluates an action once at startup.",
+	DocPage: "trigger.md#trigger-start",
 	Doc: `Runs after every startable component is ready. The action's result becomes
 ` + "`trigger.<name>`" + ` in the global context, so any block may read it — dependency
 ordering is handled automatically.`,

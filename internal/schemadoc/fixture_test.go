@@ -33,6 +33,7 @@ func testDoc() *config.SchemaDocument {
 	mqtt := &config.SchemaBody{
 		Summary: "An MQTT 5.0 publisher and subscriber.",
 		Doc:     "Connects to an MQTT broker.\n\nAvailable in expressions as `client.<name>`.",
+		DocPage: "client-mqtt.md",
 		Attributes: []*config.SchemaAttr{
 			{Name: "broker", Type: "string", Required: true, Summary: "Broker URL.", Hint: config.HintURL},
 			{Name: "disabled", Type: "bool", Summary: "Skip this block entirely."},

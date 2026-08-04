@@ -27,6 +27,7 @@ func init() {
 var shutdownTriggerSchema = cfg.TypeSchema{
 	Sample:  &triggerShutdownBody{},
 	Summary: "Evaluates an action once during graceful shutdown.",
+	DocPage: "trigger.md#trigger-shutdown",
 	Doc: `Runs after SIGINT or SIGTERM, in the reverse of the order stoppable
 components were registered, and before they are torn down. Errors are logged
 but do not abort the shutdown sequence.

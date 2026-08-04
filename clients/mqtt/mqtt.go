@@ -33,6 +33,7 @@ func init() {
 var mqttClientSchema = cfg.TypeSchema{
 	Sample:  &MQTTClientDefinition{},
 	Summary: "An MQTT client bridging an MQTT broker to the bus.",
+	DocPage: "client-mqtt.md",
 	Doc: `Connects to an MQTT broker, available in expressions as ` + "`client.<name>`" + `.
 
 ` + "`sender`" + ` blocks publish bus messages to MQTT topics; ` + "`receiver`" + ` blocks

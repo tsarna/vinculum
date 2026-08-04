@@ -39,6 +39,7 @@ func init() {
 var protobufSchema = cfg.TypeSchema{
 	Sample:  &protobufBody{},
 	Summary: "Protocol Buffers binary, decoded and encoded against a supplied schema.",
+	DocPage: "wire-format-protobuf.md",
 	Doc: `Protobuf binary is not self-describing: the same bytes decode differently
 depending on the message type, and field names never appear on the wire. So a
 protobuf wire format is bound to exactly one message type, and a schema — a

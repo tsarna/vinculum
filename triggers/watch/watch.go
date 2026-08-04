@@ -181,6 +181,7 @@ func init() {
 var watchTriggerSchema = cfg.TypeSchema{
 	Sample:  &triggerWatchBody{},
 	Summary: "Fires each time a watched value changes.",
+	DocPage: "trigger.md#trigger-watch",
 	Doc: `Watchable values are ` + "`var`" + `, non-computed gauge and counter ` + "`metric`" + `,
 ` + "`condition`" + `, and ` + "`fsm`" + ` values. They notify on **every** ` + "`set()`" + ` /
 ` + "`increment()`" + `, even when the new value equals the old — a producer rewriting

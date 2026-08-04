@@ -18,11 +18,11 @@ func TestWalkTypedBlockListsVariants(t *testing.T) {
 	// A typed block has no body of its own; its content is the variant list.
 	assert.Contains(t, out, "## Types")
 	assert.Contains(t, out, "- `http`")
-	assert.Contains(t, out, "- `mqtt` — An MQTT 5.0 publisher and subscriber.")
+	assert.Contains(t, out, "[`mqtt`](client-mqtt.md) — An MQTT 5.0 publisher and subscriber.")
 	assert.NotContains(t, out, "broker", "variant attributes belong on the variant's own page")
 
 	// Variants are listed in a stable order regardless of map iteration.
-	assert.Less(t, strings.Index(out, "- `http`"), strings.Index(out, "- `mqtt`"))
+	assert.Less(t, strings.Index(out, "`http`"), strings.Index(out, "`mqtt`"))
 }
 
 func TestWalkVariantRendersBodyAndSynopsis(t *testing.T) {
@@ -63,6 +63,30 @@ func TestWalkVariantRendersBodyAndSynopsis(t *testing.T) {
 	assert.Contains(t, out, "## `tls`")
 	assert.Contains(t, out, "*Optional; at most one.*")
 	assert.Contains(t, out, "- cert_file and key_file must be specified together.")
+}
+
+// A type's page ends by pointing at the hand-written guide, which is where the
+// worked examples and the reasoning live — the two things the schema cannot
+// carry.
+func TestWalkLinksToTheHandWrittenPage(t *testing.T) {
+	doc := testDoc()
+
+	out := renderNode(VariantNode(doc, "client", "mqtt", doc.Blocks["client"], doc.Blocks["client"].Variants["mqtt"]), WalkOptions{})
+	assert.Contains(t, out, "## See also")
+	assert.Contains(t, out, "- [client-mqtt.md](client-mqtt.md)")
+
+	// The footer is the page's own, so it sits at the page's heading level —
+	// not trailing the last sub-block, where a sink that indents by depth
+	// would file it as documentation of that sub-block.
+	assert.Regexp(t, `\n## See also\n`, out)
+	assert.NotContains(t, out, "### See also")
+
+	// A typed block's variant list links each entry to its own page, which is
+	// what a generated index in doc/ is made of.
+	index := renderNode(BlockNode(doc, "client", doc.Blocks["client"]), WalkOptions{})
+	assert.Contains(t, index, "- [`mqtt`](client-mqtt.md) — An MQTT 5.0 publisher and subscriber.")
+	// A variant with no page is still listed, just unlinked.
+	assert.Contains(t, index, "- `http` — An HTTP(S) request/response client.")
 }
 
 func TestWalkInlinesContextShapes(t *testing.T) {
@@ -115,7 +139,7 @@ func TestWalkContextShapeListsItsUsers(t *testing.T) {
 	assert.Contains(t, out, "Evaluated when a received payload cannot be decoded.")
 	assert.Contains(t, out, "| `ctx.error` | string | The decode failure. |")
 	// The shape's own page says where it comes from.
-	assert.Contains(t, out, "**See also**")
+	assert.Contains(t, out, "## Evaluated by")
 	assert.Contains(t, out, "`client \"mqtt\"` › `on_decode_error`")
 }
 

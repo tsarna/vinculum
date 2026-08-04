@@ -26,6 +26,7 @@ var sqliteSchema = cfg.TypeSchema{
 	Sample:      &sqliteDef{},
 	AlsoSamples: []any{sqlengine.CommonSchema.Sample},
 	Summary:     "A SQLite database client.",
+	DocPage:     "client-sql.md#client-sqlite-name",
 	Doc: `Opens a SQLite database file and exposes each ` + "`query`" + ` block as a callable
 statement: ` + "`call(client.<name>, \"<query>\", args…)`" + `.
 

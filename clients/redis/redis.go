@@ -26,6 +26,7 @@ func init() {
 var redisClientSchema = cfg.TypeSchema{
 	Sample:  &RedisConnectionDefinition{},
 	Summary: "A Redis connection shared by the Redis key/value, pub/sub, and stream clients.",
+	DocPage: "client-redis.md#client-redis-name",
 	Doc: `Holds one Redis connection, available in expressions as ` + "`client.<name>`" + ` and
 referenced by a ` + "`redis_kv`" + `, ` + "`redis_pubsub`" + `, or ` + "`redis_stream`" + ` block's
 ` + "`connection`" + ` attribute, so connection settings are declared once.`,

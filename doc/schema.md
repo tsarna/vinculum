@@ -368,3 +368,30 @@ cfg.RegisterClientType("mqtt", process, cfg.WithSchema(mqttClientSchema))
 Plugins use the identical call — see [plugins.md](plugins.md) — though
 `vinculum schema` does not load plugins, so a plugin's schema is visible only
 to a binary that has already loaded it.
+
+### `DocPage`
+
+Every type also names its hand-written reference page, relative to `doc/`:
+
+```go
+var mqttClientSchema = cfg.TypeSchema{
+    Sample:  &MQTTClientDefinition{},
+    Summary: "An MQTT client bridging an MQTT broker to the bus.",
+    DocPage: "client-mqtt.md",
+    // …
+}
+```
+
+A type documented in a section of a shared page names the section too —
+`"client-sql.md#client-sqlite-name"`, `"trigger.md#trigger-cron"`.
+
+It exists because the generated indexes have to link somewhere, and deriving a
+link target by convention is exactly the kind of thing that rots in silence:
+the page is renamed and the index keeps pointing at where it used to be. A test
+checks that every `DocPage` names a file that exists and, where it carries a
+fragment, a heading that is actually in that file. It is required for every
+variant of a typed block, which is what the per-type indexes are made of.
+
+The same value is what `vinculum man` prints at the foot of a page, so a reader
+who wants the worked examples and the reasoning — the two things the schema
+cannot carry — is told where they are.

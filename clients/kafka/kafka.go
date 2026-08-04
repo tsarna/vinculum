@@ -34,6 +34,7 @@ func init() {
 var kafkaClientSchema = cfg.TypeSchema{
 	Sample:  &KafkaClientDefinition{},
 	Summary: "A Kafka client bridging Kafka topics to the bus.",
+	DocPage: "client-kafka.md",
 	Doc: `Connects to a Kafka cluster, available in expressions as ` + "`client.<name>`" + `.
 
 ` + "`sender`" + ` blocks produce bus messages to Kafka topics; ` + "`receiver`" + ` blocks

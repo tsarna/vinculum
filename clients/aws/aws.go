@@ -28,6 +28,7 @@ func init() {
 var awsClientSchema = cfg.TypeSchema{
 	Sample:  &AWSConfigDefinition{},
 	Summary: "Shared AWS credentials and region for other AWS clients.",
+	DocPage: "client-sqs.md#client-aws-name",
 	Doc: `Holds one AWS configuration that the SQS and SNS clients reference, so
 credentials and region are declared once rather than per queue or topic.
 

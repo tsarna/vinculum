@@ -32,6 +32,7 @@ func init() {
 var redisPubSubSchema = cfg.TypeSchema{
 	Sample:  &RedisPubSubDefinition{},
 	Summary: "A Redis pub/sub client bridging channels to the bus.",
+	DocPage: "client-redis.md#client-redis_pubsub-name",
 	Doc: `Publishes bus messages to Redis channels and subscribes to channels, delivering
 what arrives to the bus or an action. Redis pub/sub is fire-and-forget: a message
 published while nothing is subscribed is simply lost. Use ` + "`redis_stream`" + ` when

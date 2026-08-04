@@ -32,6 +32,7 @@ func init() {
 var cronTriggerSchema = cfg.TypeSchema{
 	Sample:  &CronDefinition{},
 	Summary: "A cron-style scheduler holding one or more scheduled rules.",
+	DocPage: "trigger.md#trigger-cron",
 	Doc: `Unlike the other trigger types, one block carries many schedules: each ` + "`at`" + `
 sub-block is an independent rule with its own schedule and action. Declaring
 several ` + "`trigger \"cron\"`" + ` blocks is useful mainly to run rules in different

@@ -192,6 +192,28 @@ func (n Node) Summary() string {
 	return ""
 }
 
+// DocPage returns the hand-written reference page for this node, relative to
+// doc/, or "" when it has none.
+//
+// Only types have one. An attribute is documented where it is defined, and a
+// `ctx` shape is documented by the attributes that see it.
+func (n Node) DocPage() string {
+	switch n.shape {
+	case shapeBlock:
+		if n.block.DocPage != "" {
+			return n.block.DocPage
+		}
+		if n.block.Body != nil {
+			return n.block.Body.DocPage
+		}
+	case shapeVariant:
+		return n.body.DocPage
+	case shapeNested:
+		return n.nested.DocPage
+	}
+	return ""
+}
+
 // Description returns the node's rich Markdown documentation.
 func (n Node) Description() string {
 	switch n.shape {

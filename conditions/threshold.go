@@ -274,6 +274,7 @@ func init() {
 var thresholdConditionSchema = cfg.TypeSchema{
 	Sample:  &thresholdBody{},
 	Summary: "Derives a boolean from a numeric input, with hysteresis.",
+	DocPage: "condition.md#condition-threshold-name",
 	Doc: `Separate activation and deactivation thresholds leave a **deadband** between
 them — a region where the output does not change — so a value hovering near one
 level cannot toggle the output rapidly.

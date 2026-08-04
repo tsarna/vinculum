@@ -14,6 +14,7 @@ func init() {
 var signalsTriggerSchema = cfg.TypeSchema{
 	Sample:  &cfg.SignalsDefinition{},
 	Summary: "Maps OS signals to actions.",
+	DocPage: "trigger.md#trigger-signals",
 	Doc: `Each attribute names a signal and gives the action to evaluate when it
 arrives. Which signals exist varies by OS.
 

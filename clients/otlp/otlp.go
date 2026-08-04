@@ -35,6 +35,7 @@ func init() {
 var otlpClientSchema = cfg.TypeSchema{
 	Sample:  &otlpClientDefinition{},
 	Summary: "An OpenTelemetry exporter for traces and metrics.",
+	DocPage: "client-otlp.md",
 	Doc: `Exports spans, and optionally metrics, to an OTLP collector. Blocks that emit
 telemetry reference it as ` + "`tracing = client.<name>`" + ` or
 ` + "`metrics = client.<name>`" + `, or pick it up automatically when it is the only

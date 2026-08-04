@@ -283,6 +283,7 @@ func init() {
 var timerConditionSchema = cfg.TypeSchema{
 	Sample:  &timerBody{},
 	Summary: "Applies temporal rules to a boolean signal.",
+	DocPage: "condition.md#condition-timer-name",
 	Doc: `Equivalent in capability to the IEC 61131-3 timer function blocks (TON, TOF,
 TP, TONR) plus the SR bistable. With no attributes at all it tracks its input
 one-to-one; the attributes below add delay, hold, noise filtering, and latching.

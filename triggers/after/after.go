@@ -174,6 +174,7 @@ func init() {
 var afterTriggerSchema = cfg.TypeSchema{
 	Sample:  &triggerAfterBody{},
 	Summary: "Waits a fixed duration after startup, then fires once.",
+	DocPage: "trigger.md#trigger-after",
 	Doc: `The time-deferred analogue of ` + "`trigger \"once\"`" + `: rather than firing on demand,
 it fires automatically when the delay elapses.
 

@@ -377,6 +377,7 @@ func init() {
 var watchdogTriggerSchema = cfg.TypeSchema{
 	Sample:  &triggerWatchdogBody{},
 	Summary: "Fires when a window elapses without being fed.",
+	DocPage: "trigger.md#trigger-watchdog",
 	Doc: `The inverse of ` + "`trigger \"interval\"`" + `: rather than doing work on a schedule, it
 detects when expected work *stops* happening.
 

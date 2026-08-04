@@ -68,6 +68,48 @@ func TestTermWrapsEveryProseLineToTheWidth(t *testing.T) {
 	}
 }
 
+// The terminal sink indents by heading depth, so a section emitted after a
+// deeply nested sub-block must carry its own heading or it reads as part of
+// that sub-block. The page's "See also" footer is the case that gets this
+// wrong: it follows the last thing on the page but belongs to the page.
+func TestTermPageFooterIsNotIndentedUnderTheLastSubBlock(t *testing.T) {
+	doc := testDoc()
+	out := renderTermNode(
+		VariantNode(doc, "client", "mqtt", doc.Blocks["client"], doc.Blocks["client"].Variants["mqtt"]),
+		TermOptions{Width: 78})
+
+	lines := strings.Split(out, "\n")
+	indentOf := func(s string) int { return len(s) - len(strings.TrimLeft(s, " ")) }
+
+	seeAlso, attributes := -1, -1
+	for i, l := range lines {
+		switch strings.TrimSpace(l) {
+		case "See also":
+			seeAlso = i
+		case "Attributes":
+			if attributes == -1 {
+				attributes = i // the page's own, not a sub-block's
+			}
+		}
+	}
+	require.NotEqual(t, -1, seeAlso, "no See also section")
+	require.NotEqual(t, -1, attributes, "no Attributes section")
+
+	// It sits where the page's other sections sit.
+	assert.Equal(t, indentOf(lines[attributes]), indentOf(lines[seeAlso]),
+		"the footer belongs to the page, not to whatever preceded it")
+
+	// And what preceded it really was deeper, so the assertion above is not
+	// passing for want of any nesting to be wrong about.
+	deepest := 0
+	for _, l := range lines[attributes:seeAlso] {
+		if strings.TrimSpace(l) != "" && indentOf(l) > deepest {
+			deepest = indentOf(l)
+		}
+	}
+	assert.Greater(t, deepest, indentOf(lines[seeAlso]))
+}
+
 // A synopsis is code and is emitted as written.
 func TestTermDoesNotWrapASynopsis(t *testing.T) {
 	long := "client \"mqtt\" \"<name>\" {"

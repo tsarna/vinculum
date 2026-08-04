@@ -235,11 +235,12 @@ func (h *MetricBlockHandler) Schema() TypeSchema { return metricSchema }
 
 // metricVariant builds the schema of one metric type. All three decode the
 // same struct, so they differ only in prose.
-func metricVariant(summary, doc string) TypeSchema {
+func metricVariant(summary, doc, docPage string) TypeSchema {
 	return TypeSchema{
 		Sample:  &MetricDefinition{},
 		Summary: summary,
 		Doc:     doc,
+		DocPage: docPage,
 		Attrs:   metricAttrs,
 		Constraints: []Constraint{
 			Requires("computed_interval", "value"),
@@ -295,13 +296,16 @@ reported through a ` + "`server \"metrics\"`" + ` (Prometheus pull) or ` + "`cli
 	Variants: map[string]TypeSchema{
 		"gauge": metricVariant(
 			"A value that can go up and down.",
-			"Supports `set()`, `get()`, and `increment()`."),
+			"Supports `set()`, `get()`, and `increment()`.",
+			"metric.md#gauge"),
 		"counter": metricVariant(
 			"A monotonically increasing value.",
-			"Supports `increment()`, `get()`, and `set()` (as a delta). Names conventionally end in `_total`."),
+			"Supports `increment()`, `get()`, and `set()` (as a delta). Names conventionally end in `_total`.",
+			"metric.md#counter"),
 		"histogram": metricVariant(
 			"Sample observations bucketed by value.",
-			"Supports `observe()`. Bucket boundaries are set with `buckets`."),
+			"Supports `observe()`. Bucket boundaries are set with `buckets`.",
+			"metric.md#histogram"),
 	},
 }
 

@@ -559,6 +559,7 @@ after each fire with ` + "`ctx.run_count`" + ` already incremented.`,
 var atTriggerSchema = cfg.TypeSchema{
 	Sample:  &triggerAtBody{},
 	Summary: "Fires at a computed absolute time, rescheduling after each firing.",
+	DocPage: "trigger.md#trigger-at",
 	Doc: `The fit for non-uniform recurring schedules — sunrise, sunset, an estimated
 arrival — where the gap between firings varies and depends on runtime state.
 Unlike ` + "`trigger \"cron\"`" + ` (fixed schedule strings) and ` + "`trigger \"interval\"`" + `

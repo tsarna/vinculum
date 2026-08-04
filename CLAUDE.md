@@ -530,6 +530,13 @@ Reuse the shared `AttrMeta` values (`cfg.DisabledAttr`, `cfg.TracingAttr`,
 Only state a `Constraint` the parser actually enforces — a value-sensitive
 rule belongs in the attribute's `Doc`. See `doc/schema.md`.
 
+A **new variant of a typed block** also needs `DocPage`, naming its
+hand-written page relative to `doc/` — `"client-mqtt.md"`, or
+`"trigger.md#trigger-cron"` for a type documented in a section of a shared
+page. `--require-docs` fails without one, because the generated per-type
+indexes have nothing to link to, and a test checks the file exists and the
+fragment names a real heading. It is also the "see also" `vinculum man` prints.
+
 ### `ctx` shapes
 
 An attribute evaluated at event time sets `Context` to the name of the `ctx`

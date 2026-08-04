@@ -213,8 +213,6 @@ func (m *markdownSink) seeAlso(s SeeAlso) {
 		return
 	}
 	m.para()
-	m.line("**See also**")
-	m.para()
 	for _, l := range s.Items {
 		switch {
 		case l.Target != "":
