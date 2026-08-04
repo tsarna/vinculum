@@ -31,3 +31,8 @@ jobs:
       # through the command itself so the CLI's own exit code is covered too.
       - name: Check config-language schema
         run: go run . schema --strict --require-docs -o /dev/null
+
+      # The generated regions of doc/ must match what the schema says. When
+      # this fails, the fix is to run the same command with --update.
+      - name: Check generated documentation
+        run: go run . schema --format markdown --check doc/

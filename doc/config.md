@@ -242,10 +242,21 @@ skipped entirely.
 
 For details on each trigger type, see [Trigger Reference](trigger.md):
 
-- [`trigger "cron"`](trigger.md#trigger-cron) — cron-style scheduled actions
-- [`trigger "shutdown"`](trigger.md#trigger-shutdown) — action evaluated during graceful shutdown
-- [`trigger "signals"`](trigger.md#trigger-signals) — OS signal handlers (SIGHUP, SIGUSR1, etc.)
-- [`trigger "start"`](trigger.md#trigger-start) — action evaluated once at startup
+<!-- vinculum:begin block-index trigger level=3 -->
+
+- [`trigger "after"`](trigger.md#trigger-after) — Waits a fixed duration after startup, then fires once.
+- [`trigger "at"`](trigger.md#trigger-at) — Fires at a computed absolute time, rescheduling after each firing.
+- [`trigger "cron"`](trigger.md#trigger-cron) — A cron-style scheduler holding one or more scheduled rules.
+- [`trigger "file"`](trigger.md#trigger-file) — Fires in response to filesystem events. (available only in some configurations)
+- [`trigger "interval"`](trigger.md#trigger-interval) — Repeatedly evaluates an action on a dynamic schedule.
+- [`trigger "once"`](trigger.md#trigger-once) — Evaluates an action lazily, at most once, and caches the result.
+- [`trigger "shutdown"`](trigger.md#trigger-shutdown) — Evaluates an action once during graceful shutdown.
+- [`trigger "signals"`](trigger.md#trigger-signals) — Maps OS signals to actions.
+- [`trigger "start"`](trigger.md#trigger-start) — Evaluates an action once at startup.
+- [`trigger "watch"`](trigger.md#trigger-watch) — Fires each time a watched value changes.
+- [`trigger "watchdog"`](trigger.md#trigger-watchdog) — Fires when a window elapses without being fed.
+
+<!-- vinculum:end block-index trigger -->
 
 ---
 
@@ -363,13 +374,28 @@ clients share a single name namespace.
 
 For details on each client type, see the dedicated pages:
 
-- [`client "http"`](client-http.md) — HTTP(S) request/response client (used via `http::get()`, `http::post()`, etc.)
-- [`client "kafka"`](client-kafka.md) — Apache Kafka producer and consumer
-- [`client "mqtt"`](client-mqtt.md) — MQTT 5.0 publisher and subscriber
-- [`client "openai"`](client-llm.md) — OpenAI and OpenAI-compatible LLM APIs
-- [`client "otlp"`](client-otlp.md) — OpenTelemetry Protocol exporter (push-based)
-- [`client "rabbitmq"`](client-rabbitmq.md) — RabbitMQ / AMQP 0-9-1 sender and receiver
-- [`client "vws"`](server-vws.md#client-vws) — Vinculum WebSocket Protocol client
+<!-- vinculum:begin block-index client level=3 -->
+
+- [`client "aws"`](client-sqs.md#client-aws-name) — Shared AWS credentials and region for other AWS clients.
+- [`client "http"`](client-http.md) — An HTTP(S) client for making outbound requests.
+- [`client "kafka"`](client-kafka.md) — A Kafka client bridging Kafka topics to the bus.
+- [`client "mqtt"`](client-mqtt.md) — An MQTT client bridging an MQTT broker to the bus.
+- [`client "mysql"`](client-sql.md#client-mysql-name) — A MySQL or MariaDB database client.
+- [`client "openai"`](client-llm.md#client-openai-name) — A client for an OpenAI-compatible chat completion API.
+- [`client "otlp"`](client-otlp.md) — An OpenTelemetry exporter for traces and metrics.
+- [`client "postgres"`](client-sql.md#client-postgres-name) — A PostgreSQL database client.
+- [`client "rabbitmq"`](client-rabbitmq.md) — A RabbitMQ (AMQP 0-9-1) client bridging exchanges and queues to the bus.
+- [`client "redis"`](client-redis.md#client-redis-name) — A Redis connection shared by the Redis key/value, pub/sub, and stream clients.
+- [`client "redis_kv"`](client-redis.md#client-redis_kv-name) — Redis-backed key/value storage.
+- [`client "redis_pubsub"`](client-redis.md#client-redis_pubsub-name) — A Redis pub/sub client bridging channels to the bus.
+- [`client "redis_stream"`](client-redis.md#client-redis_stream-name) — A Redis Streams client bridging streams to the bus.
+- [`client "sns_sender"`](client-sns.md#client-sns_sender-name) — Publishes messages to an Amazon SNS topic.
+- [`client "sqlite"`](client-sql.md#client-sqlite-name) — A SQLite database client.
+- [`client "sqs_receiver"`](client-sqs.md#client-sqs_receiver-name) — Receives messages from an Amazon SQS queue.
+- [`client "sqs_sender"`](client-sqs.md#client-sqs_sender-name) — Sends messages to an Amazon SQS queue.
+- [`client "vws"`](server-vws.md#client-vws) — A client connection to a Vinculum (VWS) WebSocket server.
+
+<!-- vinculum:end block-index client -->
 
 ---
 
@@ -390,10 +416,15 @@ All server types share a single name namespace.
 
 For details on each server type, see the dedicated pages:
 
-- [`server "http"`](server-http.md) — HTTP request handlers and static file serving
-- [`server "websocket"`](server-websocket.md) — Simple WebSocket server (raw frames)
-- [`server "vws"`](server-vws.md) — Vinculum WebSocket Protocol server
-- [`server "mcp"`](server-mcp.md) — Model Context Protocol server
+<!-- vinculum:begin block-index server level=3 -->
+
+- [`server "http"`](server-http.md) — An HTTP server exposing request handlers and static files.
+- [`server "mcp"`](server-mcp.md) — A Model Context Protocol server.
+- [`server "metrics"`](server-metrics.md) — A Prometheus-style metrics endpoint.
+- [`server "vws"`](server-vws.md#server-vws) — A WebSocket server speaking the Vinculum (VWS) protocol.
+- [`server "websocket"`](server-websocket.md) — A WebSocket server that pushes bus messages as raw frames.
+
+<!-- vinculum:end block-index server -->
 
 ---
 
