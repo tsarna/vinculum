@@ -421,16 +421,43 @@ parts and keeps the rest.
 Everything outside the markers is left byte for byte. The author chooses the
 granularity per section, which matters because the granularity is genuinely
 mixed: `client` wants a list of types linking out, `subscription` wants its
-attributes in full.
+attribute table but not the synopsis above it.
 
 | Region | Renders |
 |---|---|
 | `block-index <blocktype>` | A typed block's variants, linked to their `DocPage`s. |
 | `block-body <topic path>` | A block, variant, or sub-block in full — the same content `vinculum man` shows. |
+| `block-synopsis <topic path>` | The HCL skeleton alone. |
+| `block-attrs <topic path>` | The attribute table, the rules governing how they combine, and the per-attribute detail. Sub-blocks are listed, not expanded. |
+| `block-ctx <topic path ending in an attribute>` | The `ctx` field table for that attribute, including the fields its own site adds to an open shape. |
 | `context <name>` | One `ctx` shape and the attributes evaluated against it. |
 
 `level=<n>` sets the heading level generated headings start at, so a region
 sits correctly under the hand-written heading above it. It defaults to 2.
+
+The last four exist so a page can keep what it writes better than the generator
+can. `doc/config.md`'s `subscription` section has a hand-tuned synopsis whose
+inline comments say more than a generated one could, and three worked examples
+the schema knows nothing about; what it should not maintain by hand is the
+attribute table and the `ctx` field list, which is exactly what drifts:
+
+```md
+#### Attributes
+
+<!-- vinculum:begin block-attrs subscription level=4 -->
+<!-- vinculum:end block-attrs subscription -->
+
+#### Action Context Variables
+
+<!-- vinculum:begin block-ctx subscription action level=4 -->
+<!-- vinculum:end block-ctx subscription action -->
+```
+
+The section regions emit no heading of their own — the hand-written heading
+above the region is the section. A section that does not apply to its topic is
+an error, not an empty region: `block-attrs client` fails because a typed block
+has no body of its own, and an empty region under a hand-written heading would
+claim the block has no attributes rather than that the region was wrong.
 
 ```
 vinculum schema --format markdown                 # the whole language, on stdout

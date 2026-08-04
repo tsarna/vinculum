@@ -98,10 +98,11 @@ func (w *walker) describe(summary, doc string, undocumented bool) {
 func (w *walker) walkBlock(n Node, level int) {
 	block := n.block
 
+	if syn, ok := synopsisOf(n); ok {
+		w.emit(syn)
+	}
+
 	if block.VariantLabel == "" {
-		if block.Body != nil {
-			w.emit(synopsisFor(blockHeader(n.Path[0], block.Labels), block.Body))
-		}
 		w.describe(n.Summary(), n.Description(), block.Undocumented)
 		if block.Body != nil {
 			w.walkBody(n.Path, block.Body, level, 1)
@@ -109,11 +110,6 @@ func (w *walker) walkBlock(n Node, level int) {
 		return
 	}
 
-	w.emit(Synopsis{Lines: []string{
-		blockHeader(n.Path[0], block.Labels) + " {",
-		"    # attributes depend on the " + block.VariantLabel + " label; see below",
-		"}",
-	}})
 	w.describe(n.Summary(), n.Description(), block.Undocumented)
 
 	rows := make([]BlockRow, 0, len(block.Variants))
@@ -136,7 +132,9 @@ func (w *walker) walkBlock(n Node, level int) {
 
 // walkVariant renders one type-variant body: `client "mqtt"`.
 func (w *walker) walkVariant(n Node, level int) {
-	w.emit(synopsisFor(variantHeader(n.Path[0], n.Path[1], n.labels), n.body))
+	if syn, ok := synopsisOf(n); ok {
+		w.emit(syn)
+	}
 	if n.body.Conditional {
 		w.emit(Note{Text: "This type is only available in configurations that enable it."})
 	}
@@ -147,7 +145,9 @@ func (w *walker) walkVariant(n Node, level int) {
 // walkNested renders a sub-block reached directly.
 func (w *walker) walkNested(n Node, level int) {
 	body := &n.nested.SchemaBody
-	w.emit(synopsisFor(blockHeader(n.Path[len(n.Path)-1], n.nested.Labels), body))
+	if syn, ok := synopsisOf(n); ok {
+		w.emit(syn)
+	}
 	// Where it appears is already on the breadcrumb line; this says how often.
 	w.emit(Note{Text: cardinalitySentence(n.nested)})
 	w.describe(n.Summary(), n.Description(), body.Undocumented)
@@ -188,28 +188,9 @@ func (w *walker) walkBody(path []string, body *config.SchemaBody, level, depth i
 	}
 
 	if len(body.Attributes) > 0 {
-		rows := make([]AttrRow, 0, len(body.Attributes))
-		required, optional := splitByRequired(body.Attributes)
-		for _, a := range append(append([]*config.SchemaAttr{}, required...), optional...) {
-			rows = append(rows, attrRow(a))
-		}
 		w.emit(Heading{Level: level + 1, Text: "Attributes"})
-		w.emit(AttrTable{Rows: rows})
-
-		for _, a := range append(append([]*config.SchemaAttr{}, required...), optional...) {
-			if a.Doc == "" && len(a.Enum) == 0 && a.Deprecated == "" && a.Context == "" {
-				continue // the overview row said everything there is to say
-			}
-			w.emit(AttrDetail{
-				Name: a.Name, Type: a.Type, Doc: a.Doc,
-				Enum: a.Enum, Deprecated: a.Deprecated, Context: a.Context,
-			})
-		}
 	}
-
-	if len(body.Constraints) > 0 {
-		w.emit(Constraints{Items: body.Constraints})
-	}
+	w.emitAttrs(body)
 
 	w.emitBodyContexts(body, level+1)
 
@@ -241,6 +222,52 @@ func (w *walker) walkBody(path []string, body *config.SchemaBody, level, depth i
 		w.describe(nested.Summary, nested.Doc, nested.Undocumented)
 		w.walkBody(sub, &nested.SchemaBody, level+1, depth+1)
 	}
+}
+
+// emitAttrs renders a body's own attributes: the overview table, then the
+// rules governing how they combine, then the detail for each.
+//
+// The constraints sit directly under the table rather than after the details.
+// They are properties of the block as a whole ("specify at most one of `action`
+// or `subscriber`"), and trailing them after a page of per-attribute prose
+// reads as though they belonged to whichever attribute came last.
+//
+// Reports whether anything was emitted.
+func (w *walker) emitAttrs(body *config.SchemaBody) bool {
+	emitted := false
+
+	if len(body.Attributes) > 0 {
+		emitted = true
+		ordered := orderedAttrs(body)
+		rows := make([]AttrRow, 0, len(ordered))
+		for _, a := range ordered {
+			rows = append(rows, attrRow(a))
+		}
+		w.emit(AttrTable{Rows: rows})
+
+		if len(body.Constraints) > 0 {
+			w.emit(Constraints{Items: body.Constraints})
+		}
+
+		for _, a := range ordered {
+			if a.Doc == "" && len(a.Enum) == 0 && a.Deprecated == "" && a.Context == "" {
+				continue // the overview row said everything there is to say
+			}
+			w.emit(AttrDetail{
+				Name: a.Name, Type: a.Type, Doc: a.Doc,
+				Enum: a.Enum, Deprecated: a.Deprecated, Context: a.Context,
+			})
+		}
+		return emitted
+	}
+
+	// A body with constraints but no attributes of its own is unusual, but the
+	// rules still have to land somewhere.
+	if len(body.Constraints) > 0 {
+		w.emit(Constraints{Items: body.Constraints})
+		emitted = true
+	}
+	return emitted
 }
 
 // emitBodyContexts inlines every distinct `ctx` shape the body's own attributes

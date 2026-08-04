@@ -168,6 +168,20 @@ required environment variables are set or have sensible values.
 
 The `name` label is included in the error message if the assertion fails.
 
+#### Attributes
+
+<!-- vinculum:begin block-attrs assert level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `condition` | bool (expression) | yes | Expression that must evaluate to true. |
+
+**`condition`**
+
+Evaluated once, while the configuration is loaded — not at runtime.
+
+<!-- vinculum:end block-attrs assert -->
+
 ---
 
 ### `bus`
@@ -183,10 +197,38 @@ bus "name" {
 Declares an event bus. The bus is available in expressions as `bus.<name>`. For
 example, `bus "foo" {}` creates `bus.foo`.
 
-`queue_size` controls the maximum number of messages that can be queued before
-messages start being dropped.
-
 `bus.main` always exists implicitly and does not need to be declared.
+
+#### Attributes
+
+<!-- vinculum:begin block-attrs bus level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `metrics` | expression (metrics-ref) |  | Where to report metrics. |
+| `queue_size` | number |  | Maximum messages queued before messages are dropped. |
+| `tracing` | expression (tracing-ref) |  | Where to report bus traces. |
+| `type` | string |  | Bus implementation to use. |
+
+**`metrics`**
+
+A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
+
+**`queue_size`**
+
+Defaults to 1000.
+
+**`tracing`**
+
+A `client "otlp"` block. When set, each publish and delivery is wrapped in an OTel span. Auto-wires to the default when omitted.
+
+**`type`**
+
+Reserved for alternative bus implementations; omit for the default in-process bus.
+
+<!-- vinculum:end block-attrs bus -->
+
+#### Tracing
 
 When `tracing` is configured (or auto-wired to a `client "otlp"` block), each
 publish and delivery is wrapped in an OTel span:
@@ -279,6 +321,26 @@ Defines a user-callable function using the
 [HCL userfunc extension](https://pkg.go.dev/github.com/hashicorp/hcl/v2/ext/userfunc).
 The function is available by name in all expressions after it is defined.
 
+#### Attributes
+
+<!-- vinculum:begin block-attrs function level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `params` | expression | yes | Parameter names, as identifiers rather than strings. |
+| `result` | expression | yes | Expression the function returns. |
+| `variadic_param` | expression |  | Name that collects any extra arguments into a list. |
+
+**`params`**
+
+Write `params = [a, b]`, not `params = ["a", "b"]`. Each name is in scope in `result`.
+
+**`result`**
+
+Evaluated with the parameter names in scope.
+
+<!-- vinculum:end block-attrs function -->
+
 Note that `params` takes variable names, not strings:
 
 ```hcl
@@ -308,6 +370,27 @@ Defines a function backed by a [JQ](https://jqlang.org/) query, using the
 
 The resulting function takes an input value as its first argument, followed by any
 declared `params`. Parameters are available inside the query with a `$` prefix.
+
+#### Attributes
+
+<!-- vinculum:begin block-attrs jq level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `query` | string | yes | The jq query to evaluate. |
+| `params` | expression |  | Parameter names, as identifiers rather than strings. |
+
+**`query`**
+
+Runs against the function's first argument.
+
+**`params`**
+
+Each becomes `$name` inside the query.
+
+<!-- vinculum:end block-attrs jq -->
+
+#### Input and result
 
 **String input:** if the input is a string it is parsed as JSON, the query runs on
 the parsed value, and the result is re-encoded as a JSON string. Exception: if the
@@ -346,6 +429,12 @@ editor "line" "name" {
 }
 ```
 
+<!-- vinculum:begin block-index editor level=3 -->
+
+- [`editor "line"`](editor.md) — Edits text line by line with ordered regex rules.
+
+<!-- vinculum:end block-index editor -->
+
 ---
 
 ### `procedure`
@@ -354,6 +443,110 @@ See [procedure.md](procedure.md).
 
 > **Deprecated** in favor of [functy (`.cty`) files](functy.md); loading a `procedure`
 > block emits a deprecation warning and the block will be removed in a future release.
+
+---
+
+### `condition`
+
+```hcl
+condition "type" "name" {
+    input = expression
+    ...
+}
+```
+
+Declares a named boolean derived from an input and a set of behavioral rules —
+debouncing, hysteresis, counting, or latching. Conditions are composable: one
+condition's `input` may be another. The result is available as `condition.<name>`
+and is observable with `trigger "watch"`.
+
+For details on each condition type, see [Condition Reference](condition.md):
+
+<!-- vinculum:begin block-index condition level=3 -->
+
+- [`condition "counter"`](condition.md#condition-counter-name) — Counts events and activates when the count reaches a preset.
+- [`condition "flipflop"`](condition.md#condition-flipflop-name) — Edge-driven bistable: T, SR, JK, D, D-latch, and gated variants.
+- [`condition "threshold"`](condition.md#condition-threshold-name) — Derives a boolean from a numeric input, with hysteresis.
+- [`condition "timer"`](condition.md#condition-timer-name) — Applies temporal rules to a boolean signal.
+
+<!-- vinculum:end block-index condition -->
+
+---
+
+### `fsm`
+
+<!-- vinculum:begin block-synopsis fsm -->
+
+```hcl
+fsm "<name>" {
+    initial        = string  # required
+    disabled       = bool
+    on_change      = expression
+    on_error       = expression
+    queue_size     = number
+    shutdown_event = string
+    tracing        = expression
+
+    event "<name>" { … }  # 0..n
+
+    state "<name>" { … }  # 0..n
+
+    storage { … }  # optional
+}
+```
+
+<!-- vinculum:end block-synopsis fsm -->
+
+Declares a finite state machine with named states, events, and transitions.
+The machine is available in expressions as `fsm.<name>` and acts as a subscriber,
+so a `subscription` can drive it directly.
+
+See [fsm.md](fsm.md) for the full reference.
+
+---
+
+### `metric`
+
+```hcl
+metric "type" "name" {
+    description = "..."
+    ...
+}
+```
+
+Declares an application metric reported via OpenTelemetry, exposed through
+`server "metrics"` or pushed via `client "otlp"`.
+
+For details on each metric type, see [Metric Reference](metric.md):
+
+<!-- vinculum:begin block-index metric level=3 -->
+
+- [`metric "counter"`](metric.md#counter) — A monotonically increasing value.
+- [`metric "gauge"`](metric.md#gauge) — A value that can go up and down.
+- [`metric "histogram"`](metric.md#histogram) — Sample observations bucketed by value.
+
+<!-- vinculum:end block-index metric -->
+
+---
+
+### `wire_format`
+
+```hcl
+wire_format "type" "name" {
+    ...
+}
+```
+
+Declares a named encoder/decoder for message payloads, referenced by clients and
+servers that carry structured messages.
+
+For details on each wire format, see the dedicated pages:
+
+<!-- vinculum:begin block-index wire_format level=3 -->
+
+- [`wire_format "protobuf"`](wire-format-protobuf.md) — Protocol Buffers binary, decoded and encoded against a supplied schema.
+
+<!-- vinculum:end block-index wire_format -->
 
 ---
 
@@ -448,8 +641,6 @@ subscription "name" {
 Subscribes to messages from a bus (or client) and either evaluates an `action`
 expression for each message or forwards messages to another subscriber.
 
-Exactly one of `action` or `subscriber` must be specified.
-
 The `subscriber`/`action`/`transforms`/`queue_size` set of attributes is a
 shared delivery-target pattern: the same four attributes, with identical
 semantics, are also accepted by every client *receiver* block
@@ -459,27 +650,74 @@ subscribers). The attribute reference below applies in all of those contexts.
 
 #### Attributes
 
-- `target` — the bus or client to subscribe to (e.g. `bus.main`, `bus.events`). Required.
-- `topics` — list of MQTT-style topic patterns to subscribe to. `+` matches one
-  segment, `#` matches any number of trailing segments. Required for bus targets.
-- `action` — expression evaluated once per message. See context variables below.
-- `subscriber` — instead of evaluating an expression, forward messages directly to
-  another subscriber. Can be a bus (`bus.other`) or a server that acts as a subscriber.
-- `transforms` — transform pipeline applied to messages before they reach the action
-  or subscriber. See [transforms.md](transforms.md).
-- `queue_size` — if set, wraps the subscriber in an async queue of this depth,
-  decoupling the publisher from the action so slow actions don't block the bus.
-- `disabled` — if true, the block is skipped entirely.
+<!-- vinculum:begin block-attrs subscription level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `topics` | list (topic-pattern) | yes | Topic patterns to subscribe to. |
+| `action` | expression (action-expression) |  | Expression evaluated once per message. |
+| `disabled` | bool |  | Skip this block entirely. |
+| `queue_size` | number |  | Depth of an async queue wrapping the subscriber. |
+| `subscriber` | expression (subscriber-ref) |  | Subscriber to forward messages to, instead of evaluating an action. |
+| `target` | expression (bus-ref) |  | Bus to subscribe to. |
+| `transforms` | expression (transform-pipeline) |  | Transform pipeline applied before the action or subscriber. |
+
+- Specify at most one of action or subscriber.
+- Specify either an action to evaluate or a subscriber to forward to.
+
+**`topics`**
+
+MQTT-style patterns: `+` matches one segment, `#` matches any number of trailing segments.
+
+**`action`**
+
+`ctx.topic` is the message topic, `ctx.msg` the payload, and `ctx.fields` any string metadata attached to it.
+
+Evaluated against the `message` context.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`queue_size`**
+
+When set, decouples delivery from the action so a slow action does not block the source.
+
+**`subscriber`**
+
+Anything that can receive messages: a bus, an FSM, a subscriber-implementing server or client.
+
+**`target`**
+
+A bus — `bus.main`, `bus.events`. Defaults to `bus.main`. Unlike `subscriber`, this slot resolves an event bus and nothing else.
+
+**`transforms`**
+
+A list of transform functions applied in order to each message. Only transform functions are in scope here.
+
+<!-- vinculum:end block-attrs subscription -->
+
+See [transforms.md](transforms.md) for the transform pipeline DSL.
 
 #### Action Context Variables
 
 When `action` is used, `ctx` provides:
 
-| Variable | Description |
-|---|---|
-| `ctx.topic` | Topic of the received message |
-| `ctx.msg` | Message payload |
-| `ctx.fields` | Object of string metadata fields attached to the message; always present, empty when the message carries none |
+<!-- vinculum:begin block-ctx subscription action level=4 -->
+
+Fields readable as `ctx.<name>` (shape `message`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.topic` | string | Topic the message was delivered on. |
+| `ctx.msg` | dynamic | The message payload. |
+| `ctx.fields` | object | String metadata attached to the message. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx subscription action -->
 
 #### Examples
 
@@ -540,27 +778,38 @@ Unlike `const`, variables are not static — their value can be changed at runti
 `set()` and `increment()`. Variables are goroutine-safe and may be read and written
 from concurrent subscription handlers and cron jobs.
 
-The optional `value` attribute sets the initial value at startup. If omitted, the
-variable starts as `null`.
-
-The optional `type` attribute constrains the variable to values of a specific type,
-using the [functy](functy.md#types) type grammar as a **type spec**: `type = number`,
-`type = list(string)`, `type = object({ host = string, port = number })`, or a
-host-registered named type such as `type = bus`. If set, any attempt to `set()` the
-variable to an incompatible value returns an error (the value is coerced where the
-grammar allows).
-
-The older quoted-string form — `type = "number"` — still works for backwards
-compatibility but is **deprecated** and emits a warning; write the unquoted type spec
-instead.
-
-The optional `nullable` attribute controls whether `null` is a valid value. It
-defaults to `true`. If set to `false`, any attempt to `set()` the variable to `null`
-(including calling `set()` with no value argument) returns an error. `nullable =
-false` may be combined with or used independently of `type`.
-
 Use `get()`, `set()`, and `increment()` to access and modify variables at runtime;
-see [functions.md](functions.md#variables) for details.
+see [functions.md](functions.md#variables) for details. The `type` attribute uses the
+[functy type grammar](functy.md#types).
+
+#### Attributes
+
+<!-- vinculum:begin block-attrs var level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `nullable` | bool |  | Whether null is a valid value. |
+| `type` | expression |  | Type the variable is constrained to. |
+| `value` | expression |  | Initial value. |
+
+**`nullable`**
+
+Defaults to true. When false, `set()` to null (including `set()` with no value) fails. May be combined with `type` or used on its own.
+
+**`type`**
+
+A functy type spec — `number`, `list(string)`,
+`object({ host = string, port = number })`, or a host-registered named type such
+as `bus`. A `set()` of an incompatible value fails; values are coerced where
+the grammar allows.
+
+The older quoted form (`type = "number"`) still works but is deprecated and warns.
+
+**`value`**
+
+Evaluated at startup. The variable starts as `null` when omitted.
+
+<!-- vinculum:end block-attrs var -->
 
 Example — count received messages and log a warning every 100:
 

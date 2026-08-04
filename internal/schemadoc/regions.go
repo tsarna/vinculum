@@ -33,9 +33,26 @@ const (
 	RegionBlockIndex = "block-index"
 	// RegionBlockBody renders a block or variant in full.
 	RegionBlockBody = "block-body"
+	// RegionBlockSynopsis renders a block's HCL skeleton alone.
+	RegionBlockSynopsis = "block-synopsis"
+	// RegionBlockAttrs renders a block's attribute table and per-attribute
+	// detail alone, under whatever heading the page supplies.
+	RegionBlockAttrs = "block-attrs"
+	// RegionBlockCtx renders the `ctx` field table for one attribute, named by
+	// a path ending in that attribute: `block-ctx subscription action`.
+	RegionBlockCtx = "block-ctx"
 	// RegionContext renders one `ctx` shape.
 	RegionContext = "context"
 )
+
+// sectionRegions maps the section-rendering region kinds to what they render.
+// A page picks the granularity it needs: the whole body, or one part of it
+// under a hand-written heading.
+var sectionRegions = map[string]Section{
+	RegionBlockSynopsis: SectionSynopsis,
+	RegionBlockAttrs:    SectionAttrs,
+	RegionBlockCtx:      SectionCtx,
+}
 
 // Region is one marked region of a document.
 type Region struct {
@@ -146,7 +163,7 @@ func parseMarker(text string) (Region, error) {
 		if len(r.Args) != 1 {
 			return Region{}, fmt.Errorf("%s takes one argument, got %d", r.Kind, len(r.Args))
 		}
-	case RegionBlockBody:
+	case RegionBlockBody, RegionBlockSynopsis, RegionBlockAttrs, RegionBlockCtx:
 		if len(r.Args) == 0 {
 			return Region{}, fmt.Errorf("%s takes a topic path", r.Kind)
 		}
@@ -171,14 +188,24 @@ func RenderRegion(doc *config.SchemaDocument, r Region) (string, error) {
 		return RenderMarkdown([]Event{variantIndex(r.Args[0], block)}, MarkdownOptions{}), nil
 
 	case RegionBlockBody:
-		candidates := Resolve(doc, KindBlock, r.Args)
-		if len(candidates) != 1 {
-			return "", fmt.Errorf("%s: resolves to %d topics, want exactly one",
-				strings.Join(r.Args, " "), len(candidates))
+		n, err := resolveOne(doc, r.Args)
+		if err != nil {
+			return "", err
 		}
 		return RenderMarkdown(
-			Walk(candidates[0], WalkOptions{BaseLevel: r.Level, NoHeading: true}),
+			Walk(n, WalkOptions{BaseLevel: r.Level, NoHeading: true}),
 			MarkdownOptions{}), nil
+
+	case RegionBlockSynopsis, RegionBlockAttrs, RegionBlockCtx:
+		n, err := resolveOne(doc, r.Args)
+		if err != nil {
+			return "", err
+		}
+		events, err := WalkSection(n, sectionRegions[r.Kind], WalkOptions{BaseLevel: r.Level})
+		if err != nil {
+			return "", err
+		}
+		return RenderMarkdown(events, MarkdownOptions{}), nil
 
 	case RegionContext:
 		shape, ok := doc.Contexts[r.Args[0]]
@@ -190,6 +217,20 @@ func RenderRegion(doc *config.SchemaDocument, r Region) (string, error) {
 			MarkdownOptions{}), nil
 	}
 	return "", fmt.Errorf("unknown region kind %q", r.Kind)
+}
+
+// resolveOne resolves a region's topic path to exactly one node.
+//
+// An ambiguous path is refused rather than resolved by picking a candidate:
+// `block-body http` could mean the client or the server, and silently
+// documenting the wrong one would leave no trace in the generated page.
+func resolveOne(doc *config.SchemaDocument, args []string) (Node, error) {
+	candidates := Resolve(doc, KindBlock, args)
+	if len(candidates) != 1 {
+		return Node{}, fmt.Errorf("%s: resolves to %d topics, want exactly one",
+			strings.Join(args, " "), len(candidates))
+	}
+	return candidates[0], nil
 }
 
 // variantIndex is the linked list of a typed block's variants — the one thing

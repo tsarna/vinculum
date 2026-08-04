@@ -103,8 +103,11 @@ repl/           Interactive REPL (serve -i)
 hclutil/        Shared HCL helpers (ContextObjectBuilder, capsule/ctx/auth/env/tracing)
 internal/       Internal-only helpers
   schemadoc/    Renders config.SchemaDocument as documentation: resolver
-                (topic path -> node), walker (node -> events), and the
-                Markdown / terminal sinks. Behind `vinculum man`.
+                (topic path -> node), walker (node -> events, whole or one
+                section), and the Markdown / terminal sinks. Behind
+                `vinculum man`, and behind the marker-delimited generated
+                regions of doc/ (regions.go) that `schema --format markdown`
+                writes.
   pager/        Terminal pager selection and exec (VINCULUM_PAGER, PAGER)
 types/          Rich object/capsule types (httprequest, httpresponse, metric, variable)
 transform/      Message transform pipeline types

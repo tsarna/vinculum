@@ -61,6 +61,7 @@ func TestParseRegionsRejectsMalformedMarkers(t *testing.T) {
 			"begins inside",
 		},
 		{"an unknown kind", "<!-- vinculum:begin nope x -->\n", `unknown region kind "nope"`},
+		{"a section with no path", "<!-- vinculum:begin block-attrs -->\n", "takes a topic path"},
 		{"a missing argument", "<!-- vinculum:begin block-index -->\n", "takes one argument"},
 		{"too many arguments", "<!-- vinculum:begin context a b -->\n", "takes one argument"},
 		{"a bad level", "<!-- vinculum:begin context message level=9 -->\n", "bad level"},
@@ -185,6 +186,76 @@ func TestRenderRegionRejectsWhatItCannotRender(t *testing.T) {
 		// An ambiguous path is refused rather than resolved by picking one:
 		// silently documenting the wrong client would leave no trace.
 		{"an ambiguous topic", Region{Kind: RegionBlockBody, Args: []string{"http"}}, "resolves to 2 topics"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := RenderRegion(doc, tc.r)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
+// The three section kinds are what let a page keep its hand-tuned synopsis and
+// its worked examples while generating the attribute table between them.
+func TestRenderRegionSections(t *testing.T) {
+	doc := testDoc()
+
+	for _, tc := range []struct {
+		name           string
+		r              Region
+		want, dontWant string
+	}{
+		{
+			"a synopsis alone",
+			Region{Kind: RegionBlockSynopsis, Args: []string{"client", "mqtt"}},
+			"```hcl", "| Attribute |",
+		},
+		{
+			"attributes alone",
+			Region{Kind: RegionBlockAttrs, Args: []string{"client", "mqtt"}},
+			"| Attribute |", "```hcl",
+		},
+		{
+			"one attribute's ctx alone",
+			Region{Kind: RegionBlockCtx, Args: []string{"subscription", "action"}},
+			"| Field | Type | Description |", "| Attribute |",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := RenderRegion(doc, tc.r)
+			require.NoError(t, err)
+			assert.Contains(t, got, tc.want)
+			assert.NotContains(t, got, tc.dontWant)
+		})
+	}
+}
+
+// A section that does not apply is reported rather than rendered empty: an
+// empty region under a hand-written "#### Attributes" is easy to miss in review
+// and says the block has none, which is a different claim from "not applicable".
+func TestRenderRegionReportsAnInapplicableSection(t *testing.T) {
+	doc := testDoc()
+
+	for _, tc := range []struct {
+		name string
+		r    Region
+		want string
+	}{
+		{
+			"attributes of a typed block",
+			Region{Kind: RegionBlockAttrs, Args: []string{"client"}},
+			"no body of its own",
+		},
+		{
+			"a ctx for an attribute that has none",
+			Region{Kind: RegionBlockCtx, Args: []string{"client", "mqtt", "broker"}},
+			"not evaluated against a ctx",
+		},
+		{
+			"an ambiguous path",
+			Region{Kind: RegionBlockAttrs, Args: []string{"http"}},
+			"resolves to 2 topics",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := RenderRegion(doc, tc.r)
