@@ -11,6 +11,7 @@ import (
 	"github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/internal/pager"
 	"github.com/tsarna/vinculum/internal/schemadoc"
+	"go.uber.org/zap"
 )
 
 var (
@@ -24,6 +25,10 @@ var (
 		"vinculum man subscription",
 		"vinculum man client mqtt",
 		"vinculum man server http handle",
+		// Functions are not on the index — there are hundreds, and they are
+		// what help() is for — so the footer is where a reader learns they
+		// are reachable at all.
+		"vinculum man send",
 	}
 )
 
@@ -63,7 +68,7 @@ say so explicitly. See VINCULUM_PAGER, PAGER, NO_COLOR, and MANWIDTH.`,
 func init() {
 	rootCmd.AddCommand(manCmd)
 
-	manCmd.Flags().StringVar(&manType, "type", "", "restrict the search to one kind of topic (block, context)")
+	manCmd.Flags().StringVar(&manType, "type", "", "restrict the search to one kind of topic (block, context, function)")
 	manCmd.Flags().StringVar(&manFormat, "format", "auto", "output format: term, markdown, or auto (term on a terminal)")
 	manCmd.Flags().StringVar(&manColor, "color", "auto", "colorize output: always, never, or auto")
 	manCmd.Flags().IntVar(&manWidth, "width", 0, "wrap width (default: the terminal's, clamped)")
@@ -100,7 +105,13 @@ func runMan(cmd *cobra.Command, args []string) error {
 		return page(cmd, events)
 	}
 
-	candidates := schemadoc.Resolve(doc, kind, args)
+	// Two corpora: the config-language document, and the functions of an
+	// assembled eval context. Their candidates are unioned, which is what makes
+	// `assert` — a block type and a function both — report as ambiguous.
+	candidates := append(
+		schemadoc.Resolve(doc, kind, args),
+		schemadoc.ResolveFuncs(funcCatalog(kind, args), kind, args)...,
+	)
 	switch len(candidates) {
 	case 1:
 		return page(cmd, schemadoc.Walk(candidates[0], schemadoc.WalkOptions{}))
@@ -120,13 +131,41 @@ func runMan(cmd *cobra.Command, args []string) error {
 	}
 }
 
+// funcCatalog is the function corpus: the functions of a config with no sources
+// of its own, which is every built-in plus everything the linked libraries and
+// loaded plugins register.
+//
+// Built lazily and only when the query could name a function, because building
+// one runs the whole config pipeline — worth it to answer `vinculum man count`,
+// wasted on `vinculum man client mqtt tls`.
+func funcCatalog(kind schemadoc.Kind, args []string) schemadoc.FuncCatalog {
+	if kind != "" && kind != schemadoc.KindFunction {
+		return nil
+	}
+	if len(args) != 1 {
+		return nil // a function name is a whole path
+	}
+	// A discarding logger: building this config is a lookup, and its startup
+	// chatter is not the answer to the question being asked.
+	cfg, diags := config.NewConfig().WithLogger(zap.NewNop()).Build()
+	if diags.HasErrors() || cfg == nil {
+		// Nothing to document rather than an error: the block corpus still
+		// answers, and a config with no sources failing to build is a bug that
+		// `vinculum check` reports far more usefully than a man lookup would.
+		return nil
+	}
+	return cfg
+}
+
 // notFound reports a topic that does not exist, with near misses when there
 // are any.
 func notFound(cmd *cobra.Command, doc *config.SchemaDocument, kind schemadoc.Kind, args []string) error {
 	query := strings.Join(args, " ")
 	fmt.Fprintf(cmd.ErrOrStderr(), "no topic named %q\n\n", query)
 
-	if near := schemadoc.Suggest(doc, kind, args); len(near) > 0 {
+	near := schemadoc.Suggest(doc, kind, args)
+	near = append(near, schemadoc.SuggestFuncs(funcCatalog(kind, args), kind, args)...)
+	if len(near) > 0 {
 		render(cmd.ErrOrStderr(), []schemadoc.Event{
 			schemadoc.SuggestMenu(near, schemadoc.CommandSpeller),
 		})
@@ -218,7 +257,11 @@ func completeManTopic(cmd *cobra.Command, args []string, toComplete string) ([]s
 	kind := schemadoc.Kind(manType)
 
 	if len(args) == 0 {
-		return schemadoc.LeadingNames(doc, kind), cobra.ShellCompDirectiveNoFileComp
+		names := schemadoc.LeadingNames(doc, kind)
+		// Only the first word can be a function name, so completion offers them
+		// only there — and pays for building the catalog only there.
+		names = append(names, schemadoc.FuncLeadingNames(funcCatalog(kind, []string{""}), kind)...)
+		return names, cobra.ShellCompDirectiveNoFileComp
 	}
 	return schemadoc.Members(doc, kind, args), cobra.ShellCompDirectiveNoFileComp
 }

@@ -60,6 +60,20 @@ func RenderTerm(events []Event, opts TermOptions) string {
 	return strings.Join(t.lines, "\n") + "\n"
 }
 
+// RenderPlain renders events as unstyled text.
+//
+// It is the terminal sink with colour off rather than a third implementation:
+// every layout decision — wrapping, indenting, the two-column attribute
+// listing — is one a plain reader wants too, and the only difference is the
+// escape sequences. A separate sink would be the same code with a chance of
+// disagreeing with it.
+//
+// This is what help() returns into an expression, where the caller may be
+// writing the string to a log or a file rather than a terminal.
+func RenderPlain(events []Event, width int) string {
+	return RenderTerm(events, TermOptions{Width: width, Color: false})
+}
+
 type termSink struct {
 	lines []string
 	width int
@@ -98,6 +112,14 @@ func (t *termSink) render(e Event) {
 		t.gap()
 		for _, l := range v.Lines {
 			t.line(t.pad() + t.synopsisLine(l))
+		}
+
+	case Preformatted:
+		t.gap()
+		// Verbatim, indented to sit under its heading. Not wrapped and not
+		// styled: the alignment is the content.
+		for _, l := range strings.Split(strings.TrimRight(v.Text, "\n"), "\n") {
+			t.line(t.pad() + l)
 		}
 
 	case Prose:

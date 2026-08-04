@@ -154,6 +154,16 @@ type Menu struct {
 	Items []string
 }
 
+// Preformatted is text that is already laid out and must not be re-wrapped —
+// currently a function's help as functy renders it, whose alignment carries the
+// calling convention.
+//
+// Distinct from Synopsis, which is an HCL skeleton this package generated and a
+// sink may syntax-colour; this is opaque text from elsewhere.
+type Preformatted struct {
+	Text string
+}
+
 // Example is a worked configuration example. Reserved: the schema carries no
 // structured examples yet (see SCHEMA-OUTPUT-SPEC.md), and this exists so that
 // when it does, adding them is a walk change rather than a vocabulary change.
@@ -173,4 +183,5 @@ func (ContextTable) isEvent() {}
 func (Constraints) isEvent()  {}
 func (SeeAlso) isEvent()      {}
 func (Menu) isEvent()         {}
+func (Preformatted) isEvent() {}
 func (Example) isEvent()      {}

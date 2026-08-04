@@ -21,11 +21,7 @@ const (
 )
 
 // Kinds are the kinds a topic may be resolved in, in the order they are tried.
-//
-// KindFunction is declared above but absent here until something resolves in
-// it: offering a reader a --type that finds nothing would be worse than not
-// offering it.
-var Kinds = []Kind{KindBlock, KindContext}
+var Kinds = []Kind{KindBlock, KindContext, KindFunction}
 
 // ValidKind reports whether s names a kind.
 func ValidKind(s string) bool {
@@ -52,6 +48,9 @@ const (
 	shapeAttr
 	// shapeContext is a `ctx` shape.
 	shapeContext
+	// shapeFunction is a callable function, which comes from a FuncCatalog
+	// rather than from the document.
+	shapeFunction
 )
 
 // Node is one addressable topic: whatever a resolved path points at, together
@@ -73,6 +72,7 @@ type Node struct {
 	nested *config.SchemaNestedBlock
 	attr   *config.SchemaAttr
 	ctx    *config.SchemaContext
+	funcs  FuncCatalog
 	// labels are the enclosing block's label names, so a variant or sub-block
 	// can render its own header line in a synopsis.
 	labels []string
@@ -132,6 +132,8 @@ func (n Node) Title() string {
 		return "`" + n.Path[len(n.Path)-1] + "`"
 	case shapeContext:
 		return "`ctx` — " + n.Path[0]
+	case shapeFunction:
+		return "`" + n.Path[0] + "()`"
 	}
 	return strings.Join(n.Path, " ")
 }

@@ -11,9 +11,14 @@ import (
 // Resolve returns every topic that path could name, in kind order.
 //
 // It returns candidates rather than a result because ambiguity is normal
-// rather than exceptional: `http` is both a client type and a server type
-// today, and `jq` is both a block type and a function. A caller renders one
-// candidate, or turns the set into a menu (see MenuFor).
+// rather than exceptional: `http` and `vws` are each both a client type and a
+// server type. A caller renders one candidate, or turns the set into a menu
+// (see MenuFor).
+//
+// This searches the config-language document only. Functions are a separate
+// corpus — see ResolveFuncs — and a front door that searches both unions the
+// results, which is where cross-kind ambiguity comes from (`assert` is both a
+// block type and a function).
 //
 // An empty kind searches every kind; a non-empty one restricts the search,
 // which is what `--type` does.

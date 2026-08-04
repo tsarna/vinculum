@@ -52,6 +52,19 @@ A shape's page lists every attribute evaluated against it. Going the other way,
 an attribute's page inlines the shape it sees, so you rarely need to look one up
 by name.
 
+### Functions
+
+The callable functions are a topic too:
+
+```
+vinculum man send
+vinculum man --type function assert
+```
+
+They are not on the index page — there are a couple of hundred of them, and
+`help()` in the [REPL](repl.md) is the better way to browse. What `man` prints
+is exactly what `help("send")` returns, because it is the same call.
+
 ---
 
 ## When a name is ambiguous
@@ -82,8 +95,17 @@ did you mean:
 Both go to **stderr**, so redirecting a lookup that turns out to be ambiguous
 never writes a menu into your file.
 
-`--type` narrows the search to one kind of topic — `block` or `context` — for
-the rarer case where the ambiguity is not between paths but between kinds.
+`--type` narrows the search to one kind of topic — `block`, `context`, or
+`function` — for when the ambiguity is not between paths but between kinds.
+That happens where one word names things in two corpora at once:
+
+```console
+$ vinculum man assert
+"assert" is ambiguous, choose one of:
+
+    vinculum man --type block assert
+    vinculum man --type function assert
+```
 
 ---
 
@@ -100,7 +122,7 @@ vinculum man client mqtt | glow     # Markdown, rendered by something else
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--type <kind>` | — | Restrict to one kind of topic: `block` or `context`. |
+| `--type <kind>` | — | Restrict to one kind of topic: `block`, `context`, or `function`. |
 | `--format <fmt>` | `auto` | `term`, `markdown`, or `auto` (term on a terminal). |
 | `--color <when>` | `auto` | `always`, `never`, or `auto`. |
 | `--width <n>` | terminal's | Wrap width, clamped to 40–100. |
@@ -153,3 +175,5 @@ source <(vinculum completion bash)     # or zsh, fish, powershell
   document, for editors and other tooling.
 - [Configuration Language](config.md) — the hand-written guide: HCL syntax,
   the evaluation namespace, and block ordering.
+- [`help()`](functions.md#reflection) — the same lookups from inside an
+  expression, and the natural way to use them at the [REPL](repl.md).

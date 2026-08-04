@@ -58,8 +58,44 @@ These are functy's standard-library builtins (shared with standalone `functy`), 
 
 Available anywhere vinculum evaluates an expression, and most useful at the [REPL](repl.md).
 
-- `help(name?)`: With a name, return a human-readable summary of that function — its signature, description, and per-parameter documentation. With no argument, return the sorted names of every available function, as a directory to explore with `help(name)`. Returns `null` if there is no such function.
-- `doc(name)`: Return just a function's description. `null` if there is no such function; `""` if it exists but is undocumented.
+- `help(topic...)`: Return a human-readable summary of a function *or* of part of the configuration language. With no argument, return the sorted names of every available function, as a directory to explore with `help(name)`. Returns `null` if nothing is named that.
+- `doc(name)`: Return just a function's description. `null` if there is no such function; `""` if it exists but is undocumented. Functions only — a block has no equivalent of "exists but is undocumented".
+
+`help()` answers the same questions as [`vinculum man`](man.md), from inside an
+expression:
+
+```console
+> help("send")                  a function
+> help("subscription")          a block
+> help("client", "mqtt")        one type of a block
+> help("subscription", "action")  one attribute, with the ctx it sees
+> help("message")               a ctx shape
+```
+
+A bare name is looked up as a function first, so nothing `help()` used to answer
+has changed answer. Only when it names no function is it tried as a topic. Where
+one word means both — `assert` is a block type *and* a function — a `kind:`
+prefix chooses:
+
+```console
+> help("block:assert")
+> help("context:message")
+```
+
+Qualified functy names are untouched by this: the prefix is recognized only
+before a single colon, so `help("time::now")` is still a function lookup.
+
+When a name is ambiguous *within* the language — `http` is both a client type
+and a server type — the reply is the menu of calls that resolve it, rather than
+`null`:
+
+```console
+> help("http")
+"http" is ambiguous, choose one of:
+
+    help("client", "http")
+    help("server", "http")
+```
 
 `help()` shows a function's **real** signature, which is not always the one cty can express. A cty function may only make its *trailing* parameters optional, so the generic capability functions below — `get`, `set`, `count`, `increment`, `observe`, and the rest, which all take an *optional leading* `ctx` — must fake it with a variadic, and would otherwise reflect uselessly as `get(thing, ...args)`. They ship declarations of what they actually accept, and `help()` uses those:
 

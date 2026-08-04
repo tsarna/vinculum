@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/internal/schemadoc"
+	"go.uber.org/zap"
 )
 
 // runManCmd runs `vinculum man` with the given arguments and returns its
@@ -207,4 +208,66 @@ func TestManEveryTopicRenders(t *testing.T) {
 	// assertion above and prove nothing.
 	assert.Greater(t, walked, 800, "the walk should reach the whole document")
 	t.Logf("rendered %d topics", walked)
+}
+
+// The function corpus: reachable from `vinculum man`, and answering with
+// exactly what help() answers, because it is the same call.
+func TestManRendersAFunction(t *testing.T) {
+	out, _, err := runManCmd(t, "send")
+	require.NoError(t, err)
+
+	assert.Contains(t, out, "# `send()`")
+	assert.Contains(t, out, "send(ctx, subscriber, topic")
+
+	cfg := manTestConfig(t)
+	want, ok := cfg.FuncHelp("send")
+	require.True(t, ok)
+	assert.Contains(t, out, want, "the page is the help text verbatim")
+}
+
+// The headline case for --type: one word naming a block and a function both.
+func TestManAmbiguityAcrossBlocksAndFunctions(t *testing.T) {
+	// `assert` is a block type and a function in the real language.
+	out, errOut, err := runManCmd(t, "assert")
+
+	require.Error(t, err)
+	assert.Equal(t, 1, ExitCode(err))
+	assert.Contains(t, errOut, `"assert" is ambiguous, choose one of:`)
+	assert.Contains(t, errOut, "vinculum man --type block assert")
+	assert.Contains(t, errOut, "vinculum man --type function assert")
+	assert.Empty(t, out)
+
+	// Both offered commands resolve, to different things.
+	block, _, err := runManCmd(t, "--type", "block", "assert")
+	require.NoError(t, err)
+	fn, _, err := runManCmd(t, "--type", "function", "assert")
+	require.NoError(t, err)
+
+	assert.Contains(t, block, "```hcl")
+	assert.Contains(t, fn, "# `assert()`")
+	assert.NotEqual(t, block, fn)
+}
+
+func TestManTypeFunctionExcludesBlocks(t *testing.T) {
+	_, _, err := runManCmd(t, "--type", "function", "subscription")
+	require.Error(t, err, "subscription is a block, not a function")
+
+	_, _, err = runManCmd(t, "--type", "block", "send")
+	require.Error(t, err, "send is a function, not a block")
+}
+
+func TestManSuggestsNearMissFunctions(t *testing.T) {
+	_, errOut, err := runManCmd(t, "--type", "function", "sendd")
+
+	require.Error(t, err)
+	assert.Contains(t, errOut, `no topic named "sendd"`)
+	assert.Contains(t, errOut, "vinculum man send")
+}
+
+// manTestConfig builds the same sourceless config funcCatalog does.
+func manTestConfig(t *testing.T) *config.Config {
+	t.Helper()
+	cfg, diags := config.NewConfig().WithLogger(zap.NewNop()).Build()
+	require.False(t, diags.HasErrors(), "%s", diags)
+	return cfg
 }
