@@ -76,10 +76,13 @@ func (h *host) Reserved(name string) bool {
 	return ok
 }
 
-// metaCommands are the vinculum-specific log-control meta-commands layered onto
-// the engine's built-in command set.
+// metaCommands are the vinculum-specific meta-commands layered onto the
+// engine's built-in command set: the reference, and log control.
+//
+// Each carries a Summary, which is what puts it in :help's listing.
 func (h *host) metaCommands() []engine.MetaCommand {
 	return []engine.MetaCommand{
+		{Names: []string{":man"}, Summary: "show reference documentation (:man client mqtt)", Run: h.cmdMan},
 		{Names: []string{":loglevel"}, Summary: "set async log level (debug|info|warn|error)", Run: h.cmdLoglevel},
 		{Names: []string{":quiet"}, Summary: "mute async logs", Run: h.cmdQuiet},
 		{Names: []string{":logs"}, Summary: "unmute / mute async logs (:logs on|off)", Run: h.cmdLogs},

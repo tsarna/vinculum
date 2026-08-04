@@ -1,6 +1,13 @@
 package schemadoc
 
-import "strings"
+import (
+	"io"
+	"os"
+	"strconv"
+	"strings"
+
+	"github.com/tsarna/vinculum/internal/pager"
+)
 
 // TermOptions controls terminal rendering.
 type TermOptions struct {
@@ -58,6 +65,36 @@ func RenderTerm(events []Event, opts TermOptions) string {
 		t.render(e)
 	}
 	return strings.Join(t.lines, "\n") + "\n"
+}
+
+// TermOptionsFor returns the options for presenting a page on w: how wide to
+// wrap it, and whether to colour it.
+//
+// Both answers follow the same conventions wherever a page is printed, so
+// `vinculum man var` and the REPL's `:man var` cannot disagree about them. A
+// front door with flags of its own layers those over the result.
+//
+// MANWIDTH is honoured because a reader who set it for man(1) meant it for
+// pages like this one; NO_COLOR is honoured whatever its value, since its
+// presence is the signal.
+func TermOptionsFor(w io.Writer) TermOptions {
+	return TermOptions{Width: widthFor(w), Color: colorFor(w)}
+}
+
+func widthFor(w io.Writer) int {
+	if v := os.Getenv("MANWIDTH"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return pager.Width(w)
+}
+
+func colorFor(w io.Writer) bool {
+	if _, ok := os.LookupEnv("NO_COLOR"); ok {
+		return false
+	}
+	return pager.IsTerminal(w)
 }
 
 // RenderPlain renders events as unstyled text.

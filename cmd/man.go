@@ -3,8 +3,6 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"os"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -202,10 +200,19 @@ func renderFor(w io.Writer, events []schemadoc.Event) string {
 	if !useTerminalFormat(w) {
 		return schemadoc.RenderMarkdown(events, schemadoc.MarkdownOptions{})
 	}
-	return schemadoc.RenderTerm(events, schemadoc.TermOptions{
-		Width: terminalWidth(w),
-		Color: useColor(w),
-	})
+	// The conventions (MANWIDTH, NO_COLOR, the terminal's own size) are shared
+	// with the REPL's `:man`; the flags below are this front door's alone.
+	opts := schemadoc.TermOptionsFor(w)
+	if manWidth > 0 {
+		opts.Width = manWidth
+	}
+	switch manColor {
+	case "always":
+		opts.Color = true
+	case "never":
+		opts.Color = false
+	}
+	return schemadoc.RenderTerm(events, opts)
 }
 
 func useTerminalFormat(w io.Writer) bool {
@@ -217,37 +224,6 @@ func useTerminalFormat(w io.Writer) bool {
 	default:
 		return pager.IsTerminal(w)
 	}
-}
-
-// useColor decides whether to emit ANSI. NO_COLOR is honoured whatever its
-// value, per the convention: its presence is the signal.
-func useColor(w io.Writer) bool {
-	switch manColor {
-	case "always":
-		return true
-	case "never":
-		return false
-	default:
-		if _, ok := os.LookupEnv("NO_COLOR"); ok {
-			return false
-		}
-		return pager.IsTerminal(w)
-	}
-}
-
-// terminalWidth resolves the width to wrap at: the flag, else MANWIDTH, else
-// the terminal's own width, else a default. MANWIDTH is honoured because a
-// reader who has set it for man(1) meant it for pages like this one.
-func terminalWidth(w io.Writer) int {
-	if manWidth > 0 {
-		return manWidth
-	}
-	if v := os.Getenv("MANWIDTH"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return n
-		}
-	}
-	return pager.Width(w)
 }
 
 // completeManTopic completes a topic path against the same names the resolver

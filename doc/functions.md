@@ -85,6 +85,10 @@ prefix chooses:
 Qualified functy names are untouched by this: the prefix is recognized only
 before a single colon, so `help("time::now")` is still a function lookup.
 
+`help()` returns a **string**, which is what you want when composing an
+expression around it. For reading, the [REPL](repl.md#reading-a-page-man)'s
+`:man` renders the same documentation styled, wrapped, and paged.
+
 When a name is ambiguous *within* the language — `http` is both a client type
 and a server type — the reply is the menu of calls that resolve it, rather than
 `null`:

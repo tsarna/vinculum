@@ -81,6 +81,39 @@ The signature shown is the function's real one, which is not always the one its 
 type can express — `count` above genuinely takes an optional *leading* `ctx`, which a
 cty signature has no way to say.
 
+`help()` also answers questions about the configuration language itself —
+`help("subscription")`, `help("client", "mqtt")` — and returns a string, which is
+what you want when you are composing an expression around it.
+
+### Reading a page: `:man`
+
+For *reading*, `:man` is better. It renders the same documentation styled,
+wrapped to your terminal, and through your pager, instead of returning a quoted
+string that binds to `_N` and scrolls off the top:
+
+```console
+1> :man subscription
+1> :man client mqtt
+1> :man send                one of the functions
+1> :man                     what there is to read
+```
+
+Where a name means more than one thing, `:man` prints the commands that resolve
+it. A `kind:` prefix chooses between kinds, since a meta-command line has
+nowhere to put a flag:
+
+```console
+1> :man assert
+"assert" is ambiguous, choose one of:
+
+    :man block:assert
+    :man function:assert
+```
+
+It is the same reference [`vinculum man`](man.md) prints from a shell. `:man`
+writes everything to **stdout**, including "no such topic" — so running the REPL
+with `2>vinculum.log` (below) does not swallow it.
+
 The number in the prompt is the index the **next** result will be bound to: at
 `3>` a successful, non-null result becomes `_3` (see
 [Result history](#result-history-_-and-_1--_n) below). Inputs that don't produce
@@ -177,6 +210,7 @@ Lines beginning with `:` are meta-commands rather than expressions:
 | `:set NAME = EXPR` | Bind `EXPR` to `NAME` (same as a bare `NAME = EXPR`). |
 | `:unset NAME` | Remove a session binding. |
 | `:vars` | List session bindings with their types. |
+| `:man [TOPIC …]` | Show reference documentation; no topic lists what there is. |
 | `:loglevel LEVEL` | Set the async log level (`debug`/`info`/`warn`/`error`). |
 | `:quiet` | Mute async logs. |
 | `:logs on` / `:logs off` | Unmute / mute async logs. |

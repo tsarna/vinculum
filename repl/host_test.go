@@ -11,8 +11,9 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	_ "github.com/tsarna/vinculum/ambient"   // register env.* and other ambient providers
-	_ "github.com/tsarna/vinculum/functions" // register stdlib + generic functions
+	_ "github.com/tsarna/vinculum/ambient"      // register env.* and other ambient providers
+	_ "github.com/tsarna/vinculum/functions"    // register stdlib + generic functions
+	_ "github.com/tsarna/vinculum/servers/http" // register server "http", so `http` is ambiguous here as it is in the binary
 )
 
 // newTestHost builds a real Config from inline VCL and returns the REPL host
