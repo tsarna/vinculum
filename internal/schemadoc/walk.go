@@ -134,7 +134,8 @@ func (w *walker) walkVariant(n Node, level int) {
 func (w *walker) walkNested(n Node, level int) {
 	body := &n.nested.SchemaBody
 	w.emit(synopsisFor(blockHeader(n.Path[len(n.Path)-1], n.nested.Labels), body))
-	w.emit(Note{Text: cardinalitySentence(n.nested) + " In " + pathSpelling(n.Path[:len(n.Path)-1]) + "."})
+	// Where it appears is already on the breadcrumb line; this says how often.
+	w.emit(Note{Text: cardinalitySentence(n.nested)})
 	w.describe(n.Summary(), n.Description(), body.Undocumented)
 	w.walkBody(n.Path, body, level, 1)
 }

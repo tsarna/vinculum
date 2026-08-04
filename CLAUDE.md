@@ -47,13 +47,14 @@ User-facing documentation lives in `doc/`. Each file covers one topic:
 | `doc/testing.md` | `vinculum test`: run `.cty` `test` blocks against a booted runtime, `sys.testing` gating, `ctx` injection, `eventually`/`never` async assertions, `--no-serve` fast path |
 | `doc/container.md` | Published Docker images: `vinculum`, `vinculum:*-minimal`, `vinculum-build` |
 | `doc/schema.md` | `vinculum schema`: machine-readable description of the config language, output format, hints, constraints, and how to keep it in step |
+| `doc/man.md` | `vinculum man`: reading that same description as documentation — topic paths, ambiguity, `ctx` shapes, paging and colour |
 
 ---
 
 ## Repository Layout
 
 ```
-cmd/            CLI commands (serve, test, publish, subscribe, check, fmt, schema, plugins, version)
+cmd/            CLI commands (serve, test, publish, subscribe, check, fmt, schema, man, plugins, version)
 config/         Core config parsing, block registries, and shared block impls
   blocks.go     BlockHandler interface + registry (GetBlockHandlers)
   schema.go     `vinculum schema` generator: curated TypeSchema/AttrMeta authoring
@@ -101,6 +102,10 @@ functions/      Built-in HCL functions (log, stdlib, jq, diff, mcp_*, http, etc.
 repl/           Interactive REPL (serve -i)
 hclutil/        Shared HCL helpers (ContextObjectBuilder, capsule/ctx/auth/env/tracing)
 internal/       Internal-only helpers
+  schemadoc/    Renders config.SchemaDocument as documentation: resolver
+                (topic path -> node), walker (node -> events), and the
+                Markdown / terminal sinks. Behind `vinculum man`.
+  pager/        Terminal pager selection and exec (VINCULUM_PAGER, PAGER)
 types/          Rich object/capsule types (httprequest, httpresponse, metric, variable)
 transform/      Message transform pipeline types
 platform/       OS signal handling

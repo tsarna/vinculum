@@ -38,15 +38,22 @@ func synopsisFor(header string, body *config.SchemaBody) Synopsis {
 	}
 
 	for _, a := range shown {
-		comment := "optional"
+		// Only what departs from the default is annotated. Optional is the
+		// majority case — twelve of thirteen attributes on a condition block —
+		// and marking it says nothing while burying the two marks that do.
+		var notes []string
 		if a.Required {
-			comment = "required"
+			notes = append(notes, "required")
 		}
 		if a.Deprecated != "" {
-			comment += ", deprecated"
+			notes = append(notes, "deprecated")
 		}
-		lines = append(lines, fmt.Sprintf("    %-*s = %s%s",
-			width, a.Name, synopsisValue(a), "  # "+comment))
+		comment := ""
+		if len(notes) > 0 {
+			comment = "  # " + strings.Join(notes, ", ")
+		}
+		lines = append(lines, strings.TrimRight(
+			fmt.Sprintf("    %-*s = %s%s", width, a.Name, synopsisValue(a), comment), " "))
 	}
 	if n := len(names) - len(shown); n > 0 {
 		lines = append(lines, fmt.Sprintf("    # … %d more attribute%s", n, plural(n)))

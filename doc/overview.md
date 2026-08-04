@@ -19,9 +19,10 @@
 15. [Interactive REPL](#interactive-repl)
 16. [Formatting](#formatting)
 17. [Config Language Schema](#config-language-schema)
-18. [Container Images](#container-images)
-19. [Bootstrap and Plugins](#bootstrap-and-plugins)
-20. [Block Type Reference](#block-type-reference)
+18. [Reading the Reference](#reading-the-reference)
+19. [Container Images](#container-images)
+20. [Bootstrap and Plugins](#bootstrap-and-plugins)
+21. [Block Type Reference](#block-type-reference)
 
 ## Introduction
 
@@ -360,6 +361,26 @@ apart. Each release also attaches a `schema.json` for consumers that would
 rather fetch one file than run the binary.
 
 See [schema.md](schema.md) for the output format and the full reference.
+
+## Reading the Reference
+
+`vinculum man` renders that same description for a person rather than a
+program, so the binary can answer what a block accepts:
+
+```
+vinculum man                        # what there is to read
+vinculum man client mqtt            # client "mqtt" in full
+vinculum man subscription action    # one attribute, with the ctx it sees
+vinculum man message                # a ctx shape
+```
+
+A topic is a path through the language, and a type label resolves on its own
+where it is unambiguous — `vinculum man mqtt` is the same page. Where it is
+not, the ambiguity is answered with the commands that resolve it. Output going
+to a terminal is styled and paged; output going anywhere else is Markdown.
+
+See [man.md](man.md) for topic paths, `ctx` shapes, and the pager and color
+environment.
 
 ## Container Images
 

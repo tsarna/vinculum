@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -13,6 +15,9 @@ import (
 
 var (
 	manType     string
+	manFormat   string
+	manColor    string
+	manWidth    int
 	manNoPager  bool
 	manConfigs  []string
 	manExamples = []string{
@@ -47,7 +52,9 @@ The documentation is generated from the same decode structs the parser uses, so
 it describes exactly what this binary can parse. Give --config together with
 --plugin-path to load plugins first and document the block types they add.
 
-Output is paged when it is going to a terminal; see VINCULUM_PAGER and PAGER.`,
+Output going to a terminal is styled, wrapped, and paged; output going anywhere
+else is Markdown, so it can be piped or redirected as it stands. Use --format to
+say so explicitly. See VINCULUM_PAGER, PAGER, NO_COLOR, and MANWIDTH.`,
 	Args:              cobra.ArbitraryArgs,
 	RunE:              runMan,
 	ValidArgsFunction: completeManTopic,
@@ -57,6 +64,9 @@ func init() {
 	rootCmd.AddCommand(manCmd)
 
 	manCmd.Flags().StringVar(&manType, "type", "", "restrict the search to one kind of topic (block, context)")
+	manCmd.Flags().StringVar(&manFormat, "format", "auto", "output format: term, markdown, or auto (term on a terminal)")
+	manCmd.Flags().StringVar(&manColor, "color", "auto", "colorize output: always, never, or auto")
+	manCmd.Flags().IntVar(&manWidth, "width", 0, "wrap width (default: the terminal's, clamped)")
 	manCmd.Flags().BoolVar(&manNoPager, "no-pager", false, "write to stdout instead of invoking a pager")
 	manCmd.Flags().StringArrayVarP(&manConfigs, "config", "c", nil, "config path to search for .vinit plugin blocks (with --plugin-path)")
 	manCmd.Flags().StringVar(&pluginPath, "plugin-path", "", "directory of Go plugin .so files; load the plugins declared by --config so their block types are described too")
@@ -133,14 +143,72 @@ func notFound(cmd *cobra.Command, doc *config.SchemaDocument, kind schemadoc.Kin
 // page renders events and sends them to the pager, or to stdout when output is
 // not going to a terminal.
 func page(cmd *cobra.Command, events []schemadoc.Event) error {
-	text := schemadoc.RenderMarkdown(events, schemadoc.MarkdownOptions{})
-	return pager.Page(cmd.OutOrStdout(), text, pager.Options{Disabled: manNoPager})
+	out := cmd.OutOrStdout()
+	return pager.Page(out, renderFor(out, events), pager.Options{Disabled: manNoPager})
 }
 
 // render writes events straight to w, unpaged — for the diagnostics that
 // accompany a failed lookup.
 func render(w io.Writer, events []schemadoc.Event) {
-	fmt.Fprintln(w, schemadoc.RenderMarkdown(events, schemadoc.MarkdownOptions{}))
+	fmt.Fprint(w, renderFor(w, events))
+}
+
+// renderFor picks the sink for where the output is going.
+//
+// A terminal gets wrapped, styled text; anything else gets Markdown, so
+// `vinculum man var > var.md` produces a usable file and `| glow` works as it
+// stands. Both follow from one question — is this a terminal — so they cannot
+// disagree with each other or with the decision to page.
+func renderFor(w io.Writer, events []schemadoc.Event) string {
+	if !useTerminalFormat(w) {
+		return schemadoc.RenderMarkdown(events, schemadoc.MarkdownOptions{})
+	}
+	return schemadoc.RenderTerm(events, schemadoc.TermOptions{
+		Width: terminalWidth(w),
+		Color: useColor(w),
+	})
+}
+
+func useTerminalFormat(w io.Writer) bool {
+	switch manFormat {
+	case "term":
+		return true
+	case "markdown":
+		return false
+	default:
+		return pager.IsTerminal(w)
+	}
+}
+
+// useColor decides whether to emit ANSI. NO_COLOR is honoured whatever its
+// value, per the convention: its presence is the signal.
+func useColor(w io.Writer) bool {
+	switch manColor {
+	case "always":
+		return true
+	case "never":
+		return false
+	default:
+		if _, ok := os.LookupEnv("NO_COLOR"); ok {
+			return false
+		}
+		return pager.IsTerminal(w)
+	}
+}
+
+// terminalWidth resolves the width to wrap at: the flag, else MANWIDTH, else
+// the terminal's own width, else a default. MANWIDTH is honoured because a
+// reader who has set it for man(1) meant it for pages like this one.
+func terminalWidth(w io.Writer) int {
+	if manWidth > 0 {
+		return manWidth
+	}
+	if v := os.Getenv("MANWIDTH"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return pager.Width(w)
 }
 
 // completeManTopic completes a topic path against the same names the resolver

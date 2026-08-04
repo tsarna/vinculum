@@ -16,6 +16,9 @@ It is meant for tooling that needs to know what Vinculum accepts without
 reimplementing the parser: editor completion and hover, linting, and
 generated reference documentation.
 
+To read the same description yourself rather than feed it to a program, use
+[`vinculum man`](man.md), which renders it a topic at a time.
+
 ---
 
 ## Why it can be trusted

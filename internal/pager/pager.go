@@ -73,7 +73,7 @@ func Page(out io.Writer, text string, opts Options) error {
 // command returns the pager process to run, or nil when the output should be
 // written directly.
 func command(out io.Writer, opts Options) *exec.Cmd {
-	if opts.Disabled || !isTerminal(out) {
+	if opts.Disabled || !IsTerminal(out) {
 		return nil
 	}
 
@@ -118,11 +118,30 @@ func childEnv(pager string, opts Options) []string {
 	return append(os.Environ(), "LESS=FRX")
 }
 
-// isTerminal reports whether out is a terminal. Only an *os.File can be one,
+// IsTerminal reports whether out is a terminal. Only an *os.File can be one,
 // which is also what makes a test's bytes.Buffer take the direct path.
-func isTerminal(out io.Writer) bool {
+//
+// Exported because the same question decides more than paging: whether to emit
+// ANSI, and whether to render for a reader or for a pipe. Answering it one way
+// keeps those decisions consistent — `vinculum man var | cat` should not be
+// styled *and* unpaged by two separate rules that could disagree.
+func IsTerminal(out io.Writer) bool {
 	f, ok := out.(*os.File)
 	return ok && term.IsTerminal(int(f.Fd()))
+}
+
+// Width returns the terminal's column count, or 0 when out is not a terminal
+// or its size cannot be determined.
+func Width(out io.Writer) int {
+	f, ok := out.(*os.File)
+	if !ok {
+		return 0
+	}
+	w, _, err := term.GetSize(int(f.Fd()))
+	if err != nil {
+		return 0
+	}
+	return w
 }
 
 func write(out io.Writer, text string) error {

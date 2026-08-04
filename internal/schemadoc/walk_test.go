@@ -35,8 +35,10 @@ func TestWalkVariantRendersBodyAndSynopsis(t *testing.T) {
 	// attributes first.
 	assert.Contains(t, out, "```hcl\nclient \"mqtt\" \"<name>\" {")
 	assert.Regexp(t, `broker\s+= "https://…"\s+# required`, out)
-	assert.Regexp(t, `disabled\s+= bool\s+# optional`, out)
-	assert.Regexp(t, `client_id\s+= string\s+# optional, deprecated`, out)
+	assert.Regexp(t, `client_id\s+= string\s+# deprecated`, out)
+	// Optional is the default and goes unmarked: annotating twelve of thirteen
+	// lines with it says nothing, and buries the one mark that does.
+	assert.Regexp(t, `disabled\s+= bool\n`, out)
 	assert.Contains(t, out, "tls { … }  # optional")
 	assert.Less(t, strings.Index(out, "broker "), strings.Index(out, "disabled "),
 		"required attributes come before optional ones")
