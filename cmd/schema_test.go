@@ -919,9 +919,12 @@ func runSchemaCommand(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 
 	// Flags bind to package-level variables that cobra does not reset between
-	// runs, so restore their declared defaults before each one.
+	// runs, so restore their declared defaults before each one. The array
+	// flags matter most: cobra appends to whatever is already there, so a
+	// leftover value would silently join the next run's.
 	schemaFormat, schemaPretty, schemaOutput = "json", true, ""
 	schemaStrict, schemaRequireDocs = false, false
+	schemaUpdate, schemaCheck = nil, nil
 	pluginPath = ""
 
 	var stdout, stderr bytes.Buffer

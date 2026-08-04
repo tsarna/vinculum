@@ -57,6 +57,35 @@ func topicRows(nodes []Node) []BlockRow {
 	return rows
 }
 
+// Everything renders the whole language as one document: the index, then every
+// block, every type variant, and every `ctx` shape.
+//
+// It exists so that `--format markdown` means something without a file to
+// update — a single-page reference to pipe somewhere, or to diff between two
+// releases to see what the language gained.
+func Everything(doc *config.SchemaDocument, opts WalkOptions) []Event {
+	if doc == nil {
+		return nil
+	}
+	level := opts.baseLevel()
+	events := Index(doc, opts)
+
+	events = append(events, Heading{Level: level + 1, Text: "Blocks"})
+	for _, block := range Topics(doc, KindBlock) {
+		events = append(events, Walk(block, WalkOptions{BaseLevel: level + 2, MaxDepth: opts.MaxDepth})...)
+		for _, variant := range sortedBodyNames(block.block.Variants) {
+			node := VariantNode(doc, block.Path[0], variant, block.block, block.block.Variants[variant])
+			events = append(events, Walk(node, WalkOptions{BaseLevel: level + 3, MaxDepth: opts.MaxDepth})...)
+		}
+	}
+
+	events = append(events, Heading{Level: level + 1, Text: "Context shapes"})
+	for _, shape := range Topics(doc, KindContext) {
+		events = append(events, Walk(shape, WalkOptions{BaseLevel: level + 2})...)
+	}
+	return events
+}
+
 // Usage renders the short "how to use this" footer that follows a topic index
 // or a failed lookup, in the idiom of one front door.
 //

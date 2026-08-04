@@ -18,6 +18,8 @@ var (
 	schemaOutput      string
 	schemaStrict      bool
 	schemaRequireDocs bool
+	schemaUpdate      []string
+	schemaCheck       []string
 )
 
 var schemaCmd = &cobra.Command{
@@ -41,12 +43,19 @@ bootstrap runs — git blocks are not materialized and no .vcl file is parsed.
 Intended for editor tooling — completion, hover, linting — and for generating
 reference documentation.
 
+With --format markdown it emits the same description as documentation instead:
+the whole language on stdout, or, with --update, rewritten into the marked
+regions of the pages you name. --check reports whether those regions are
+current without writing anything, which is what CI runs.
+
 Examples:
   vinculum schema
   vinculum schema -o schema.json
   vinculum schema --pretty=false
   vinculum schema --strict --require-docs -o /dev/null
-  vinculum schema --plugin-path /plugins ./configs/`,
+  vinculum schema --plugin-path /plugins ./configs/
+  vinculum schema --format markdown --update doc/
+  vinculum schema --format markdown --check doc/`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runSchema,
 }
@@ -54,7 +63,9 @@ Examples:
 func init() {
 	rootCmd.AddCommand(schemaCmd)
 
-	schemaCmd.Flags().StringVar(&schemaFormat, "format", "json", "output format (json)")
+	schemaCmd.Flags().StringVar(&schemaFormat, "format", "json", "output format (json, markdown)")
+	schemaCmd.Flags().StringArrayVar(&schemaUpdate, "update", nil, "with --format markdown, rewrite the generated regions of these files or directories")
+	schemaCmd.Flags().StringArrayVar(&schemaCheck, "check", nil, "with --format markdown, report whether these files' generated regions are current")
 	schemaCmd.Flags().BoolVar(&schemaPretty, "pretty", true, "indent the JSON output")
 	schemaCmd.Flags().StringVarP(&schemaOutput, "output", "o", "", "write to a file instead of stdout")
 	schemaCmd.Flags().BoolVar(&schemaStrict, "strict", false, "fail if curated metadata does not match the parsed structure")
@@ -65,11 +76,19 @@ func init() {
 func runSchema(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
 
-	if schemaFormat != "json" {
-		return &ExitCodeError{Code: 2, Err: fmt.Errorf("unsupported --format %q (only \"json\" is supported)", schemaFormat)}
+	switch schemaFormat {
+	case "json", "markdown":
+	default:
+		return &ExitCodeError{Code: 2, Err: fmt.Errorf("unsupported --format %q (want json or markdown)", schemaFormat)}
 	}
 	if schemaRequireDocs && !schemaStrict {
 		return &ExitCodeError{Code: 2, Err: fmt.Errorf("--require-docs has no effect without --strict")}
+	}
+	if (len(schemaUpdate) > 0 || len(schemaCheck) > 0) && schemaFormat != "markdown" {
+		return &ExitCodeError{Code: 2, Err: fmt.Errorf("--update and --check need --format markdown")}
+	}
+	if len(schemaUpdate) > 0 && len(schemaCheck) > 0 {
+		return &ExitCodeError{Code: 2, Err: fmt.Errorf("--update writes and --check does not; use one or the other")}
 	}
 	// Loading plugins needs both halves: where the .so files are, and which
 	// ones to load. Neither alone does anything, so say so rather than
@@ -99,6 +118,10 @@ func runSchema(cmd *cobra.Command, args []string) error {
 	}
 	if len(problems) > 0 && schemaStrict {
 		return &ExitCodeError{Code: 1, Err: fmt.Errorf("%d schema problem(s)", len(problems))}
+	}
+
+	if schemaFormat == "markdown" {
+		return runSchemaMarkdown(cmd, doc)
 	}
 
 	var data []byte

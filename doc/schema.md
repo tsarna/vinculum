@@ -17,7 +17,8 @@ reimplementing the parser: editor completion and hover, linting, and
 generated reference documentation.
 
 To read the same description yourself rather than feed it to a program, use
-[`vinculum man`](man.md), which renders it a topic at a time.
+[`vinculum man`](man.md), which renders it a topic at a time. To put parts of
+it into `doc/`, see [Generated regions](#generated-regions).
 
 ---
 
@@ -395,3 +396,66 @@ variant of a typed block, which is what the per-type indexes are made of.
 The same value is what `vinculum man` prints at the foot of a page, so a reader
 who wants the worked examples and the reasoning — the two things the schema
 cannot carry — is told where they are.
+
+---
+
+## Generated regions
+
+Parts of `doc/` are mechanically derivable, and those parts are where the drift
+has actually happened: `config.md` listed `cron` and `signals` as top-level
+blocks long after they became trigger types. So a page marks the derivable
+parts and keeps the rest.
+
+```md
+### `client`
+
+<!-- vinculum:begin block-index client level=3 -->
+
+- [`client "http"`](client-http.md) — An HTTP(S) client for making outbound requests.
+- [`client "kafka"`](client-kafka.md) — A Kafka client bridging Kafka topics to the bus.
+…
+
+<!-- vinculum:end block-index client -->
+```
+
+Everything outside the markers is left byte for byte. The author chooses the
+granularity per section, which matters because the granularity is genuinely
+mixed: `client` wants a list of types linking out, `subscription` wants its
+attributes in full.
+
+| Region | Renders |
+|---|---|
+| `block-index <blocktype>` | A typed block's variants, linked to their `DocPage`s. |
+| `block-body <topic path>` | A block, variant, or sub-block in full — the same content `vinculum man` shows. |
+| `context <name>` | One `ctx` shape and the attributes evaluated against it. |
+
+`level=<n>` sets the heading level generated headings start at, so a region
+sits correctly under the hand-written heading above it. It defaults to 2.
+
+```
+vinculum schema --format markdown                 # the whole language, on stdout
+vinculum schema --format markdown --update doc/   # rewrite the regions in place
+vinculum schema --format markdown --check doc/    # exit 1 if any is out of date
+```
+
+`--update` and `--check` take files or directories; a directory contributes
+every `.md` under it.
+
+A malformed marker stops the run and names the file and line: a begin with no
+end, an end with no begin, a nested pair, an end naming something other than
+what its begin named, or a region whose topic does not resolve — `block-body
+http` is ambiguous, since `http` is both a client type and a server type.
+Each of these would otherwise silently swallow or duplicate hand-written prose,
+which is worse than refusing to run.
+
+### Keeping it current
+
+CI runs `--check` next to `--strict --require-docs`. Together they close both
+directions:
+
+- `--strict --require-docs` fails on an attribute added without documentation.
+- `--check` fails on documentation that has not been regenerated.
+
+When `--check` fails, run `--update` and commit the result. Regeneration is
+idempotent, so a second run changes nothing — which is what lets `--check`
+distinguish a stale document from a generator that is not deterministic.
