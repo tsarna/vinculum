@@ -72,10 +72,9 @@ expression:
 > help("message")               a ctx shape
 ```
 
-A bare name is looked up as a function first, so nothing `help()` used to answer
-has changed answer. Only when it names no function is it tried as a topic. Where
-one word means both — `assert` is a block type *and* a function — a `kind:`
-prefix chooses:
+A bare name is looked up as a function first, and tried as a topic only when it
+names no function. Where one word means both — `assert` is a block type *and* a
+function — a `kind:` prefix chooses:
 
 ```console
 > help("block:assert")
@@ -89,9 +88,9 @@ before a single colon, so `help("time::now")` is still a function lookup.
 expression around it. For reading, the [REPL](repl.md#reading-a-page-man)'s
 `:man` renders the same documentation styled, wrapped, and paged.
 
-When a name is ambiguous *within* the language — `http` is both a client type
-and a server type — the reply is the menu of calls that resolve it, rather than
-`null`:
+An ambiguous name gets the menu of calls that resolve it, not `null` — `null`
+means nothing is named that, which is a different answer. A name can be
+ambiguous within the configuration language:
 
 ```console
 > help("http")
@@ -99,6 +98,17 @@ and a server type — the reply is the menu of calls that resolve it, rather tha
 
     help("client", "http")
     help("server", "http")
+```
+
+or between `.cty` namespaces, where a bare name declared in two of them belongs
+to neither:
+
+```console
+> help("dup")
+"dup" is a function in more than one namespace, choose one of:
+
+    help("alpha::dup")
+    help("beta::dup")
 ```
 
 `help()` shows a function's **real** signature, which is not always the one cty can express. A cty function may only make its *trailing* parameters optional, so the generic capability functions below — `get`, `set`, `count`, `increment`, `observe`, and the rest, which all take an *optional leading* `ctx` — must fake it with a variadic, and would otherwise reflect uselessly as `get(thing, ...args)`. They ship declarations of what they actually accept, and `help()` uses those:

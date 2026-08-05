@@ -1,0 +1,4 @@
+namespace alpha
+
+// Alpha's own dup.
+func dup(x) -> any { return x }

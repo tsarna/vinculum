@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/hcl/v2"
@@ -211,6 +212,114 @@ func TestFuncHelpMatchesTheEvalContext(t *testing.T) {
 
 	_, ok = c.FuncHelp("no_such_thing_xyz")
 	assert.False(t, ok)
+}
+
+// A bare name declared in two namespaces resolves to nothing, exactly as a
+// misspelling does — so help() used to answer null for a function that exists
+// twice, sending a reader to look for a typo that was not there.
+func TestHelpReportsAFunctionAmbiguousAcrossNamespaces(t *testing.T) {
+	c, diags := NewConfig().
+		WithSources("testdata/funcambig").
+		WithLogger(zap.NewNop()).
+		Build()
+	require.False(t, diags.HasErrors(), "%s", diags)
+	withResolver(t, nil)
+
+	got := callHelp(t, c, "dup")
+	require.False(t, got.IsNull(), "an ambiguous name must not answer the same as an absent one")
+	assert.Contains(t, got.AsString(), `"dup" is a function in more than one namespace`)
+	assert.Contains(t, got.AsString(), `help("alpha::dup")`)
+	assert.Contains(t, got.AsString(), `help("beta::dup")`)
+
+	// Each qualified name resolves to its own function.
+	alpha := callHelp(t, c, "alpha::dup")
+	require.False(t, alpha.IsNull())
+	assert.Contains(t, alpha.AsString(), "Alpha's own dup.")
+
+	// A bare name in only one namespace still resolves, unqualified.
+	solo := callHelp(t, c, "solo")
+	require.False(t, solo.IsNull())
+	assert.Contains(t, solo.AsString(), "Only in alpha.")
+
+	// And a name that truly does not exist is still null.
+	assert.True(t, callHelp(t, c, "no_such_thing_xyz").IsNull())
+}
+
+func TestFuncNameCandidates(t *testing.T) {
+	c, diags := NewConfig().
+		WithSources("testdata/funcambig").
+		WithLogger(zap.NewNop()).
+		Build()
+	require.False(t, diags.HasErrors(), "%s", diags)
+
+	assert.Equal(t, []string{"alpha::dup", "beta::dup"}, c.FuncNameCandidates("dup"))
+	// A name that resolves has nothing to disambiguate, and neither has one
+	// that names nothing.
+	assert.Empty(t, c.FuncNameCandidates("solo"))
+	assert.Empty(t, c.FuncNameCandidates("send"))
+	assert.Empty(t, c.FuncNameCandidates("no_such_thing_xyz"))
+}
+
+func TestFuncDocFromADeclaration(t *testing.T) {
+	c := helpTestConfig(t)
+
+	// `get` carries an extern, which exists precisely because its cty metadata
+	// renders the useless get(thing, ...args).
+	doc, ok := c.FuncDoc("get")
+	require.True(t, ok)
+	require.Len(t, doc.Signatures, 1)
+	assert.Equal(t, "get(ctx?: ctx, thing, fallback?, *args) -> any", doc.Signatures[0])
+	assert.Contains(t, doc.Doc, "Read a thing's current value.")
+
+	byName := map[string]FuncParam{}
+	for _, p := range doc.Params {
+		byName[p.Name] = p
+	}
+	assert.Equal(t, "ctx", byName["ctx?"].Type)
+	assert.False(t, byName["ctx?"].Required, "an optional leading parameter is not required")
+	assert.True(t, byName["thing"].Required)
+	assert.False(t, byName["*args"].Required, "a variadic is never required")
+}
+
+func TestFuncDocFromCtyMetadata(t *testing.T) {
+	c := helpTestConfig(t)
+
+	doc, ok := c.FuncDoc("send")
+	require.True(t, ok)
+	require.Len(t, doc.Signatures, 1)
+	assert.Contains(t, doc.Signatures[0], "send(")
+	assert.NotEmpty(t, doc.Params)
+
+	// The signature is functy's own rendering, so it is the line help() prints.
+	help, ok := c.FuncHelp("send")
+	require.True(t, ok)
+	assert.True(t, strings.HasPrefix(help, doc.Signatures[0]),
+		"FuncDoc and FuncHelp spell the signature differently:\n%s\n%s", doc.Signatures[0], help)
+}
+
+// Every function must project into a FuncDoc whose signature is exactly the
+// line help() leads with. This is 3a's byte-identity contract carried into the
+// structured rendering: two front doors, one answer.
+func TestEveryFuncDocSignatureMatchesItsHelp(t *testing.T) {
+	c := helpTestConfig(t)
+	checked := 0
+
+	for _, name := range c.FuncNames() {
+		help, ok := c.FuncHelp(name)
+		if !ok {
+			continue
+		}
+		doc, ok := c.FuncDoc(name)
+		require.True(t, ok, "FuncHelp answered for %q but FuncDoc did not", name)
+		require.NotEmpty(t, doc.Signatures, name)
+
+		want := strings.Join(doc.Signatures, "\n")
+		assert.True(t, strings.HasPrefix(help, want),
+			"help(%q) does not lead with FuncDoc's signature:\n want: %q\n help: %q", name, want, help)
+		checked++
+	}
+	t.Logf("%d signatures matched", checked)
+	assert.Greater(t, checked, 100)
 }
 
 func TestFuncNamesAreSortedAndNonEmpty(t *testing.T) {

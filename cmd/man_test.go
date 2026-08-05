@@ -210,19 +210,40 @@ func TestManEveryTopicRenders(t *testing.T) {
 	t.Logf("rendered %d topics", walked)
 }
 
-// The function corpus: reachable from `vinculum man`, and answering with
-// exactly what help() answers, because it is the same call.
+// The function corpus, laid out like a block: the calling convention as a
+// synopsis, the parameters as a table.
 func TestManRendersAFunction(t *testing.T) {
 	out, _, err := runManCmd(t, "send")
 	require.NoError(t, err)
 
 	assert.Contains(t, out, "# `send()`")
-	assert.Contains(t, out, "send(ctx, subscriber, topic")
+	assert.Contains(t, out, "## Parameters")
+	assert.Contains(t, out, "| Attribute | Type | Required | Description |")
+	assert.Contains(t, out, "`topic`")
 
+	// The signature is the one help() prints, because both come from functy's
+	// own renderer rather than two spellings of it.
 	cfg := manTestConfig(t)
-	want, ok := cfg.FuncHelp("send")
+	doc, ok := cfg.FuncDoc("send")
 	require.True(t, ok)
-	assert.Contains(t, out, want, "the page is the help text verbatim")
+	require.Len(t, doc.Signatures, 1)
+	assert.Contains(t, out, "```hcl\n"+doc.Signatures[0]+"\n```")
+
+	help, ok := cfg.FuncHelp("send")
+	require.True(t, ok)
+	assert.True(t, strings.HasPrefix(help, doc.Signatures[0]),
+		"man and help must not spell the signature differently:\n man: %s\nhelp: %s", doc.Signatures[0], help)
+}
+
+// A declared function keeps the signature its extern states, which is the
+// whole reason externs exist: cty cannot say "optional leading ctx".
+func TestManRendersADeclaredFunction(t *testing.T) {
+	out, _, err := runManCmd(t, "get")
+	require.NoError(t, err)
+
+	assert.Contains(t, out, "get(ctx?: ctx, thing, fallback?, *args) -> any")
+	assert.Contains(t, out, "`ctx?`")
+	assert.Contains(t, out, "`*args`")
 }
 
 // The headline case for --type: one word naming a block and a function both.

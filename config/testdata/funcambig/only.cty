@@ -1,0 +1,4 @@
+namespace alpha
+
+// Only in alpha.
+func solo(x) -> any { return x }

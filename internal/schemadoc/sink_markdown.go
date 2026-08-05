@@ -101,14 +101,6 @@ func (m *markdownSink) render(e Event) {
 			m.line("    " + item)
 		}
 
-	case Preformatted:
-		m.para()
-		// No language: this is a rendered signature, not source in any
-		// language a highlighter would improve.
-		m.line("```")
-		m.line(strings.TrimRight(v.Text, "\n"))
-		m.line("```")
-
 	case Example:
 		m.para()
 		if v.Caption != "" {

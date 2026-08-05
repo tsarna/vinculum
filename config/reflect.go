@@ -2,6 +2,7 @@ package config
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -37,7 +38,7 @@ func init() {
 		evalCtxFn := func() *hcl.EvalContext { return c.evalCtx }
 
 		return map[string]function.Function{
-			"help": helpFunc(c.functyResult(), evalCtxFn),
+			"help": helpFunc(c, evalCtxFn),
 			"doc":  functy.DocFunc(evalCtxFn),
 		}
 	})
@@ -68,8 +69,8 @@ func (c *Config) functyResult() *functy.Result {
 // Ordering functions ahead of topics matters more than the reverse would: an
 // author typing help("x") at a prompt is usually mid-expression, and there are
 // far more function names than block names for a bare word to collide with.
-func helpFunc(res *functy.Result, evalCtxFn func() *hcl.EvalContext) function.Function {
-	delegate := functy.HelpFunc(res, evalCtxFn)
+func helpFunc(c *Config, evalCtxFn func() *hcl.EvalContext) function.Function {
+	delegate := functy.HelpFunc(c.functyResult(), evalCtxFn)
 
 	return function.New(&function.Spec{
 		Description: `Return a human-readable help summary by name: help("f") for a function, help("subscription") or help("client", "mqtt") for part of the configuration language. Prefix with a kind — help("block:http") — to choose between them. Called with no argument, help() lists the names of all available functions.`,
@@ -108,12 +109,34 @@ func helpFunc(res *functy.Result, evalCtxFn func() *hcl.EvalContext) function.Fu
 					return cty.StringVal(text), nil
 				}
 			}
+			// A bare name declared in two namespaces resolved to nothing above,
+			// exactly as a misspelling would. Saying which it was is the whole
+			// difference between "you meant one of these" and "no such thing".
+			if kind == "" && len(path) == 1 {
+				if names := c.FuncNameCandidates(path[0]); len(names) > 0 {
+					return cty.StringVal(ambiguousFuncText(path[0], names)), nil
+				}
+			}
 			// Null for "no such topic", preserving functy's contract: absence is
 			// a normal reflection answer, so `help(x) == null` still detects a
 			// name that names nothing.
 			return cty.NullVal(cty.String), nil
 		},
 	})
+}
+
+// ambiguousFuncText is the menu of calls that resolve a bare name declared in
+// more than one namespace, written in help()'s own idiom.
+func ambiguousFuncText(name string, candidates []string) string {
+	var b strings.Builder
+	b.WriteString(strconv.Quote(name))
+	b.WriteString(" is a function in more than one namespace, choose one of:\n")
+	for _, c := range candidates {
+		b.WriteString("\n    help(")
+		b.WriteString(strconv.Quote(c))
+		b.WriteString(")")
+	}
+	return b.String()
 }
 
 // helpPath turns help()'s arguments into a kind and a topic path.

@@ -1,8 +1,11 @@
 package schemadoc
 
 import (
+	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/tsarna/vinculum/config"
 )
 
 // Functions as a second corpus.
@@ -29,9 +32,12 @@ import (
 type FuncCatalog interface {
 	// FuncNames returns every callable name, sorted.
 	FuncNames() []string
-	// FuncHelp renders one function, or reports false when there is no such
-	// function.
-	FuncHelp(name string) (string, bool)
+	// FuncDoc returns what is known about one function, or reports false when
+	// there is no such function.
+	FuncDoc(name string) (config.FuncDoc, bool)
+	// FuncNameCandidates returns the qualified names a bare name could have
+	// meant, when it could have meant more than one and so resolved to none.
+	FuncNameCandidates(name string) []string
 }
 
 // FuncNode returns a node for one function.
@@ -51,7 +57,7 @@ func ResolveFuncs(cat FuncCatalog, kind Kind, path []string) []Node {
 	if kind != "" && kind != KindFunction {
 		return nil
 	}
-	if _, ok := cat.FuncHelp(path[0]); !ok {
+	if _, ok := cat.FuncDoc(path[0]); !ok {
 		return nil
 	}
 	return []Node{FuncNode(cat, path[0])}
@@ -66,6 +72,36 @@ func FuncLeadingNames(cat FuncCatalog, kind Kind) []string {
 	names := append([]string(nil), cat.FuncNames()...)
 	sort.Strings(names)
 	return names
+}
+
+// AmbiguousFuncName returns the qualified names a bare function name could have
+// meant, when it could have meant more than one.
+//
+// A bare name declared in two namespaces resolves to nothing, exactly as a
+// misspelling does. Without this the two are reported the same way — "no topic
+// named dup" for a function that exists twice — which sends a reader looking for
+// a typo that is not there.
+func AmbiguousFuncName(cat FuncCatalog, kind Kind, path []string) []string {
+	if cat == nil || len(path) != 1 {
+		return nil
+	}
+	if kind != "" && kind != KindFunction {
+		return nil
+	}
+	return cat.FuncNameCandidates(path[0])
+}
+
+// AmbiguousFuncMenu renders those candidates as the menu that resolves them.
+func AmbiguousFuncMenu(query []string, names []string, spell Speller) Menu {
+	items := make([]string, 0, len(names))
+	for _, n := range names {
+		items = append(items, spell(KindFunction, []string{n}, false))
+	}
+	return Menu{
+		Intro: fmt.Sprintf("%q is a function in more than one namespace, choose one of:",
+			strings.Join(query, " ")),
+		Items: items,
+	}
 }
 
 // SuggestFuncs returns function names that are a near miss for the query, on
@@ -103,15 +139,54 @@ func SuggestFuncs(cat FuncCatalog, kind Kind, path []string) []Node {
 	return out
 }
 
-// walkFunction renders one function.
+// walkFunction renders one function the way a block is rendered: the calling
+// convention as a synopsis, the description as prose, and the parameters as a
+// table.
 //
-// The body is whatever the catalog produced, emitted verbatim. Rendering it
-// structurally — a synopsis per overload, the parameters as a table — needs
-// functy to export the declarations behind its own renderer; until then,
-// reproducing its output is the honest option, and it keeps `vinculum man
-// --type function send` and `help("send")` word for word identical.
-func (w *walker) walkFunction(n Node) {
-	if text, ok := n.funcs.FuncHelp(n.Path[0]); ok {
-		w.emit(Preformatted{Text: text})
+// Structured rather than help()'s single rendered block, because that block
+// cannot re-wrap — its aligned parameter column is fixed at the width it was
+// built for, so a long parameter description runs off a narrow terminal and
+// stays a code fence in Markdown where a table belongs.
+func (w *walker) walkFunction(n Node, level int) {
+	doc, ok := n.funcs.FuncDoc(n.Path[0])
+	if !ok {
+		return
 	}
+
+	// One synopsis per form. An overload set is several calling conventions,
+	// not one with optional parameters: parsetime(s) reads a timestamp while
+	// parsetime(format, s) reads a format and then a timestamp.
+	if len(doc.Signatures) > 0 {
+		w.emit(Synopsis{Lines: doc.Signatures})
+	}
+	if doc.Doc != "" {
+		w.emit(Prose{Markdown: doc.Doc})
+	}
+	if len(doc.Params) == 0 {
+		return
+	}
+	rows := make([]AttrRow, 0, len(doc.Params))
+	for _, p := range doc.Params {
+		rows = append(rows, AttrRow{
+			Name:     p.Name,
+			Type:     p.Type,
+			Required: p.Required,
+			Summary:  paramSummary(p),
+		})
+	}
+	w.emit(Heading{Level: level + 1, Text: "Parameters"})
+	w.emit(AttrTable{Rows: rows})
+}
+
+// paramSummary is the parameter's description, with its default folded in —
+// the default is part of what a caller needs to know and has no column of its
+// own.
+func paramSummary(p config.FuncParam) string {
+	if p.Default == "" {
+		return p.Doc
+	}
+	if p.Doc == "" {
+		return "Defaults to `" + p.Default + "`."
+	}
+	return strings.TrimRight(p.Doc, ".") + ". Defaults to `" + p.Default + "`."
 }

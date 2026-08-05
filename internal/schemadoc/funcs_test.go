@@ -7,31 +7,60 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tsarna/vinculum/config"
 )
 
 // fakeCatalog is a handful of functions, so the function corpus can be tested
 // without booting a runtime to assemble a real eval context.
-type fakeCatalog map[string]string
+type fakeCatalog struct {
+	docs      map[string]config.FuncDoc
+	ambiguous map[string][]string
+}
 
 func (f fakeCatalog) FuncNames() []string {
-	out := make([]string, 0, len(f))
-	for k := range f {
+	out := make([]string, 0, len(f.docs))
+	for k := range f.docs {
 		out = append(out, k)
 	}
 	sort.Strings(out)
 	return out
 }
 
-func (f fakeCatalog) FuncHelp(name string) (string, bool) {
-	text, ok := f[name]
-	return text, ok
+func (f fakeCatalog) FuncDoc(name string) (config.FuncDoc, bool) {
+	d, ok := f.docs[name]
+	return d, ok
 }
+
+func (f fakeCatalog) FuncNameCandidates(name string) []string { return f.ambiguous[name] }
 
 func testCatalog() fakeCatalog {
 	return fakeCatalog{
-		"send":   "send(ctx, subscriber, topic: string) -> bool\n\n  Sends a message.",
-		"assert": "assert(condition) -> bool",
-		"count":  "count(thing) -> number",
+		docs: map[string]config.FuncDoc{
+			"send": {
+				Name:       "send",
+				Signatures: []string{"send(ctx, subscriber, topic: string) -> bool"},
+				Doc:        "Sends a message.",
+				Params: []config.FuncParam{
+					{Name: "ctx", Doc: "the context", Required: true},
+					{Name: "topic", Type: "string", Doc: "where to send it", Required: true},
+					{Name: "*fields", Doc: "extra fields"},
+				},
+			},
+			// An overload set: two calling conventions, not one with optional
+			// parameters.
+			"parsetime": {
+				Name: "parsetime",
+				Signatures: []string{
+					"parsetime(s: string) -> time",
+					"parsetime(format: string, s: string) -> time",
+				},
+				Doc:    "Reads a timestamp.",
+				Params: []config.FuncParam{{Name: "s", Type: "string", Required: true}},
+			},
+			"assert": {Name: "assert", Signatures: []string{"assert(condition) -> bool"}},
+			"count":  {Name: "count", Signatures: []string{"count(thing) -> number"}},
+		},
+		ambiguous: map[string][]string{"dup": {"a::dup", "b::dup"}},
 	}
 }
 
@@ -53,36 +82,113 @@ func TestResolveFuncs(t *testing.T) {
 	assert.Empty(t, ResolveFuncs(nil, "", []string{"send"}))
 }
 
-// The catalog's text is reproduced exactly. Its alignment carries the calling
-// convention, so re-wrapping it would destroy the content.
-func TestWalkFunctionEmitsTheHelpVerbatim(t *testing.T) {
-	cat := testCatalog()
-	events := Walk(FuncNode(cat, "send"), WalkOptions{})
-
-	var pre string
-	for _, e := range events {
-		if p, ok := e.(Preformatted); ok {
-			pre = p.Text
-		}
-	}
-	assert.Equal(t, cat["send"], pre)
+// A function is laid out like a block: the calling convention as a synopsis,
+// the description as prose, the parameters as a table.
+func TestWalkFunctionIsStructured(t *testing.T) {
+	events := Walk(FuncNode(testCatalog(), "send"), WalkOptions{})
 
 	md := RenderMarkdown(events, MarkdownOptions{})
 	assert.Contains(t, md, "# `send()`")
-	assert.Contains(t, md, "```\nsend(ctx, subscriber, topic: string) -> bool")
+	assert.Contains(t, md, "```hcl\nsend(ctx, subscriber, topic: string) -> bool\n```")
+	assert.Contains(t, md, "Sends a message.")
+	assert.Contains(t, md, "## Parameters")
+	// A real table, not a fenced block — which is the point of the change.
+	assert.Contains(t, md, "| Attribute | Type | Required | Description |")
+	assert.Contains(t, md, "| `topic` | string | yes | where to send it |")
+	assert.Contains(t, md, "| `*fields` |  |  | extra fields |")
+	assert.NotContains(t, md, "```\nsend", "the signature is hcl-fenced, not preformatted")
+}
 
-	// Through the terminal sink the lines keep their relative indentation.
-	term := RenderTerm(events, TermOptions{Width: 40})
-	assert.Contains(t, term, "  Sends a message.")
+// Every form of an overload set gets a line: they are distinct calling
+// conventions, and rendering only the first would hide one.
+func TestWalkFunctionRendersEveryOverloadForm(t *testing.T) {
+	md := RenderMarkdown(Walk(FuncNode(testCatalog(), "parsetime"), WalkOptions{}), MarkdownOptions{})
+
+	assert.Contains(t, md, "parsetime(s: string) -> time\nparsetime(format: string, s: string) -> time")
+}
+
+// The parameter descriptions re-wrap, which the fixed-width block help()
+// returns cannot do — the reason for rendering structurally at all.
+func TestWalkFunctionParametersWrapToTheWidth(t *testing.T) {
+	cat := testCatalog()
+	cat.docs["wide"] = config.FuncDoc{
+		Name:       "wide",
+		Signatures: []string{"wide(a) -> any"},
+		Params: []config.FuncParam{{
+			Name: "a",
+			Doc:  "A description long enough that it cannot possibly fit on one line of a narrow terminal without being wrapped.",
+		}},
+	}
+
+	term := RenderTerm(Walk(FuncNode(cat, "wide"), WalkOptions{}), TermOptions{Width: 50})
+	for _, line := range strings.Split(term, "\n") {
+		assert.LessOrEqual(t, len([]rune(line)), 50, "line overflows the width: %q", line)
+	}
+}
+
+// A function parameter may carry no type annotation, where a block attribute
+// always has one — so the terminal sink's trailing parenthetical must not lead
+// with an empty element.
+func TestWalkFunctionUntypedParameterHasNoEmptyQualifier(t *testing.T) {
+	cat := testCatalog()
+	cat.docs["untyped"] = config.FuncDoc{
+		Name:       "untyped",
+		Signatures: []string{"untyped(x) -> any"},
+		Params:     []config.FuncParam{{Name: "x", Doc: "anything", Required: true}},
+	}
+
+	term := RenderTerm(Walk(FuncNode(cat, "untyped"), WalkOptions{}), TermOptions{Width: 80})
+	assert.Contains(t, term, "(required)")
+	assert.NotContains(t, term, "(, required)")
+}
+
+// A default has no column of its own, so it is folded into the description
+// rather than dropped.
+func TestWalkFunctionShowsParameterDefaults(t *testing.T) {
+	cat := testCatalog()
+	cat.docs["withdefault"] = config.FuncDoc{
+		Name:       "withdefault",
+		Signatures: []string{"withdefault(a = 1) -> any"},
+		Params: []config.FuncParam{
+			{Name: "a", Default: "1", Doc: "How many"},
+			{Name: "b", Default: "null"},
+		},
+	}
+
+	md := RenderMarkdown(Walk(FuncNode(cat, "withdefault"), WalkOptions{}), MarkdownOptions{})
+	assert.Contains(t, md, "How many. Defaults to `1`.")
+	assert.Contains(t, md, "Defaults to `null`.")
 }
 
 func TestFuncLeadingNames(t *testing.T) {
 	cat := testCatalog()
 
-	assert.Equal(t, []string{"assert", "count", "send"}, FuncLeadingNames(cat, ""))
-	assert.Equal(t, []string{"assert", "count", "send"}, FuncLeadingNames(cat, KindFunction))
+	assert.Equal(t, []string{"assert", "count", "parsetime", "send"}, FuncLeadingNames(cat, ""))
+	assert.Equal(t, []string{"assert", "count", "parsetime", "send"}, FuncLeadingNames(cat, KindFunction))
 	assert.Empty(t, FuncLeadingNames(cat, KindBlock))
 	assert.Empty(t, FuncLeadingNames(nil, ""))
+}
+
+// A bare name declared in two namespaces resolves to nothing, exactly as a
+// misspelling does. Only the candidates tell them apart — which is the whole
+// reason the catalog reports them.
+func TestAmbiguousFuncName(t *testing.T) {
+	cat := testCatalog()
+
+	got := AmbiguousFuncName(cat, "", []string{"dup"})
+	assert.Equal(t, []string{"a::dup", "b::dup"}, got)
+
+	// A name that resolves is not ambiguous, and neither is one that is absent.
+	assert.Empty(t, AmbiguousFuncName(cat, "", []string{"send"}))
+	assert.Empty(t, AmbiguousFuncName(cat, "", []string{"nope"}))
+	// Not a function question at all.
+	assert.Empty(t, AmbiguousFuncName(cat, KindBlock, []string{"dup"}))
+	assert.Empty(t, AmbiguousFuncName(cat, "", []string{"a", "b"}))
+	assert.Empty(t, AmbiguousFuncName(nil, "", []string{"dup"}))
+
+	menu := AmbiguousFuncMenu([]string{"dup"}, got, CommandSpeller)
+	assert.Equal(t, `"dup" is a function in more than one namespace, choose one of:`, menu.Intro)
+	assert.Equal(t, []string{"vinculum man a::dup", "vinculum man b::dup"}, menu.Items)
 }
 
 func TestSuggestFuncs(t *testing.T) {

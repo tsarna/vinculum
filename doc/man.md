@@ -62,8 +62,24 @@ vinculum man --type function assert
 ```
 
 They are not on the index page — there are a couple of hundred of them, and
-`help()` in the [REPL](repl.md) is the better way to browse. What `man` prints
-is exactly what `help("send")` returns, because it is the same call.
+`help()` in the [REPL](repl.md) is the better way to browse.
+
+A function page is laid out like a block's: the calling convention as a
+synopsis, then the parameters as a table. The signature is the one `help()`
+prints — both come from the same renderer — but the parameter list is a table
+here rather than a fixed-width block, so it re-wraps for a narrow terminal and
+becomes a real table in Markdown.
+
+Functions whose real signature its Go type cannot express — the `get` / `set` /
+`count` family, which take an *optional leading* `ctx` — carry a declaration
+that says so, and it is what you see:
+
+```
+vinculum man get      → get(ctx?: ctx, thing, fallback?, *args) -> any
+```
+
+A bare name declared in two `.cty` namespaces resolves to neither, so `man`
+lists the qualified names instead of reporting it missing.
 
 ---
 

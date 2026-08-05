@@ -151,14 +151,6 @@ func (t *termSink) render(e Event) {
 			t.line(t.pad() + t.synopsisLine(l))
 		}
 
-	case Preformatted:
-		t.gap()
-		// Verbatim, indented to sit under its heading. Not wrapped and not
-		// styled: the alignment is the content.
-		for _, l := range strings.Split(strings.TrimRight(v.Text, "\n"), "\n") {
-			t.line(t.pad() + l)
-		}
-
 	case Prose:
 		t.gap()
 		t.emit(renderProse(v.Markdown, t.width, t.indent, t.st)...)
@@ -315,7 +307,13 @@ func (t *termSink) attrTable(v AttrTable) {
 // "(expression (action-expression), required)" is harder to read than the three
 // facts it contains.
 func attrQualifier(r AttrRow) string {
-	parts := []string{r.Type}
+	var parts []string
+	// A function parameter may carry no type annotation at all, where a block
+	// attribute always has one. An empty leading element would render as
+	// "(, required)".
+	if r.Type != "" {
+		parts = append(parts, r.Type)
+	}
 	if h := string(r.Hint); h != "" && h != r.Type {
 		parts = append(parts, h)
 	}

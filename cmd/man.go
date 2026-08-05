@@ -159,6 +159,21 @@ func funcCatalog(kind schemadoc.Kind, args []string) schemadoc.FuncCatalog {
 // are any.
 func notFound(cmd *cobra.Command, doc *config.SchemaDocument, kind schemadoc.Kind, args []string) error {
 	query := strings.Join(args, " ")
+
+	// A bare function name declared in two namespaces resolves to nothing, just
+	// as a misspelling does. Saying so beats sending a reader to look for a typo
+	// that is not there.
+	if names := schemadoc.AmbiguousFuncName(funcCatalog(kind, args), kind, args); len(names) > 0 {
+		render(cmd.ErrOrStderr(), []schemadoc.Event{
+			schemadoc.AmbiguousFuncMenu(args, names, schemadoc.CommandSpeller),
+		})
+		return &ExitCodeError{
+			Code:     1,
+			Err:      fmt.Errorf("%q is ambiguous", query),
+			Reported: true,
+		}
+	}
+
 	fmt.Fprintf(cmd.ErrOrStderr(), "no topic named %q\n\n", query)
 
 	near := schemadoc.Suggest(doc, kind, args)

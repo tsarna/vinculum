@@ -2,12 +2,14 @@ package repl
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/internal/schemadoc"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // runMan drives :man and returns what it wrote.
@@ -56,9 +58,13 @@ func TestManRendersAFunction(t *testing.T) {
 	h := manTestHost(t)
 	got := runMan(t, h, "send")
 
-	want, ok := h.cfg.FuncHelp("send")
+	doc, ok := h.cfg.FuncDoc("send")
 	require.True(t, ok)
-	assert.Contains(t, got, strings.SplitN(want, "\n", 2)[0])
+	require.Len(t, doc.Signatures, 1)
+
+	assert.Contains(t, got, doc.Signatures[0])
+	assert.Contains(t, got, "Parameters")
+	assert.Contains(t, got, "topic")
 }
 
 func TestManWithNoArgumentsListsTopics(t *testing.T) {
@@ -96,6 +102,28 @@ func TestManAmbiguityAcrossKindsUsesThePrefix(t *testing.T) {
 	assert.Contains(t, block, "condition")
 	assert.Contains(t, fn, "assert(")
 	assert.NotEqual(t, block, fn)
+}
+
+// The REPL is where this actually bites: its corpus is the live session's eval
+// context, so a project whose own .cty files declare one name in two namespaces
+// gets the candidates rather than "no topic named dup".
+func TestManReportsAFunctionAmbiguousAcrossNamespaces(t *testing.T) {
+	cfg, diags := config.NewConfig().
+		WithSources("../config/testdata/funcambig").
+		WithLogger(zap.NewNop()).
+		Build()
+	require.False(t, diags.HasErrors(), "%s", diags)
+	h := newHost(cfg, NewInteractiveLogging(zapcore.InfoLevel))
+
+	got := runMan(t, h, "dup")
+	assert.Contains(t, got, `"dup" is a function in more than one namespace`)
+	assert.Contains(t, got, ":man alpha::dup")
+	assert.Contains(t, got, ":man beta::dup")
+	assert.NotContains(t, got, "no topic named", "ambiguous is not absent")
+
+	// Each qualified name resolves, and a bare name in one namespace still does.
+	assert.Contains(t, runMan(t, h, "alpha::dup"), "Alpha's own dup.")
+	assert.Contains(t, runMan(t, h, "solo"), "Only in alpha.")
 }
 
 func TestManNotFound(t *testing.T) {

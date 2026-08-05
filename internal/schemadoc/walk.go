@@ -54,7 +54,7 @@ func Walk(n Node, opts WalkOptions) []Event {
 	case shapeContext:
 		w.walkContext(n, level)
 	case shapeFunction:
-		w.walkFunction(n)
+		w.walkFunction(n, level)
 	}
 
 	// The hand-written page last, after everything generated: it is where to

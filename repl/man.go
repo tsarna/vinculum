@@ -115,6 +115,13 @@ func parseManArgs(args []string) (kind schemadoc.Kind, path []string, err error)
 }
 
 func (h *host) manNotFound(out io.Writer, doc *config.SchemaDocument, kind schemadoc.Kind, path []string) {
+	// Ambiguous across namespaces resolves to nothing, exactly as a misspelling
+	// does; only the candidates tell them apart.
+	if names := schemadoc.AmbiguousFuncName(h.cfg, kind, path); len(names) > 0 {
+		h.showMan(out, []schemadoc.Event{schemadoc.AmbiguousFuncMenu(path, names, ManSpeller)})
+		return
+	}
+
 	fmt.Fprintf(out, "no topic named %q\n\n", strings.Join(path, " "))
 
 	near := schemadoc.Suggest(doc, kind, path)

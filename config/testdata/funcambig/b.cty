@@ -1,0 +1,4 @@
+namespace beta
+
+// Beta's own dup.
+func dup(x) -> any { return x }
