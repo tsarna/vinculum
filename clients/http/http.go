@@ -107,16 +107,22 @@ Supports connection pooling, redirects, retries, cookies, and pluggable auth.`,
 		"http2": {
 			Summary: "Allow HTTP/2.",
 			Hint:    cfg.HintBool,
+			Default: "true",
 		},
 		"max_connections_per_host": {
 			Summary: "Cap on simultaneous connections to any one host.",
+			Doc:     "Zero leaves it to Go's own transport, which is unlimited.",
+			Default: "0",
 		},
 		"max_idle_connections": {
 			Summary: "Cap on idle connections kept in the pool.",
+			Doc:     "Zero leaves it to Go's own transport default.",
+			Default: "0",
 		},
 		"disable_keep_alives": {
 			Summary: "Close each connection after a single request.",
 			Hint:    cfg.HintBool,
+			Default: "false",
 		},
 		"auth": {
 			Summary: "Expression that produces credentials for each request.",
@@ -128,10 +134,16 @@ endpoint, for example — because ` + "`auth`" + ` is not a config-time dependen
 		},
 		"auth_max_lifetime": {
 			Summary: "How long to reuse credentials before re-evaluating `auth`.",
-			Hint:    cfg.HintDuration,
+			Doc: "Credentials are reused indefinitely when omitted, until something " +
+				"rejects them. Set it when the credential has a known lifetime the " +
+				"expression cannot report.",
+			Hint: cfg.HintDuration,
 		},
 		"auth_max_failures": {
 			Summary: "Consecutive auth failures before the client stops retrying.",
+			Doc: "Past this, requests fail fast rather than each paying for another " +
+				"doomed evaluation. A success resets the count.",
+			Default: "5",
 		},
 		"tracing": cfg.TracingAttr,
 		"metrics": cfg.MetricsAttr,
@@ -143,50 +155,66 @@ endpoint, for example — because ` + "`auth`" + ` is not a config-time dependen
 				"follow": {
 					Summary: "Follow redirects rather than returning them.",
 					Hint:    cfg.HintBool,
+					Default: "true",
 				},
 				"max": {
 					Summary: "Maximum number of redirects to follow.",
+					Default: "10",
 				},
 				"keep_auth_on_redirect": {
 					Summary: "Keep sending credentials after a cross-host redirect.",
-					Doc:     "Off by default, since it would leak credentials to the redirect target.",
+					Doc:     "Leaving this off is what stops credentials reaching the redirect target.",
 					Hint:    cfg.HintBool,
+					Default: "false",
 				},
 			},
 		},
 		"retry": {
 			Summary: "When and how to retry a failed request.",
+			Doc: "Omit the block and no request is ever retried. Declaring it turns " +
+				"retrying on, so the defaults below are what an otherwise empty " +
+				"`retry {}` gives you.",
 			Attrs: map[string]cfg.AttrMeta{
 				"max_attempts": {
 					Summary: "Total attempts, including the first.",
+					Doc:     "One means no retry, which is what a client with no `retry` block does.",
+					Default: "3",
 				},
 				"initial_delay": {
 					Summary: "Wait before the first retry.",
 					Hint:    cfg.HintDuration,
+					Default: "200ms",
 				},
 				"max_delay": {
 					Summary: "Ceiling on the wait between retries.",
 					Hint:    cfg.HintDuration,
+					Default: "30s",
 				},
 				"backoff_factor": {
 					Summary: "Multiplier applied to the wait after each attempt.",
+					Default: "2.0",
 				},
 				"jitter": {
 					Summary: "Randomize each wait, to avoid synchronized retries.",
+					Doc:     "Keeps a fleet of clients from retrying a recovering server in lockstep.",
 					Hint:    cfg.HintBool,
+					Default: "true",
 				},
 				"retry_on": {
 					Summary: "Status codes that should be retried.",
-					Doc:     "For example `[429, 502, 503, 504]`.",
+					Doc:     "Replaces the default set rather than adding to it.",
+					Default: "[429, 502, 503, 504]",
 				},
 				"respect_retry_after": {
 					Summary: "Honor a `Retry-After` header in preference to the backoff schedule.",
 					Hint:    cfg.HintBool,
+					Default: "true",
 				},
 				"allow_non_idempotent": {
 					Summary: "Retry POST and other non-idempotent methods too.",
-					Doc:     "Off by default: retrying them can duplicate an effect that already happened.",
+					Doc:     "Leaving this off is what stops a retry duplicating an effect that already happened.",
 					Hint:    cfg.HintBool,
+					Default: "false",
 				},
 				"on_response": {
 					Summary: "Expression deciding whether a response should be retried.",
@@ -198,31 +226,40 @@ endpoint, for example — because ` + "`auth`" + ` is not a config-time dependen
 		},
 		"auth_retry_backoff": {
 			Summary: "Backoff between re-evaluations of `auth` after a failure.",
+			Doc:     "This schedule applies whether or not the block is declared.",
 			Attrs: map[string]cfg.AttrMeta{
 				"initial_delay": {
 					Summary: "Wait before the first re-evaluation.",
 					Hint:    cfg.HintDuration,
+					Default: "1s",
 				},
 				"max_delay": {
 					Summary: "Ceiling on the wait between re-evaluations.",
 					Hint:    cfg.HintDuration,
+					Default: "60s",
 				},
 				"backoff_factor": {
 					Summary: "Multiplier applied to the wait after each failure.",
+					Default: "2.0",
 				},
 			},
 		},
 		"cookies": {
 			Summary: "Cookie jar settings.",
+			Doc: "Omit the block and no jar is installed, so nothing carries a cookie " +
+				"between requests. Declaring it turns the jar on.",
 			Attrs: map[string]cfg.AttrMeta{
 				"enabled": {
 					Summary: "Keep a cookie jar across requests.",
+					Doc:     "Set it false to declare the block and leave the jar off.",
 					Hint:    cfg.HintBool,
+					Default: "true",
 				},
 				"public_suffix": {
 					Summary: "Apply public-suffix rules when deciding cookie scope.",
 					Doc:     "Stops a site setting a cookie for a whole registry domain.",
 					Hint:    cfg.HintBool,
+					Default: "true",
 				},
 			},
 		},
@@ -232,8 +269,9 @@ endpoint, for example — because ` + "`auth`" + ` is not a config-time dependen
 			Attrs: map[string]cfg.AttrMeta{
 				"propagate": {
 					Summary: "Inject `traceparent`, `tracestate`, and `baggage` into outbound requests.",
-					Doc:     "Defaults to true. Individual calls can override it.",
+					Doc:     "Individual calls can override it.",
 					Hint:    cfg.HintBool,
+					Default: "true",
 				},
 			},
 		},

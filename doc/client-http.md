@@ -167,28 +167,135 @@ client "http" "<name>" {
 
 ### Schema reference
 
-| Attribute / sub-block | Type | Default | Description |
-|---|---|---|---|
-| `disabled` | bool | `false` | Standard `disabled` flag for all client blocks. |
-| `base_url` | string | — | URL prefix; relative URLs in calls are resolved against it. Absolute call URLs override it entirely. Query parameters present on `base_url` (e.g. an `api_key`) are merged into every relative call — see *Base URL query parameters* below. |
-| `user_agent` | string | *(see precedence)* | Convenience for setting the `User-Agent` header. |
-| `headers` | map(string) or map(list(string)) | `{}` | Default headers added to every request. Per-call headers override these on a name-by-name basis. |
-| `tls` | block | none | Standard TLS configuration block. See [TLS configuration](config.md#tls). |
-| `auth` | expression | — | Action expression evaluated lazily to produce the `Authorization` header. See *Authentication* below. |
-| `auth_max_lifetime` | duration | none | Maximum age of a cached credential. After this elapses the next request re-evaluates the `auth` expression. |
-| `auth_max_failures` | number | `5` | Consecutive auth-hook failures before requests start failing fast. |
-| `auth_retry_backoff` | block | sensible defaults | Backoff for repeated auth-hook failures. |
-| `redirects` | block | `follow=true, max=10` | Redirect behavior. |
-| `cookies` | block | disabled | Cookie jar. |
-| `timeout` | duration | none | Whole-request deadline. |
-| `retry` | block | none (no retries) | Retry policy and hook. |
-| `otel` | block | `propagate=true` | OpenTelemetry header propagation toggle. |
-| `tracing` | expression | global default | Explicit TracerProvider, mirroring the convention used by other clients. |
-| `metrics` | expression | global default | Explicit MeterProvider, mirroring the convention used by other clients. |
-| `http2` | bool | `true` | Allow HTTP/2 negotiation. |
-| `max_connections_per_host` | number | `0` | Per-host connection cap (0 = Go default). |
-| `max_idle_connections` | number | `0` | Idle connection pool size (0 = Go default). |
-| `disable_keep_alives` | bool | `false` | Force `Connection: close`. |
+Query parameters present on `base_url` — an `api_key`, say — are merged into
+every relative call; see [Base URL query parameters](#base-url-query-parameters).
+Absolute call URLs override `base_url` entirely. `user_agent` is a convenience
+for the header of the same name, which
+[Header precedence](#header-precedence) explains in full. The `tls` block is the
+shared one, documented under [TLS configuration](config.md#tls).
+
+<!-- vinculum:begin block-attrs client http level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `auth` | expression (action-expression) |  |  | Expression that produces credentials for each request. |
+| `auth_max_failures` | number |  | `5` | Consecutive auth failures before the client stops retrying. |
+| `auth_max_lifetime` | expression (duration) |  |  | How long to reuse credentials before re-evaluating `auth`. |
+| `base_url` | string (url) |  |  | URL prepended to relative request paths. |
+| `disable_keep_alives` | bool |  | `false` | Close each connection after a single request. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `headers` | expression |  |  | Headers sent with every request. |
+| `http2` | bool |  | `true` | Allow HTTP/2. |
+| `max_connections_per_host` | number |  | `0` | Cap on simultaneous connections to any one host. |
+| `max_idle_connections` | number |  | `0` | Cap on idle connections kept in the pool. |
+| `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
+| `timeout` | expression (duration) |  |  | Deadline for a whole request, including the body. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
+| `user_agent` | string |  |  | Value of the `User-Agent` header. |
+
+**`auth`**
+
+Evaluated when credentials are needed and re-evaluated when they expire or
+are rejected. It may call back through this same client — an OAuth2 token
+endpoint, for example — because `auth` is not a config-time dependency.
+
+Evaluated against the `http-auth` context.
+
+**`auth_max_failures`**
+
+Past this, requests fail fast rather than each paying for another doomed evaluation. A success resets the count.
+
+**`auth_max_lifetime`**
+
+Credentials are reused indefinitely when omitted, until something rejects them. Set it when the credential has a known lifetime the expression cannot report.
+
+**`base_url`**
+
+With a base URL set, calls can pass just `"/items"` rather than a full URL.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`headers`**
+
+A map of header name to value. Per-request headers are merged over these.
+
+**`max_connections_per_host`**
+
+Zero leaves it to Go's own transport, which is unlimited.
+
+**`max_idle_connections`**
+
+Zero leaves it to Go's own transport default.
+
+**`metrics`**
+
+A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+#### Blocks
+
+- `auth_retry_backoff` (optional) — Backoff between re-evaluations of `auth` after a failure.
+- `cookies` (optional) — Cookie jar settings.
+- `otel` (optional) — OpenTelemetry propagation settings.
+- `redirects` (optional) — How to handle redirect responses.
+- `retry` (optional) — When and how to retry a failed request.
+- `tls` (optional) — TLS settings for this connection.
+
+<!-- vinculum:end block-attrs client http -->
+
+#### `redirects`
+
+<!-- vinculum:begin block-attrs client http redirects level=5 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `follow` | bool |  | `true` | Follow redirects rather than returning them. |
+| `keep_auth_on_redirect` | bool |  | `false` | Keep sending credentials after a cross-host redirect. |
+| `max` | number |  | `10` | Maximum number of redirects to follow. |
+
+**`keep_auth_on_redirect`**
+
+Leaving this off is what stops credentials reaching the redirect target.
+
+<!-- vinculum:end block-attrs client http redirects -->
+
+#### `cookies`
+
+<!-- vinculum:begin block-attrs client http cookies level=5 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `enabled` | bool |  | `true` | Keep a cookie jar across requests. |
+| `public_suffix` | bool |  | `true` | Apply public-suffix rules when deciding cookie scope. |
+
+**`enabled`**
+
+Set it false to declare the block and leave the jar off.
+
+**`public_suffix`**
+
+Stops a site setting a cookie for a whole registry domain.
+
+<!-- vinculum:end block-attrs client http cookies -->
+
+#### `otel`
+
+<!-- vinculum:begin block-attrs client http otel level=5 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `propagate` | bool |  | `true` | Inject `traceparent`, `tracestate`, and `baggage` into outbound requests. |
+
+**`propagate`**
+
+Individual calls can override it.
+
+<!-- vinculum:end block-attrs client http otel -->
 
 > **Durations.** Every duration-typed attribute accepts either a string in
 > Go duration format (`"30s"`, `"1m30s"`) or a duration capsule value,
@@ -512,8 +619,23 @@ loops against an upstream that's rejecting credentials.
 
 ### `ctx.auth_attempt`
 
-When evaluating the `auth` expression, the eval context includes a small
-extra object describing why the hook is running:
+The `auth` expression is evaluated against this context:
+
+<!-- vinculum:begin block-ctx client http auth level=4 -->
+
+Fields readable as `ctx.<name>` (shape `http-auth`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.auth_attempt` | object | Why credentials are being asked for. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx client http auth -->
+
+`ctx.auth_attempt` describes why the hook is running. Its own fields are:
 
 | Field | Type | Description |
 |---|---|---|
@@ -536,6 +658,58 @@ Retries are **only attempted on idempotent verbs** (`GET`, `HEAD`, `PUT`,
 (per RFC 5789, `PATCH` is not guaranteed idempotent), nor is `POST`. To
 opt either of them in, set `retry.allow_non_idempotent = true`.
 
+### Retry attributes
+
+<!-- vinculum:begin block-attrs client http retry level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `allow_non_idempotent` | bool |  | `false` | Retry POST and other non-idempotent methods too. |
+| `backoff_factor` | number |  | `2.0` | Multiplier applied to the wait after each attempt. |
+| `initial_delay` | expression (duration) |  | `200ms` | Wait before the first retry. |
+| `jitter` | bool |  | `true` | Randomize each wait, to avoid synchronized retries. |
+| `max_attempts` | number |  | `3` | Total attempts, including the first. |
+| `max_delay` | expression (duration) |  | `30s` | Ceiling on the wait between retries. |
+| `on_response` | expression (predicate-expression) |  |  | Expression deciding whether a response should be retried. |
+| `respect_retry_after` | bool |  | `true` | Honor a `Retry-After` header in preference to the backoff schedule. |
+| `retry_on` | list |  | `[429, 502, 503, 504]` | Status codes that should be retried. |
+
+**`allow_non_idempotent`**
+
+Leaving this off is what stops a retry duplicating an effect that already happened.
+
+**`jitter`**
+
+Keeps a fleet of clients from retrying a recovering server in lockstep.
+
+**`max_attempts`**
+
+One means no retry, which is what a client with no `retry` block does.
+
+**`on_response`**
+
+Overrides `retry_on` when set.
+
+Evaluated against the `http-response` context.
+
+**`retry_on`**
+
+Replaces the default set rather than adding to it.
+
+<!-- vinculum:end block-attrs client http retry -->
+
+#### `auth_retry_backoff`
+
+<!-- vinculum:begin block-attrs client http auth_retry_backoff level=5 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `backoff_factor` | number |  | `2.0` | Multiplier applied to the wait after each failure. |
+| `initial_delay` | expression (duration) |  | `1s` | Wait before the first re-evaluation. |
+| `max_delay` | expression (duration) |  | `60s` | Ceiling on the wait between re-evaluations. |
+
+<!-- vinculum:end block-attrs client http auth_retry_backoff -->
+
 ### Backoff
 
 Standard exponential backoff with optional full jitter:
@@ -555,11 +729,22 @@ Both delta-seconds and HTTP-date forms are honored.
 
 ### `on_response` hook
 
-Useful for upstreams that signal back-pressure in non-standard ways. The
-expression has access to:
+Useful for upstreams that signal back-pressure in non-standard ways.
 
-- `ctx.response` — the response object as it would be returned to the caller
-- `ctx.attempt` — current attempt number (1-indexed) that just completed
+<!-- vinculum:begin block-ctx client http retry on_response level=4 -->
+
+Fields readable as `ctx.<name>` (shape `http-response`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.response` | object | The response received. |
+| `ctx.attempt` | number | Which attempt this response came from. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx client http retry on_response -->
 
 Return values:
 
