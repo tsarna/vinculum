@@ -91,29 +91,116 @@ client "rabbitmq" "events" {
 }
 ```
 
-### Connection attributes
+### Attributes
 
-| Attribute | Type | Default | Description |
-|---|---|---|---|
-| `brokers` | `list(string)` | required | AMQP broker URLs (`amqp://` or `amqps://`). The URL path is the virtual host; omit or use `/` for the default vhost. Multiple URLs are tried in order on connect and reconnect (failover). |
-| `disabled` | bool | `false` | Standard `disabled` flag for all client blocks. When `true`, the block is skipped entirely. |
-| `heartbeat` | duration | `"10s"` | AMQP heartbeat interval. `"0s"` disables it (not recommended — a silently broken TCP connection may go undetected for a long time). |
-| `connection_timeout` | duration | `"30s"` | Timeout for the TCP dial plus the AMQP `OPEN` handshake. |
-| `wire_format` | expression | `"auto"` | Payload serialization/deserialization format. One of `"auto"`, `"json"`, `"string"`, `"bytes"`. See [Message serialization](#message-serialization). |
-| `metrics` | expression | auto | Optional [`server "metrics"`](server-metrics.md) reference. Auto-wired to the default metrics provider if omitted. |
-| `tracing` | expression | auto | Optional [`client "otlp"`](client-otlp.md) reference. Auto-wired to the default OTLP client if omitted. |
+The URL path of a broker is the virtual host; omit it or use `/` for the default
+vhost. See [Message serialization](#message-serialization) for what `wire_format`
+does to a payload.
+
+<!-- vinculum:begin block-attrs client rabbitmq level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `brokers` | list (url) | yes |  | Broker URLs to connect to. |
+| `connection_timeout` | expression (duration) |  | `30s` | Deadline for establishing a connection. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `heartbeat` | expression (duration) |  | `10s` | Interval between AMQP heartbeats. |
+| `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
+| `on_connect` | expression (action-expression) |  |  | Evaluated after the connection is established and ready. |
+| `on_disconnect` | expression (action-expression) |  |  | Evaluated when the connection is lost or closed. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
+| `wire_format` | expression |  | `auto` | How to encode and decode message payloads. |
+
+**`brokers`**
+
+For example `["amqp://guest:guest@rabbit:5672/"]`. Several are tried in order.
+
+**`connection_timeout`**
+
+Covers the TCP dial and the AMQP handshake together.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`heartbeat`**
+
+Zero disables them, which leaves a silently broken TCP connection undetected until something tries to use it.
+
+**`metrics`**
+
+A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
+
+**`on_connect`**
+
+Runs synchronously: no messages are produced or consumed until it returns. There is no message in flight, so no message variables are in scope.
+
+Evaluated against the `connection` context.
+
+**`on_disconnect`**
+
+Always runs before any reconnection attempt, and on a graceful shutdown before the connection is torn down. Every `on_connect` after the first is preceded by one.
+
+Evaluated against the `connection` context.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+**`wire_format`**
+
+A `wire_format` block, or the name of a built-in format. Under `auto`, strings and bytes pass through and everything else is JSON-encoded; decoding auto-detects JSON and falls back to a string.
+
+#### Blocks
+
+- `auth` (optional) — Credentials presented to the broker.
+- `receiver "<name>"` (0..n) — Consumes a queue and delivers what arrives.
+- `reconnect` (optional) — How to retry a lost connection.
+- `sender "<name>"` (0..n) — Publishes bus messages to an exchange.
+- `tls` (optional) — TLS settings for this connection.
+
+<!-- vinculum:end block-attrs client rabbitmq -->
 
 ### `tls`
 
 The `tls` sub-block configures transport security. See also [TLS configuration](config.md#tls).
 
-| Attribute | Type | Description |
-|---|---|---|
-| `enabled` | bool | Enable TLS. |
-| `ca_cert` | string | Path to a PEM-encoded CA certificate for verifying the broker. If omitted, the system CA pool is used. |
-| `cert` | string | Path to a PEM-encoded client certificate (for mutual TLS). |
-| `key` | string | Path to the private key corresponding to `cert`. |
-| `insecure_skip_verify` | bool | Skip broker certificate verification. Not recommended outside of testing. Default: `false`. |
+<!-- vinculum:begin block-attrs client rabbitmq tls level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `ca_cert` | string |  | PEM file of CA certificates to trust. |
+| `cert` | string |  | PEM file holding this side's certificate. |
+| `enabled` | bool |  | Turn TLS on. |
+| `insecure_skip_verify` | bool |  | Accept any server certificate without verifying it. |
+| `key` | string |  | PEM file holding the private key for `cert`. |
+| `require_client_cert` | bool |  | Require clients to present a certificate. |
+| `self_signed` | bool |  | Generate a self-signed certificate at startup. |
+
+- cert and key must be specified together.
+- Specify at most one of self_signed or cert.
+
+**`ca_cert`**
+
+On a client, verifies the server's certificate. On a server, verifies presented client certificates.
+
+**`enabled`**
+
+Nothing else in the block takes effect while this is false.
+
+**`insecure_skip_verify`**
+
+Client-side only, and unsafe outside development.
+
+**`require_client_cert`**
+
+Server-side only; verified against `ca_cert`.
+
+**`self_signed`**
+
+Server-side only, for development. Mutually exclusive with `cert`/`key`.
+
+<!-- vinculum:end block-attrs client rabbitmq tls -->
 
 The block is **optional** and interacts with the broker URL scheme:
 
@@ -127,22 +214,38 @@ The block is **optional** and interacts with the broker URL scheme:
 
 ### `auth`
 
-| Attribute | Type | Description |
-|---|---|---|
-| `username` | string | AMQP username. |
-| `password` | expression | AMQP password. Use `env.VAR_NAME` to avoid hardcoding credentials. |
+<!-- vinculum:begin block-attrs client rabbitmq auth level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `password` | expression |  | Password to authenticate with. |
+| `username` | string |  | Username to authenticate with. |
+
+**`password`**
+
+Supply it from the environment rather than a literal.
+
+<!-- vinculum:end block-attrs client rabbitmq auth -->
 
 ### `reconnect`
 
-Controls the backoff between reconnection attempts. If omitted, a default
-schedule is used (1s initial, doubling, capped at 60s). One "attempt" is a full
-walk of the `brokers` list — every broker is tried before the next backoff.
+One "attempt" is a full walk of the `brokers` list — every broker is tried before
+the next backoff.
 
-| Attribute | Type | Default | Description |
-|---|---|---|---|
-| `initial_delay` | duration | `"1s"` | Delay before the first reconnect attempt. |
-| `max_delay` | duration | `"60s"` | Maximum delay between reconnect attempts. |
-| `backoff_factor` | number | `2.0` | Exponential multiplier applied on each attempt. |
+<!-- vinculum:begin block-attrs client rabbitmq reconnect level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `backoff_factor` | number |  | `2.0` | Multiplier applied to the wait after each failed attempt. |
+| `initial_delay` | expression (duration) |  | `1s` | Wait before the first retry. |
+| `max_delay` | expression (duration) |  | `60s` | Ceiling on the wait between retries. |
+| `max_retries` | number |  |  | Give up after this many attempts. |
+
+**`max_retries`**
+
+Retries forever when omitted, and also when set to zero or a negative number. Counts attempts to recover a *lost* connection; the initial connection is retried regardless. Giving up is quiet and final — the client logs an error and stays down, and the process keeps running.
+
+<!-- vinculum:end block-attrs client rabbitmq reconnect -->
 
 ### `on_connect` / `on_disconnect`
 
@@ -194,13 +297,47 @@ sender "main" {
 
 ### Sender attributes
 
-| Attribute | Type | Default | Description |
-|---|---|---|---|
-| `exchange` | string | required | The AMQP exchange to publish to. The default exchange (`""`) routes to the queue named by the routing key — valid and useful for simple point-to-point messaging. |
-| `confirm_mode` | bool | `true` | When `true`, the channel is put into [publisher confirms](https://www.rabbitmq.com/confirms.html) mode and `OnEvent` blocks until the broker acks the publish. A `Nack` surfaces as an error. When `false`, publishes are fire-and-forget. |
-| `mandatory` | bool | `false` | When `true`, an unroutable message (no binding matches the routing key) is returned by the broker. With `confirm_mode = true` this surfaces as an `OnEvent` error (carrying the broker's reply code + text), in addition to being counted on the `rabbitmq.publisher.returned` metric. Requires `confirm_mode = true` to surface as an error — see [Mandatory delivery](#mandatory-delivery) below. |
-| `persistent` | bool | `true` | `true` = delivery mode 2 (broker writes the message to disk; survives a restart if the queue is also durable). `false` = delivery mode 1 (in-memory only, higher throughput). |
-| `default_topic_transform` | string | `"slash_to_dot"` | Fallback when no `topic` block matches. See below. |
+`confirm_mode` uses AMQP [publisher confirms](https://www.rabbitmq.com/confirms.html).
+A returned message is also counted on the `rabbitmq.publisher.returned` metric —
+see [Mandatory delivery](#mandatory-delivery) below.
+
+<!-- vinculum:begin block-attrs client rabbitmq sender level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `exchange` | string | yes |  | Exchange to publish to. |
+| `confirm_mode` | bool |  | `true` | Wait for the broker to confirm each publish. |
+| `default_topic_transform` | string |  | `slash_to_dot` | How to derive a routing key from a bus topic with no `topic` block. |
+| `mandatory` | bool |  | `false` | Return messages the exchange cannot route to any queue. |
+| `persistent` | bool |  | `true` | Mark messages persistent so they survive a broker restart. |
+
+**`exchange`**
+
+The default exchange (`""`) routes to the queue named by the routing key, which is enough for point-to-point messaging.
+
+**`confirm_mode`**
+
+A publish blocks until acknowledged, and a nack surfaces as an error. Confirms guarantee delivery to the *exchange*, not to a queue: with no binding for the routing key the message is still discarded unless `mandatory` is set.
+
+**`default_topic_transform`**
+
+`slash_to_dot` rewrites `a/b/c` as `a.b.c`, matching AMQP's convention; `verbatim` publishes the bus topic unchanged; `error` fails the publish; `ignore` drops the message.
+
+One of: `slash_to_dot`, `verbatim`, `error`, `ignore`.
+
+**`mandatory`**
+
+Without this, an unroutable message is silently discarded. Requires `confirm_mode` for the return to surface as an error rather than only as a metric.
+
+**`persistent`**
+
+Delivery mode 2, which the broker writes to disk — and which survives a restart only if the queue is durable too. Turning it off trades that for throughput.
+
+#### Blocks
+
+- `topic "<pattern>"` (0..n) — Maps bus topics matching a pattern to a routing key.
+
+<!-- vinculum:end block-attrs client rabbitmq sender -->
 
 > **Publisher confirms guarantee delivery to the *exchange*, not to a *queue*.**
 > Even with `confirm_mode = true`, if no queue is bound for the routing key the
@@ -233,19 +370,50 @@ metric.
 Each `topic` block maps a vinculum topic pattern (the block label) to AMQP
 delivery settings.
 
-| Attribute | Type | Description |
-|---|---|---|
-| `routing_key` | expression | AMQP routing key for matching messages. If omitted, `default_topic_transform` applies. |
-| `exchange` | string | Override the sender-level exchange for this pattern. |
-| `persistent` | bool | Override the sender-level `persistent` flag for this pattern. |
+<!-- vinculum:begin block-attrs client rabbitmq sender topic level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `exchange` | string |  | Exchange for this mapping. |
+| `persistent` | bool |  | Persistence for this mapping. |
+| `routing_key` | expression |  | Routing key to publish with. |
+
+**`exchange`**
+
+Overrides the sender's exchange.
+
+**`persistent`**
+
+Overrides the sender's default.
+
+**`routing_key`**
+
+`default_topic_transform` applies when omitted. Evaluated per message, so it can interpolate the fields the pattern captured.
+
+Evaluated against the `message` context.
+
+<!-- vinculum:end block-attrs client rabbitmq sender topic -->
 
 **`routing_key` expression context:**
 
-| Variable | Description |
-|---|---|
-| `ctx.topic` | The vinculum topic string |
-| `ctx.msg` | The message payload |
-| `ctx.fields` | Named segments captured from the vinculum topic pattern (e.g. `ctx.fields.deviceId`) |
+<!-- vinculum:begin block-ctx client rabbitmq sender topic routing_key level=4 -->
+
+Fields readable as `ctx.<name>` (shape `message`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.topic` | string | Topic the message was delivered on. |
+| `ctx.msg` | dynamic | The message payload. |
+| `ctx.fields` | object | String metadata attached to the message. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx client rabbitmq sender topic routing_key -->
+
+Named segments captured from the vinculum topic pattern arrive in `ctx.fields` —
+`+deviceId` in the label becomes `ctx.fields.deviceId`.
 
 ### `default_topic_transform`
 
@@ -351,36 +519,113 @@ receiver "main" {
 
 ### Receiver attributes
 
-| Attribute | Type | Default | Description |
-|---|---|---|---|
-| `queue` | string | required | The AMQP queue to consume from. With no `declare` block, vinculum does a passive declare at startup and fails fast if the queue is missing. |
-| `prefetch` | number | `10` | AMQP `basic.qos` prefetch count — unacked messages the broker may push before waiting for acks. `0` is unlimited and dangerous (the broker pushes the whole queue at once). |
-| `exclusive` | bool | `false` | Exclusive consumer — only one consumer may be active on the queue at a time. Prevents horizontal scaling; leave `false` for competing consumers across instances. |
-| `auto_ack` | bool | `false` | When `true`, the broker considers a message delivered as soon as it is written to the socket (lossy on crash). Default `false` = manual ack after `subscriber.OnEvent` returns without error. |
-| `baggage` | block | strip all | Optional [baggage](baggage.md) trust filter. Inbound baggage is **stripped by default** before it reaches the action; opt in with `passthrough`/`allow`/`deny`. Per-receiver. See [Server-side trust filtering](baggage.md#server-side-trust-filtering). |
-| `default_routing_key_transform` | string | `"dot_to_slash"` | Fallback when no `subscription` matches. See below. |
-| `on_decode_error` | expression | none | Evaluated when an inbound body fails to deserialize. Observes only — the message is nacked either way. See [Decode failures](#decode-failures). |
+The `baggage` block is a [baggage](baggage.md) trust filter. Inbound baggage is
+**stripped by default** before it reaches the action; opt in with
+`passthrough`/`allow`/`deny`, per receiver. See
+[Server-side trust filtering](baggage.md#server-side-trust-filtering).
+
+<!-- vinculum:begin block-attrs client rabbitmq receiver level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `queue` | string | yes |  | Queue to consume from. |
+| `action` | expression (action-expression) |  |  | Expression evaluated once per message. |
+| `auto_ack` | bool |  | `false` | Acknowledge on delivery rather than after handling. |
+| `default_routing_key_transform` | string |  | `dot_to_slash` | How to derive a bus topic from a routing key with no `subscription` block. |
+| `exclusive` | bool |  | `false` | Claim the queue exclusively for this connection. |
+| `on_decode_error` | expression (action-expression) |  |  | Evaluated when an inbound message cannot be decoded. |
+| `prefetch` | number |  | `10` | Unacknowledged messages the broker may have in flight. |
+| `queue_size` | number |  |  | Depth of an async queue wrapping the subscriber. |
+| `subscriber` | expression (subscriber-ref) |  |  | Subscriber to forward messages to, instead of evaluating an action. |
+| `transforms` | expression (transform-pipeline) |  |  | Transform pipeline applied before the action or subscriber. |
+
+- Specify at most one of action or subscriber.
+- Specify either an action to evaluate or a subscriber to forward to.
+
+**`queue`**
+
+With no `declare` block the queue is declared passively at startup, so a missing queue fails immediately rather than later.
+
+**`action`**
+
+`ctx.topic` is the message topic and `ctx.msg` the payload; a protocol that extracts metadata also provides `ctx.fields`.
+
+Evaluated against the `message` context.
+
+**`auto_ack`**
+
+Faster, but a message is lost if handling fails or the process dies holding it.
+
+**`default_routing_key_transform`**
+
+`dot_to_slash` rewrites `a.b.c` as `a/b/c`, matching the bus's convention; `verbatim` uses the routing key unchanged; `error` fails the delivery; `ignore` drops the message.
+
+One of: `dot_to_slash`, `verbatim`, `error`, `ignore`.
+
+**`exclusive`**
+
+Only one consumer may be active on the queue, so this rules out running more than one instance against it.
+
+**`on_decode_error`**
+
+The message is dropped rather than delivered. Use this to publish to a dead-letter destination or record the failure.
+
+Evaluated against the `decode-error` context.
+
+**`prefetch`**
+
+Bounds how much work is outstanding at once. Zero is unlimited, which lets the broker push an entire queue at once.
+
+**`queue_size`**
+
+When set, decouples delivery from the action so a slow action does not block the source.
+
+**`subscriber`**
+
+Anything that can receive messages: a bus, an FSM, a subscriber-implementing server or client.
+
+**`transforms`**
+
+A list of transform functions applied in order to each message. Only transform functions are in scope here.
+
+#### Blocks
+
+- `baggage` (optional) — Which inbound baggage keys to trust.
+- `binding "<routing_key>"` (0..n) — Bind the queue to an exchange with a routing key.
+- `declare` (optional) — Declare the queue if it does not already exist.
+- `subscription "<routing_key_pattern>"` (0..n) — Maps arriving routing keys to a bus topic.
+
+<!-- vinculum:end block-attrs client rabbitmq receiver -->
 
 ### `subscriber` / `action` / `transforms` / `queue_size`
 
-Exactly one of `subscriber` or `action` must be specified. These four
-attributes form the standard delivery pattern used by every block that
-dispatches events (see [subscription](config.md#subscription)):
-
-| Attribute | Type | Description |
-|---|---|---|
-| `subscriber` | expression | Forward each received message to a bus or subscriber (e.g. `bus.main`). Mutually exclusive with `action`. |
-| `action` | expression | Evaluate an HCL expression for each message. Mutually exclusive with `subscriber`. |
-| `transforms` | expression | Optional transform pipeline applied to each message before delivery. |
-| `queue_size` | number | Optional async queue depth. When set, delivery runs in a background queue so a slow handler doesn't block the AMQP delivery loop; trace context flows across the async boundary. |
+Exactly one of `subscriber` or `action` must be specified. These four attributes
+form the standard delivery pattern used by every block that dispatches events
+(see [subscription](config.md#subscription)). `queue_size` runs delivery in a
+background queue so a slow handler doesn't block the AMQP delivery loop; trace
+context flows across the async boundary.
 
 **Action context variables:**
 
-| Variable | Description |
-|---|---|
-| `ctx.topic` | Vinculum topic of the received message |
-| `ctx.msg` | Deserialized payload (per `wire_format`) |
-| `ctx.fields` | `map(string)` from the AMQP headers table merged with extracted routing-key fields. W3C trace headers (`traceparent`, `tracestate`, `baggage`) are stripped. |
+<!-- vinculum:begin block-ctx client rabbitmq receiver action level=4 -->
+
+Fields readable as `ctx.<name>` (shape `message`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.topic` | string | Topic the message was delivered on. |
+| `ctx.msg` | dynamic | The message payload. |
+| `ctx.fields` | object | String metadata attached to the message. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx client rabbitmq receiver action -->
+
+`ctx.fields` carries the AMQP headers table merged with the extracted
+routing-key fields. W3C trace headers (`traceparent`, `tracestate`, `baggage`)
+are stripped.
 
 ### `on_decode_error`
 
@@ -403,16 +648,32 @@ receiver "in" {
 
 **Hook context variables:**
 
-| Variable | Description |
-|---|---|
-| `ctx.raw` | The undecoded body, as a [`bytes`](functions.md) object |
-| `ctx.error` | The deserialize error message |
-| `ctx.wire_format` | The configured format name (`"json"`, …) |
-| `ctx.topic` | Best-effort vinculum topic. The routing key transform is applied, but a `subscription`'s `vinculum_topic` expression is not — it needs `msg`, which does not exist here. |
-| `ctx.fields` | Fields extracted from the routing key and AMQP headers before the failure |
-| `ctx.routing_key` | The raw AMQP routing key |
-| `ctx.exchange` | The AMQP exchange |
-| `ctx.queue` | The queue the message came from |
+<!-- vinculum:begin block-ctx client rabbitmq receiver on_decode_error level=4 -->
+
+Fields readable as `ctx.<name>` (shape `decode-error`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.raw` | object | The undecoded body, as a bytes object. |
+| `ctx.error` | string | The deserialize error message. |
+| `ctx.wire_format` | string | Name of the configured wire format that rejected it. |
+| `ctx.topic` | string | Best-effort vinculum topic for the message. |
+| `ctx.fields` | object | Metadata extracted before the failure. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.routing_key` | string | Routing key the message was delivered with. *(added here)* |
+| `ctx.exchange` | string | Exchange the message was published to. *(added here)* |
+| `ctx.queue` | string | Queue this receiver consumes from. *(added here)* |
+
+*This shape is open: a particular site may carry fields beyond these.*
+
+<!-- vinculum:end block-ctx client rabbitmq receiver on_decode_error -->
+
+`ctx.topic` is best-effort here: the routing-key transform is applied, but a
+`subscription`'s `vinculum_topic` expression is not — that needs `msg`, which is
+exactly what failed to decode.
 
 ### `declare`
 
@@ -420,13 +681,16 @@ Optional. When present, vinculum calls `QueueDeclare` (creating the queue if
 missing) on every connect and reconnect. When absent, vinculum does a passive
 declare to verify the queue exists and fails fast otherwise.
 
-| Attribute | Type | Default | Description |
-|---|---|---|---|
-| `durable` | bool | `true` | Queue survives a broker restart. |
-| `auto_delete` | bool | `false` | Queue is deleted when the last consumer disconnects. |
+<!-- vinculum:begin block-attrs client rabbitmq receiver declare level=4 -->
 
-Advanced queue arguments (dead-letter exchange, message TTL, max length) are
-intentionally not exposed here — manage them with
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `auto_delete` | bool |  | `false` | Delete the queue once its last consumer disconnects. |
+| `durable` | bool |  | `true` | Keep the queue across broker restarts. |
+
+<!-- vinculum:end block-attrs client rabbitmq receiver declare -->
+
+Manage the advanced queue arguments with a
 [RabbitMQ policy](https://www.rabbitmq.com/parameters.html) or your
 infrastructure tooling.
 
@@ -436,9 +700,13 @@ Optional. When present, vinculum calls `QueueBind` on every connect and
 reconnect, binding the queue to the named exchange with the routing-key pattern
 in the block label. Bindings are idempotent.
 
-| Attribute | Type | Description |
-|---|---|---|
-| `exchange` | string | Required. Exchange to bind this queue to. |
+<!-- vinculum:begin block-attrs client rabbitmq receiver binding level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `exchange` | string | yes | Exchange to bind to. |
+
+<!-- vinculum:end block-attrs client rabbitmq receiver binding -->
 
 Bindings are about **topology** (what the broker delivers to the queue);
 `subscription` blocks are about **dispatch** (how delivered messages map to
@@ -450,19 +718,39 @@ Each `subscription` block maps an AMQP routing-key pattern (the block label) to
 a vinculum topic. The pattern uses AMQP topic-exchange syntax: `*` matches
 exactly one dot-delimited word, `#` matches zero or more words.
 
-| Attribute | Type | Description |
-|---|---|---|
-| `vinculum_topic` | expression | Vinculum topic to dispatch the message under. Default: `default_routing_key_transform` applied to the routing key. |
+<!-- vinculum:begin block-attrs client rabbitmq receiver subscription level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `vinculum_topic` | expression (topic-pattern) |  | Bus topic to publish arriving messages to. |
+
+**`vinculum_topic`**
+
+`default_routing_key_transform` applies when omitted. Evaluated per delivery, so it can interpolate the fields the routing-key pattern captured.
+
+Evaluated against the `amqp-delivery` context.
+
+<!-- vinculum:end block-attrs client rabbitmq receiver subscription -->
 
 **`vinculum_topic` expression context:**
 
-| Variable | Description |
-|---|---|
-| `ctx.routing_key` | The AMQP routing key the message arrived with |
-| `ctx.exchange` | The exchange the message was published to |
-| `ctx.topic` | Alias for `ctx.routing_key` (for consistency with other clients) |
-| `ctx.msg` | Deserialized message payload |
-| `ctx.fields` | `map(string)` from the AMQP headers table merged with extracted routing-key fields |
+<!-- vinculum:begin block-ctx client rabbitmq receiver subscription vinculum_topic level=4 -->
+
+Fields readable as `ctx.<name>` (shape `amqp-delivery`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.routing_key` | string | Routing key the message was delivered with. |
+| `ctx.exchange` | string | Exchange the message was published to. |
+| `ctx.topic` | string | Alias for `routing_key`. |
+| `ctx.msg` | dynamic | The message payload. |
+| `ctx.fields` | object | String metadata attached to the message. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx client rabbitmq receiver subscription vinculum_topic -->
 
 **Named wildcard field extraction.** Subscription labels may name captures by
 appending a field name to either wildcard:
