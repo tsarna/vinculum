@@ -860,15 +860,42 @@ tls {
 
 ### TLS Attributes
 
-| Attribute | Type | Side | Description |
-|---|---|---|---|
-| `enabled` | bool | both | Must be `true` for TLS to take effect. Default: `false`. |
-| `cert` | string | both | Path to a PEM-encoded certificate file. Required on servers (unless `self_signed = true`); optional on clients (mTLS). |
-| `key` | string | both | Path to the private key corresponding to `cert`. Required whenever `cert` is set. |
-| `self_signed` | bool | server | Generate an ephemeral self-signed ECDSA certificate at startup. Mutually exclusive with `cert`/`key`. For development and testing only. |
-| `ca_cert` | string | both | Path to a PEM-encoded CA certificate. On servers, used to verify client certificates. On clients, used to verify the server certificate. |
-| `require_client_cert` | bool | server | Require and verify a client certificate (mTLS). Default: `false`. |
-| `insecure_skip_verify` | bool | client | Skip server certificate verification. Not recommended outside of testing. Default: `false`. |
+<!-- vinculum:begin block-attrs client mqtt tls level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `ca_cert` | string |  | PEM file of CA certificates to trust. |
+| `cert` | string |  | PEM file holding this side's certificate. |
+| `enabled` | bool |  | Turn TLS on. |
+| `insecure_skip_verify` | bool |  | Accept any server certificate without verifying it. |
+| `key` | string |  | PEM file holding the private key for `cert`. |
+| `require_client_cert` | bool |  | Require clients to present a certificate. |
+| `self_signed` | bool |  | Generate a self-signed certificate at startup. |
+
+- cert and key must be specified together.
+- Specify at most one of self_signed or cert.
+
+**`ca_cert`**
+
+On a client, verifies the server's certificate. On a server, verifies presented client certificates.
+
+**`enabled`**
+
+Nothing else in the block takes effect while this is false.
+
+**`insecure_skip_verify`**
+
+Client-side only, and unsafe outside development.
+
+**`require_client_cert`**
+
+Server-side only; verified against `ca_cert`.
+
+**`self_signed`**
+
+Server-side only, for development. Mutually exclusive with `cert`/`key`.
+
+<!-- vinculum:end block-attrs client mqtt tls -->
 
 Relative paths for `cert`, `key`, and `ca_cert` are resolved against the
 `--file-path` base directory.

@@ -523,9 +523,18 @@ Attrs: map[string]cfg.AttrMeta{
         Hint:    cfg.HintDuration,   // what kind of value belongs here
         Context: "message",          // for an expression: which ctx it sees
         Enum:    []string{"a", "b"}, // when the set is fixed
+        Default: "30s",              // value when omitted, as a config writes it
     },
 },
 ```
+
+State a `Default` whenever the processing code applies one — it is curated
+because `keepAlive := 30 * time.Second` is not reachable by reflection, and it
+is a field rather than a `Doc` sentence so a consumer can put it in its own
+column. A required attribute may not have one (the schema reports it), and an
+empty `Default` means *no default worth stating* rather than *the zero value*.
+Use `cfg.SomeSharedAttr.WithDefault("60s")` where a shared `AttrMeta`'s default
+is the host's choice rather than the attribute's.
 
 The reverse fails too: documenting an attribute the struct does not have
 reports `documented attribute "x" does not exist`. Renaming a field is a

@@ -320,6 +320,12 @@ func attrQualifier(r AttrRow) string {
 	if r.Required {
 		parts = append(parts, "required")
 	}
+	// A default belongs with required rather than in a column of its own, for
+	// the reason attrTable gives: it is short, and it is mutually exclusive
+	// with "required" anyway, so the two never crowd each other.
+	if r.Default != "" {
+		parts = append(parts, "default `"+r.Default+"`")
+	}
 	return strings.Join(parts, ", ")
 }
 

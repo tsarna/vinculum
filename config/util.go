@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"strconv"
 	"strings"
 	"time"
 
@@ -192,35 +193,15 @@ func init() {
 	RegisterSharedBlockSchema(&ReconnectDefinition{}, reconnectSchema)
 }
 
-var reconnectSchema = TypeSchema{
-	Summary: "How to retry a lost connection.",
-	Doc: `Retries use exponential backoff: the first retry waits ` + "`initial_delay`" + `, and
-each subsequent wait is multiplied by ` + "`backoff_factor`" + ` up to ` + "`max_delay`" + `.`,
-	Attrs: map[string]AttrMeta{
-		"initial_delay": {
-			Summary: "Wait before the first retry.",
-			Hint:    HintDuration,
-		},
-		"max_delay": {
-			Summary: "Ceiling on the wait between retries.",
-			Hint:    HintDuration,
-		},
-		"backoff_factor": {
-			Summary: "Multiplier applied to the wait after each failed attempt.",
-		},
-		"max_retries": {
-			Summary: "Give up after this many attempts.",
-			Doc:     "Retries forever when omitted.",
-		},
-	},
-}
-
 // The schedule a `reconnect` block describes when it leaves an attribute out.
 //
 // One set of numbers for every client, because a user writes one block:
 // `reconnect {}` on a vws client and on an mqtt client mean the same thing.
 // 60s matches vinculum-rabbitmq's own DefaultReconnectBackoff, so the block
 // agrees with a library it configures rather than overriding it.
+//
+// ReconnectAttrs states these as the block's documented defaults, so a change
+// here reaches `vinculum man` and the generated pages.
 //
 // These apply only when the block is *present*. With no block at all each
 // library keeps its own schedule, which is a different question and not ours.
@@ -229,6 +210,72 @@ const (
 	defaultReconnectMaxDelay      = 60 * time.Second
 	defaultReconnectBackoffFactor = 2.0
 )
+
+// ReconnectAttrs documents the shared `reconnect` block. Exported so a host can
+// layer over it with MergeAttrs rather than restating the descriptions, though
+// no host needs to: one block means one schedule on every client, so there is
+// nothing to specialize.
+//
+// The stated defaults are the constants above rather than literals repeating
+// them. A wrong default is worse than none, since `vinculum man` and the
+// generated pages present it as fact, and two copies of a number are one edit
+// away from disagreeing.
+var ReconnectAttrs = map[string]AttrMeta{
+	"initial_delay": {
+		Summary: "Wait before the first retry.",
+		Hint:    HintDuration,
+		Default: durationDefault(defaultReconnectInitialDelay),
+	},
+	"max_delay": {
+		Summary: "Ceiling on the wait between retries.",
+		Hint:    HintDuration,
+		Default: durationDefault(defaultReconnectMaxDelay),
+	},
+	"backoff_factor": {
+		Summary: "Multiplier applied to the wait after each failed attempt.",
+		Default: floatDefault(defaultReconnectBackoffFactor),
+	},
+	"max_retries": {
+		Summary: "Give up after this many attempts.",
+		Doc: "Retries forever when omitted, and also when set to zero or a " +
+			"negative number. Counts attempts to recover a *lost* connection; the " +
+			"initial connection is retried regardless. Giving up is quiet and " +
+			"final — the client logs an error and stays down, and the process keeps " +
+			"running.",
+	},
+}
+
+// durationDefault writes a duration the way a configuration would, which is not
+// always how Go prints one: (60 * time.Second).String() is "1m0s", and a default
+// that does not look like the value a reader would type is a poor default to
+// show them.
+func durationDefault(d time.Duration) string {
+	if d >= time.Second && d%time.Second == 0 {
+		return strconv.FormatInt(int64(d/time.Second), 10) + "s"
+	}
+	return d.String()
+}
+
+// floatDefault keeps a whole-numbered float looking like a float, since Go
+// prints 2.0 as "2" and a multiplier documented as `2` invites the reader to
+// wonder whether the slot takes an integer.
+func floatDefault(f float64) string {
+	s := strconv.FormatFloat(f, 'f', -1, 64)
+	if !strings.Contains(s, ".") {
+		s += ".0"
+	}
+	return s
+}
+
+var reconnectSchema = TypeSchema{
+	Summary: "How to retry a lost connection.",
+	Doc: `Retries use exponential backoff: the first retry waits ` + "`initial_delay`" + `, and
+each subsequent wait is multiplied by ` + "`backoff_factor`" + ` up to ` + "`max_delay`" + `.
+
+The defaults below apply once the block is present. Omit it entirely and the
+underlying client library's own reconnect behaviour is used instead.`,
+	Attrs: ReconnectAttrs,
+}
 
 // reconnectSchedule is a reconnect block resolved into concrete numbers, with
 // the defaults above filled in for whatever it omitted.

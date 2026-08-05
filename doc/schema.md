@@ -177,6 +177,7 @@ omitted rather than emitted empty:
   "hint": "topic-pattern",
   "context": "message",
   "enum": ["one", "many"],
+  "default": "30s",
   "deprecated": "Use `subscriber` instead."
 }
 ```
@@ -189,6 +190,7 @@ omitted rather than emitted empty:
 | `context` | Names the `ctx` shape an expression here sees. |
 | `contextFields` | Fields this site adds to that shape, for an open shape only — see below. |
 | `enum` | The accepted values, when there is a fixed set. |
+| `default` | The value used when the attribute is omitted, written as you would write it in a configuration. Absent means *no default worth stating* rather than *the zero value*: a required attribute never carries one, and neither does an optional one whose absence means "do nothing" rather than "do this instead". |
 | `deprecated` | Present only when the attribute is deprecated; the text says what to use instead. |
 
 ### Hints

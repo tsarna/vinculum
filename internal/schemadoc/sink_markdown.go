@@ -117,9 +117,18 @@ func (m *markdownSink) attrTable(t AttrTable) {
 	if len(t.Rows) == 0 {
 		return
 	}
+	// The Default column appears only when something in this table has one,
+	// so a body with no defaults is not given an empty column to explain.
+	defaults := t.HasDefaults()
+
 	m.para()
-	m.line("| Attribute | Type | Required | Description |")
-	m.line("|---|---|---|:---|")
+	if defaults {
+		m.line("| Attribute | Type | Required | Default | Description |")
+		m.line("|---|---|---|---|:---|")
+	} else {
+		m.line("| Attribute | Type | Required | Description |")
+		m.line("|---|---|---|:---|")
+	}
 	for _, r := range t.Rows {
 		req := ""
 		if r.Required {
@@ -129,7 +138,16 @@ func (m *markdownSink) attrTable(t AttrTable) {
 		if r.Deprecated != "" {
 			desc = "**Deprecated.** " + desc
 		}
-		m.line(fmt.Sprintf("| `%s` | %s | %s | %s |", r.Name, typeLabel(r.Type, r.Hint), req, desc))
+		if !defaults {
+			m.line(fmt.Sprintf("| `%s` | %s | %s | %s |", r.Name, typeLabel(r.Type, r.Hint), req, desc))
+			continue
+		}
+		def := ""
+		if r.Default != "" {
+			def = "`" + r.Default + "`"
+		}
+		m.line(fmt.Sprintf("| `%s` | %s | %s | %s | %s |",
+			r.Name, typeLabel(r.Type, r.Hint), req, def, desc))
 	}
 }
 

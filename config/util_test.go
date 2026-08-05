@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -321,13 +322,40 @@ func TestBothReconnectPathsAgreeOnTheSchedule(t *testing.T) {
 	}
 }
 
+// The schema states these constants as the block's defaults, and
+// doc/client-*.md and `vinculum man` repeat what the schema says. The two are
+// the same expression, so they cannot disagree; this parses the documented
+// string back to confirm the formatting helpers produce what the constant means.
 func TestReconnectDefaultsAreTheOnesDocumented(t *testing.T) {
-	// The schema states these as `max_delay`'s and friends' defaults, and
-	// doc/client-*.md generates from the schema. A silent change here would
-	// make every one of those pages wrong.
-	assert.Equal(t, time.Second, time.Duration(defaultReconnectInitialDelay))
-	assert.Equal(t, 60*time.Second, time.Duration(defaultReconnectMaxDelay))
-	assert.Equal(t, 2.0, float64(defaultReconnectBackoffFactor))
+	initial, err := time.ParseDuration(ReconnectAttrs["initial_delay"].Default)
+	require.NoError(t, err, "a documented duration default must be a duration")
+	assert.Equal(t, time.Duration(defaultReconnectInitialDelay), initial)
+
+	maxDelay, err := time.ParseDuration(ReconnectAttrs["max_delay"].Default)
+	require.NoError(t, err)
+	assert.Equal(t, time.Duration(defaultReconnectMaxDelay), maxDelay)
+
+	factor, err := strconv.ParseFloat(ReconnectAttrs["backoff_factor"].Default, 64)
+	require.NoError(t, err, "a documented number default must be a number")
+	assert.Equal(t, float64(defaultReconnectBackoffFactor), factor)
+
+	// Spelled the way a config would spell them, not the way Go prints them:
+	// (60 * time.Second).String() is "1m0s", which nobody types into a duration
+	// slot, and FormatFloat drops the ".0" off a whole-numbered multiplier.
+	assert.Equal(t, "60s", ReconnectAttrs["max_delay"].Default)
+	assert.Equal(t, "2.0", ReconnectAttrs["backoff_factor"].Default)
+}
+
+// max_retries has no documented default: unlimited is what an absent attribute
+// means, and "no default worth stating" is exactly the case an empty Default is
+// for. It also must not claim to be unhonored any more — it is honored on every
+// client now, and a schema that says otherwise sends a reader looking for a
+// workaround they do not need.
+func TestMaxRetriesIsDocumentedAsHonored(t *testing.T) {
+	meta := ReconnectAttrs["max_retries"]
+	assert.Empty(t, meta.Default)
+	assert.NotContains(t, meta.Doc, "Not honored")
+	assert.Contains(t, meta.Doc, "forever when omitted")
 }
 
 // max_retries travels beside the schedule rather than inside it, because a

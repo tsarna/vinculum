@@ -306,6 +306,46 @@ func TestMergeBodyAppliesCuration(t *testing.T) {
 	assert.Equal(t, "Specify at most one of action or handler.", body.Constraints[0].Message)
 }
 
+func TestMergeBodyCarriesDefaults(t *testing.T) {
+	ts := fixtureSchema()
+	ts.Attrs["timeout"] = AttrMeta{Summary: "How long to wait.", Default: "30s"}
+
+	b := &schemaBuilder{}
+	body := b.bodyFromSample("fixture", ts)
+	assert.Empty(t, b.problems)
+
+	timeout := findAttr(body, "timeout")
+	require.NotNil(t, timeout)
+	assert.Equal(t, "30s", timeout.Default)
+
+	// An attribute with no curated default states none, rather than reporting
+	// the Go zero value as if it had been chosen.
+	assert.Empty(t, findAttr(body, "count").Default)
+}
+
+func TestMergeBodyRejectsADefaultOnARequiredAttribute(t *testing.T) {
+	ts := fixtureSchema()
+	// `listen` is required: it has no `,optional` tag, so it can never be
+	// omitted and a default for it could never apply.
+	ts.Attrs["listen"] = AttrMeta{Summary: "Listen address.", Default: ":8080"}
+
+	b := &schemaBuilder{}
+	b.bodyFromSample("fixture", ts)
+
+	require.Len(t, b.problems, 1)
+	assert.ErrorContains(t, b.problems[0], `fixture.listen: required attributes have no default`)
+	assert.ErrorContains(t, b.problems[0], `":8080"`)
+}
+
+func TestWithDefaultLeavesTheSharedAttrAlone(t *testing.T) {
+	shared := AttrMeta{Summary: "Ceiling on the wait between retries.", Default: "30s"}
+	specialized := shared.WithDefault("60s")
+
+	assert.Equal(t, "60s", specialized.Default)
+	assert.Equal(t, shared.Summary, specialized.Summary, "the description carries over")
+	assert.Equal(t, "30s", shared.Default, "the shared value is not mutated")
+}
+
 func TestMergeBodyDetectsOrphanedCuration(t *testing.T) {
 	ts := fixtureSchema()
 	ts.Attrs["listn"] = AttrMeta{Summary: "Typo."}

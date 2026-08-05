@@ -368,7 +368,8 @@ func contextTable(shape string, cs *config.SchemaContext, added []*config.Schema
 func attrRow(a *config.SchemaAttr) AttrRow {
 	return AttrRow{
 		Name: a.Name, Type: a.Type, Required: a.Required,
-		Summary: a.Summary, Hint: a.Hint, Deprecated: a.Deprecated,
+		Summary: a.Summary, Hint: a.Hint,
+		Default: a.Default, Deprecated: a.Deprecated,
 	}
 }
 
