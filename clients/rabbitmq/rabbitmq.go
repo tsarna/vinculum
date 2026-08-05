@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"math"
 	"net/url"
 	"sync"
 	"time"
@@ -511,7 +510,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}
 	}
 
-	reconnectFn, recDiags := buildReconnectBackoffFunc(config, def.Reconnect)
+	reconnectFn, recDiags := config.ReconnectBackoffFunc(def.Reconnect)
 	if recDiags.HasErrors() {
 		return nil, recDiags
 	}
@@ -1004,46 +1003,6 @@ func makeLifecycleHook(config *cfg.Config, expr hcl.Expression) func(ctx context
 			config.UserLogger.Error("rabbitmq lifecycle hook: eval failed", config.ActionError(diags))
 		}
 	}
-}
-
-// buildReconnectBackoffFunc parses a ReconnectDefinition into an exponential
-// backoff function for the client's reconnect loop. Returns nil when no
-// reconnect block is configured, in which case the client uses its own
-// default backoff.
-func buildReconnectBackoffFunc(config *cfg.Config, def *cfg.ReconnectDefinition) (func(int) time.Duration, hcl.Diagnostics) {
-	if def == nil {
-		return nil, nil
-	}
-
-	initialDelay := time.Second
-	maxDelay := 60 * time.Second
-	backoffFactor := 2.0
-
-	if cfg.IsExpressionProvided(def.InitialDelay) {
-		d, diags := config.ParseDuration(def.InitialDelay)
-		if diags.HasErrors() {
-			return nil, diags
-		}
-		initialDelay = d
-	}
-	if cfg.IsExpressionProvided(def.MaxDelay) {
-		d, diags := config.ParseDuration(def.MaxDelay)
-		if diags.HasErrors() {
-			return nil, diags
-		}
-		maxDelay = d
-	}
-	if def.BackoffFactor != nil {
-		backoffFactor = *def.BackoffFactor
-	}
-
-	return func(attempt int) time.Duration {
-		delay := time.Duration(float64(initialDelay) * math.Pow(backoffFactor, float64(attempt)))
-		if delay > maxDelay {
-			delay = maxDelay
-		}
-		return delay
-	}, nil
 }
 
 // Ensure interface compliance.
