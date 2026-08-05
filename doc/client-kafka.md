@@ -40,16 +40,16 @@ client "kafka" "events" {
   acks        = "all"      # all | leader | none — default: all
   compression = "snappy"   # none | gzip | snappy | lz4 | zstd — default: none
   idempotent  = true       # default: true when acks = "all"
-  linger      = "5ms"      # max wait to fill a batch — default: 0 (immediate)
-  max_records = 10000      # max buffered records before ProduceSync blocks
+  linger      = "5ms"      # max wait to fill a batch — default: 10ms
+  max_records = 10000      # max buffered records before a produce blocks — default: 10000
 
   # Wire format for payload serialization/deserialization (default: "auto")
   # wire_format = "json"     # auto | auto_bytes | json | string | bytes
 
   # Connection timeouts
   dial_timeout     = "10s"   # default: 10s
-  request_timeout  = "30s"   # default: 30s
-  metadata_max_age = "300s"  # how often to refresh broker/partition metadata
+  request_timeout  = "30s"   # added to the request's own timeout — default: 10s
+  metadata_max_age = "300s"  # how often to refresh broker/partition metadata — default: 5m
 
   # Named sender blocks (zero or more)
   sender "main" { ... }
@@ -59,40 +59,158 @@ client "kafka" "events" {
 }
 ```
 
+### Attributes
+
+The delivery settings (`acks`, `compression`, `idempotent`, `linger`,
+`max_records`) are connection-level and apply to every sender in the block. They
+correspond directly to franz-go client options, and take effect only when the
+block declares at least one `sender`.
+
+<!-- vinculum:begin block-attrs client kafka level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `brokers` | list | yes |  | Bootstrap broker addresses. |
+| `acks` | string |  | `all` | How many replicas must acknowledge a produced record. |
+| `compression` | string |  | `none` | Compression applied to produced records. |
+| `dial_timeout` | expression (duration) |  | `10s` | Deadline for establishing a connection to a broker. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `idempotent` | bool |  | `true` | Enable idempotent production, so retries cannot duplicate a record. |
+| `linger` | expression (duration) |  | `10ms` | How long to wait for more records before sending a batch. |
+| `max_records` | number |  | `10000` | Records that may be buffered awaiting production. |
+| `metadata_max_age` | expression (duration) |  | `5m` | How long cluster metadata may be reused before it is refreshed. |
+| `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
+| `request_timeout` | expression (duration) |  | `10s` | Deadline for a single broker request. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
+| `wire_format` | expression |  | `auto` | How to encode and decode message payloads. |
+
+**`brokers`**
+
+For example `["kafka-1:9092", "kafka-2:9092"]`.
+
+**`acks`**
+
+`all` waits for every in-sync replica, `leader` for the partition leader alone, and `none` does not wait at all. Idempotent production requires `all`.
+
+One of: `none`, `leader`, `all`.
+
+**`compression`**
+
+One of: `none`, `gzip`, `snappy`, `lz4`, `zstd`.
+
+**`dial_timeout`**
+
+The default is franz-go's.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`idempotent`**
+
+Requires `acks = "all"`.
+
+**`linger`**
+
+Trades latency for throughput. The default is franz-go's; zero sends each batch as soon as it is ready.
+
+**`max_records`**
+
+A produce blocks once this many records are outstanding, which is what bounds memory when the brokers cannot keep up. The default is franz-go's.
+
+**`metadata_max_age`**
+
+The default is franz-go's.
+
+**`metrics`**
+
+A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
+
+**`request_timeout`**
+
+Added to the timeout the request itself asks for, rather than replacing it. The default is franz-go's.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+**`wire_format`**
+
+A `wire_format` block, or the name of a built-in format. Under `auto`, strings and bytes pass through and everything else is JSON-encoded; decoding auto-detects JSON and falls back to a string.
+
+#### Blocks
+
+- `receiver "<name>"` (0..n) — Consumes Kafka topics as part of a consumer group.
+- `sasl` (optional) — SASL credentials presented to the brokers.
+- `sender "<name>"` (0..n) — Produces bus messages to Kafka topics.
+- `tls` (optional) — TLS settings for this connection.
+
+<!-- vinculum:end block-attrs client kafka -->
+
 ### TLS
 
 The `tls` sub-block configures transport security.
 
-| Attribute | Type | Description |
-|---|---|---|
-| `enabled` | bool | Enable TLS. Required to be `true` for TLS to take effect. |
-| `ca_cert` | string | Path to a PEM-encoded CA certificate file for verifying the broker. If omitted, the system CA pool is used. |
-| `cert` | string | Path to a PEM-encoded client certificate (for mutual TLS). |
-| `key` | string | Path to the private key corresponding to `cert`. |
-| `insecure_skip_verify` | bool | Skip broker certificate verification. Not recommended outside of testing. Default: `false`. |
+<!-- vinculum:begin block-attrs client kafka tls level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `ca_cert` | string |  | PEM file of CA certificates to trust. |
+| `cert` | string |  | PEM file holding this side's certificate. |
+| `enabled` | bool |  | Turn TLS on. |
+| `insecure_skip_verify` | bool |  | Accept any server certificate without verifying it. |
+| `key` | string |  | PEM file holding the private key for `cert`. |
+| `require_client_cert` | bool |  | Require clients to present a certificate. |
+| `self_signed` | bool |  | Generate a self-signed certificate at startup. |
+
+- cert and key must be specified together.
+- Specify at most one of self_signed or cert.
+
+**`ca_cert`**
+
+On a client, verifies the server's certificate. On a server, verifies presented client certificates.
+
+**`enabled`**
+
+Nothing else in the block takes effect while this is false.
+
+**`insecure_skip_verify`**
+
+Client-side only, and unsafe outside development.
+
+**`require_client_cert`**
+
+Server-side only; verified against `ca_cert`.
+
+**`self_signed`**
+
+Server-side only, for development. Mutually exclusive with `cert`/`key`.
+
+<!-- vinculum:end block-attrs client kafka tls -->
 
 ### SASL
 
 The `sasl` sub-block configures authentication.
 
-| Attribute | Type | Description |
-|---|---|---|
-| `mechanism` | string | One of `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512`. |
-| `username` | string | SASL username. |
-| `password` | string | SASL password. Use `env.VAR_NAME` to avoid hardcoding credentials. |
+<!-- vinculum:begin block-attrs client kafka sasl level=4 -->
 
-### Sender delivery settings
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `mechanism` | string | yes | SASL mechanism to authenticate with. |
+| `password` | expression |  | Password to authenticate with. |
+| `username` | string |  | Username to authenticate with. |
 
-These attributes are connection-level settings and apply to all senders
-within the block. They correspond directly to franz-go client options.
+**`mechanism`**
 
-| Attribute | Type | Default | Description |
-|---|---|---|---|
-| `acks` | string | `"all"` | `"all"` — wait for all in-sync replicas; `"leader"` — wait for partition leader only; `"none"` — fire and forget. |
-| `compression` | string | `"none"` | Compression codec: `none`, `gzip`, `snappy`, `lz4`, or `zstd`. |
-| `idempotent` | bool | `true` when `acks = "all"` | Enables idempotent producer, preventing duplicate records on retry. |
-| `linger` | duration | `"0"` | Maximum time to wait before flushing a batch. Higher values increase throughput at the cost of latency. |
-| `max_records` | number | unlimited | Maximum number of records buffered before `ProduceSync` blocks. |
+Spelled as Kafka spells it, in upper case.
+
+One of: `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512`.
+
+**`password`**
+
+Supply it from the environment rather than a literal.
+
+<!-- vinculum:end block-attrs client kafka sasl -->
 
 ---
 
@@ -124,42 +242,74 @@ sender "main" {
 }
 ```
 
-### `produce_mode`
+### Sender attributes
 
-| Value | Behavior |
-|---|---|
-| `sync` (default) | Waits for broker acknowledgement before returning. Reliable; provides backpressure. |
-| `async` | Returns immediately after queueing the record internally. Higher throughput; errors are logged rather than returned to the caller. |
+<!-- vinculum:begin block-attrs client kafka sender level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `default_topic_transform` | string |  | `error` | How to derive a Kafka topic from a bus topic with no `topic` block. |
+| `produce_mode` | string |  | `sync` | Whether to wait for the broker to acknowledge each record. |
+
+**`default_topic_transform`**
+
+`error` refuses the message, which is the default because a bus topic is rarely a valid Kafka topic by accident; `slash_to_dot` rewrites `a/b/c` as `a.b.c`; `ignore` drops it.
+
+One of: `error`, `slash_to_dot`, `ignore`.
+
+**`produce_mode`**
+
+`sync` surfaces failures to the caller and applies backpressure; `async` returns as soon as the record is queued and logs any failure instead of returning it.
+
+One of: `sync`, `async`.
+
+#### Blocks
+
+- `topic "<pattern>"` (0..n) — Maps bus topics matching a pattern to a Kafka topic.
+
+<!-- vinculum:end block-attrs client kafka sender -->
 
 ### `topic "<pattern>"`
 
 Each `topic` block maps a vinculum topic pattern to a Kafka topic and optional
 record key. The pattern is the block label.
 
-| Attribute | Type | Description |
-|---|---|---|
-| `kafka_topic` | string | Destination Kafka topic. |
-| `key` | expression | Record key expression (evaluated per message). `null` means no key. |
+<!-- vinculum:begin block-attrs client kafka sender topic level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `kafka_topic` | string | yes | Kafka topic to produce to. |
+| `key` | expression |  | Expression producing the record key. |
+
+**`key`**
+
+Records sharing a key land on the same partition, so a key is what preserves per-entity ordering. Evaluated per message; null produces a record with no key.
+
+Evaluated against the `message` context.
+
+<!-- vinculum:end block-attrs client kafka sender topic -->
 
 **Key expression context** (all accessed via `ctx`):
 
-| Variable | Description |
-|---|---|
-| `ctx.topic` | The incoming vinculum topic string |
-| `ctx.msg` | The message payload |
-| `ctx.fields` | Named segments captured from the topic pattern (e.g. `ctx.fields.deviceId`) |
+<!-- vinculum:begin block-ctx client kafka sender topic key level=4 -->
 
-Common key expressions: `ctx.fields.deviceId`, `ctx.msg.id`, `ctx.topic`, `null`.
+Fields readable as `ctx.<name>` (shape `message`):
 
-### `default_topic_transform`
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.topic` | string | Topic the message was delivered on. |
+| `ctx.msg` | dynamic | The message payload. |
+| `ctx.fields` | object | String metadata attached to the message. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
 
-Applied when no `topic` block matches.
+<!-- vinculum:end block-ctx client kafka sender topic key -->
 
-| Value | Behavior |
-|---|---|
-| `error` (default) | Return an error for unmatched topics. |
-| `slash_to_dot` | Convert the vinculum topic to a Kafka topic by replacing `/` with `.` (`a/b/c` → `a.b.c`). |
-| `ignore` | Silently discard the message. |
+Named segments captured from the topic pattern arrive in `ctx.fields` —
+`+deviceId` in the label becomes `ctx.fields.deviceId`. Common key expressions:
+`ctx.fields.deviceId`, `ctx.msg.id`, `ctx.topic`, `null`.
 
 ---
 
@@ -204,6 +354,76 @@ Required. The Kafka consumer group ID. Multiple vinculum instances sharing the
 same `group_id` will each process a subset of partitions — standard Kafka
 consumer group semantics.
 
+### Receiver attributes
+
+<!-- vinculum:begin block-attrs client kafka receiver level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `group_id` | string | yes |  | Consumer group this receiver joins. |
+| `action` | expression (action-expression) |  |  | Expression evaluated once per message. |
+| `commit_mode` | string |  | `after_process` | When to commit consumed offsets. |
+| `dlq_topic` | string |  |  | Kafka topic to publish messages that could not be handled. |
+| `on_decode_error` | expression (action-expression) |  |  | Evaluated when an inbound message cannot be decoded. |
+| `queue_size` | number |  |  | Depth of an async queue wrapping the subscriber. |
+| `start_offset` | string |  | `stored` | Where to start when the group has no committed offset. |
+| `subscriber` | expression (subscriber-ref) |  |  | Subscriber to forward messages to, instead of evaluating an action. |
+| `transforms` | expression (transform-pipeline) |  |  | Transform pipeline applied before the action or subscriber. |
+
+- Specify at most one of action or subscriber.
+- Specify either an action to evaluate or a subscriber to forward to.
+
+**`group_id`**
+
+Kafka distributes each topic's partitions across the members of a group.
+
+**`action`**
+
+`ctx.topic` is the message topic and `ctx.msg` the payload; a protocol that extracts metadata also provides `ctx.fields`.
+
+Evaluated against the `message` context.
+
+**`commit_mode`**
+
+`after_process` commits once delivery succeeds, giving at-least-once delivery; `periodic` commits on a timer, which can lose or duplicate messages across a crash; `manual` never commits automatically and is reserved for transactional use.
+
+One of: `after_process`, `periodic`, `manual`.
+
+**`dlq_topic`**
+
+The record keeps its key and value and gains `vinculum-error`, `vinculum-original-topic`, and `vinculum-timestamp` headers. The offset is committed only once the dead-letter send succeeds, so a failure there redelivers rather than drops.
+
+**`on_decode_error`**
+
+The message is dropped rather than delivered. Use this to publish to a dead-letter destination or record the failure.
+
+Evaluated against the `decode-error` context.
+
+**`queue_size`**
+
+When set, decouples delivery from the action so a slow action does not block the source.
+
+**`start_offset`**
+
+`stored` resumes from the group's committed offset, which is what production wants; `earliest` replays the whole topic; `latest` skips everything already there.
+
+One of: `stored`, `earliest`, `latest`.
+
+**`subscriber`**
+
+Anything that can receive messages: a bus, an FSM, a subscriber-implementing server or client.
+
+**`transforms`**
+
+A list of transform functions applied in order to each message. Only transform functions are in scope here.
+
+#### Blocks
+
+- `baggage` (optional) — Which inbound baggage keys to trust.
+- `subscription "<kafka_topic>"` (0..n) — One Kafka topic to consume.
+
+<!-- vinculum:end block-attrs client kafka receiver -->
+
 ### `subscriber` / `action`
 
 Exactly one must be specified.
@@ -220,45 +440,34 @@ semantics as the top-level [subscription](config.md#subscription) block.
 
 When `action` is used, `ctx` provides:
 
-| Variable | Description |
-|---|---|
-| `ctx.topic` | Vinculum topic of the received message |
-| `ctx.msg` | Message payload |
-| `ctx.fields` | Map of string metadata fields from Kafka record headers (only present if headers exist) |
+<!-- vinculum:begin block-ctx client kafka receiver action level=5 -->
 
-### `start_offset`
+Fields readable as `ctx.<name>` (shape `message`):
 
-Controls which offset to start from when no committed offset exists for a
-partition.
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.topic` | string | Topic the message was delivered on. |
+| `ctx.msg` | dynamic | The message payload. |
+| `ctx.fields` | object | String metadata attached to the message. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
 
-| Value | Behavior |
-|---|---|
-| `stored` (default) | Resume from the last committed offset. Correct for production use. |
-| `earliest` | Read from the beginning of the topic. Useful for initial bootstrap; will reprocess all historical messages if the group offset is reset. |
-| `latest` | Skip existing messages; only receive new ones after the consumer starts. |
+<!-- vinculum:end block-ctx client kafka receiver action -->
 
-### `commit_mode`
-
-| Value | Behavior |
-|---|---|
-| `after_process` (default) | Commit the offset after `subscriber.OnEvent` returns successfully. At-least-once delivery guarantee. Strongly recommended. |
-| `periodic` | Auto-commit on a time interval (franz-go default behavior). Risk of duplicate or lost messages on crash. |
-| `manual` | Not committed automatically; reserved for future transactional use. |
+`ctx.fields` is populated from the record's Kafka headers.
 
 ### `dlq_topic`
 
-Optional. If set, records that fail processing (i.e. `subscriber.OnEvent` returns
-an error) are forwarded to this Kafka topic instead of being dropped. The DLQ
-record preserves the original key and value, and adds the following headers:
+A dead-letter record preserves the original key and value and adds these
+headers:
 
 | Header | Contents |
 |---|---|
 | `vinculum-error` | The error message from the failed handler |
 | `vinculum-original-topic` | The original Kafka topic the record came from |
 | `vinculum-timestamp` | ISO 8601 timestamp of when the failure occurred |
-
-The offset is committed only after a successful DLQ send. If the DLQ send
-itself fails, the record is not committed and will be redelivered.
 
 ### `baggage`
 
@@ -276,18 +485,38 @@ Each `subscription` block maps one Kafka topic to a vinculum topic. The Kafka
 topic is the block label. Multiple blocks may be declared within a single
 receiver.
 
-| Attribute | Type | Description |
-|---|---|---|
-| `vinculum_topic` | expression | Vinculum topic to publish the message under. May be a static string or an HCL string interpolation. |
+<!-- vinculum:begin block-attrs client kafka receiver subscription level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `vinculum_topic` | expression (topic-pattern) | yes | Bus topic to publish arriving records to. |
+
+**`vinculum_topic`**
+
+Evaluated per record, so it can interpolate the record's own identity and headers.
+
+Evaluated against the `kafka-record` context.
+
+<!-- vinculum:end block-attrs client kafka receiver subscription -->
 
 **`vinculum_topic` expression context** (all accessed via `ctx`):
 
-| Variable | Description |
-|---|---|
-| `ctx.kafka_topic` | The source Kafka topic name |
-| `ctx.key` | The record key as a string, or `null` if the record has no key |
-| `ctx.fields` | `map(string)` populated from Kafka record headers |
-| `ctx.msg` | The deserialized message payload |
+<!-- vinculum:begin block-ctx client kafka receiver subscription vinculum_topic level=4 -->
+
+Fields readable as `ctx.<name>` (shape `kafka-record`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.kafka_topic` | string | Kafka topic the record was read from. |
+| `ctx.key` | string | The record's key. *(not always present)* |
+| `ctx.msg` | dynamic | The record's payload. |
+| `ctx.fields` | object | String metadata attached to the record. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx client kafka receiver subscription vinculum_topic -->
 
 **Deserialization** is controlled by the client-level `wire_format` attribute
 (default `"auto"`). In auto mode, values that look like JSON are decoded;
@@ -329,17 +558,29 @@ receiver "in" {
 
 **Hook context variables:**
 
-| Variable | Description |
-|---|---|
-| `ctx.raw` | The undecoded payload, as a [`bytes`](functions.md) object |
-| `ctx.error` | The deserialize error message |
-| `ctx.wire_format` | The configured format name (`"json"`, …) |
-| `ctx.topic` | Best-effort vinculum topic |
-| `ctx.fields` | Fields extracted before the failure |
-| `ctx.kafka_topic` | The Kafka topic the record was read from |
-| `ctx.partition` | The partition, as a string |
-| `ctx.offset` | The record offset, as a string |
-| `ctx.key` | The record key, when present |
+<!-- vinculum:begin block-ctx client kafka receiver on_decode_error level=5 -->
+
+Fields readable as `ctx.<name>` (shape `decode-error`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.raw` | object | The undecoded body, as a bytes object. |
+| `ctx.error` | string | The deserialize error message. |
+| `ctx.wire_format` | string | Name of the configured wire format that rejected it. |
+| `ctx.topic` | string | Best-effort vinculum topic for the message. |
+| `ctx.fields` | object | Metadata extracted before the failure. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.kafka_topic` | string | The Kafka topic the record was read from. *(added here)* |
+| `ctx.partition` | string | Partition the record was read from. *(added here)* |
+| `ctx.offset` | string | Offset of the record within its partition. *(added here)* |
+| `ctx.key` | string | The record's key. *(added here)*. *(not always present)* |
+
+*This shape is open: a particular site may carry fields beyond these.*
+
+<!-- vinculum:end block-ctx client kafka receiver on_decode_error -->
 
 `ctx.topic` and `ctx.kafka_topic` carry the same string here, because a vinculum
 topic that depends on the payload cannot be computed once the payload has failed
