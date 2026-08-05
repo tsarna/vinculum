@@ -42,12 +42,49 @@ The delay is parsed at configuration load time and supports the same formats as
 other duration attributes: numbers (seconds), Go duration strings (`"500ms"`,
 `"2m30s"`), and ISO 8601 strings (`"PT5M"`).
 
+<!-- vinculum:begin block-attrs trigger after level=3 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `action` | expression (action-expression) | yes | Evaluated once when the delay elapses. |
+| `delay` | expression (duration) | yes | How long to wait after startup before firing. |
+| `disabled` | bool |  | Skip this block entirely. |
+| `tracing` | expression (tracing-ref) |  | Where to report traces. |
+
+**`action`**
+
+Evaluated against the `trigger-after` context.
+
+**`delay`**
+
+Parsed at config load time. Accepts a number of seconds, a Go duration string (`"500ms"`, `"2m30s"`), or an ISO 8601 duration (`"PT5M"`).
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+<!-- vinculum:end block-attrs trigger after -->
+
 When the action runs, `ctx` provides:
 
-| Variable | Description |
-|---|---|
-| `ctx.trigger` | `"after"` |
-| `ctx.name` | Name of this trigger block |
+<!-- vinculum:begin block-ctx trigger after action level=3 -->
+
+Fields readable as `ctx.<name>` (shape `trigger-after`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.trigger` | string | Always `"after"`. |
+| `ctx.name` | string | Name of this trigger block. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx trigger after action -->
 
 **Creates** `trigger.<name>` as a capsule; read the result with
 `get(trigger.<name>)`.
@@ -136,15 +173,66 @@ When `repeat` is `false`, the trigger fires once and then goes dormant,
 waiting for `set()` to revive it. Combined with dormant start (no `time`),
 this yields a classic one-shot alarm.
 
+<!-- vinculum:begin block-attrs trigger at level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `action` | expression (action-expression) | yes |  | Evaluated each time the trigger fires. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `repeat` | bool |  | `true` | Keep rescheduling after each firing. |
+| `stop_when` | expression (predicate-expression) |  |  | Stop the trigger when this evaluates true. |
+| `time` | expression (action-expression) |  |  | When to fire next. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
+
+**`action`**
+
+Evaluated against the `trigger-at` context.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`repeat`**
+
+When false, the trigger fires once and goes dormant until `set()` revives it. Combined with no `time`, that is a classic one-shot alarm.
+
+**`stop_when`**
+
+Evaluated after each fire, with `ctx.run_count` already incremented.
+
+Evaluated against the `trigger-at` context.
+
+**`time`**
+
+Must evaluate to a time capsule. Re-evaluated after each firing, so it can return a different time every cycle. A time in the past fires immediately and logs a warning; an evaluation error is logged and retried after a minute. Omit it to start dormant, waiting for the first `set(trigger.<name>, time)`.
+
+Evaluated against the `trigger-at` context.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+<!-- vinculum:end block-attrs trigger at -->
+
 When the action runs, `ctx` provides:
 
-| Variable | Type | Description |
-|---|---|---|
-| `ctx.trigger` | string | `"at"` |
-| `ctx.name` | string | Name of this trigger block |
-| `ctx.run_count` | number | How many times the action has fired |
-| `ctx.last_result` | dynamic | Result of the previous action, or `null` on first fire |
-| `ctx.last_error` | string | Error string from the previous evaluation, or `null` if it succeeded |
+<!-- vinculum:begin block-ctx trigger at action level=3 -->
+
+Fields readable as `ctx.<name>` (shape `trigger-at`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.trigger` | string | Always `"at"`. |
+| `ctx.name` | string | Name of this trigger block. |
+| `ctx.run_count` | number | How many times the action has fired. |
+| `ctx.last_result` | dynamic | Result of the previous action, or null on the first fire. |
+| `ctx.last_error` | string | Error from the previous evaluation, or null if it succeeded. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx trigger at action -->
 
 The same context is available when evaluating the `time` expression, so the
 schedule can adapt based on how many times the trigger has already fired.
@@ -223,12 +311,62 @@ supported where the first field represents seconds. The
 [`@every`](https://pkg.go.dev/github.com/robfig/cron/v3#hdr-Predefined_schedules)
 descriptor and other standard descriptors are also accepted.
 
+<!-- vinculum:begin block-attrs trigger cron level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `timezone` | string |  | `Local` | IANA time zone the schedules are interpreted in. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`timezone`**
+
+For example `"UTC"` or `"America/New_York"`. `Local` is Go's name for the host's own zone, which is what an omitted `timezone` selects.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+### Blocks
+
+- `at "<schedule>" "<name>"` (0..n) — One scheduled rule.
+
+<!-- vinculum:end block-attrs trigger cron -->
+
+Each `at` rule takes:
+
+<!-- vinculum:begin block-attrs trigger cron at level=3 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `action` | expression (action-expression) | yes | Evaluated each time this rule's schedule fires. |
+
+**`action`**
+
+Evaluated against the `trigger-cron` context.
+
+<!-- vinculum:end block-attrs trigger cron at -->
+
 When a rule fires, `ctx` provides:
 
-| Variable | Description |
-|---|---|
-| `ctx.cron_name` | Name of the enclosing `trigger "cron"` block |
-| `ctx.at_name` | Name of the `at` rule that fired |
+<!-- vinculum:begin block-ctx trigger cron at action level=3 -->
+
+Fields readable as `ctx.<name>` (shape `trigger-cron`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.cron_name` | string | Name of the enclosing `trigger "cron"` block. |
+| `ctx.at_name` | string | Name of the `at` rule that fired. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx trigger cron at action -->
 
 Does **not** create a `trigger.<name>` value.
 
@@ -332,18 +470,87 @@ files that arrived while vinculum was not running. Synthetic events respect
 `Startable` components have completed, so buses and clients are fully ready
 when the action runs.
 
+<!-- vinculum:begin block-attrs trigger file level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `action` | expression (action-expression) | yes |  | Evaluated on each matching event. |
+| `path` | expression | yes |  | File or directory to watch. |
+| `debounce` | expression (duration) |  | `0` | Quiet period that coalesces rapid events on the same path. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `events` | expression |  | `["create", "write", "delete", "rename", "chmod"]` | Which event types fire the action. |
+| `filter` | expression |  |  | Glob pattern the event path must match. |
+| `on_start_existing` | bool |  | `false` | Emit a synthetic create for files already present at startup. |
+| `recursive` | bool |  | `false` | Watch subdirectories too. |
+| `skip_when` | expression (predicate-expression) |  |  | Skip this firing when true. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
+
+**`action`**
+
+A failure is logged and surfaced as `ctx.last_error` on the next invocation; watching continues.
+
+Evaluated against the `trigger-file` context.
+
+**`debounce`**
+
+The timer restarts on each new event; the action fires once the path has been quiet for the full duration. Per-path, so two files each dispatch after their own window. Useful for editors that emit several events per save. Zero dispatches every event as it arrives.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`events`**
+
+On some platforms inotify reports a permission change as `"write"`, so rely on `"chmod"` only where portability does not matter.
+
+One of: `create`, `write`, `delete`, `rename`, `chmod`.
+
+**`filter`**
+
+Uses Go `path.Match` semantics against `ctx.event_path`; non-matching events are discarded without evaluating the action. `**` is not supported — `*` matches within one directory component.
+
+**`on_start_existing`**
+
+Lets a spool-directory handler pick up files that arrived while vinculum was not running. Synthetic events respect `filter` and `debounce`, and are dispatched after every startable component is ready.
+
+**`recursive`**
+
+Subdirectories created after startup are picked up automatically. On Linux each one consumes an inotify watch descriptor, so a very large tree may need `fs.inotify.max_user_watches` raised.
+
+**`skip_when`**
+
+Evaluated before the action, against the same `ctx`.
+
+Evaluated against the `trigger-file` context.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+<!-- vinculum:end block-attrs trigger file -->
+
 When the action runs, `ctx` provides:
 
-| Variable | Type | Description |
-|---|---|---|
-| `ctx.trigger` | string | `"file"` |
-| `ctx.name` | string | Name of this trigger block |
-| `ctx.path` | string | The configured `path` (the watched root) |
-| `ctx.event_path` | string | Full path of the file or directory that produced the event |
-| `ctx.event` | string | Event type: `"create"`, `"write"`, `"delete"`, `"rename"`, or `"chmod"` |
-| `ctx.run_count` | number | Number of action invocations since startup |
-| `ctx.last_result` | dynamic | Result of the most recently completed action, or `null` |
-| `ctx.last_error` | string | Error from the most recent action, or `null` if none |
+<!-- vinculum:begin block-ctx trigger file action level=3 -->
+
+Fields readable as `ctx.<name>` (shape `trigger-file`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.trigger` | string | Always `"file"`. |
+| `ctx.name` | string | Name of this trigger block. |
+| `ctx.path` | string | The configured `path` — the watched root. |
+| `ctx.event_path` | string | Full path of the file or directory that produced the event. |
+| `ctx.event` | string | Event type: `"create"`, `"write"`, `"delete"`, `"rename"`, or `"chmod"`. |
+| `ctx.run_count` | number | Action invocations since startup. |
+| `ctx.last_result` | dynamic | Result of the most recently completed action, or null. |
+| `ctx.last_error` | string | Error from the most recent action, or null if none. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx trigger file action -->
 
 For `"rename"` events, `ctx.event_path` is the **old** (source) path. The new
 destination path is not available from all OS backends; pair rename with a
@@ -465,15 +672,85 @@ waiting for `set()` to revive it. This is useful for one-shot timers driven
 by external state — for example, an FSM whose `on_entry` hooks set different
 delays for each state.
 
+<!-- vinculum:begin block-attrs trigger interval level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `action` | expression (action-expression) | yes |  | Evaluated each time the delay elapses. |
+| `delay` | expression (action-expression) |  |  | How long to wait between runs. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `error_delay` | expression (action-expression) |  |  | How long to wait after a run that failed. |
+| `initial_delay` | expression (duration) |  |  | How long to wait before the very first run. |
+| `jitter` | number |  | `0` | Fraction of the delay to randomize by, in [0, 1]. |
+| `repeat` | bool |  | `true` | Keep rescheduling after each run. |
+| `stop_when` | expression (predicate-expression) |  |  | Stop the trigger when this evaluates true. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
+
+**`action`**
+
+Sees the state from *before* this iteration: `ctx.run_count` is 0 on the first run.
+
+Evaluated against the `trigger-interval` context.
+
+**`delay`**
+
+Re-evaluated each iteration. Accepts a number of seconds, a Go duration string, an ISO 8601 duration, or a duration capsule. Omit it to start dormant, waiting for the first `set()`; `initial_delay` and `error_delay` cannot be used without it.
+
+Evaluated against the `trigger-interval` context.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`error_delay`**
+
+Defaults to `delay`. Re-evaluated each iteration, like `delay`.
+
+Evaluated against the `trigger-interval` context.
+
+**`initial_delay`**
+
+Defaults to `delay`. Set `"0s"` to run immediately at startup.
+
+**`jitter`**
+
+The actual wait is drawn uniformly from `[delay*(1-jitter/2), delay*(1+jitter/2)]`, so the average is unchanged. Use it to desynchronize instances running the same schedule. Applies to a `set()` override as well.
+
+**`repeat`**
+
+When false, the trigger fires once and goes dormant until `set()` revives it — a one-shot timer driven by external state, such as an FSM whose `on_entry` hooks set a different delay per state.
+
+**`stop_when`**
+
+Evaluated after the action completes, with `ctx.run_count` already incremented.
+
+Evaluated against the `trigger-interval` context.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+<!-- vinculum:end block-attrs trigger interval -->
+
 When each iteration runs, `ctx` provides:
 
-| Variable | Description |
-|---|---|
-| `ctx.trigger` | `"interval"` |
-| `ctx.name` | Name of this trigger block |
-| `ctx.run_count` | Number of completed action evaluations (0 on the first run) |
-| `ctx.last_result` | Result of the previous action evaluation, or `null` on the first run |
-| `ctx.last_error` | Error string from the previous evaluation, or `null` if it succeeded |
+<!-- vinculum:begin block-ctx trigger interval action level=3 -->
+
+Fields readable as `ctx.<name>` (shape `trigger-interval`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.trigger` | string | Always `"interval"`. |
+| `ctx.name` | string | Name of this trigger block. |
+| `ctx.run_count` | number | Completed action evaluations; 0 on the first run. |
+| `ctx.last_result` | dynamic | Result of the previous evaluation, or null on the first run. |
+| `ctx.last_error` | string | Error from the previous evaluation, or null if it succeeded. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx trigger interval action -->
 
 `ctx` is available in `delay`, `error_delay`, and `action` (evaluated with the
 state *before* this iteration). `stop_when` is evaluated *after* the action
@@ -578,12 +855,44 @@ side-effecting operation that should run at most once, on demand.
 If the expression produces an error on the first call, that error is also
 cached and returned on every subsequent call.
 
+<!-- vinculum:begin block-attrs trigger once level=3 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `action` | expression (action-expression) | yes | Evaluated on the first `get(trigger.<name>)`. |
+| `disabled` | bool |  | Skip this block entirely. |
+| `tracing` | expression (tracing-ref) |  | Where to report traces. |
+
+**`action`**
+
+Evaluated against the `trigger-once` context.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+<!-- vinculum:end block-attrs trigger once -->
+
 When the action runs, `ctx` provides:
 
-| Variable | Description |
-|---|---|
-| `ctx.trigger` | `"once"` |
-| `ctx.name` | Name of this trigger block |
+<!-- vinculum:begin block-ctx trigger once action level=3 -->
+
+Fields readable as `ctx.<name>` (shape `trigger-once`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.trigger` | string | Always `"once"`. |
+| `ctx.name` | string | Name of this trigger block. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx trigger once action -->
 
 **Creates** `trigger.<name>` as a lazy capsule; read it with `get(trigger.<name>)`.
 
@@ -626,12 +935,44 @@ Evaluates `action` once during graceful shutdown (after SIGINT or SIGTERM is
 received), in the reverse order that stoppable components were registered. Errors
 are logged but do not abort the shutdown sequence.
 
+<!-- vinculum:begin block-attrs trigger shutdown level=3 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `action` | expression (action-expression) | yes | Evaluated once during shutdown. |
+| `disabled` | bool |  | Skip this block entirely. |
+| `tracing` | expression (tracing-ref) |  | Where to report traces. |
+
+**`action`**
+
+Evaluated against the `trigger-shutdown` context.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+<!-- vinculum:end block-attrs trigger shutdown -->
+
 When the action runs, `ctx` provides:
 
-| Variable | Description |
-|---|---|
-| `ctx.trigger` | `"shutdown"` |
-| `ctx.name` | Name of this trigger block |
+<!-- vinculum:begin block-ctx trigger shutdown action level=3 -->
+
+Fields readable as `ctx.<name>` (shape `trigger-shutdown`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.trigger` | string | Always `"shutdown"`. |
+| `ctx.name` | string | Name of this trigger block. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx trigger shutdown action -->
 
 Does **not** create a `trigger.<name>` value.
 
@@ -664,12 +1005,67 @@ Maps OS signals to action expressions. The available signals are `SIGHUP`,
 Multiple `trigger "signals"` blocks may exist, but a given signal may only be
 defined in one non-disabled block.
 
+<!-- vinculum:begin block-attrs trigger signals level=3 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `SIGHUP` | expression (action-expression) |  | Evaluated on SIGHUP. |
+| `SIGINFO` | expression (action-expression) |  | Evaluated on SIGINFO. |
+| `SIGUSR1` | expression (action-expression) |  | Evaluated on SIGUSR1. |
+| `SIGUSR2` | expression (action-expression) |  | Evaluated on SIGUSR2. |
+| `disabled` | bool |  | Skip this block entirely. |
+| `tracing` | expression (tracing-ref) |  | Where to report traces. |
+
+**`SIGHUP`**
+
+Conventionally a request to reload configuration or reopen log files.
+
+Evaluated against the `trigger-signals` context.
+
+**`SIGINFO`**
+
+A BSD/macOS status-request signal, typically sent with Ctrl-T. Not available on Linux.
+
+Evaluated against the `trigger-signals` context.
+
+**`SIGUSR1`**
+
+Reserved for the application; give it whatever meaning suits.
+
+Evaluated against the `trigger-signals` context.
+
+**`SIGUSR2`**
+
+Reserved for the application; give it whatever meaning suits.
+
+Evaluated against the `trigger-signals` context.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+<!-- vinculum:end block-attrs trigger signals -->
+
 When a signal fires, `ctx` provides:
 
-| Variable | Description |
-|---|---|
-| `ctx.signal` | Signal name as a string (e.g. `"SIGHUP"`) |
-| `ctx.signal_num` | OS-level signal number |
+<!-- vinculum:begin block-ctx trigger signals SIGHUP level=3 -->
+
+Fields readable as `ctx.<name>` (shape `trigger-signals`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.signal` | string | Signal name, e.g. `"SIGHUP"`. |
+| `ctx.signal_num` | number | OS-level signal number. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx trigger signals SIGHUP -->
 
 Unlike the other trigger types there is no `ctx.trigger` or `ctx.name`: a
 signal handler is identified by the signal, not by the block it was declared
@@ -706,12 +1102,44 @@ context. Because it is produced after startup rather than during the
 configuration build, a block that reads `trigger.<name>` at config load time
 sees `null`; read it at runtime with `get(trigger.<name>)` instead.
 
+<!-- vinculum:begin block-attrs trigger start level=3 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `action` | expression (action-expression) | yes | Evaluated once at startup; its result becomes `trigger.<name>`. |
+| `disabled` | bool |  | Skip this block entirely. |
+| `tracing` | expression (tracing-ref) |  | Where to report traces. |
+
+**`action`**
+
+Evaluated against the `trigger-start` context.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+<!-- vinculum:end block-attrs trigger start -->
+
 When the action runs, `ctx` provides:
 
-| Variable | Description |
-|---|---|
-| `ctx.trigger` | `"start"` |
-| `ctx.name` | Name of this trigger block |
+<!-- vinculum:begin block-ctx trigger start action level=3 -->
+
+Fields readable as `ctx.<name>` (shape `trigger-start`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.trigger` | string | Always `"start"`. |
+| `ctx.name` | string | Name of this trigger block. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx trigger start action -->
 
 **Creates** `trigger.<name>` with the value returned by `action`.
 
@@ -765,14 +1193,58 @@ change has been observed since startup.
 On `Stop()`, the trigger unregisters itself from the Watchable and waits for all in-flight
 action goroutines to complete before returning.
 
+<!-- vinculum:begin block-attrs trigger watch level=3 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `action` | expression (action-expression) | yes | Evaluated on each observed change. |
+| `watch` | expression | yes | The value to watch. |
+| `disabled` | bool |  | Skip this block entirely. |
+| `skip_when` | expression (predicate-expression) |  | Skip this firing when true. |
+| `tracing` | expression (tracing-ref) |  | Where to report traces. |
+
+**`action`**
+
+Evaluated against the `trigger-watch` context.
+
+**`watch`**
+
+Evaluated once at config build time and must produce a watchable capsule; anything else is a config error.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`skip_when`**
+
+Evaluated first, in the same goroutine, against the same `ctx`. Each firing evaluates it independently.
+
+Evaluated against the `trigger-watch` context.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+<!-- vinculum:end block-attrs trigger watch -->
+
 When `action` (and `skip_when`) are evaluated, `ctx` provides:
 
-| Variable | Description |
-|---|---|
-| `ctx.trigger` | `"watch"` |
-| `ctx.name` | Name of this trigger block |
-| `ctx.old_value` | The value before the change |
-| `ctx.new_value` | The value after the change |
+<!-- vinculum:begin block-ctx trigger watch action level=3 -->
+
+Fields readable as `ctx.<name>` (shape `trigger-watch`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.trigger` | string | Always `"watch"`. |
+| `ctx.name` | string | Name of this trigger block. |
+| `ctx.old_value` | dynamic | The value before the change. |
+| `ctx.new_value` | dynamic | The value after the change. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx trigger watch action -->
 
 **Creates** `trigger.<name>` as a capsule; read the last observed value with
 `get(trigger.<name>)`.
@@ -882,14 +1354,74 @@ the expression against the post-`set()` state (where `ctx.miss_count` is 0); if
 it is now `false`, the watchdog re-arms. For a simple count-based stop,
 `stop_when = ctx.miss_count >= N` is equivalent to `max_misses = N`.
 
+<!-- vinculum:begin block-attrs trigger watchdog level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `action` | expression (action-expression) | yes |  | Evaluated each time the watchdog fires. |
+| `window` | expression (duration) | yes |  | Fire if not fed within this duration. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `initial_grace` | expression (duration) |  |  | Grace period before the first countdown. |
+| `max_misses` | number |  |  | Auto-stop after this many consecutive fires. |
+| `repeat` | bool |  | `false` | Keep firing every window until fed. |
+| `stop_when` | expression (predicate-expression) |  |  | Auto-stop when this evaluates true. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
+| `watch` | expression |  |  | A watchable value that feeds the watchdog automatically. |
+
+**`action`**
+
+Evaluated against the `trigger-watchdog` context.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`initial_grace`**
+
+Defaults to `window`. Gives components time to start up and feed the watchdog once before it can fire.
+
+**`max_misses`**
+
+At least 1, and unlimited when omitted. Feeding the watchdog resets the miss count to 0 and re-arms it immediately, so this caps how many times an alert repeats before an explicit acknowledgement.
+
+**`repeat`**
+
+When false the watchdog goes dormant after firing and waits to be fed again, so a known-broken condition does not flood alerts. Set true for paging systems where ongoing alerting is wanted.
+
+**`stop_when`**
+
+Evaluated after each fire with the same `ctx` as the action, including the updated `ctx.miss_count`. Feeding the watchdog re-evaluates it against the post-`set()` state, re-arming if it is now false. `stop_when = ctx.miss_count >= N` is equivalent to `max_misses = N`.
+
+Evaluated against the `trigger-watchdog` context.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+**`watch`**
+
+Each change to it counts as `set(trigger.<name>, newValue)`, which decouples the producer from the watchdog: the producer only updates the variable and need not know a watchdog exists. Manual `set()` calls still work alongside it.
+
+<!-- vinculum:end block-attrs trigger watchdog -->
+
 When the action runs, `ctx` provides:
 
-| Variable | Description |
-|---|---|
-| `ctx.trigger` | `"watchdog"` |
-| `ctx.name` | Name of this trigger block |
-| `ctx.last_set` | Time of the last `set()` call (time capsule), or `null` if never set |
-| `ctx.miss_count` | Consecutive fires since the last `set()`; resets to 0 on `set()` |
+<!-- vinculum:begin block-ctx trigger watchdog action level=3 -->
+
+Fields readable as `ctx.<name>` (shape `trigger-watchdog`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.trigger` | string | Always `"watchdog"`. |
+| `ctx.name` | string | Name of this trigger block. |
+| `ctx.miss_count` | number | Consecutive fires since the last feed. |
+| `ctx.last_set` | capsule | Time of the last feed, or null if never fed. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx trigger watchdog action -->
 
 **Creates** `trigger.<name>` as a capsule; use `set()` to feed it and `get()` to
 read the last stored value.

@@ -42,7 +42,9 @@ Does **not** create a ` + "`trigger.<name>`" + ` value.`,
 	Attrs: map[string]cfg.AttrMeta{
 		"timezone": {
 			Summary: "IANA time zone the schedules are interpreted in.",
-			Doc:     "For example `\"UTC\"` or `\"America/New_York\"`. Defaults to the host's local time zone.",
+			Doc: "For example `\"UTC\"` or `\"America/New_York\"`. `Local` is Go's name " +
+				"for the host's own zone, which is what an omitted `timezone` selects.",
+			Default: "Local",
 		},
 	},
 	Blocks: map[string]cfg.TypeSchema{

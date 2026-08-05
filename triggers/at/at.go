@@ -579,9 +579,10 @@ capsule, so other expressions can ask how far away it is.
 			Context: "trigger-at",
 		},
 		"repeat": {
-			Summary: "Keep rescheduling after each firing. Defaults to true.",
+			Summary: "Keep rescheduling after each firing.",
 			Doc:     "When false, the trigger fires once and goes dormant until `set()` revives it. Combined with no `time`, that is a classic one-shot alarm.",
 			Hint:    cfg.HintBool,
+			Default: "true",
 		},
 		"stop_when": {
 			Summary: "Stop the trigger when this evaluates true.",
