@@ -216,3 +216,150 @@ func TestConfigParseDurationWithVariables(t *testing.T) {
 	assert.False(t, parseDiags.HasErrors(), "Unexpected error: %v", parseDiags)
 	assert.Equal(t, 60*time.Second, duration)
 }
+
+// --- reconnect backoff ------------------------------------------------------
+
+func reconnectTestConfig() *Config {
+	return &Config{Logger: zap.NewNop(), evalCtx: &hcl.EvalContext{}}
+}
+
+func durationExpr(t *testing.T, src string) hcl.Expression {
+	t.Helper()
+	expr, diags := hclsyntax.ParseExpression([]byte(src), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+	require.False(t, diags.HasErrors(), "parse %s: %v", src, diags)
+	return expr
+}
+
+// No block means no function, which is what every protocol client reads as
+// "use your own default schedule". Returning a function here would silently
+// replace the library's behaviour for someone who never asked to configure it.
+func TestReconnectBackoffFuncIsNilWithoutABlock(t *testing.T) {
+	fn, diags := reconnectTestConfig().ReconnectBackoffFunc(nil)
+	assert.False(t, diags.HasErrors())
+	assert.Nil(t, fn)
+}
+
+func TestReconnectBackoffFuncDefaults(t *testing.T) {
+	fn, diags := reconnectTestConfig().ReconnectBackoffFunc(&ReconnectDefinition{})
+	require.False(t, diags.HasErrors())
+	require.NotNil(t, fn)
+
+	// 1s doubling, clamped at 60s — and clamped for good, not wrapping.
+	assert.Equal(t, time.Second, fn(0))
+	assert.Equal(t, 2*time.Second, fn(1))
+	assert.Equal(t, 32*time.Second, fn(5))
+	assert.Equal(t, 60*time.Second, fn(6))
+	assert.Equal(t, 60*time.Second, fn(100))
+}
+
+func TestReconnectBackoffFuncHonorsEveryAttribute(t *testing.T) {
+	factor := 3.0
+	fn, diags := reconnectTestConfig().ReconnectBackoffFunc(&ReconnectDefinition{
+		InitialDelay:  durationExpr(t, `"500ms"`),
+		MaxDelay:      durationExpr(t, `"2s"`),
+		BackoffFactor: &factor,
+	})
+	require.False(t, diags.HasErrors())
+
+	assert.Equal(t, 500*time.Millisecond, fn(0))
+	assert.Equal(t, 1500*time.Millisecond, fn(1))
+	assert.Equal(t, 2*time.Second, fn(2), "clamped by max_delay")
+}
+
+// A factor of 1 is a constant schedule rather than a degenerate one, which is
+// the natural way to ask for no backoff at all.
+func TestReconnectBackoffFuncWithAConstantSchedule(t *testing.T) {
+	factor := 1.0
+	fn, diags := reconnectTestConfig().ReconnectBackoffFunc(&ReconnectDefinition{
+		InitialDelay:  durationExpr(t, `"5s"`),
+		BackoffFactor: &factor,
+	})
+	require.False(t, diags.HasErrors())
+
+	assert.Equal(t, 5*time.Second, fn(0))
+	assert.Equal(t, 5*time.Second, fn(9))
+}
+
+func TestReconnectBackoffFuncReportsABadDuration(t *testing.T) {
+	_, diags := reconnectTestConfig().ReconnectBackoffFunc(&ReconnectDefinition{
+		InitialDelay: durationExpr(t, `"not a duration"`),
+	})
+	assert.True(t, diags.HasErrors())
+
+	_, diags = reconnectTestConfig().ReconnectBackoffFunc(&ReconnectDefinition{
+		MaxDelay: durationExpr(t, `"also not"`),
+	})
+	assert.True(t, diags.HasErrors())
+}
+
+// The invariant this whole shared-resolution shape exists to protect: one
+// block means one schedule, whichever client it lands in. It broke once —
+// vws inherited bus.NewAutoReconnector's 30s ceiling while the protocol
+// clients used 60s — so it is asserted rather than left to the reader.
+func TestBothReconnectPathsAgreeOnTheSchedule(t *testing.T) {
+	c := reconnectTestConfig()
+
+	for _, def := range []ReconnectDefinition{
+		{}, // the case that diverged: block present, everything omitted
+		{MaxDelay: durationExpr(t, `"5s"`)},
+		{InitialDelay: durationExpr(t, `"250ms"`), MaxDelay: durationExpr(t, `"90s"`)},
+	} {
+		fn, diags := c.ReconnectBackoffFunc(&def)
+		require.False(t, diags.HasErrors())
+		require.NotNil(t, fn)
+
+		reconnector, diags := c.CreateReconnector(def)
+		require.False(t, diags.HasErrors())
+		require.NotNil(t, reconnector)
+
+		// AutoReconnector does not expose its schedule, so compare against the
+		// resolution both sides consume rather than against its internals.
+		schedule, diags := c.resolveReconnectSchedule(&def)
+		require.False(t, diags.HasErrors())
+		for attempt := 0; attempt < 12; attempt++ {
+			assert.Equal(t, schedule.delay(attempt), fn(attempt))
+		}
+	}
+}
+
+func TestReconnectDefaultsAreTheOnesDocumented(t *testing.T) {
+	// The schema states these as `max_delay`'s and friends' defaults, and
+	// doc/client-*.md generates from the schema. A silent change here would
+	// make every one of those pages wrong.
+	assert.Equal(t, time.Second, time.Duration(defaultReconnectInitialDelay))
+	assert.Equal(t, 60*time.Second, time.Duration(defaultReconnectMaxDelay))
+	assert.Equal(t, 2.0, float64(defaultReconnectBackoffFactor))
+}
+
+// max_retries travels beside the schedule rather than inside it, because a
+// backoff function's whole vocabulary is a duration and stopping is not a
+// duration. Both consumers get it, by different means.
+func TestReconnectMaxAttempts(t *testing.T) {
+	attempts := func(n int) *int { return &n }
+
+	// Zero is unlimited, and so is a negative number and an absent attribute.
+	// Zero has to be unlimited because it is the value a client library's field
+	// takes when nothing is passed: were it to mean "never reconnect", adding
+	// the attribute would have stopped every existing client from reconnecting.
+	assert.Equal(t, 0, ReconnectMaxAttempts(nil))
+	assert.Equal(t, 0, ReconnectMaxAttempts(&ReconnectDefinition{}))
+	assert.Equal(t, 0, ReconnectMaxAttempts(&ReconnectDefinition{MaxRetries: attempts(0)}))
+	assert.Equal(t, 0, ReconnectMaxAttempts(&ReconnectDefinition{MaxRetries: attempts(-1)}))
+
+	assert.Equal(t, 5, ReconnectMaxAttempts(&ReconnectDefinition{MaxRetries: attempts(5)}))
+}
+
+// The schedule is indifferent to the limit: it keeps answering "how long" for
+// any attempt number, and it is the client's loop that stops asking.
+func TestTheScheduleIsIndifferentToTheLimit(t *testing.T) {
+	retries := 3
+	def := ReconnectDefinition{MaxRetries: &retries}
+
+	fn, diags := reconnectTestConfig().ReconnectBackoffFunc(&def)
+	require.False(t, diags.HasErrors())
+	assert.Equal(t, 60*time.Second, fn(100))
+
+	reconnector, diags := reconnectTestConfig().CreateReconnector(def)
+	require.False(t, diags.HasErrors())
+	require.NotNil(t, reconnector)
+}
