@@ -32,6 +32,26 @@ func TestMarkdownAddsTheDefaultColumnWhenSomethingHasOne(t *testing.T) {
 	assert.Contains(t, out, "| `keep_alive` | string |  | `30s` | Ping interval. |")
 }
 
+// A field can be more than one thing at once: an added field that some
+// deliveries omit is both. The annotations have to read as a list rather than
+// collide into "*(added here)*. *(not always present)*".
+func TestMarkdownCombinesContextFieldAnnotations(t *testing.T) {
+	out := RenderMarkdown([]Event{ContextTable{Shape: "decode-error", Rows: []ContextRow{
+		{Name: "matched_pattern", Type: "string", Summary: "The pattern that matched.",
+			Added: true, Optional: true},
+		{Name: "channel", Type: "string", Summary: "The channel.", Added: true},
+		{Name: "key", Type: "string", Summary: "The key.", Optional: true},
+		{Name: "auth", Type: "object", Summary: "The identity.", Universal: true},
+	}}}, MarkdownOptions{})
+
+	assert.Contains(t, out, "The pattern that matched. *(added here)* *(not always present)* |")
+	assert.NotContains(t, out, "*(added here)*. *(not")
+	// One annotation still reads as a sentence.
+	assert.Contains(t, out, "The channel. *(added here)* |")
+	assert.Contains(t, out, "The key. *(not always present)* |")
+	assert.Contains(t, out, "The identity. *(every `ctx` carries this)* |")
+}
+
 func TestAttrTableHasDefaults(t *testing.T) {
 	assert.False(t, AttrTable{}.HasDefaults())
 	assert.False(t, AttrTable{Rows: []AttrRow{{Name: "a"}}}.HasDefaults())

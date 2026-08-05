@@ -576,7 +576,7 @@ Fields readable as `ctx.<name>` (shape `decode-error`):
 | `ctx.kafka_topic` | string | The Kafka topic the record was read from. *(added here)* |
 | `ctx.partition` | string | Partition the record was read from. *(added here)* |
 | `ctx.offset` | string | Offset of the record within its partition. *(added here)* |
-| `ctx.key` | string | The record's key. *(added here)*. *(not always present)* |
+| `ctx.key` | string | The record's key. *(added here)* *(not always present)* |
 
 *This shape is open: a particular site may carry fields beyond these.*
 

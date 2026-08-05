@@ -36,15 +36,22 @@ func init() {
 var redisStreamFieldAttrs = map[string]cfg.AttrMeta{
 	"payload_field": {
 		Summary: "Stream field carrying the message payload.",
+		Default: "data",
 	},
 	"topic_field": {
 		Summary: "Stream field carrying the bus topic.",
+		Default: "topic",
 	},
 	"content_type_field": {
 		Summary: "Stream field carrying the payload's content type.",
+		Default: "datacontenttype",
 	},
 	"fields_mode": {
 		Summary: "How the rest of the entry's fields map to message fields.",
+		Doc: "`flat` puts each remaining stream field at the top level of the " +
+			"message's fields; `nested` groups them; `omit` discards them.",
+		Enum:    []string{"flat", "nested", "omit"},
+		Default: "flat",
 	},
 }
 
@@ -76,10 +83,16 @@ what it has acknowledged, so a consumer can resume after a restart.`,
 				},
 				"approximate_maxlen": {
 					Summary: "Let Redis trim approximately, which is much cheaper.",
+					Doc:     "Only meaningful alongside `maxlen`.",
 					Hint:    cfg.HintBool,
+					Default: "true",
 				},
 				"default_stream_transform": {
 					Summary: "How to derive a stream name from a bus topic when `stream` is unset.",
+					Doc: "`error` refuses the message, since a bus topic is rarely a stream " +
+						"name by accident; `ignore` drops it.",
+					Enum:    []string{"error", "ignore"},
+					Default: "error",
 				},
 			}),
 		},
@@ -94,26 +107,40 @@ what it has acknowledged, so a consumer can resume after a restart.`,
 				},
 				"vinculum_topic": {
 					Summary: "Bus topic to publish arriving entries to.",
+					Doc: "Evaluated per entry, where `ctx.topic` carries the stream name " +
+						"rather than a bus topic — producing the bus topic is what this " +
+						"expression is for.",
 					Hint:    cfg.HintTopicPattern,
+					Context: "redis-stream-entry",
 				},
-				"batch_size":    {Summary: "Maximum entries to read at once."},
-				"block_timeout": {Summary: "How long to wait for new entries before polling again.", Hint: cfg.HintDuration},
+				"batch_size":    {Summary: "Maximum entries to read at once.", Default: "10"},
+				"block_timeout": {Summary: "How long to wait for new entries before polling again.", Hint: cfg.HintDuration, Default: "2s"},
 				"auto_ack": {
 					Summary: "Acknowledge on read rather than after handling.",
-					Doc:     "Faster, but an entry is lost if handling fails.",
+					Doc: "Faster, but an entry is lost if handling fails. Turn it off to " +
+						"acknowledge explicitly with `redis::ack()`.",
 					Hint:    cfg.HintBool,
+					Default: "true",
 				},
 				"group_create": {
 					Summary: "Where a newly created group starts reading from.",
+					Doc: "`create_if_missing` creates the group at the end of the stream, so " +
+						"only new entries arrive; `create_from_start` replays everything " +
+						"already there; `require_existing` refuses to create one at all.",
+					Enum:    []string{"create_if_missing", "require_existing", "create_from_start"},
+					Default: "create_if_missing",
 				},
 				"reclaim_pending": {
 					Summary: "Take over entries another consumer read but never acknowledged.",
 					Doc:     "This is what recovers work left behind by a crashed consumer.",
 					Hint:    cfg.HintBool,
+					Default: "true",
 				},
 				"reclaim_min_idle": {
 					Summary: "How long an entry must be idle before it can be reclaimed.",
+					Doc:     "Long enough that a slow consumer is not mistaken for a dead one.",
 					Hint:    cfg.HintDuration,
+					Default: "5m",
 				},
 				"dead_letter_stream": {
 					Summary: "Stream to move entries to once they have failed too often.",
@@ -730,9 +757,31 @@ func resolveConsumerName(config *cfg.Config, expr hcl.Expression, clientName, co
 	return fmt.Sprintf("%s-%s-%s", host, clientName, consumerName), nil
 }
 
-// makeVinculumTopicFunc builds a resolver that evaluates the HCL expression
-// per message with ctx.topic (stream name), ctx.message_id, ctx.msg, and
-// ctx.fields in scope.
+// The shape makeVinculumTopicFunc builds below. It is not the `message` shape:
+// an entry carries its own Redis ID, and `topic` is the stream it came from
+// rather than a bus topic, which is what the expression is computing.
+func init() {
+	cfg.RegisterContextSchema("redis-stream-entry", cfg.ContextSchema{
+		Summary: "Evaluated once per stream entry, to derive a bus topic for it.",
+		Fields: []cfg.ContextField{
+			{Name: "topic", Type: "string", Summary: "Name of the stream the entry was read from."},
+			{Name: "message_id", Type: "string", Summary: "Redis entry ID, e.g. `1700000000000-0`."},
+			{
+				Name: "msg", Type: cfg.CtxTypeDynamic,
+				Summary: "The entry's payload.",
+				Doc:     "Read from the `payload_field` and decoded by the client's `wire_format`.",
+			},
+			{
+				Name: "fields", Type: cfg.CtxTypeObject,
+				Summary: "String metadata attached to the entry.",
+				Doc:     "The entry's remaining stream fields, as `fields_mode` maps them.",
+			},
+		},
+	})
+}
+
+// makeVinculumTopicFunc builds a resolver that evaluates the HCL expression per
+// entry, against the `redis-stream-entry` shape registered above.
 func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) stream.VinculumTopicFromStreamFunc {
 	return func(streamName, entryID string, msg any, fields map[string]string) (string, error) {
 		if b, ok := msg.([]byte); ok {

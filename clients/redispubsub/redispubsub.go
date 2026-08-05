@@ -53,9 +53,16 @@ delivery has to survive a restart.`,
 			Attrs: map[string]cfg.AttrMeta{
 				"channel_transform": {
 					Summary: "Expression deriving a channel name from a message.",
+					Doc: "Evaluated per message, and consulted before " +
+						"`default_channel_transform`.",
+					Context: "message",
 				},
 				"default_channel_transform": {
 					Summary: "How to derive a channel from a bus topic with no `channel_mapping` block.",
+					Doc: "`verbatim` publishes to a channel named for the bus topic; `ignore` " +
+						"drops the message; `error` refuses it.",
+					Enum:    []string{"verbatim", "ignore", "error"},
+					Default: "verbatim",
 				},
 			},
 			Blocks: map[string]cfg.TypeSchema{
@@ -88,8 +95,12 @@ delivery has to survive a restart.`,
 						"channel": {Summary: "Redis channel or glob pattern to subscribe to."},
 						"vinculum_topic": {
 							Summary: "Bus topic to publish arriving messages to.",
-							Doc:     "Defaults to the channel name.",
+							Doc: "The channel name is used when omitted. Evaluated per message, " +
+								"where `ctx.topic` carries the Redis channel the message arrived " +
+								"on rather than a bus topic — producing the bus topic is what " +
+								"this expression is for.",
 							Hint:    cfg.HintTopicPattern,
+							Context: "message",
 						},
 					},
 				},

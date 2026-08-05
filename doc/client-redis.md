@@ -78,19 +78,90 @@ client "redis" "ha" {
 
 ### Attributes
 
-| Attribute | Type | Default | Notes |
-| --- | --- | --- | --- |
-| `mode` | string | `"standalone"` | One of `standalone`, `cluster`, `sentinel`. |
-| `address` | string | — | Required for standalone; rejected in cluster/sentinel. |
-| `addresses` | list(string) | — | Required for cluster/sentinel; rejected in standalone. |
-| `master_name` | string | — | Required for sentinel; rejected otherwise. |
-| `database` | number | `0` | Standalone/sentinel only. |
-| `username` / `password` | string / expression | — | Redis 6+ ACL. Plain `requirepass` uses `password` alone. |
-| `sentinel_username` / `sentinel_password` | string / expression | — | Separate credentials for sentinel nodes. |
-| `tls` | block | — | See [TLS configuration](config.md#tls). |
-| `pool_size` | number | go-redis default | Max connections per node. |
-| `min_idle_conns` | number | `0` | Idle connections kept warm. |
-| `dial_timeout` | duration | go-redis default | Connect timeout. |
+Which of `address`, `addresses`, and `master_name` is required — and which is
+rejected — depends on `mode`; see the sections above. The `tls` block is the
+shared one, documented under [TLS configuration](config.md#tls).
+
+<!-- vinculum:begin block-attrs client redis level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `address` | string |  |  | Address of the server, for standalone mode. |
+| `addresses` | list |  |  | Addresses of the cluster or sentinel nodes. |
+| `database` | number |  | `0` | Database number to select. |
+| `dial_timeout` | expression (duration) |  | `5s` | Deadline for establishing a connection. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `master_name` | string |  |  | Name of the master the sentinels monitor. |
+| `min_idle_conns` | number |  | `0` | Idle connections kept ready in the pool. |
+| `mode` | string |  | `standalone` | Topology to connect to. |
+| `password` | expression |  |  | Password to authenticate with. |
+| `pool_size` | number |  | `10 × GOMAXPROCS` | Maximum number of connections in the pool, per node. |
+| `sentinel_password` | expression |  |  | Password to authenticate to the sentinels with. |
+| `sentinel_username` | string |  |  | Username to authenticate to the sentinels with. |
+| `username` | string |  |  | Username to authenticate with. |
+
+- Specify at most one of address or addresses.
+- master_name requires addresses.
+
+**`address`**
+
+For example `"localhost:6379"`.
+
+**`addresses`**
+
+Used by `cluster` and `sentinel` mode instead of `address`.
+
+**`database`**
+
+Not available in `cluster` mode, which has a single keyspace.
+
+**`dial_timeout`**
+
+The default is go-redis's.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`master_name`**
+
+Required in `sentinel` mode.
+
+**`min_idle_conns`**
+
+Keeping a few warm trades memory for latency on a burst.
+
+**`mode`**
+
+`standalone` takes a single `address`; `cluster` and `sentinel` take `addresses`, and `sentinel` also needs `master_name`.
+
+One of: `standalone`, `cluster`, `sentinel`.
+
+**`password`**
+
+Supply it from the environment rather than a literal.
+
+**`pool_size`**
+
+The default is go-redis's, which scales with the machine.
+
+**`sentinel_password`**
+
+`sentinel` mode only, and separate from the credentials used for the master.
+
+**`sentinel_username`**
+
+`sentinel` mode only, and separate from the credentials used for the master.
+
+**`username`**
+
+Redis 6 and later, with ACLs configured. A server using plain `requirepass` wants `password` alone.
+
+#### Blocks
+
+- `tls` (optional) — TLS settings for this connection.
+
+<!-- vinculum:end block-attrs client redis -->
 
 Reconnection is handled by the go-redis pool transparently — there is no
 `reconnect` block or `on_connect` / `on_disconnect` hook. When a lifecycle
@@ -156,6 +227,117 @@ client "redis_pubsub" "rps" {
 }
 ```
 
+### Pub/sub attributes
+
+<!-- vinculum:begin block-attrs client redis_pubsub level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `connection` | expression (client-ref) | yes |  | Redis connection to use. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
+| `wire_format` | expression |  | `auto` | How to encode and decode message payloads. |
+
+**`connection`**
+
+A `client "redis"` block.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`metrics`**
+
+A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+**`wire_format`**
+
+A `wire_format` block, or the name of a built-in format. Under `auto`, strings and bytes pass through and everything else is JSON-encoded; decoding auto-detects JSON and falls back to a string.
+
+#### Blocks
+
+- `publisher "<name>"` (0..n) — Publishes bus messages to Redis channels.
+- `subscriber "<name>"` (0..n) — Subscribes to Redis channels and delivers what arrives.
+
+<!-- vinculum:end block-attrs client redis_pubsub -->
+
+#### `publisher`
+
+<!-- vinculum:begin block-attrs client redis_pubsub publisher level=5 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `channel_transform` | expression |  |  | Expression deriving a channel name from a message. |
+| `default_channel_transform` | string |  | `verbatim` | How to derive a channel from a bus topic with no `channel_mapping` block. |
+
+**`channel_transform`**
+
+Evaluated per message, and consulted before `default_channel_transform`.
+
+Evaluated against the `message` context.
+
+**`default_channel_transform`**
+
+`verbatim` publishes to a channel named for the bus topic; `ignore` drops the message; `error` refuses it.
+
+One of: `verbatim`, `ignore`, `error`.
+
+##### Blocks
+
+- `channel_mapping` (0..n) — Maps bus topics matching a pattern to a Redis channel.
+
+<!-- vinculum:end block-attrs client redis_pubsub publisher -->
+
+#### `subscriber`
+
+<!-- vinculum:begin block-attrs client redis_pubsub subscriber level=5 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `action` | expression (action-expression) |  | Expression evaluated once per message. |
+| `on_decode_error` | expression (action-expression) |  | Evaluated when an inbound message cannot be decoded. |
+| `queue_size` | number |  | Depth of an async queue wrapping the subscriber. |
+| `subscriber` | expression (subscriber-ref) |  | Subscriber to forward messages to, instead of evaluating an action. |
+| `transforms` | expression (transform-pipeline) |  | Transform pipeline applied before the action or subscriber. |
+
+- Specify at most one of action or subscriber.
+- Specify either an action to evaluate or a subscriber to forward to.
+
+**`action`**
+
+`ctx.topic` is the message topic and `ctx.msg` the payload; a protocol that extracts metadata also provides `ctx.fields`.
+
+Evaluated against the `message` context.
+
+**`on_decode_error`**
+
+The message is dropped rather than delivered. Use this to publish to a dead-letter destination or record the failure.
+
+Evaluated against the `decode-error` context.
+
+**`queue_size`**
+
+When set, decouples delivery from the action so a slow action does not block the source.
+
+**`subscriber`**
+
+Anything that can receive messages: a bus, an FSM, a subscriber-implementing server or client.
+
+**`transforms`**
+
+A list of transform functions applied in order to each message. Only transform functions are in scope here.
+
+##### Blocks
+
+- `channel_subscription` (0..n) — One Redis channel or channel pattern to subscribe to.
+
+<!-- vinculum:end block-attrs client redis_pubsub subscriber -->
+
 ### Publisher behavior
 
 - Payloads are serialized according to the client-level `wire_format`
@@ -215,22 +397,63 @@ receiver "in" {
 }
 ```
 
-**Hook context variables** (pub/sub and stream both support
-`on_decode_error`):
+**Hook context variables.** Both pub/sub and stream support
+`on_decode_error`, and each adds its own transport identity to the shared
+fields.
 
-| Variable | Description |
-|---|---|
-| `ctx.raw` | The undecoded payload, as a [`bytes`](functions.md) object |
-| `ctx.error` | The deserialize error message |
-| `ctx.wire_format` | The configured format name |
-| `ctx.topic` | The channel (pub/sub) or stream name |
-| `ctx.fields` | *(pub/sub)* Fields extracted before the failure. Always empty for streams: fields are read in the same pass that decodes the payload, so a partial map would depend on Go's randomized map iteration order. |
-| `ctx.channel` | *(pub/sub)* The Redis channel |
-| `ctx.matched_pattern` | *(pub/sub)* The subscribed pattern, when the match was by pattern |
-| `ctx.stream` | *(stream)* The stream name |
-| `ctx.entry_id` | *(stream)* The entry ID |
-| `ctx.group` | *(stream)* The consumer group |
-| `ctx.consumer` | *(stream)* The consumer name |
+On a `redis_pubsub` subscriber:
+
+<!-- vinculum:begin block-ctx client redis_pubsub subscriber on_decode_error level=4 -->
+
+Fields readable as `ctx.<name>` (shape `decode-error`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.raw` | object | The undecoded body, as a bytes object. |
+| `ctx.error` | string | The deserialize error message. |
+| `ctx.wire_format` | string | Name of the configured wire format that rejected it. |
+| `ctx.topic` | string | Best-effort vinculum topic for the message. |
+| `ctx.fields` | object | Metadata extracted before the failure. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.channel` | string | Channel the message was published to. *(added here)* |
+| `ctx.matched_pattern` | string | The `channel_subscription` pattern that matched. *(added here)* *(not always present)* |
+
+*This shape is open: a particular site may carry fields beyond these.*
+
+<!-- vinculum:end block-ctx client redis_pubsub subscriber on_decode_error -->
+
+On a `redis_stream` consumer:
+
+<!-- vinculum:begin block-ctx client redis_stream consumer on_decode_error level=4 -->
+
+Fields readable as `ctx.<name>` (shape `decode-error`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.raw` | object | The undecoded body, as a bytes object. |
+| `ctx.error` | string | The deserialize error message. |
+| `ctx.wire_format` | string | Name of the configured wire format that rejected it. |
+| `ctx.topic` | string | Best-effort vinculum topic for the message. |
+| `ctx.fields` | object | Metadata extracted before the failure. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.stream` | string | Stream the entry was read from. *(added here)* |
+| `ctx.entry_id` | string | Redis entry ID, e.g. `1700000000000-0`. *(added here)* |
+| `ctx.group` | string | Consumer group this receiver reads as. *(added here)* |
+| `ctx.consumer` | string | This receiver's consumer name within the group. *(added here)* |
+
+*This shape is open: a particular site may carry fields beyond these.*
+
+<!-- vinculum:end block-ctx client redis_stream consumer on_decode_error -->
+
+`ctx.fields` is always empty for a stream entry: its fields are read in the same
+pass that decodes the payload, so a partial map would depend on Go's randomized
+map iteration order.
 
 Use `wire_format = "auto_bytes"` if you want best-effort decoding instead: it
 decodes JSON like `auto` and yields a [`bytes`](functions.md) value for anything
@@ -310,6 +533,200 @@ client "redis_stream" "rs" {
   }
 }
 ```
+
+### Stream attributes
+
+<!-- vinculum:begin block-attrs client redis_stream level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `connection` | expression (client-ref) | yes |  | Redis connection to use. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
+| `wire_format` | expression |  | `auto` | How to encode and decode message payloads. |
+
+**`connection`**
+
+A `client "redis"` block.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`metrics`**
+
+A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+**`wire_format`**
+
+A `wire_format` block, or the name of a built-in format. Under `auto`, strings and bytes pass through and everything else is JSON-encoded; decoding auto-detects JSON and falls back to a string.
+
+#### Blocks
+
+- `consumer "<name>"` (0..n) — Consumes a Redis stream as part of a consumer group.
+- `producer "<name>"` (0..n) — Writes bus messages into a Redis stream.
+
+<!-- vinculum:end block-attrs client redis_stream -->
+
+#### `producer`
+
+<!-- vinculum:begin block-attrs client redis_stream producer level=5 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `approximate_maxlen` | bool |  | `true` | Let Redis trim approximately, which is much cheaper. |
+| `content_type_field` | string |  | `datacontenttype` | Stream field carrying the payload's content type. |
+| `default_stream_transform` | string |  | `error` | How to derive a stream name from a bus topic when `stream` is unset. |
+| `fields_mode` | string |  | `flat` | How the rest of the entry's fields map to message fields. |
+| `maxlen` | number |  |  | Trim the stream to roughly this many entries. |
+| `payload_field` | string |  | `data` | Stream field carrying the message payload. |
+| `stream` | expression |  |  | Stream to write entries to. |
+| `topic_field` | string |  | `topic` | Stream field carrying the bus topic. |
+
+**`approximate_maxlen`**
+
+Only meaningful alongside `maxlen`.
+
+**`default_stream_transform`**
+
+`error` refuses the message, since a bus topic is rarely a stream name by accident; `ignore` drops it.
+
+One of: `error`, `ignore`.
+
+**`fields_mode`**
+
+`flat` puts each remaining stream field at the top level of the message's fields; `nested` groups them; `omit` discards them.
+
+One of: `flat`, `nested`, `omit`.
+
+**`maxlen`**
+
+Without a cap the stream grows without bound.
+
+<!-- vinculum:end block-attrs client redis_stream producer -->
+
+#### `consumer`
+
+<!-- vinculum:begin block-attrs client redis_stream consumer level=5 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `group` | string | yes |  | Consumer group to join. |
+| `stream` | expression | yes |  | Stream to consume from. |
+| `action` | expression (action-expression) |  |  | Expression evaluated once per message. |
+| `auto_ack` | bool |  | `true` | Acknowledge on read rather than after handling. |
+| `batch_size` | number |  | `10` | Maximum entries to read at once. |
+| `block_timeout` | expression (duration) |  | `2s` | How long to wait for new entries before polling again. |
+| `consumer_name` | expression |  |  | Name identifying this consumer within the group. |
+| `content_type_field` | string |  | `datacontenttype` | Stream field carrying the payload's content type. |
+| `dead_letter_after` | number |  |  | Delivery attempts before an entry is dead-lettered. |
+| `dead_letter_stream` | string |  |  | Stream to move entries to once they have failed too often. |
+| `fields_mode` | string |  | `flat` | How the rest of the entry's fields map to message fields. |
+| `group_create` | string |  | `create_if_missing` | Where a newly created group starts reading from. |
+| `on_decode_error` | expression (action-expression) |  |  | Evaluated when an inbound message cannot be decoded. |
+| `payload_field` | string |  | `data` | Stream field carrying the message payload. |
+| `queue_size` | number |  |  | Depth of an async queue wrapping the subscriber. |
+| `reclaim_min_idle` | expression (duration) |  | `5m` | How long an entry must be idle before it can be reclaimed. |
+| `reclaim_pending` | bool |  | `true` | Take over entries another consumer read but never acknowledged. |
+| `subscriber` | expression (subscriber-ref) |  |  | Subscriber to forward messages to, instead of evaluating an action. |
+| `topic_field` | string |  | `topic` | Stream field carrying the bus topic. |
+| `transforms` | expression (transform-pipeline) |  |  | Transform pipeline applied before the action or subscriber. |
+| `vinculum_topic` | expression (topic-pattern) |  |  | Bus topic to publish arriving entries to. |
+
+- Specify at most one of action or subscriber.
+- Specify either an action to evaluate or a subscriber to forward to.
+
+**`group`**
+
+Redis distributes a stream's entries across the members of a group.
+
+**`action`**
+
+`ctx.topic` is the message topic and `ctx.msg` the payload; a protocol that extracts metadata also provides `ctx.fields`.
+
+Evaluated against the `message` context.
+
+**`auto_ack`**
+
+Faster, but an entry is lost if handling fails. Turn it off to acknowledge explicitly with `redis::ack()`.
+
+**`consumer_name`**
+
+Pending entries are tracked per consumer name, so a stable name lets a restarted process reclaim its own work.
+
+**`fields_mode`**
+
+`flat` puts each remaining stream field at the top level of the message's fields; `nested` groups them; `omit` discards them.
+
+One of: `flat`, `nested`, `omit`.
+
+**`group_create`**
+
+`create_if_missing` creates the group at the end of the stream, so only new entries arrive; `create_from_start` replays everything already there; `require_existing` refuses to create one at all.
+
+One of: `create_if_missing`, `require_existing`, `create_from_start`.
+
+**`on_decode_error`**
+
+The message is dropped rather than delivered. Use this to publish to a dead-letter destination or record the failure.
+
+Evaluated against the `decode-error` context.
+
+**`queue_size`**
+
+When set, decouples delivery from the action so a slow action does not block the source.
+
+**`reclaim_min_idle`**
+
+Long enough that a slow consumer is not mistaken for a dead one.
+
+**`reclaim_pending`**
+
+This is what recovers work left behind by a crashed consumer.
+
+**`subscriber`**
+
+Anything that can receive messages: a bus, an FSM, a subscriber-implementing server or client.
+
+**`transforms`**
+
+A list of transform functions applied in order to each message. Only transform functions are in scope here.
+
+**`vinculum_topic`**
+
+Evaluated per entry, where `ctx.topic` carries the stream name rather than a bus topic — producing the bus topic is what this expression is for.
+
+Evaluated against the `redis-stream-entry` context.
+
+##### Blocks
+
+- `baggage` (optional) — Which inbound baggage keys to trust.
+
+<!-- vinculum:end block-attrs client redis_stream consumer -->
+
+**`vinculum_topic` expression context:**
+
+<!-- vinculum:begin block-ctx client redis_stream consumer vinculum_topic level=5 -->
+
+Fields readable as `ctx.<name>` (shape `redis-stream-entry`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.topic` | string | Name of the stream the entry was read from. |
+| `ctx.message_id` | string | Redis entry ID, e.g. `1700000000000-0`. |
+| `ctx.msg` | dynamic | The entry's payload. |
+| `ctx.fields` | object | String metadata attached to the entry. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx client redis_stream consumer vinculum_topic -->
 
 ### Entry format
 
@@ -395,6 +812,50 @@ Exposes Redis string and hash operations through vinculum's generic
 `richcty.Gettable`/`Settable`/`Incrementable` interfaces. Composable with
 every other vinculum type that implements those interfaces (variables,
 metrics, etc.).
+
+### Key/value attributes
+
+<!-- vinculum:begin block-attrs client redis_kv level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `connection` | expression (client-ref) | yes |  | Redis connection to use. |
+| `default_ttl` | expression (duration) |  |  | Expiry applied to keys written without an explicit TTL. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `hash_mode` | bool |  | `false` | Store values as fields of one hash rather than as separate keys. |
+| `key_prefix` | string |  |  | Prefix prepended to every key. |
+| `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
+| `wire_format` | expression |  | `auto` | How to encode and decode message payloads. |
+
+**`connection`**
+
+A `client "redis"` block.
+
+**`default_ttl`**
+
+Keys do not expire when omitted.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`hash_mode`**
+
+A two-part key selects the hash and the field within it. Redis expires a whole hash rather than a field, so `default_ttl` applies to the hash.
+
+**`key_prefix`**
+
+Keeps this client's keys in their own namespace.
+
+**`metrics`**
+
+A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
+
+**`wire_format`**
+
+A `wire_format` block, or the name of a built-in format. Under `auto`, strings and bytes pass through and everything else is JSON-encoded; decoding auto-detects JSON and falls back to a string.
+
+<!-- vinculum:end block-attrs client redis_kv -->
 
 ### String mode
 

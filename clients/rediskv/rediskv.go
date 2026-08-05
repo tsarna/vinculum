@@ -47,7 +47,10 @@ available in expressions as ` + "`client.<name>`" + `.`,
 		},
 		"hash_mode": {
 			Summary: "Store values as fields of one hash rather than as separate keys.",
+			Doc: "A two-part key selects the hash and the field within it. Redis expires " +
+				"a whole hash rather than a field, so `default_ttl` applies to the hash.",
 			Hint:    cfg.HintBool,
+			Default: "false",
 		},
 		"wire_format": cfg.WireFormatAttr,
 		"metrics":     cfg.MetricsAttr,

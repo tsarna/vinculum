@@ -208,15 +208,23 @@ func (m *markdownSink) contextTable(t ContextTable) {
 	m.line("| Field | Type | Description |")
 	m.line("|---|---|:---|")
 	for _, r := range t.Rows {
-		desc := oneLine(r.Summary)
+		// Annotations are collected and appended once, because a field can be
+		// more than one of these at a time — a site-added field that some
+		// deliveries omit is both added and optional.
+		var notes []string
 		switch {
 		case r.Added:
-			desc = strings.TrimSuffix(desc, ".") + ". *(added here)*"
+			notes = append(notes, "*(added here)*")
 		case r.Universal:
-			desc = strings.TrimSuffix(desc, ".") + ". *(every `ctx` carries this)*"
+			notes = append(notes, "*(every `ctx` carries this)*")
 		}
 		if r.Optional {
-			desc = strings.TrimSuffix(desc, ".") + ". *(not always present)*"
+			notes = append(notes, "*(not always present)*")
+		}
+
+		desc := oneLine(r.Summary)
+		if len(notes) > 0 {
+			desc = strings.TrimSuffix(desc, ".") + ". " + strings.Join(notes, " ")
 		}
 		m.line(fmt.Sprintf("| `ctx.%s` | %s | %s |", r.Name, r.Type, desc))
 	}
