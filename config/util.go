@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 	"time"
@@ -214,25 +215,120 @@ each subsequent wait is multiplied by ` + "`backoff_factor`" + ` up to ` + "`max
 	},
 }
 
-func (c *Config) CreateReconnector(def ReconnectDefinition) (*bus.AutoReconnector, hcl.Diagnostics) {
-	builder := bus.NewAutoReconnector()
+// The schedule a `reconnect` block describes when it leaves an attribute out.
+//
+// One set of numbers, applied on both paths below, because a user writes one
+// block: `reconnect {}` on a vws client and on an mqtt client mean the same
+// thing, and until this was unified they did not — vws inherited
+// bus.NewAutoReconnector's 30s ceiling while the protocol clients used 60s, for
+// no reason a reader of the block could have predicted.
+//
+// 60s is the survivor because it is what two of the three clients already did
+// and what vinculum-rabbitmq's own DefaultReconnectBackoff uses, so the block
+// agrees with a library it configures rather than quietly overriding it.
+//
+// These apply only when the block is *present*. With no block at all each
+// library keeps its own schedule, which is a different question and not ours.
+const (
+	defaultReconnectInitialDelay  = time.Second
+	defaultReconnectMaxDelay      = 60 * time.Second
+	defaultReconnectBackoffFactor = 2.0
+)
+
+// reconnectSchedule is a reconnect block resolved into concrete numbers, with
+// the defaults above filled in for whatever it omitted.
+type reconnectSchedule struct {
+	initialDelay  time.Duration
+	maxDelay      time.Duration
+	backoffFactor float64
+}
+
+// resolveReconnectSchedule is the single place a reconnect block becomes
+// numbers. Both integration points below go through it, so the two cannot
+// drift apart again — which they had, when each filled in its own defaults.
+func (c *Config) resolveReconnectSchedule(def *ReconnectDefinition) (reconnectSchedule, hcl.Diagnostics) {
+	s := reconnectSchedule{
+		initialDelay:  defaultReconnectInitialDelay,
+		maxDelay:      defaultReconnectMaxDelay,
+		backoffFactor: defaultReconnectBackoffFactor,
+	}
+
 	if IsExpressionProvided(def.InitialDelay) {
-		duration, diags := c.ParseDuration(def.InitialDelay)
+		d, diags := c.ParseDuration(def.InitialDelay)
 		if diags.HasErrors() {
-			return nil, diags
+			return s, diags
 		}
-		builder = builder.WithInitialDelay(duration)
+		s.initialDelay = d
 	}
 	if IsExpressionProvided(def.MaxDelay) {
-		duration, diags := c.ParseDuration(def.MaxDelay)
+		d, diags := c.ParseDuration(def.MaxDelay)
 		if diags.HasErrors() {
-			return nil, diags
+			return s, diags
 		}
-		builder = builder.WithMaxDelay(duration)
+		s.maxDelay = d
 	}
 	if def.BackoffFactor != nil {
-		builder = builder.WithBackoffFactor(*def.BackoffFactor)
+		s.backoffFactor = *def.BackoffFactor
 	}
+
+	return s, nil
+}
+
+// delay is the wait before a given 0-based attempt: exponential, clamped.
+func (s reconnectSchedule) delay(attempt int) time.Duration {
+	d := time.Duration(float64(s.initialDelay) * math.Pow(s.backoffFactor, float64(attempt)))
+	if d > s.maxDelay {
+		return s.maxDelay
+	}
+	return d
+}
+
+// ReconnectBackoffFunc lowers a reconnect block into the exponential backoff
+// function that a protocol client library takes: attempt number in, wait
+// duration out. Returns nil when there is no block, which every such library
+// reads as "use your own default schedule".
+//
+// This is one of two ways a reconnect block reaches a client, and what differs
+// between them is the integration point, not the schedule. A bus client takes
+// a bus.AutoReconnector, which owns the retry loop and can therefore stop —
+// that is CreateReconnector below. A protocol client owns its own loop and only
+// asks how long to wait next, so a func(int) time.Duration is all it can
+// accept.
+//
+// One consequence is visible in the schema: max_retries cannot be honored
+// here. Giving up is a property of the loop, and this side does not own the
+// loop. Honoring it needs a config field on those clients, so
+// UnhonoredMaxRetriesAttr documents the gap until they grow one.
+func (c *Config) ReconnectBackoffFunc(def *ReconnectDefinition) (func(int) time.Duration, hcl.Diagnostics) {
+	if def == nil {
+		return nil, nil
+	}
+	schedule, diags := c.resolveReconnectSchedule(def)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+	return schedule.delay, nil
+}
+
+// CreateReconnector lowers a reconnect block into the bus.AutoReconnector a bus
+// client takes. Unlike ReconnectBackoffFunc's consumers, this one owns its
+// retry loop, so it is the only path that can honor max_retries.
+//
+// Every value is set explicitly rather than left to bus.NewAutoReconnector's
+// own defaults, which is what makes the block mean the same here as everywhere
+// else. max_retries is the exception: the builder's default of unlimited is
+// already the right answer for an omitted attribute, and there is no vinculum
+// default to impose.
+func (c *Config) CreateReconnector(def ReconnectDefinition) (*bus.AutoReconnector, hcl.Diagnostics) {
+	schedule, diags := c.resolveReconnectSchedule(&def)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	builder := bus.NewAutoReconnector().
+		WithInitialDelay(schedule.initialDelay).
+		WithMaxDelay(schedule.maxDelay).
+		WithBackoffFactor(schedule.backoffFactor)
 	if def.MaxRetries != nil {
 		builder = builder.WithMaxRetries(*def.MaxRetries)
 	}
