@@ -292,15 +292,14 @@ func TestReconnectBackoffFuncReportsABadDuration(t *testing.T) {
 	assert.True(t, diags.HasErrors())
 }
 
-// The invariant this whole shared-resolution shape exists to protect: one
-// block means one schedule, whichever client it lands in. It broke once —
-// vws inherited bus.NewAutoReconnector's 30s ceiling while the protocol
-// clients used 60s — so it is asserted rather than left to the reader.
+// The invariant the shared resolution exists to protect: one block means one
+// schedule, whichever client it lands in. The two paths reach different client
+// libraries by different means, so nothing but this holds them together.
 func TestBothReconnectPathsAgreeOnTheSchedule(t *testing.T) {
 	c := reconnectTestConfig()
 
 	for _, def := range []ReconnectDefinition{
-		{}, // the case that diverged: block present, everything omitted
+		{}, // block present, everything omitted — the case defaults decide
 		{MaxDelay: durationExpr(t, `"5s"`)},
 		{InitialDelay: durationExpr(t, `"250ms"`), MaxDelay: durationExpr(t, `"90s"`)},
 	} {
@@ -338,9 +337,8 @@ func TestReconnectMaxAttempts(t *testing.T) {
 	attempts := func(n int) *int { return &n }
 
 	// Zero is unlimited, and so is a negative number and an absent attribute.
-	// Zero has to be unlimited because it is the value a client library's field
-	// takes when nothing is passed: were it to mean "never reconnect", adding
-	// the attribute would have stopped every existing client from reconnecting.
+	// Zero must mean unlimited because it is the value a client library's field
+	// holds when nothing is passed, and an unconfigured client reconnects.
 	assert.Equal(t, 0, ReconnectMaxAttempts(nil))
 	assert.Equal(t, 0, ReconnectMaxAttempts(&ReconnectDefinition{}))
 	assert.Equal(t, 0, ReconnectMaxAttempts(&ReconnectDefinition{MaxRetries: attempts(0)}))
@@ -362,4 +360,26 @@ func TestTheScheduleIsIndifferentToTheLimit(t *testing.T) {
 	reconnector, diags := reconnectTestConfig().CreateReconnector(def)
 	require.False(t, diags.HasErrors())
 	require.NotNil(t, reconnector)
+}
+
+// Every spelling of "forever" — absent, zero, or any negative — reaches the
+// reconnector through ReconnectMaxAttempts as one value.
+//
+// AutoReconnector keeps maxRetries unexported with no accessor, so this asserts
+// that each spelling is accepted and builds; the normalization itself is pinned
+// by TestReconnectMaxAttempts.
+func TestCreateReconnectorAcceptsEverySpellingOfForever(t *testing.T) {
+	attempts := func(n int) *int { return &n }
+
+	for _, def := range []ReconnectDefinition{
+		{},
+		{MaxRetries: attempts(0)},
+		{MaxRetries: attempts(-1)},
+		{MaxRetries: attempts(-5)}, // below the builder's own floor of -1
+		{MaxRetries: attempts(3)},  // and an actual limit, for contrast
+	} {
+		reconnector, diags := reconnectTestConfig().CreateReconnector(def)
+		require.False(t, diags.HasErrors())
+		require.NotNil(t, reconnector)
+	}
 }

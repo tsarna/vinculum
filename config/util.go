@@ -217,15 +217,10 @@ each subsequent wait is multiplied by ` + "`backoff_factor`" + ` up to ` + "`max
 
 // The schedule a `reconnect` block describes when it leaves an attribute out.
 //
-// One set of numbers, applied on both paths below, because a user writes one
-// block: `reconnect {}` on a vws client and on an mqtt client mean the same
-// thing, and until this was unified they did not — vws inherited
-// bus.NewAutoReconnector's 30s ceiling while the protocol clients used 60s, for
-// no reason a reader of the block could have predicted.
-//
-// 60s is the survivor because it is what two of the three clients already did
-// and what vinculum-rabbitmq's own DefaultReconnectBackoff uses, so the block
-// agrees with a library it configures rather than quietly overriding it.
+// One set of numbers for every client, because a user writes one block:
+// `reconnect {}` on a vws client and on an mqtt client mean the same thing.
+// 60s matches vinculum-rabbitmq's own DefaultReconnectBackoff, so the block
+// agrees with a library it configures rather than overriding it.
 //
 // These apply only when the block is *present*. With no block at all each
 // library keeps its own schedule, which is a different question and not ours.
@@ -244,8 +239,8 @@ type reconnectSchedule struct {
 }
 
 // resolveReconnectSchedule is the single place a reconnect block becomes
-// numbers. Both integration points below go through it, so the two cannot
-// drift apart again — which they had, when each filled in its own defaults.
+// numbers. Both integration points below go through it, which is what keeps them
+// from disagreeing about what an omitted attribute means.
 func (c *Config) resolveReconnectSchedule(def *ReconnectDefinition) (reconnectSchedule, hcl.Diagnostics) {
 	s := reconnectSchedule{
 		initialDelay:  defaultReconnectInitialDelay,
@@ -330,23 +325,21 @@ func ReconnectMaxAttempts(def *ReconnectDefinition) int {
 // whole schedule at once because the reconnector owns the retry loop itself.
 //
 // Every value is set explicitly rather than left to bus.NewAutoReconnector's
-// own defaults, which is what makes the block mean the same here as everywhere
-// else. max_retries is the exception: the builder's default of unlimited is
-// already the right answer for an omitted attribute, and there is no vinculum
-// default to impose.
+// own defaults, so the block means the same here as it does on a protocol
+// client. max_retries goes through ReconnectMaxAttempts for the same reason:
+// one attribute, one normalization, whichever client is asking. The builder
+// reads anything not greater than zero as unlimited, which is what an absent,
+// zero, or negative max_retries resolves to.
 func (c *Config) CreateReconnector(def ReconnectDefinition) (*bus.AutoReconnector, hcl.Diagnostics) {
 	schedule, diags := c.resolveReconnectSchedule(&def)
 	if diags.HasErrors() {
 		return nil, diags
 	}
 
-	builder := bus.NewAutoReconnector().
+	return bus.NewAutoReconnector().
 		WithInitialDelay(schedule.initialDelay).
 		WithMaxDelay(schedule.maxDelay).
-		WithBackoffFactor(schedule.backoffFactor)
-	if def.MaxRetries != nil {
-		builder = builder.WithMaxRetries(*def.MaxRetries)
-	}
-
-	return builder.Build(), nil
+		WithBackoffFactor(schedule.backoffFactor).
+		WithMaxRetries(ReconnectMaxAttempts(&def)).
+		Build(), nil
 }
