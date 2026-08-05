@@ -331,20 +331,35 @@ func TestReconnectDefaultsAreTheOnesDocumented(t *testing.T) {
 	assert.Equal(t, 2.0, float64(defaultReconnectBackoffFactor))
 }
 
-// max_retries reaches the one loop that can act on it, and nothing else has to
-// pretend to support it.
-func TestOnlyTheReconnectorHonorsMaxRetries(t *testing.T) {
+// max_retries travels beside the schedule rather than inside it, because a
+// backoff function's whole vocabulary is a duration and stopping is not a
+// duration. Both consumers get it, by different means.
+func TestReconnectMaxAttempts(t *testing.T) {
+	attempts := func(n int) *int { return &n }
+
+	// Zero is unlimited, and so is a negative number and an absent attribute.
+	// Zero has to be unlimited because it is the value a client library's field
+	// takes when nothing is passed: were it to mean "never reconnect", adding
+	// the attribute would have stopped every existing client from reconnecting.
+	assert.Equal(t, 0, ReconnectMaxAttempts(nil))
+	assert.Equal(t, 0, ReconnectMaxAttempts(&ReconnectDefinition{}))
+	assert.Equal(t, 0, ReconnectMaxAttempts(&ReconnectDefinition{MaxRetries: attempts(0)}))
+	assert.Equal(t, 0, ReconnectMaxAttempts(&ReconnectDefinition{MaxRetries: attempts(-1)}))
+
+	assert.Equal(t, 5, ReconnectMaxAttempts(&ReconnectDefinition{MaxRetries: attempts(5)}))
+}
+
+// The schedule is indifferent to the limit: it keeps answering "how long" for
+// any attempt number, and it is the client's loop that stops asking.
+func TestTheScheduleIsIndifferentToTheLimit(t *testing.T) {
 	retries := 3
 	def := ReconnectDefinition{MaxRetries: &retries}
+
+	fn, diags := reconnectTestConfig().ReconnectBackoffFunc(&def)
+	require.False(t, diags.HasErrors())
+	assert.Equal(t, 60*time.Second, fn(100))
 
 	reconnector, diags := reconnectTestConfig().CreateReconnector(def)
 	require.False(t, diags.HasErrors())
 	require.NotNil(t, reconnector)
-
-	// The backoff function has nowhere to put it: its whole vocabulary is a
-	// duration, so a limit cannot be expressed and is not silently dropped
-	// here so much as structurally absent. See UnhonoredMaxRetriesAttr.
-	fn, diags := reconnectTestConfig().ReconnectBackoffFunc(&def)
-	require.False(t, diags.HasErrors())
-	assert.Equal(t, 60*time.Second, fn(100), "still just a schedule, limit or no limit")
 }

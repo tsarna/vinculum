@@ -635,6 +635,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		Password:              password,
 		WillMessage:           willCfg,
 		ReconnectBackoffFunc:  reconnectFn,
+		MaxReconnectAttempts:  cfg.ReconnectMaxAttempts(def.Reconnect),
 		OnConnect:             onConnect,
 		OnDisconnect:          onDisconnect,
 		MeterProvider:         mp,

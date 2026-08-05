@@ -113,9 +113,15 @@ reconnect {
     initial_delay  = "1s"    # optional: wait before first retry
     max_delay      = "60s"   # optional: cap on backoff delay
     backoff_factor = 2.0     # optional: multiply delay by this factor each attempt
-    max_retries    = -1      # optional: -1 = retry forever, 0 = no retries
+    max_retries    = 5       # optional: give up after 5 attempts
 }
 ```
+
+`max_retries` counts attempts to re-establish a *lost* connection; the initial
+connection is retried regardless. Zero or negative retries forever, which is
+also what omitting it does — there is no way to ask for no retries at all.
+Giving up is quiet and final: the client logs an error and stays down, and the
+process keeps running.
 
 ### Example
 
