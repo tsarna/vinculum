@@ -44,11 +44,15 @@ var awsMessageAttrs = map[string]cfg.AttrMeta{
 	},
 	"message_group_id": {
 		Summary: "Group ID for a FIFO queue or topic.",
-		Doc:     "Messages sharing a group are delivered in order; different groups proceed independently.",
+		Doc: "Messages sharing a group are delivered in order; different groups proceed " +
+			"independently. Required by a FIFO queue, and evaluated per message.",
+		Context: "message",
 	},
 	"deduplication_id": {
 		Summary: "Deduplication ID for a FIFO queue or topic.",
-		Doc:     "AWS discards a repeat of the same ID within the deduplication window.",
+		Doc: "AWS discards a repeat of the same ID within the deduplication window. " +
+			"Evaluated per message.",
+		Context: "message",
 	},
 }
 
@@ -65,28 +69,42 @@ are deleted once handled, unless ` + "`auto_delete`" + ` says otherwise.`,
 		},
 		"vinculum_topic": {
 			Summary: "Bus topic to publish arriving messages to.",
+			Doc: "The queue's name, taken from `queue_url`, is used when omitted. " +
+				"Evaluated per message.",
 			Hint:    cfg.HintTopicPattern,
+			Context: "sqs-message",
 		},
 		"wait_time": {
 			Summary: "How long a poll waits for a message before returning empty.",
-			Doc:     "Long polling: a non-zero wait cuts both latency and request count.",
+			Doc: "Long polling: a non-zero wait cuts both latency and request count. " +
+				"SQS caps it at 20 seconds.",
 			Hint:    cfg.HintDuration,
+			Default: "20s",
 		},
 		"max_messages": {
 			Summary: "Maximum messages to fetch per poll.",
+			Doc:     "SQS caps it at 10.",
+			Default: "10",
 		},
 		"visibility_timeout": {
 			Summary: "How long a received message stays hidden from other receivers.",
-			Doc:     "Must exceed the time handling takes, or the message is redelivered while still being processed.",
-			Hint:    cfg.HintDuration,
+			Doc: "Must exceed the time handling takes, or the message is redelivered while " +
+				"still being processed. The queue's own setting applies when omitted.",
+			Hint: cfg.HintDuration,
 		},
 		"auto_delete": {
-			Summary: "Delete a message when it is received rather than after it is handled.",
-			Doc:     "Faster, but a message is lost if handling fails.",
+			Summary: "Delete a message once it has been handled successfully.",
+			Doc: "A handler that returns an error leaves the message on the queue, so it " +
+				"reappears after the visibility timeout and is retried. Turn this off to " +
+				"take over deletion yourself with `sqs::delete()`, which is what lets a " +
+				"handler defer or abandon a message deliberately.",
 			Hint:    cfg.HintBool,
+			Default: "true",
 		},
 		"concurrency": {
-			Summary: "Number of messages handled at once.",
+			Summary: "Number of polling loops run in parallel.",
+			Doc:     "Each polls independently, so this multiplies `max_messages` in flight.",
+			Default: "1",
 		},
 		"on_decode_error": cfg.OnDecodeErrorAttr.WithContextFields(
 			cfg.ContextField{Name: "queue", Type: "string", Summary: "Queue the message was received from."},
@@ -300,6 +318,31 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 
 // makeVinculumTopicFunc builds a closure that evaluates the vinculum_topic
 // HCL expression per-message with message-specific context variables.
+// The shape makeVinculumTopicFunc builds below. An SQS message carries no
+// destination of its own — the queue is the receiver's, not the message's — so
+// there is nothing here to name a topic after, and `vinculum_topic` falls back
+// to the queue name when it is not set.
+func init() {
+	cfg.RegisterContextSchema("sqs-message", cfg.ContextSchema{
+		Summary: "Evaluated once per received message, to derive a bus topic for it.",
+		Fields: []cfg.ContextField{
+			{Name: "message_id", Type: "string", Summary: "SQS message ID."},
+			{
+				Name: "msg", Type: cfg.CtxTypeDynamic, Optional: true,
+				Summary: "The message body.",
+				Doc: "Absent when the message has no body, or when the body cannot be " +
+					"converted — the topic is chosen before the body is decoded, so this " +
+					"is the raw body rather than a `wire_format` result.",
+			},
+			{
+				Name: "fields", Type: cfg.CtxTypeObject,
+				Summary: "String metadata attached to the message.",
+				Doc:     "Populated from the message's SQS attributes.",
+			},
+		},
+	})
+}
+
 func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) sqsreceiver.TopicFunc {
 	return func(msg sqstypes.Message, fields map[string]string) string {
 		// Build per-message eval context.

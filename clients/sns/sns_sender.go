@@ -61,11 +61,15 @@ var snsSenderSchema = cfg.TypeSchema{
 		},
 		"message_group_id": {
 			Summary: "Group ID for a FIFO topic.",
-			Doc:     "Messages sharing a group are delivered in order; different groups proceed independently.",
+			Doc: "Messages sharing a group are delivered in order; different groups proceed " +
+				"independently. Required by a FIFO topic, and evaluated per message.",
+			Context: "message",
 		},
 		"deduplication_id": {
 			Summary: "Deduplication ID for a FIFO topic.",
-			Doc:     "AWS discards a repeat of the same ID within the deduplication window.",
+			Doc: "AWS discards a repeat of the same ID within the deduplication window. " +
+				"Evaluated per message.",
+			Context: "message",
 		},
 		"wire_format": cfg.WireFormatAttr,
 		"metrics":     cfg.MetricsAttr,
