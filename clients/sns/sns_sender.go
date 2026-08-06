@@ -46,14 +46,27 @@ var snsSenderSchema = cfg.TypeSchema{
 	Doc:     `Acts as a subscriber: messages sent to this client are published to the topic.`,
 	Attrs: cfg.MergeAttrs(awsClientAttrs, map[string]cfg.AttrMeta{
 		"sns_topic": {
-			Summary: "ARN of the topic to publish to.",
+			Summary: "Where to publish: a topic ARN, an endpoint ARN, or a phone number.",
+			Doc: "Which of the three it is, is detected from the value — a leading `+` is " +
+				"an SMS phone number, an ARN containing `/` is an endpoint target for " +
+				"mobile push, and any other SNS ARN is a topic. A value matching none of " +
+				"them fails the publish.\n\n" +
+				"The bus topic is used as the target when this is omitted. A constant is " +
+				"resolved once at config load; anything else is evaluated per message.",
+			Context: "message",
 		},
 		"subject": {
 			Summary: "Subject line for subscribers that have one, such as email.",
+			Doc: "Evaluated per message. A `$Subject` field on the message overrides it " +
+				"for that message.",
+			Context: "message",
 		},
 		"message_structure": {
 			Summary: "Set to `json` to send a different payload per protocol.",
-			Doc:     "The message must then be a JSON object keyed by protocol, with a `default` entry.",
+			Doc: "The message must then be a JSON object keyed by protocol, with a " +
+				"`default` entry. A `$MessageStructure` field on the message overrides " +
+				"it for that message.",
+			Enum: []string{"json"},
 		},
 		"topic_attribute": {
 			Summary: "Message attribute carrying the bus topic.",
