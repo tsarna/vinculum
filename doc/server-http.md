@@ -25,10 +25,48 @@ server "http" "name" {
 }
 ```
 
-- `listen` — address and port to listen on (e.g. `":8080"`, `"127.0.0.1:9090"`)
-- `disabled` — if true, the server block is skipped entirely
-- `tls` — optional sub-block to enable HTTPS; see [TLS](#tls) below
-- `baggage` — optional sub-block controlling which inbound [baggage](baggage.md) keys are trusted. Inbound baggage is **stripped by default**; see [Server-side trust filtering](baggage.md#server-side-trust-filtering).
+The `tls` block enables HTTPS; see [TLS](#tls) below. The `baggage` block
+controls which inbound [baggage](baggage.md) keys are trusted — inbound baggage
+is **stripped by default**; see
+[Server-side trust filtering](baggage.md#server-side-trust-filtering). The `auth`
+block is covered under [Authentication](#authentication), and in full on the
+[shared auth page](server-auth.md).
+
+<!-- vinculum:begin block-attrs server http level=3 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `listen` | string (listen-addr) | yes | Address and port to listen on. |
+| `disabled` | bool |  | Skip this block entirely. |
+| `metrics` | expression (metrics-ref) |  | Where to report metrics. |
+| `tracing` | expression (tracing-ref) |  | Where to report traces. |
+
+**`listen`**
+
+For example `":8080"` or `"127.0.0.1:9090"`.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`metrics`**
+
+A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+### Blocks
+
+- `auth "<mode>"` (optional) — Authentication required by this server or handler.
+- `baggage` (optional) — Which inbound baggage keys to trust.
+- `files "<urlpath>"` (0..n) — Serves a directory tree of static files.
+- `handle "<route>"` (0..n) — A route handler.
+- `real_ip` (optional) — Recover the client's real IP from a forwarded header.
+- `tls` (optional) — TLS settings for this connection.
+
+<!-- vinculum:end block-attrs server http -->
 
 The server is available in expressions as `server.<name>`.
 
@@ -110,11 +148,62 @@ server "http" "main" {
 Serving multiple hosts over **HTTPS** requires a certificate covering every host
 (multi-SAN) or SNI-based selection — see [TLS](#tls).
 
+### `handle` attributes
+
+<!-- vinculum:begin block-attrs server http handle level=3 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `action` | expression (action-expression) |  | Expression evaluated for each matching request. |
+| `disabled` | bool |  | Skip this route entirely. |
+| `handler` | expression (server-ref) |  | Another server to delegate this route to. |
+
+- Specify at most one of action or handler.
+- A route needs either an action to evaluate or a handler to delegate to.
+
+**`action`**
+
+Its value becomes the response: a string is sent as `text/plain`, a
+bytes object with its own content type, anything else as JSON, and `null` as
+204. Use `http::response()` or `http::error()` to control the status.
+
+Evaluated against the `http-request` context.
+
+**`handler`**
+
+Mounts a server that exposes an HTTP handler, such as `server "mcp"` or `server "metrics"`.
+
+### Blocks
+
+- `auth "<mode>"` (optional) — Authentication required by this server or handler.
+
+<!-- vinculum:end block-attrs server http handle -->
+
 ### `action` Expression
 
 The action expression is evaluated for each matching request. The **return value**
 determines the HTTP response sent to the client — see [Response](#response) below.
-See [Context Variables](#context-variables) and [Request Functions](#request-functions).
+The response helpers are documented under
+[HTTP Response Functions](functions.md#http-response-functions).
+
+It is evaluated against this context:
+
+<!-- vinculum:begin block-ctx server http handle action level=3 -->
+
+Fields readable as `ctx.<name>` (shape `http-request`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.request` | object | The inbound request. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+<!-- vinculum:end block-ctx server http handle action -->
+
+`ctx.request` is a rich object; its own attributes are listed under
+[Request Object](#request-object) below.
 
 ### `handler` Attribute
 
@@ -149,14 +238,28 @@ files "/static" {
 }
 ```
 
-- `urlpath` (label) — URL path prefix. A trailing slash is added automatically.
-  Requests under this prefix are served from `directory`. The label may be
-  prefixed with a host to scope the static tree to that `Host`
-  (`"cdn.example.com/static"`) — see [Virtual Hosts](#virtual-hosts). A method
-  token is **not** allowed here (a file server serves GET/HEAD only).
-- `directory` — filesystem path to the directory to serve. Relative paths are
-  resolved against the `--file-path` base directory.
-- `disabled` — if true, this block is skipped
+The label is a URL path prefix, and a trailing slash is added automatically.
+Requests under the prefix are served from `directory`. The label may be prefixed
+with a host to scope the tree to that `Host` (`"cdn.example.com/static"`) — see
+[Virtual Hosts](#virtual-hosts). A method token is **not** allowed here, since a
+file server serves GET and HEAD only.
+
+<!-- vinculum:begin block-attrs server http files level=3 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `directory` | string | yes | Directory to serve files from. |
+| `disabled` | bool |  | Skip this tree entirely. |
+
+**`directory`**
+
+A relative path resolves against the `--file-path` base directory, which `vinculum serve` requires whenever any `files` block is active.
+
+### Blocks
+
+- `auth "<mode>"` (optional) — Authentication required by this server or handler.
+
+<!-- vinculum:end block-attrs server http files -->
 
 `vinculum serve` must be started with `--file-path` whenever any non-disabled
 `files` block is present.
@@ -415,21 +518,34 @@ server "http" "main" {
 }
 ```
 
-- `trusted_proxies` (required) — a list of CIDRs or bare IPs. The forwarded
-  header is honored **only when the immediate peer is in this set**; a request
-  arriving directly from an untrusted address keeps its real peer address, so a
-  client cannot spoof its IP by sending a forwarded header.
-- `header` (optional, default `X-Forwarded-For`) — the header to read. Any
-  header works; a single-value header like `X-Real-IP` is just the
-  one-element case.
-- `recursive` (optional, default `false`) — with a chain of proxies, walk the
-  header **right-to-left, skipping trusted addresses**, and use the first
-  untrusted address as the client (nginx `real_ip_recursive on`). With
-  `false`, the rightmost address is used (correct for a single proxy hop).
-- `disabled` (optional, default `false`) — when `true` the block is parsed but
-  inert (no header rewrite, and `trusted_proxies` is not required). Since the
-  expression sees `env.*`, one variable can both supply the trusted proxies and
-  toggle the feature: `disabled = try(env.TRUSTED_PROXIES, "") == ""`.
+<!-- vinculum:begin block-attrs server http real_ip level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `trusted_proxies` | list | yes |  | CIDRs or bare IPs whose forwarded headers are believed. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `header` | string |  | `X-Forwarded-For` | Header to read the client address from. |
+| `recursive` | bool |  | `false` | Walk the header right to left, skipping trusted proxies. |
+
+**`trusted_proxies`**
+
+A header arriving from any other address is ignored, which is what stops a client spoofing its own IP by sending one. nginx spells this `set_real_ip_from`.
+
+**`header`**
+
+Any header works; a single-valued one such as `X-Real-IP` is just the one-element case. nginx spells this `real_ip_header`.
+
+**`recursive`**
+
+The first untrusted address found is the client. Use it when a chain of proxies each append an address; without it the rightmost entry is taken, which is right for a single hop. nginx spells this `real_ip_recursive`.
+
+<!-- vinculum:end block-attrs server http real_ip -->
+
+The forwarded header is honored **only when the immediate peer is trusted**, so
+a request arriving directly from an untrusted address keeps its real peer
+address. A disabled block is parsed but inert, and does not require
+`trusted_proxies` — so one environment variable can both supply the proxies and
+toggle the feature: `disabled = try(env.TRUSTED_PROXIES, "") == ""`.
 
 When a substitution applies, `r.RemoteAddr` is rewritten **before** tracing,
 logging, auth, and action evaluation run, so `ctx.request.remote_addr`, the
