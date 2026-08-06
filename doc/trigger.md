@@ -61,7 +61,7 @@ Parsed at config load time. Accepts a number of seconds, a Go duration string (`
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`tracing`**
 
@@ -190,7 +190,7 @@ Evaluated against the `trigger-at` context.
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`repeat`**
 
@@ -321,7 +321,7 @@ descriptor and other standard descriptors are also accepted.
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`timezone`**
 
@@ -497,7 +497,7 @@ The timer restarts on each new event; the action fires once the path has been qu
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`events`**
 
@@ -700,7 +700,7 @@ Evaluated against the `trigger-interval` context.
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`error_delay`**
 
@@ -869,7 +869,7 @@ Evaluated against the `trigger-once` context.
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`tracing`**
 
@@ -949,7 +949,7 @@ Evaluated against the `trigger-shutdown` context.
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`tracing`**
 
@@ -1042,7 +1042,7 @@ Evaluated against the `trigger-signals` context.
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`tracing`**
 
@@ -1116,7 +1116,7 @@ Evaluated against the `trigger-start` context.
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`tracing`**
 
@@ -1213,7 +1213,7 @@ Evaluated once at config build time and must produce a watchable capsule; anythi
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`skip_when`**
 
@@ -1374,7 +1374,7 @@ Evaluated against the `trigger-watchdog` context.
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`initial_grace`**
 

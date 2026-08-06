@@ -336,18 +336,21 @@ latch. Counters have no input to re-sample, so ` + "`clear()`" + ` does the same
 			Doc:     "After any `activate_after` delay.",
 		},
 		"initial": {
-			Summary: "The count assigned at startup and after `reset()`. Defaults to 0.",
+			Summary: "The count assigned at startup and after `reset()`.",
 			Doc:     "Starting non-zero supports the CTUD pattern of counting down from a preset toward zero.",
+			Default: "0",
 		},
 		"rollover": {
-			Summary: "Reset the count to `initial` on reaching `preset`. Defaults to false.",
+			Summary: "Reset the count to `initial` on reaching `preset`.",
 			Doc:     "When false the count saturates: it stops at `preset` going up and at 0 going down, and the output stays active until `reset()`. When true, reaching `preset` fires and snaps the count back — a one-shot pulse. `decrement()` clamps at 0 either way. If `latch` is also set the latch wins: the count snaps back but the output stays continuously active, with no spurious deactivate/reactivate edge.",
 			Hint:    cfg.HintBool,
+			Default: "false",
 		},
 		"count_down": {
-			Summary: "Activate when the count falls to `preset` rather than rising to it. Defaults to false.",
+			Summary: "Activate when the count falls to `preset` rather than rising to it.",
 			Doc:     "Only the comparison direction flips; everything else behaves the same. Typically paired with `initial = N` and `preset = 0` for the classic load-N-and-count-to-zero pattern.",
 			Hint:    cfg.HintBool,
+			Default: "false",
 		},
 		"window": {
 			Summary: "Count only events from the last this-long.",

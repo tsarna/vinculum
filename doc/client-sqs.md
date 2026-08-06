@@ -70,7 +70,7 @@ Prefer the default credential chain or a role; supply this from the environment 
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`endpoint`**
 
@@ -156,7 +156,7 @@ SQS caps it at 900, which is fifteen minutes.
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`message_group_id`**
 
@@ -333,7 +333,7 @@ Each polls independently, so this multiplies `max_messages` in flight.
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`max_messages`**
 

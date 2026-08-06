@@ -60,7 +60,7 @@ var (
 
 	timeoutAttr = cfg.AttrMeta{
 		Summary: "Auto-deactivate after this long active.",
-		Doc:     "The clock starts on activation and restarts whenever the input re-asserts while already active. Ignored when `latch = true`.",
+		Doc:     "The clock starts on activation and restarts whenever the input re-asserts while already active. A condition that boots active through `start_active` starts its clock at boot. Ignored when `latch = true`.",
 		Hint:    cfg.HintDuration,
 	}
 
@@ -72,7 +72,7 @@ var (
 
 	latchAttr = cfg.AttrMeta{
 		Summary: "Once active, stay active regardless of input.",
-		Doc:     "`deactivate_after` and `timeout` are ignored while latched. Release with `clear(condition.<name>)` — or `reset()` on a counter, which also resets the count. Clearing does not silence an input that is still asserting: a declared `input` is re-sampled and may re-activate and re-latch immediately, so clearing tells you whether the cause really went away rather than masking it.",
+		Doc:     "`deactivate_after` and `timeout` are ignored while latched. Release with `clear(condition.<name>)` — or `reset()` on a counter, which also resets the count. Clearing does not silence an input that is still asserting: a declared `input` is re-sampled and may re-activate and re-latch immediately, so clearing tells you whether the cause really went away rather than masking it. That re-activation edge skips `debounce`, since the signal has already proven stable, but `activate_after`, `cooldown`, and `inhibit` apply to it as usual.",
 		Hint:    cfg.HintBool,
 	}
 
@@ -90,7 +90,7 @@ var (
 
 	startActiveAttr = cfg.AttrMeta{
 		Summary: "Begin in the active state at startup.",
-		Doc:     "No transition event is emitted, so `on_activate` and `trigger \"watch\"` fire only on the first transition *out of* the boot state. `activate_after`, `cooldown`, and `inhibit` do not apply to it — they govern input-driven activations. With `latch = true` this is the standard fail-safe pattern: the system comes up latched and an operator must clear it before work resumes. `clear()` and `reset()` return to inactive; they never restore this state, or a boot-latched fault could never be cleared.",
+		Doc:     "No transition event is emitted, so `on_activate` and `trigger \"watch\"` fire only on the first transition *out of* the boot state. `activate_after`, `cooldown`, and `inhibit` do not apply to it — they govern input-driven activations, and the boot state is a configured starting point rather than an activation. `invert` does still apply, so `start_active` and `invert` together boot to a `get()` of false. With `latch = true` this is the standard fail-safe pattern: the system comes up latched and an operator must clear it before work resumes. Without a latch the condition merely starts active and behaves normally from the next input onward. `clear()` and `reset()` return to inactive; they never restore this state, or a boot-latched fault could never be cleared.",
 		Hint:    cfg.HintBool,
 	}
 

@@ -121,7 +121,7 @@ The default is go-redis's.
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`master_name`**
 
@@ -245,7 +245,7 @@ A `client "redis"` block.
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`metrics`**
 
@@ -552,7 +552,7 @@ A `client "redis"` block.
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`metrics`**
 
@@ -837,7 +837,7 @@ Keys do not expire when omitted.
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`hash_mode`**
 

@@ -121,7 +121,7 @@ Covers the TCP dial and the AMQP handshake together.
 
 **`disabled`**
 
-The block is parsed and validated, but nothing is created from it.
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
 **`heartbeat`**
 
