@@ -32,7 +32,12 @@ statement: ` + "`call(client.<name>, \"<query>\", args…)`" + `.
 
 Requires a cgo-enabled build; the standard minimal image is built without cgo
 and reports SQLite as unavailable.`,
-	Attrs: cfg.MergeAttrs(sqlengine.CommonSchema.Attrs, map[string]cfg.AttrMeta{
+	Attrs: cfg.MergeAttrs(sqlengine.CommonAttrs, map[string]cfg.AttrMeta{
+		// A SQLite database is a file, not a server, so it pools far smaller
+		// than the client/server dialects do.
+		"max_open_conns": sqlengine.CommonAttrs["max_open_conns"].WithDefault("4"),
+		"max_idle_conns": sqlengine.CommonAttrs["max_idle_conns"].WithDefault("4"),
+
 		"path": {
 			Summary: "Path to the database file.",
 			Doc:     "Use `:memory:` for a database that lives only as long as the process.",

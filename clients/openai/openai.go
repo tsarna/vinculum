@@ -33,8 +33,8 @@ var openaiClientSchema = cfg.TypeSchema{
 	Summary: "A client for an OpenAI-compatible chat completion API.",
 	DocPage: "client-llm.md#client-openai-name",
 	Doc: `Calls a large language model, available in expressions as ` + "`client.<name>`" + `.
-Works with any provider exposing an OpenAI-compatible API, selected with
-` + "`provider`" + ` or by pointing ` + "`base_url`" + ` at it directly.`,
+Works with any provider exposing an OpenAI-compatible API: point ` + "`base_url`" + `
+at it, and name it in ` + "`provider`" + ` so telemetry attributes it correctly.`,
 	Attrs: map[string]cfg.AttrMeta{
 		"api_key": {
 			Summary: "API key to authenticate with.",
@@ -44,22 +44,33 @@ Works with any provider exposing an OpenAI-compatible API, selected with
 			Summary: "Model to send requests to.",
 		},
 		"provider": {
-			Summary: "Named provider preset, which supplies the base URL.",
+			Summary: "Name this provider reports itself as in telemetry.",
+			Doc: "Recorded as `gen_ai.provider.name` on every span and metric, and used " +
+				"for nothing else — it selects no endpoint. Set it alongside `base_url` " +
+				"when talking to an OpenAI-compatible service, so telemetry says `groq` " +
+				"or `mistral_ai` rather than `openai`.",
+			Default: "openai",
 		},
 		"base_url": {
-			Summary: "API base URL, for a provider with no preset.",
+			Summary: "API base URL.",
+			Doc: "Point it at any OpenAI-compatible service. The OpenAI endpoint is used " +
+				"when omitted.",
 			Hint:    cfg.HintURL,
+			Default: "https://api.openai.com/v1",
 		},
 		"max_tokens": {
 			Summary: "Cap on the tokens generated per response.",
+			Doc:     "The provider's own default applies when omitted.",
 		},
 		"temperature": {
 			Summary: "Sampling temperature.",
-			Doc:     "Lower is more deterministic; higher is more varied.",
+			Doc: "Lower is more deterministic; higher is more varied. The provider's own " +
+				"default applies when omitted.",
 		},
 		"timeout": {
 			Summary: "Deadline for a single request.",
 			Hint:    cfg.HintDuration,
+			Default: "120s",
 		},
 		"max_input_length": {
 			Summary: "Reject prompts longer than this many characters.",
@@ -67,9 +78,6 @@ Works with any provider exposing an OpenAI-compatible API, selected with
 		},
 		"tracing": cfg.TracingAttr,
 		"metrics": cfg.MetricsAttr,
-	},
-	Constraints: []cfg.Constraint{
-		cfg.MutuallyExclusive("provider", "base_url"),
 	},
 }
 

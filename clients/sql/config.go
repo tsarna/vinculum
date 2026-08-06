@@ -33,29 +33,38 @@ type CommonDef struct {
 // names its own struct as the Sample and this one in AlsoSamples, mirroring the
 // two-pass decode: the dialect struct captures its own attributes with
 // `,remain`, and DecodeCommonDef decodes the rest.
+// CommonAttrs documents the pool and timeout attributes every dialect shares.
+// Exported because the pool sizes are the dialect's choice rather than the
+// attribute's — SQLite talks to a file and the others to a server — so each
+// dialect layers its own defaults over these with WithDefault.
+var CommonAttrs = map[string]cfg.AttrMeta{
+	"max_open_conns": {
+		Summary: "Maximum simultaneous connections to the database.",
+	},
+	"max_idle_conns": {
+		Summary: "Idle connections kept in the pool.",
+	},
+	"conn_max_lifetime": {
+		Summary: "How long a connection may be reused before it is retired.",
+		Doc:     "Connections are reused indefinitely when omitted.",
+		Hint:    cfg.HintDuration,
+	},
+	"conn_max_idle_time": {
+		Summary: "How long an idle connection is kept before it is closed.",
+		Doc:     "Idle connections are kept indefinitely when omitted.",
+		Hint:    cfg.HintDuration,
+	},
+	"statement_timeout": {
+		Summary: "Deadline applied to every query on this client.",
+		Doc: "A `query` block can override it. When the inbound `ctx` carries a " +
+			"deadline of its own, the more restrictive of the two wins.",
+		Hint: cfg.HintDuration,
+	},
+}
+
 var CommonSchema = cfg.TypeSchema{
 	Sample: &CommonDef{},
-	Attrs: map[string]cfg.AttrMeta{
-		"max_open_conns": {
-			Summary: "Maximum simultaneous connections to the database.",
-		},
-		"max_idle_conns": {
-			Summary: "Idle connections kept in the pool.",
-		},
-		"conn_max_lifetime": {
-			Summary: "How long a connection may be reused before it is retired.",
-			Hint:    cfg.HintDuration,
-		},
-		"conn_max_idle_time": {
-			Summary: "How long an idle connection is kept before it is closed.",
-			Hint:    cfg.HintDuration,
-		},
-		"statement_timeout": {
-			Summary: "Deadline applied to every query on this client.",
-			Doc:     "A `query` block can override it.",
-			Hint:    cfg.HintDuration,
-		},
-	},
+	Attrs:  CommonAttrs,
 	Blocks: map[string]cfg.TypeSchema{
 		"query": {
 			Summary: "A named, callable SQL statement.",
@@ -70,11 +79,12 @@ Parameters are bound positionally, so values are never interpolated into the SQL
 					Summary: "Shape of the result.",
 					Doc:     "`one` returns a single row and errors otherwise; `zero_or_one` allows none; `many` returns a list; `exec` runs a statement that returns no rows.",
 					Enum:    []string{"one", "zero_or_one", "many", "exec"},
+					Default: "many",
 				},
 				"on_zero": {
 					Summary: "What a `zero_or_one` query does when nothing matches.",
-					Doc:     "Defaults to `null`.",
 					Enum:    []string{"null", "error"},
+					Default: "null",
 				},
 				"statement_timeout": {
 					Summary: "Deadline for this query.",

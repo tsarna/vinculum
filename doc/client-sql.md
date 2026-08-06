@@ -60,6 +60,57 @@ client "sqlite" "state" {
 }
 ```
 
+<!-- vinculum:begin block-attrs client sqlite level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `conn_max_idle_time` | string (duration) |  |  | How long an idle connection is kept before it is closed. |
+| `conn_max_lifetime` | string (duration) |  |  | How long a connection may be reused before it is retired. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `max_idle_conns` | number |  | `4` | Idle connections kept in the pool. |
+| `max_open_conns` | number |  | `4` | Maximum simultaneous connections to the database. |
+| `mode` | string |  |  | How to open the database. |
+| `path` | string |  |  | Path to the database file. |
+| `pragmas` | expression |  |  | PRAGMA statements applied to each new connection. |
+| `shared_cache` | bool |  |  | Share one page cache across connections. |
+| `statement_timeout` | string (duration) |  |  | Deadline applied to every query on this client. |
+
+**`conn_max_idle_time`**
+
+Idle connections are kept indefinitely when omitted.
+
+**`conn_max_lifetime`**
+
+Connections are reused indefinitely when omitted.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`mode`**
+
+`rw` requires it to exist, `rwc` creates it if missing, `ro` opens it read-only.
+
+One of: `rw`, `ro`, `rwc`.
+
+**`path`**
+
+Use `:memory:` for a database that lives only as long as the process.
+
+**`pragmas`**
+
+A map of pragma name to value, for example `{ journal_mode = "WAL" }`.
+
+**`statement_timeout`**
+
+A `query` block can override it. When the inbound `ctx` carries a deadline of its own, the more restrictive of the two wins.
+
+### Blocks
+
+- `query "<name>"` (0..n) — A named, callable SQL statement.
+
+<!-- vinculum:end block-attrs client sqlite -->
+
 [^cgo]: SQLite is compiled in only on cgo-enabled builds (the published
     `vinculum` full image and `vinculum-build` image). On a minimal
     (`CGO_ENABLED=0`) build, using `client "sqlite"` fails at config load with
@@ -130,6 +181,80 @@ new_id = result.row.id
 A `RETURNING` clause makes the statement produce rows, so a named query using it
 should declare `cardinality = "one"` (or `"many"`) rather than `"exec"`.
 
+<!-- vinculum:begin block-attrs client postgres level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `conn_max_idle_time` | string (duration) |  |  | How long an idle connection is kept before it is closed. |
+| `conn_max_lifetime` | string (duration) |  |  | How long a connection may be reused before it is retired. |
+| `database` | string |  |  | Database to connect to. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `dsn` | string |  |  | Full data source name, instead of the individual settings. |
+| `host` | string |  |  | Server hostname. |
+| `max_idle_conns` | number |  | `5` | Idle connections kept in the pool. |
+| `max_open_conns` | number |  | `25` | Maximum simultaneous connections to the database. |
+| `password` | string |  |  | Password to connect with. |
+| `port` | number |  |  | Server port. |
+| `search_path` | string |  |  | Schema search path for the session. |
+| `sslmode` | string |  |  | How strictly to verify the server's TLS certificate. |
+| `statement_timeout` | string (duration) |  |  | Deadline applied to every query on this client. |
+| `user` | string |  |  | User to connect as. |
+
+- Specify at most one of dsn or host.
+
+**`conn_max_idle_time`**
+
+Idle connections are kept indefinitely when omitted.
+
+**`conn_max_lifetime`**
+
+Connections are reused indefinitely when omitted.
+
+**`database`**
+
+Required unless `dsn` is set.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`dsn`**
+
+When set, the host/port/user/password/database attributes are ignored.
+
+**`host`**
+
+Defaults to `localhost`.
+
+**`password`**
+
+Supply it from the environment rather than a literal.
+
+**`port`**
+
+Defaults to `5432`.
+
+**`sslmode`**
+
+`verify-full` also checks the hostname; `require` encrypts without verifying anything.
+
+One of: `disable`, `require`, `verify-ca`, `verify-full`.
+
+**`statement_timeout`**
+
+A `query` block can override it. When the inbound `ctx` carries a deadline of its own, the more restrictive of the two wins.
+
+**`user`**
+
+Required unless `dsn` is set.
+
+### Blocks
+
+- `query "<name>"` (0..n) — A named, callable SQL statement.
+- `tls` (optional) — TLS settings for this connection.
+
+<!-- vinculum:end block-attrs client postgres -->
+
 ---
 
 ## `client "mysql" "<name>"`
@@ -189,20 +314,113 @@ new_id = result.last_insert_id
 The `tls` block requires `enabled = true`; an absent or disabled block leaves the
 connection unencrypted.
 
+<!-- vinculum:begin block-attrs client mysql level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `conn_max_idle_time` | string (duration) |  |  | How long an idle connection is kept before it is closed. |
+| `conn_max_lifetime` | string (duration) |  |  | How long a connection may be reused before it is retired. |
+| `database` | string |  |  | Database to connect to. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `dsn` | string |  |  | Full data source name, instead of the individual settings. |
+| `host` | string |  |  | Server hostname. |
+| `max_idle_conns` | number |  | `5` | Idle connections kept in the pool. |
+| `max_open_conns` | number |  | `25` | Maximum simultaneous connections to the database. |
+| `password` | string |  |  | Password to connect with. |
+| `port` | number |  |  | Server port. |
+| `statement_timeout` | string (duration) |  |  | Deadline applied to every query on this client. |
+| `user` | string |  |  | User to connect as. |
+
+- Specify at most one of dsn or host.
+
+**`conn_max_idle_time`**
+
+Idle connections are kept indefinitely when omitted.
+
+**`conn_max_lifetime`**
+
+Connections are reused indefinitely when omitted.
+
+**`database`**
+
+Required unless `dsn` is set.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`dsn`**
+
+When set, the host/port/user/password/database attributes are ignored.
+
+**`host`**
+
+Defaults to `localhost`.
+
+**`password`**
+
+Supply it from the environment rather than a literal.
+
+**`port`**
+
+Defaults to `3306`.
+
+**`statement_timeout`**
+
+A `query` block can override it. When the inbound `ctx` carries a deadline of its own, the more restrictive of the two wins.
+
+**`user`**
+
+Required unless `dsn` is set.
+
+### Blocks
+
+- `query "<name>"` (0..n) — A named, callable SQL statement.
+- `tls` (optional) — TLS settings for this connection.
+
+<!-- vinculum:end block-attrs client mysql -->
+
 ---
 
 ## Named Query Sub-blocks
 
 A `query "name" { ... }` sub-block declares a reusable statement, exposed as
-`client.<name>.<query_name>` and callable through `get()` and `call()`.
+`client.<name>.<query_name>` and callable through `get()` and `call()`. Every
+dialect takes the same block; this is `client "postgres"`'s copy of it.
 
-| Attribute           | Required | Type     | Description                                                        |
-|---------------------|----------|----------|--------------------------------------------------------------------|
-| `sql`               | yes      | string   | The statement, with `?` or `:name` placeholders.                   |
-| `cardinality`       | no       | enum     | `"one"`, `"zero_or_one"`, `"many"` (default), `"exec"`.            |
-| `on_zero`           | no       | enum     | For `"zero_or_one"`: `"null"` (default) or `"error"`.              |
-| `statement_timeout` | no       | duration | Overrides the client's `statement_timeout` for this query.         |
-| `disabled`          | no       | bool     | If true, the query is not registered.                              |
+<!-- vinculum:begin block-attrs client postgres query level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `sql` | string | yes |  | The SQL statement to run. |
+| `cardinality` | string |  | `many` | Shape of the result. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `on_zero` | string |  | `null` | What a `zero_or_one` query does when nothing matches. |
+| `statement_timeout` | string (duration) |  |  | Deadline for this query. |
+
+**`sql`**
+
+Use the dialect's placeholder syntax for parameters rather than interpolating values.
+
+**`cardinality`**
+
+`one` returns a single row and errors otherwise; `zero_or_one` allows none; `many` returns a list; `exec` runs a statement that returns no rows.
+
+One of: `one`, `zero_or_one`, `many`, `exec`.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`on_zero`**
+
+One of: `null`, `error`.
+
+**`statement_timeout`**
+
+Overrides the client's `statement_timeout`.
+
+<!-- vinculum:end block-attrs client postgres query -->
 
 ### Cardinality
 

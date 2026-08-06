@@ -58,6 +58,67 @@ client "openai" "name" {
 The client is available in expressions as `client.<name>` and can be passed to
 `call()`.
 
+### Attributes
+
+`max_input_length` counts user and assistant message content only — system
+messages are developer-controlled and are not counted. When it is exceeded,
+`call()` returns `stop_reason = "error"` with `error.code = "input_too_long"`
+without making an API call.
+
+<!-- vinculum:begin block-attrs client openai level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `api_key` | string | yes |  | API key to authenticate with. |
+| `model` | string | yes |  | Model to send requests to. |
+| `base_url` | expression (url) |  | `https://api.openai.com/v1` | API base URL. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `max_input_length` | number |  |  | Reject prompts longer than this many characters. |
+| `max_tokens` | number |  |  | Cap on the tokens generated per response. |
+| `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
+| `provider` | string |  | `openai` | Name this provider reports itself as in telemetry. |
+| `temperature` | number |  |  | Sampling temperature. |
+| `timeout` | expression (duration) |  | `120s` | Deadline for a single request. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
+
+**`api_key`**
+
+Supply it from the environment rather than a literal.
+
+**`base_url`**
+
+Point it at any OpenAI-compatible service. The OpenAI endpoint is used when omitted.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it.
+
+**`max_input_length`**
+
+A guard against sending an unbounded amount of text — and paying for it.
+
+**`max_tokens`**
+
+The provider's own default applies when omitted.
+
+**`metrics`**
+
+A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
+
+**`provider`**
+
+Recorded as `gen_ai.provider.name` on every span and metric, and used for nothing else — it selects no endpoint. Set it alongside `base_url` when talking to an OpenAI-compatible service, so telemetry says `groq` or `mistral_ai` rather than `openai`.
+
+**`temperature`**
+
+Lower is more deterministic; higher is more varied. The provider's own default applies when omitted.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+<!-- vinculum:end block-attrs client openai -->
+
 ### Common OpenAI-compatible providers
 
 | Provider | `base_url` | Notes |

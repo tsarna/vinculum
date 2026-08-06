@@ -47,7 +47,10 @@ var mysqlSchema = cfg.TypeSchema{
 	DocPage:     "client-sql.md#client-mysql-name",
 	Doc: `Connects to MySQL and exposes each ` + "`query`" + ` block as a callable statement:
 ` + "`call(client.<name>, \"<query>\", args…)`" + `.`,
-	Attrs: cfg.MergeAttrs(sqlengine.CommonSchema.Attrs, map[string]cfg.AttrMeta{
+	Attrs: cfg.MergeAttrs(sqlengine.CommonAttrs, map[string]cfg.AttrMeta{
+		"max_open_conns": sqlengine.CommonAttrs["max_open_conns"].WithDefault("25"),
+		"max_idle_conns": sqlengine.CommonAttrs["max_idle_conns"].WithDefault("5"),
+
 		"dsn": {
 			Summary: "Full data source name, instead of the individual settings.",
 			Doc:     "When set, the host/port/user/password/database attributes are ignored.",

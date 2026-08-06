@@ -54,7 +54,9 @@ backend of its kind.`,
 		},
 		"sampling_ratio": {
 			Summary: "Fraction of traces to sample, from 0 to 1.",
-			Doc:     "Defaults to sampling everything.",
+			Doc: "Head-based, and applied when a root span starts — a span with a sampled " +
+				"parent is kept regardless.",
+			Default: "1.0",
 		},
 		"default": {
 			Summary: "Make this the default tracing backend.",
@@ -68,20 +70,24 @@ backend of its kind.`,
 		"record_baggage": {
 			Summary: "Baggage keys to copy onto each span as attributes.",
 			Doc:     "Nothing is copied when omitted, since baggage can carry data that should not reach a trace backend.",
+			Default: "[]",
 		},
 		"metric_endpoint": {
 			Summary: "Separate endpoint for metrics.",
-			Doc:     "Defaults to `endpoint`. Setting either this or `metric_interval` enables metric export.",
-			Hint:    cfg.HintURL,
+			Doc: "`endpoint` is used when omitted. Setting either this or `metric_interval` " +
+				"is what enables metric export at all.",
+			Hint: cfg.HintURL,
 		},
 		"metric_interval": {
 			Summary: "How often metrics are pushed to the collector.",
 			Hint:    cfg.HintDuration,
+			Default: "60s",
 		},
 		"include_go_metrics": {
 			Summary: "Export Go runtime metrics.",
-			Doc:     "Defaults to true; set false to omit goroutine, memory, and GC metrics.",
+			Doc:     "Set false to omit goroutine, memory, and GC metrics.",
 			Hint:    cfg.HintBool,
+			Default: "true",
 		},
 		"default_metrics": {
 			Summary: "Make this the default metrics backend.",
