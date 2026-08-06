@@ -281,3 +281,47 @@ metric "gauge" "foo_bar" {
 	}
 	assert.True(t, found, "error should mention VCL key collision")
 }
+
+// The metric schema advertises two cross-attribute rules, and `vinculum schema`
+// only earns the right to state a Constraint when the parser enforces it.
+// computed_interval-without-value was advertised and unenforced: the metric
+// looked configured to poll itself and never did.
+
+// metricBodyDiags builds a config with one gauge carrying the given body and
+// returns the error text, or "" when it is accepted.
+func metricBodyDiags(t *testing.T, body string) string {
+	t.Helper()
+	vcl := []byte(`
+server "metrics" "main" {
+    listen = "127.0.0.1:19093"
+}
+
+metric "gauge" "g" {
+    help = "h"
+` + body + `
+}
+`)
+	_, diags := cfg.NewConfig().WithSources(vcl).WithLogger(zap.NewNop()).Build()
+	if !diags.HasErrors() {
+		return ""
+	}
+	return diags.Error()
+}
+
+func TestMetricComputedIntervalRequiresValue(t *testing.T) {
+	assert.Contains(t, metricBodyDiags(t, `    computed_interval = "30s"`),
+		"computed_interval without value")
+
+	// With a value it is legal, which is what makes this a rule about the pair
+	// rather than about the attribute.
+	assert.Empty(t, metricBodyDiags(t, "    computed_interval = \"30s\"\n    value = 1"))
+}
+
+func TestMetricLabelNamesAndValueAreExclusive(t *testing.T) {
+	assert.Contains(t, metricBodyDiags(t, "    label_names = [\"q\"]\n    value = 1"),
+		"cannot have label_names")
+
+	// Either alone is fine.
+	assert.Empty(t, metricBodyDiags(t, `    label_names = ["q"]`))
+	assert.Empty(t, metricBodyDiags(t, `    value = 1`))
+}

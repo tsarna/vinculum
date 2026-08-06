@@ -9,11 +9,16 @@ accessible in VCL expressions as `metric.<name>`.
 
 ## Supported Types
 
-| Type | Description | VCL operations |
-|------|-------------|----------------|
-| `gauge` | Freely increasing/decreasing value | `set`, `get`, `increment` |
-| `counter` | Monotonically increasing value | `increment`, `get`, `set` (delta) |
-| `histogram` | Sample observations into configurable buckets | `observe` |
+<!-- vinculum:begin block-index metric level=3 -->
+
+- [`metric "counter"`](metric.md#counter) — A monotonically increasing value.
+- [`metric "gauge"`](metric.md#gauge) — A value that can go up and down.
+- [`metric "histogram"`](metric.md#histogram) — Sample observations bucketed by value.
+
+<!-- vinculum:end block-index metric -->
+
+Which recording functions each type accepts is in
+[Function Reference for Metrics](#function-reference-for-metrics) below.
 
 ---
 
@@ -52,16 +57,61 @@ metric "histogram" "job_duration_seconds" {
 
 ## Common Attributes
 
-| Attribute | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `help` | string | **yes** | Human-readable description shown in `/metrics` output |
-| `label_names` | list(string) | no | Names of dynamic labels; if omitted, the metric has no labels |
-| `namespace` | string | no | Prefix prepended as `<namespace>.<name>` in OTel (underscored in Prometheus) |
-| `buckets` | list(number) | no | Histogram bucket boundaries (histograms only) |
-| `server` | expression | no | Reference to a `server "metrics"` or `client "otlp"` block |
-| `value` | expression | no | Expression evaluated on a polling interval (see [Computed Metrics](#computed-metrics)) |
-| `computed_interval` | string | no | Polling interval for computed metrics (default `"15s"`) |
-| `tracing` | expression | no | Tracing backend for the poll span; only meaningful with `value` |
+All three types decode the same body, so this one table covers them. The only
+attribute that is not universal is `buckets`, which nothing but a `histogram`
+buckets with — a gauge or counter accepts it and ignores it.
+
+<!-- vinculum:begin block-attrs metric histogram level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `help` | string | yes |  | Human-readable description of the metric. |
+| `buckets` | list |  |  | Histogram bucket boundaries. |
+| `computed_interval` | string (duration) |  | `15s` | How often to evaluate `value`. |
+| `label_names` | list |  |  | Names of the metric's dynamic labels. |
+| `namespace` | string |  |  | Prefix for the metric name. |
+| `server` | expression (metrics-ref) |  |  | Metrics backend to register with. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
+| `value` | expression (action-expression) |  |  | Expression polled to produce the metric's value. |
+
+- computed_interval requires value.
+- A computed metric always operates on the no-label series; labeled computed metrics are not supported.
+
+**`help`**
+
+Shown in `/metrics` output.
+
+**`buckets`**
+
+Histograms only; ignored by gauges and counters. Defaults to the Prometheus default bucket set.
+
+**`computed_interval`**
+
+Only meaningful together with `value`. A poll that overruns the interval yields fewer samples rather than piling up.
+
+**`label_names`**
+
+The metric has no labels when omitted. Label values are supplied at each `set()`/`increment()`/`observe()` call.
+
+**`namespace`**
+
+Emitted as `<namespace>.<name>` in OTel, underscored in Prometheus.
+
+**`server`**
+
+A `server "metrics"` or `client "otlp"` block. Uses the default backend when omitted.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted. Each poll of `value` runs in a `metric.poll` span, so whatever the expression does is traced beneath it. Only meaningful together with `value`.
+
+**`value`**
+
+Makes this a computed metric: the expression is evaluated every `computed_interval` instead of the metric being updated imperatively. Each poll is a runtime evaluation with its own `ctx`, so it can call `http::get()`, `sql::query()`, and anything else that takes one.
+
+Evaluated against the `metric-value` context.
+
+<!-- vinculum:end block-attrs metric histogram -->
 
 If `server` is omitted, the default metrics backend is used automatically. See
 [server-metrics.md#default](server-metrics.md#the-default-metrics-backend)
@@ -164,10 +214,10 @@ is metric-only.
 
 ## Computed Metrics
 
-Adding `value = <expression>` to a metric block makes it **computed**: the expression
-is evaluated automatically on a polling interval (default 15s, configurable via
-`computed_interval`). This means the value is available to both Prometheus scraping
-and OTLP push.
+Adding `value = <expression>` to a metric block makes it **computed**: the
+expression is polled on an interval rather than the metric being updated
+imperatively, so the value is available to both Prometheus scraping and OTLP
+push without anything having to write it.
 
 ```hcl
 metric "gauge" "queue_depth" {
@@ -200,19 +250,49 @@ metric "gauge" "upstream_queue_depth" {
 }
 ```
 
-| Variable | Description |
-|---|---|
-| `ctx.metric` | Name of the metric being polled |
-| `ctx.baggage` | OpenTelemetry baggage — see [baggage](baggage.md) |
-| `ctx.trace_id` / `ctx.span_id` | The poll's own span (see below) |
-| `ctx.auth` | Always null: a poll is a timer event with no caller |
+<!-- vinculum:begin context metric-value level=3 -->
 
-Each poll runs in a `metric.poll <name>` span, so an HTTP call or query inside
-the expression is traced beneath it rather than emitting an orphan. Set
-`tracing = client.<name>` to choose the backend; the default is used otherwise.
+Evaluated on each poll of a computed metric.
 
-A slow expression delays only its own metric — each computed metric polls on its
-own goroutine, and a poll that overruns its interval simply yields fewer samples.
+The poll is an autonomous timer event, so there is no caller: `ctx.auth` is
+null and the trace is one the poll starts itself, rooted at a `metric.poll` span
+that whatever the expression does hangs off.
+
+Fields readable as `ctx.<name>` (shape `metric-value`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.metric` | string | Name of the metric being polled. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+#### Evaluated by
+
+- `metric "counter"` › `value`
+- `metric "gauge"` › `value`
+- `metric "histogram"` › `value`
+
+<!-- vinculum:end context metric-value -->
+
+The span is named `metric.poll <name>`, so an HTTP call or query inside the
+expression is traced beneath it rather than emitting an orphan.
+
+A slow expression delays only its own metric: each computed metric polls on its
+own goroutine.
 
 > **Changed in 0.45.0.** `value` used to be evaluated against the global
 > namespace with no `ctx` at all, so no context-taking function could be called
@@ -228,14 +308,18 @@ own goroutine, and a poll that overruns its interval simply yields fewer samples
 | `counter` | Current total value | Only positive deltas are forwarded; Prometheus detects resets automatically |
 | `histogram` | A single observation value | One observation is recorded per poll |
 
-### Constraints
+### What you can still call on one
 
-- `label_names` and `value` cannot be combined — computed metrics always operate on the no-label series.
-- Calling `set()` or `increment()` on a computed metric is a runtime error.
-- `get()` on a computed gauge or counter returns the value from the most recent poll (0 before the first poll).
-- `observe()` on a computed histogram still works — it records an additional manual observation.
-- `computed_interval` controls the polling frequency (default `"15s"`). The value
-  seen at Prometheus scrape time is the most recently polled value.
+A computed metric owns its value, so the imperative recording functions mostly
+step aside:
+
+- `set()` and `increment()` are a runtime error — the poll would overwrite them.
+- `get()` on a computed gauge or counter returns the most recent polled value, or
+  `0` before the first poll.
+- `observe()` on a computed histogram still works, recording an extra manual
+  observation alongside the polled ones.
+
+A Prometheus scrape sees the most recently polled value, not a fresh evaluation.
 
 ### Counter resets
 

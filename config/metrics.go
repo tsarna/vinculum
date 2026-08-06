@@ -233,19 +233,33 @@ func NewMetricBlockHandler() *MetricBlockHandler {
 // — Preprocess accepts a fixed set — so the variants are declared here.
 func (h *MetricBlockHandler) Schema() TypeSchema { return metricSchema }
 
-// metricVariant builds the schema of one metric type. All three decode the
-// same struct, so they differ only in prose.
-func metricVariant(summary, doc, docPage string) TypeSchema {
+// metricVariant builds the schema of one metric type. All three decode the same
+// struct, so gohcl accepts every attribute on every type; where one is
+// meaningless for a type, that type overrides its documentation to say so
+// rather than describing a setting it ignores.
+func metricVariant(summary, doc, docPage string, overrides map[string]AttrMeta) TypeSchema {
 	return TypeSchema{
 		Sample:  &MetricDefinition{},
 		Summary: summary,
 		Doc:     doc,
 		DocPage: docPage,
-		Attrs:   metricAttrs,
+		Attrs:   MergeAttrs(metricAttrs, overrides),
 		Constraints: []Constraint{
 			Requires("computed_interval", "value"),
+			MutuallyExclusive("label_names", "value").
+				WithMessage("A computed metric always operates on the no-label series; labeled computed metrics are not supported."),
 		},
 	}
+}
+
+// bucketsUnused is the `buckets` documentation for the two types that do not
+// bucket anything. The attribute is still accepted, because all three types
+// decode one struct.
+var bucketsUnused = map[string]AttrMeta{
+	"buckets": {
+		Summary: "Not used by this metric type.",
+		Doc:     "Bucket boundaries only mean something to a `histogram`. Setting them here is accepted and ignored.",
+	},
 }
 
 var metricAttrs = map[string]AttrMeta{
@@ -278,8 +292,9 @@ var metricAttrs = map[string]AttrMeta{
 	},
 	"computed_interval": {
 		Summary: "How often to evaluate `value`.",
-		Doc:     "Defaults to `\"15s\"`. Only meaningful together with `value`.",
+		Doc:     "Only meaningful together with `value`. A poll that overruns the interval yields fewer samples rather than piling up.",
 		Hint:    HintDuration,
+		Default: "15s",
 	},
 	"tracing": {
 		Summary: TracingAttr.Summary,
@@ -297,15 +312,15 @@ reported through a ` + "`server \"metrics\"`" + ` (Prometheus pull) or ` + "`cli
 		"gauge": metricVariant(
 			"A value that can go up and down.",
 			"Supports `set()`, `get()`, and `increment()`.",
-			"metric.md#gauge"),
+			"metric.md#gauge", bucketsUnused),
 		"counter": metricVariant(
 			"A monotonically increasing value.",
 			"Supports `increment()`, `get()`, and `set()` (as a delta). Names conventionally end in `_total`.",
-			"metric.md#counter"),
+			"metric.md#counter", bucketsUnused),
 		"histogram": metricVariant(
 			"Sample observations bucketed by value.",
 			"Supports `observe()`. Bucket boundaries are set with `buckets`.",
-			"metric.md#histogram"),
+			"metric.md#histogram", nil),
 	},
 }
 
@@ -521,6 +536,17 @@ func (h *MetricBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	attrKeys := types.LabelNamesToAttrKeys(def.LabelNames)
 
 	isComputed := def.Value != nil && IsExpressionProvided(def.Value)
+
+	// An interval with nothing to poll is a mistake worth naming: the metric
+	// looks configured to update itself and never does.
+	if !isComputed && def.ComputedInterval != nil {
+		return hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "computed_interval without value",
+			Detail:   "computed_interval sets how often value is polled, so it does nothing on a metric that has no value expression. Add value = ... or remove computed_interval.",
+			Subject:  def.DefRange.Ptr(),
+		}}
+	}
 
 	if isComputed && len(attrKeys) > 0 {
 		return hcl.Diagnostics{{
