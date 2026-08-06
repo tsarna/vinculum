@@ -129,9 +129,13 @@ type ContextTable struct {
 
 // ContextRow is one field readable as ctx.<name>.
 type ContextRow struct {
-	Name     string
-	Type     string
+	Name string
+	Type string
+	// Summary is the one-line description shown in the table; Doc is the
+	// detail that follows it, rendered per field below the table the way an
+	// attribute's detail follows the attribute table.
 	Summary  string
+	Doc      string
 	Optional bool
 	// Universal is true for a field every `ctx` carries.
 	Universal bool

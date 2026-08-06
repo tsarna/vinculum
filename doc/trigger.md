@@ -84,6 +84,18 @@ Fields readable as `ctx.<name>` (shape `trigger-after`):
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
 
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
 <!-- vinculum:end block-ctx trigger after action -->
 
 **Creates** `trigger.<name>` as a capsule; read the result with
@@ -232,6 +244,18 @@ Fields readable as `ctx.<name>` (shape `trigger-at`):
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
 
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
 <!-- vinculum:end block-ctx trigger at action -->
 
 The same context is available when evaluating the `time` expression, so the
@@ -365,6 +389,18 @@ Fields readable as `ctx.<name>` (shape `trigger-cron`):
 | `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
 
 <!-- vinculum:end block-ctx trigger cron at action -->
 
@@ -549,6 +585,22 @@ Fields readable as `ctx.<name>` (shape `trigger-file`):
 | `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.event_path`**
+
+For a `"rename"` event this is the **old** path. Not every OS backend reports the destination, so pair rename with the subsequent `"create"` when you need it.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
 
 <!-- vinculum:end block-ctx trigger file action -->
 
@@ -750,6 +802,18 @@ Fields readable as `ctx.<name>` (shape `trigger-interval`):
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
 
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
 <!-- vinculum:end block-ctx trigger interval action -->
 
 `ctx` is available in `delay`, `error_delay`, and `action` (evaluated with the
@@ -892,6 +956,18 @@ Fields readable as `ctx.<name>` (shape `trigger-once`):
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
 
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
 <!-- vinculum:end block-ctx trigger once action -->
 
 **Creates** `trigger.<name>` as a lazy capsule; read it with `get(trigger.<name>)`.
@@ -971,6 +1047,18 @@ Fields readable as `ctx.<name>` (shape `trigger-shutdown`):
 | `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
 
 <!-- vinculum:end block-ctx trigger shutdown action -->
 
@@ -1065,6 +1153,22 @@ Fields readable as `ctx.<name>` (shape `trigger-signals`):
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
 
+**`ctx.signal_num`**
+
+Numbers vary by platform; `sys.signals.SIGHUP` is the portable way to name one.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
 <!-- vinculum:end block-ctx trigger signals SIGHUP -->
 
 Unlike the other trigger types there is no `ctx.trigger` or `ctx.name`: a
@@ -1138,6 +1242,18 @@ Fields readable as `ctx.<name>` (shape `trigger-start`):
 | `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
 
 <!-- vinculum:end block-ctx trigger start action -->
 
@@ -1243,6 +1359,18 @@ Fields readable as `ctx.<name>` (shape `trigger-watch`):
 | `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
 
 <!-- vinculum:end block-ctx trigger watch action -->
 
@@ -1420,6 +1548,22 @@ Fields readable as `ctx.<name>` (shape `trigger-watchdog`):
 | `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.miss_count`**
+
+Reset to 0 by `set(trigger.<name>)`.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
 
 <!-- vinculum:end block-ctx trigger watchdog action -->
 

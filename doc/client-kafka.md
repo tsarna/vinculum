@@ -305,6 +305,26 @@ Fields readable as `ctx.<name>` (shape `message`):
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
 
+**`ctx.msg`**
+
+Already decoded by the client's `wire_format`, so its type follows the data rather than the transport.
+
+**`ctx.fields`**
+
+Always present; an empty object when the message carries no metadata.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
 <!-- vinculum:end block-ctx client kafka sender topic key -->
 
 Named segments captured from the topic pattern arrive in `ctx.fields` —
@@ -454,6 +474,26 @@ Fields readable as `ctx.<name>` (shape `message`):
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
 
+**`ctx.msg`**
+
+Already decoded by the client's `wire_format`, so its type follows the data rather than the transport.
+
+**`ctx.fields`**
+
+Always present; an empty object when the message carries no metadata.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
 <!-- vinculum:end block-ctx client kafka receiver action -->
 
 `ctx.fields` is populated from the record's Kafka headers.
@@ -515,6 +555,30 @@ Fields readable as `ctx.<name>` (shape `kafka-record`):
 | `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.key`**
+
+Null when the record was produced without one.
+
+**`ctx.msg`**
+
+Already decoded by the client's `wire_format`.
+
+**`ctx.fields`**
+
+Populated from the record's Kafka headers.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
 
 <!-- vinculum:end block-ctx client kafka receiver subscription vinculum_topic -->
 
@@ -579,6 +643,26 @@ Fields readable as `ctx.<name>` (shape `decode-error`):
 | `ctx.key` | string | The record's key. *(added here)* *(not always present)* |
 
 *This shape is open: a particular site may carry fields beyond these.*
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+**`ctx.kafka_topic`**
+
+Equal to `ctx.topic` here: a vinculum topic derived from the payload cannot be computed once the payload has failed to decode, so `ctx.topic` falls back to this.
+
+**`ctx.key`**
+
+Absent when the record was produced without one.
 
 <!-- vinculum:end block-ctx client kafka receiver on_decode_error -->
 

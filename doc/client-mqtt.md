@@ -359,6 +359,26 @@ Fields readable as `ctx.<name>` (shape `message`):
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
 
+**`ctx.msg`**
+
+Already decoded by the client's `wire_format`, so its type follows the data rather than the transport.
+
+**`ctx.fields`**
+
+Always present; an empty object when the message carries no metadata.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
 <!-- vinculum:end block-ctx client mqtt sender topic mqtt_topic -->
 
 Named segments captured from the pattern arrive in `ctx.fields` — `+deviceId`
@@ -510,6 +530,26 @@ Fields readable as `ctx.<name>` (shape `message`):
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
 
+**`ctx.msg`**
+
+Already decoded by the client's `wire_format`, so its type follows the data rather than the transport.
+
+**`ctx.fields`**
+
+Always present; an empty object when the message carries no metadata.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
 <!-- vinculum:end block-ctx client mqtt receiver action -->
 
 `ctx.fields` carries the MQTT 5 user properties and the segments extracted from
@@ -580,6 +620,26 @@ Fields readable as `ctx.<name>` (shape `message`):
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
 
+**`ctx.msg`**
+
+Already decoded by the client's `wire_format`, so its type follows the data rather than the transport.
+
+**`ctx.fields`**
+
+Always present; an empty object when the message carries no metadata.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
 <!-- vinculum:end block-ctx client mqtt receiver subscription vinculum_topic -->
 
 Here `ctx.topic` is the incoming MQTT topic, and `ctx.fields` carries the MQTT 5
@@ -643,6 +703,22 @@ Fields readable as `ctx.<name>` (shape `decode-error`):
 | `ctx.mqtt_topic` | string | The MQTT topic the message arrived on. *(added here)* |
 
 *This shape is open: a particular site may carry fields beyond these.*
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+**`ctx.mqtt_topic`**
+
+Equal to `ctx.topic` here: a vinculum topic derived from the payload cannot be computed once the payload has failed to decode, so `ctx.topic` falls back to this.
 
 <!-- vinculum:end block-ctx client mqtt receiver on_decode_error -->
 

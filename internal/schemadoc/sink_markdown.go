@@ -232,6 +232,17 @@ func (m *markdownSink) contextTable(t ContextTable) {
 		m.para()
 		m.line("*This shape is open: a particular site may carry fields beyond these.*")
 	}
+	// Detail for the fields that carry any, below the table — the same shape
+	// as an attribute table followed by its per-attribute detail.
+	for _, r := range t.Rows {
+		if r.Doc == "" {
+			continue
+		}
+		m.para()
+		m.line("**`ctx." + r.Name + "`**")
+		m.para()
+		m.line(strings.TrimRight(r.Doc, "\n"))
+	}
 }
 
 func (m *markdownSink) seeAlso(s SeeAlso) {

@@ -203,6 +203,26 @@ Fields readable as `ctx.<name>` (shape `message`):
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
 
+**`ctx.msg`**
+
+Already decoded by the client's `wire_format`, so its type follows the data rather than the transport.
+
+**`ctx.fields`**
+
+Always present; an empty object when the message carries no metadata.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
 <!-- vinculum:end block-ctx client sqs_sender message_group_id -->
 
 ### Message format
@@ -409,6 +429,26 @@ Fields readable as `ctx.<name>` (shape `message`):
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
 
+**`ctx.msg`**
+
+Already decoded by the client's `wire_format`, so its type follows the data rather than the transport.
+
+**`ctx.fields`**
+
+Always present; an empty object when the message carries no metadata.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
 <!-- vinculum:end block-ctx client sqs_receiver action -->
 
 **`vinculum_topic` expression context:**
@@ -426,6 +466,26 @@ Fields readable as `ctx.<name>` (shape `sqs-message`):
 | `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.msg`**
+
+Absent when the message has no body, or when the body cannot be converted — the topic is chosen before the body is decoded, so this is the raw body rather than a `wire_format` result.
+
+**`ctx.fields`**
+
+Populated from the message's SQS attributes.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
 
 <!-- vinculum:end block-ctx client sqs_receiver vinculum_topic -->
 
@@ -482,6 +542,22 @@ Fields readable as `ctx.<name>` (shape `decode-error`):
 | `ctx.message_id` | string | SQS message ID. *(added here)* *(not always present)* |
 
 *This shape is open: a particular site may carry fields beyond these.*
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+**`ctx.message_id`**
+
+Absent in the unusual case that SQS returned a message without one.
 
 <!-- vinculum:end block-ctx client sqs_receiver on_decode_error -->
 

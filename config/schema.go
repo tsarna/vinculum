@@ -287,7 +287,7 @@ var universalContextFields = []ContextField{
 		Name:    "baggage",
 		Type:    CtxTypeCapsule,
 		Summary: "OpenTelemetry baggage riding with this context.",
-		Doc:     "Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See doc/baggage.md.",
+		Doc:     "Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).",
 	},
 	{
 		Name:    "trace_id",

@@ -410,6 +410,16 @@ func (t *termSink) contextTable(v ContextTable) {
 		t.emit(renderProse("*This shape is open: a particular site may carry fields beyond these.*",
 			t.width, t.indent, t.st)...)
 	}
+	// Detail for the fields that carry any, below the table — the same shape
+	// as an attribute table followed by its per-attribute detail.
+	for _, r := range v.Rows {
+		if r.Doc == "" {
+			continue
+		}
+		t.gap()
+		t.line(t.pad() + t.st.apply(spanCode, "ctx."+r.Name))
+		t.emit(renderProse(r.Doc, t.width, t.indent+indentStep, t.st)...)
+	}
 }
 
 func (t *termSink) seeAlso(s SeeAlso) {

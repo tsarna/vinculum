@@ -178,6 +178,26 @@ Fields readable as `ctx.<name>` (shape `condition-hook`):
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
 
+**`ctx.new_value`**
+
+For `on_init`, the condition's current output at startup, whatever it is.
+
+**`ctx.old_value`**
+
+Absent in `on_init`, which reports a starting state rather than a transition.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
 #### Evaluated by
 
 - `condition "counter"` › `on_init`

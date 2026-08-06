@@ -52,6 +52,23 @@ func TestMarkdownCombinesContextFieldAnnotations(t *testing.T) {
 	assert.Contains(t, out, "The identity. *(every `ctx` carries this)* |")
 }
 
+// A context field's Doc is the only place several shapes say what their opaque
+// `object` fields actually contain — `ctx.args` is keyed by the tool's declared
+// params — so it has to reach a reader rather than stop at the table's summary.
+func TestMarkdownRendersContextFieldDetail(t *testing.T) {
+	out := RenderMarkdown([]Event{ContextTable{Shape: "mcp-tool", Rows: []ContextRow{
+		{Name: "tool_name", Type: "string", Summary: "Name of the tool."},
+		{Name: "args", Type: "object", Summary: "The call's arguments.",
+			Doc: "Keyed by the tool's declared `param` names."},
+	}}}, MarkdownOptions{})
+
+	assert.Contains(t, out, "| `ctx.args` | object | The call's arguments. |")
+	assert.Contains(t, out, "**`ctx.args`**")
+	assert.Contains(t, out, "Keyed by the tool's declared `param` names.")
+	// A field with no Doc gets no empty detail block.
+	assert.NotContains(t, out, "**`ctx.tool_name`**")
+}
+
 func TestAttrTableHasDefaults(t *testing.T) {
 	assert.False(t, AttrTable{}.HasDefaults())
 	assert.False(t, AttrTable{Rows: []AttrRow{{Name: "a"}}}.HasDefaults())

@@ -352,13 +352,13 @@ func contextTable(shape string, cs *config.SchemaContext, added []*config.Schema
 	t := ContextTable{Shape: shape, Summary: cs.Summary, OpenFields: cs.OpenFields}
 	for _, f := range cs.Fields {
 		t.Rows = append(t.Rows, ContextRow{
-			Name: f.Name, Type: f.Type, Summary: f.Summary,
+			Name: f.Name, Type: f.Type, Summary: f.Summary, Doc: f.Doc,
 			Optional: f.Optional, Universal: f.Universal,
 		})
 	}
 	for _, f := range added {
 		t.Rows = append(t.Rows, ContextRow{
-			Name: f.Name, Type: f.Type, Summary: f.Summary,
+			Name: f.Name, Type: f.Type, Summary: f.Summary, Doc: f.Doc,
 			Optional: f.Optional, Added: true,
 		})
 	}
