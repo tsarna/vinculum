@@ -16,46 +16,61 @@ Starts a VWS server that exposes a bus to WebSocket clients.
 ```hcl
 server "vws" "name" {
     bus                   = bus.main
-    disabled              = false         # optional
-
-    queue_size            = 1000          # optional
-    ping_interval         = "30s"         # optional
-    write_timeout         = "10s"         # optional
-
-    allow_send            = false         # optional, see below
-    initial_subscriptions = ["topic/#"]   # optional
-
-    outbound_transforms   = [...]         # optional
-    inbound_transforms    = [...]         # optional
+    initial_subscriptions = ["topic/#"]
+    allow_send            = "sensors/#"
 }
 ```
 
 ### Attributes
 
-- `bus` — the event bus to bridge to WebSocket clients (required)
-- `disabled` — if true, the block is skipped entirely
-- `queue_size` — per-connection outbound message queue depth (default: 1000)
-- `ping_interval` — how often to send WebSocket ping frames to detect dead connections (e.g. `"30s"`)
-- `write_timeout` — maximum time to wait when writing a message to a client before closing the connection (e.g. `"10s"`)
-- `initial_subscriptions` — list of topic patterns that every new client is automatically subscribed to on connect
-- `outbound_transforms` — transform pipeline applied to messages going from the bus to clients; see [transforms.md](transforms.md)
-- `inbound_transforms` — transform pipeline applied to messages received from clients before publishing to the bus; see [transforms.md](transforms.md)
+<!-- vinculum:begin block-attrs server vws level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `bus` | expression (bus-ref) | yes |  | Bus that connected clients subscribe to and publish into. |
+| `allow_send` | expression (predicate-expression) |  | `false` | Whether clients may publish onto the bus. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `inbound_transforms` | expression (transform-pipeline) |  |  | Transform pipeline applied to messages from clients before publishing. |
+| `initial_subscriptions` | list (topic-pattern) |  |  | Topic patterns every new client is subscribed to on connect. |
+| `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
+| `outbound_transforms` | expression (transform-pipeline) |  |  | Transform pipeline applied to messages going from the bus to clients. |
+| `ping_interval` | expression (duration) |  |  | How often to send WebSocket pings, to detect dead connections. |
+| `queue_size` | number |  | `256` | Per-connection outbound queue depth. |
+| `write_timeout` | expression (duration) |  |  | How long to wait writing to a client before closing the connection. |
+
+**`allow_send`**
+
+`true` allows any topic, a string allows topics matching that MQTT pattern, and an expression is evaluated per inbound message with `ctx.topic` and `ctx.msg` in scope — returning false drops the message silently, a string rejects it with that error.
+
+Evaluated against the `message` context.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
+
+**`metrics`**
+
+A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
+
+**`queue_size`**
+
+How far one slow client may fall behind before its messages start being dropped.
+
+<!-- vinculum:end block-attrs server vws -->
+
+The transform pipelines are described in [transforms.md](transforms.md).
 
 ### `allow_send`
 
-Controls whether clients are permitted to publish messages to the bus. By default
-clients can only subscribe and receive. Three forms are supported:
+Clients can only subscribe and receive until this says otherwise. It takes four
+forms:
 
 ```hcl
 allow_send = false              # deny all inbound publishes (default)
 allow_send = true               # allow all inbound publishes
 allow_send = "sensors/#"        # allow publishes matching this MQTT pattern only
-allow_send = ctx.topic != "..." # dynamic expression (ctx.topic and ctx.msg available)
+allow_send = ctx.topic != "..." # evaluated per message
 ```
-
-When `allow_send` is a dynamic expression, it is evaluated for each inbound message.
-Return `true` to allow the message, `false` to silently drop it, or a string to
-reject it with an error.
 
 ### Example
 
@@ -77,51 +92,70 @@ Connects to a remote VWS server and bridges it to a local bus.
 
 ```hcl
 client "vws" "name" {
-    url             = "ws://host:port/path"
-    disabled        = false                 # optional
+    url = "ws://host:port/path"
 
-    dial_timeout    = "10s"                 # optional
-    write_queue_size = 100                  # optional
-
-    headers = {                             # optional
+    headers = {
         Authorization = "Bearer ${env.TOKEN}"
     }
 
-    reconnect {                             # optional
-        initial_delay  = "1s"
-        max_delay      = "60s"
-        backoff_factor = 2.0
-        max_retries    = -1                 # -1 = unlimited
-    }
+    reconnect {}
 }
 ```
 
 ### Attributes
 
-- `url` — WebSocket URL of the remote VWS server (required)
-- `disabled` — if true, the block is skipped entirely
-- `dial_timeout` — maximum time to wait when establishing the connection (e.g. `"10s"`)
-- `write_queue_size` — depth of the outbound write queue (default: 100)
-- `headers` — map of extra HTTP headers to include in the WebSocket upgrade request (useful for authentication)
+<!-- vinculum:begin block-attrs client vws level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `url` | string (url) | yes |  | WebSocket URL of the VWS server. |
+| `auth` | expression (action-expression) |  |  | Expression producing credentials for the connection. |
+| `dial_timeout` | expression (duration) |  | `30s` | Deadline for establishing the connection. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `headers` | map |  |  | Extra headers sent with the WebSocket handshake. |
+| `write_queue_size` | number |  | `100` | Outbound message queue depth. |
+
+**`url`**
+
+For example `"wss://events.example.com/ws"`.
+
+**`auth`**
+
+Evaluated when connecting, so a token can be refreshed on each reconnect.
+
+Evaluated against the `connection` context.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
+
+### Blocks
+
+- `reconnect` (optional) — How to retry a lost connection.
+
+<!-- vinculum:end block-attrs client vws -->
 
 ### `reconnect` Block
 
-When present, the client will automatically attempt to reconnect after a disconnect.
+When present, the client automatically attempts to reconnect after a disconnect.
 
-```hcl
-reconnect {
-    initial_delay  = "1s"    # optional: wait before first retry
-    max_delay      = "60s"   # optional: cap on backoff delay
-    backoff_factor = 2.0     # optional: multiply delay by this factor each attempt
-    max_retries    = 5       # optional: give up after 5 attempts
-}
-```
+<!-- vinculum:begin block-attrs client vws reconnect level=3 -->
 
-`max_retries` counts attempts to re-establish a *lost* connection; the initial
-connection is retried regardless. Zero or negative retries forever, which is
-also what omitting it does — there is no way to ask for no retries at all.
-Giving up is quiet and final: the client logs an error and stays down, and the
-process keeps running.
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `backoff_factor` | number |  | `2.0` | Multiplier applied to the wait after each failed attempt. |
+| `initial_delay` | expression (duration) |  | `1s` | Wait before the first retry. |
+| `max_delay` | expression (duration) |  | `60s` | Ceiling on the wait between retries. |
+| `max_retries` | number |  |  | Give up after this many attempts. |
+
+**`max_retries`**
+
+Retries forever when omitted, and also when set to zero or a negative number. Counts attempts to recover a *lost* connection; the initial connection is retried regardless. Giving up is quiet and final — the client logs an error and stays down, and the process keeps running.
+
+<!-- vinculum:end block-attrs client vws reconnect -->
+
+There is no way to ask for no retries at all — omit the whole `reconnect` block
+for that.
 
 ### Example
 

@@ -57,7 +57,8 @@ of a ` + "`server \"http\"`" + ` block with ` + "`handler = server.<name>`" + `.
 		},
 		"queue_size": {
 			Summary: "Per-connection outbound queue depth.",
-			Doc:     "Defaults to 1000.",
+			Doc:     "How far one slow client may fall behind before its messages start being dropped.",
+			Default: "256",
 		},
 		"ping_interval": {
 			Summary: "How often to send WebSocket pings, to detect dead connections.",
@@ -69,11 +70,13 @@ of a ` + "`server \"http\"`" + ` block with ` + "`handler = server.<name>`" + `.
 		},
 		"allow_send": {
 			Summary: "Whether clients may publish onto the bus.",
-			Doc: `Defaults to false, denying all inbound publishes. ` + "`true`" + ` allows any,
-a string allows topics matching that MQTT pattern, and an expression is evaluated
-per inbound message with ` + "`ctx.topic`" + ` and ` + "`ctx.msg`" + ` in scope.`,
+			Doc: "`true` allows any topic, a string allows topics matching that MQTT " +
+				"pattern, and an expression is evaluated per inbound message with " +
+				"`ctx.topic` and `ctx.msg` in scope — returning false drops the message " +
+				"silently, a string rejects it with that error.",
 			Hint:    cfg.HintPredicateExpression,
 			Context: "message",
+			Default: "false",
 		},
 		"initial_subscriptions": {
 			Summary: "Topic patterns every new client is subscribed to on connect.",

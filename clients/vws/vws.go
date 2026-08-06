@@ -51,9 +51,11 @@ Vinculum instances can be bridged over a WebSocket. Available in expressions as
 		"dial_timeout": {
 			Summary: "Deadline for establishing the connection.",
 			Hint:    cfg.HintDuration,
+			Default: "30s",
 		},
 		"write_queue_size": {
 			Summary: "Outbound message queue depth.",
+			Default: "100",
 		},
 		"auth": {
 			Summary: "Expression producing credentials for the connection.",
