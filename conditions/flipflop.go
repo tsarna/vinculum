@@ -496,24 +496,27 @@ debounce the signal at its source.
 			Hint:    cfg.HintReactiveExpression,
 		},
 		"set_edge": {
-			Summary: "Which edge of `set_on` fires. Defaults to `\"rising\"`.",
+			Summary: "Which edge of `set_on` fires.",
 			Enum:    []string{"rising", "falling", "both"},
+			Default: `"rising"`,
 		},
 		"reset_on": {
 			Summary: "On this wire's edge, drive the output false.",
 			Hint:    cfg.HintReactiveExpression,
 		},
 		"reset_edge": {
-			Summary: "Which edge of `reset_on` fires. Defaults to `\"rising\"`.",
+			Summary: "Which edge of `reset_on` fires.",
 			Enum:    []string{"rising", "falling", "both"},
+			Default: `"rising"`,
 		},
 		"toggle_on": {
 			Summary: "On this wire's edge, flip the output.",
 			Hint:    cfg.HintReactiveExpression,
 		},
 		"toggle_edge": {
-			Summary: "Which edge of `toggle_on` fires. Defaults to `\"rising\"`.",
+			Summary: "Which edge of `toggle_on` fires.",
 			Enum:    []string{"rising", "falling", "both"},
+			Default: `"rising"`,
 		},
 		"set_from": {
 			Summary: "Level sampled into the output when the gate permits.",
@@ -526,13 +529,15 @@ debounce the signal at its source.
 			Hint:    cfg.HintReactiveExpression,
 		},
 		"gate_edge": {
-			Summary: "How `gate_on` gates. Defaults to `\"rising\"`.",
+			Summary: "How `gate_on` gates.",
 			Doc:     "`\"rising\"`, `\"falling\"`, and `\"both\"` sample on that edge, giving an edge-triggered D flip-flop. `\"high\"` makes the output track `set_from` reactively while the gate is true and hold the last sample when it goes false — an active-high D latch; `\"low\"` is the active-low counterpart.",
 			Enum:    []string{"rising", "falling", "both", "high", "low"},
+			Default: `"rising"`,
 		},
 		"dominant": {
-			Summary: "Which wire wins when `set_on` and `reset_on` fire together. Defaults to `\"reset\"`.",
+			Summary: "Which wire wins when `set_on` and `reset_on` fire together.",
 			Enum:    []string{"reset", "set"},
+			Default: `"reset"`,
 		},
 		"start_active": startActiveAttr,
 		"latch": {

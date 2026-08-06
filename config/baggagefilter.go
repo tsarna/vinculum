@@ -38,11 +38,13 @@ regardless of this policy.
 		},
 		"max_entries": {
 			Summary: "Cap on the number of baggage entries.",
-			Doc:     "Defaults to 64.",
+			Doc:     "Applied within `allow`/`deny`; `passthrough` skips it. Surplus entries are dropped with a debug log.",
+			Default: "64",
 		},
 		"max_bytes": {
 			Summary: "Cap on the total serialized size, in bytes.",
-			Doc:     "Defaults to 8192.",
+			Doc:     "Applied within `allow`/`deny`; `passthrough` skips it. Surplus entries are dropped with a debug log.",
+			Default: "8192",
 		},
 	},
 	Constraints: []Constraint{

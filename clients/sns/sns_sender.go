@@ -46,14 +46,27 @@ var snsSenderSchema = cfg.TypeSchema{
 	Doc:     `Acts as a subscriber: messages sent to this client are published to the topic.`,
 	Attrs: cfg.MergeAttrs(awsClientAttrs, map[string]cfg.AttrMeta{
 		"sns_topic": {
-			Summary: "ARN of the topic to publish to.",
+			Summary: "Where to publish: a topic ARN, an endpoint ARN, or a phone number.",
+			Doc: "Which of the three it is, is detected from the value — a leading `+` is " +
+				"an SMS phone number, an ARN containing `/` is an endpoint target for " +
+				"mobile push, and any other SNS ARN is a topic. A value matching none of " +
+				"them fails the publish.\n\n" +
+				"The bus topic is used as the target when this is omitted. A constant is " +
+				"resolved once at config load; anything else is evaluated per message.",
+			Context: "message",
 		},
 		"subject": {
 			Summary: "Subject line for subscribers that have one, such as email.",
+			Doc: "Evaluated per message. A `$Subject` field on the message overrides it " +
+				"for that message.",
+			Context: "message",
 		},
 		"message_structure": {
 			Summary: "Set to `json` to send a different payload per protocol.",
-			Doc:     "The message must then be a JSON object keyed by protocol, with a `default` entry.",
+			Doc: "The message must then be a JSON object keyed by protocol, with a " +
+				"`default` entry. A `$MessageStructure` field on the message overrides " +
+				"it for that message.",
+			Enum: []string{"json"},
 		},
 		"topic_attribute": {
 			Summary: "Message attribute carrying the bus topic.",
@@ -61,11 +74,15 @@ var snsSenderSchema = cfg.TypeSchema{
 		},
 		"message_group_id": {
 			Summary: "Group ID for a FIFO topic.",
-			Doc:     "Messages sharing a group are delivered in order; different groups proceed independently.",
+			Doc: "Messages sharing a group are delivered in order; different groups proceed " +
+				"independently. Required by a FIFO topic, and evaluated per message.",
+			Context: "message",
 		},
 		"deduplication_id": {
 			Summary: "Deduplication ID for a FIFO topic.",
-			Doc:     "AWS discards a repeat of the same ID within the deduplication window.",
+			Doc: "AWS discards a repeat of the same ID within the deduplication window. " +
+				"Evaluated per message.",
+			Context: "message",
 		},
 		"wire_format": cfg.WireFormatAttr,
 		"metrics":     cfg.MetricsAttr,

@@ -320,6 +320,12 @@ func attrQualifier(r AttrRow) string {
 	if r.Required {
 		parts = append(parts, "required")
 	}
+	// A default belongs with required rather than in a column of its own, for
+	// the reason attrTable gives: it is short, and it is mutually exclusive
+	// with "required" anyway, so the two never crowd each other.
+	if r.Default != "" {
+		parts = append(parts, "default `"+r.Default+"`")
+	}
 	return strings.Join(parts, ", ")
 }
 
@@ -403,6 +409,16 @@ func (t *termSink) contextTable(v ContextTable) {
 		t.blank()
 		t.emit(renderProse("*This shape is open: a particular site may carry fields beyond these.*",
 			t.width, t.indent, t.st)...)
+	}
+	// Detail for the fields that carry any, below the table — the same shape
+	// as an attribute table followed by its per-attribute detail.
+	for _, r := range v.Rows {
+		if r.Doc == "" {
+			continue
+		}
+		t.gap()
+		t.line(t.pad() + t.st.apply(spanCode, "ctx."+r.Name))
+		t.emit(renderProse(r.Doc, t.width, t.indent+indentStep, t.st)...)
 	}
 }
 

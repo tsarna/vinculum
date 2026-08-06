@@ -36,6 +36,8 @@ var sqsSenderSchema = cfg.TypeSchema{
 		},
 		"delay_seconds": {
 			Summary: "Seconds to withhold each message from receivers.",
+			Doc:     "SQS caps it at 900, which is fifteen minutes.",
+			Default: "0",
 		},
 		"wire_format": cfg.WireFormatAttr,
 		"metrics":     cfg.MetricsAttr,

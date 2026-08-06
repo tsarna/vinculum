@@ -75,23 +75,43 @@ A named set of states. One state is designated as the `initial` state.
 
 ```hcl
 state "name" {
-    on_init  = <action-expr>    # optional: called once at startup, initial state only
-    on_entry = <action-expr>    # optional: called on each transition into this state
-    on_exit  = <action-expr>    # optional: called on each transition out of this state
-    on_event = <action-expr>    # optional: called when an event arrives but no transition matches
+    on_entry = log::info("entered")
 }
 ```
 
-- **`on_init`** — Evaluated exactly once, at startup, only on the initial
-  state. The context has `ctx.fsm` but no event or transition fields. Ignored
-  on non-initial states (produces a config warning).
-- **`on_entry`** — Evaluated when the state is entered via a transition (not
-  at startup for the initial state).
-- **`on_exit`** — Evaluated when the state is about to be exited, before the
-  transition action runs.
-- **`on_event`** — Evaluated when an event is received but no matching
-  transition exists for the current state. No transition semantics — no
-  exit/entry, no `on_change`, no watch notification.
+<!-- vinculum:begin block-attrs fsm state level=3 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `on_entry` | expression (action-expression) |  | Evaluated on entering this state. |
+| `on_event` | expression (action-expression) |  | Evaluated for an event received in this state. |
+| `on_exit` | expression (action-expression) |  | Evaluated on leaving this state. |
+| `on_init` | expression (action-expression) |  | Evaluated once at startup, for the initial state only. |
+
+**`on_entry`**
+
+Evaluated against the `fsm-hook` context.
+
+**`on_event`**
+
+Runs whether or not the event causes a transition.
+
+Evaluated against the `fsm-hook` context.
+
+**`on_exit`**
+
+Evaluated against the `fsm-hook` context.
+
+**`on_init`**
+
+Evaluated against the `fsm-hook` context.
+
+<!-- vinculum:end block-attrs fsm state -->
+
+`on_init` is ignored on a non-initial state, which produces a config warning.
+`on_exit` runs before the transition's own action. `on_event` carries no
+transition semantics at all — no exit or entry, no `on_change`, no watch
+notification.
 
 **Context propagation.** FSM events are processed asynchronously on the
 FSM's own event-loop goroutine, so hooks run after the caller that
@@ -114,15 +134,56 @@ that define which state changes it can cause.
 
 ```hcl
 event "name" {
-    topic = "mqtt/pattern/+name"   # optional: MQTT-style topic pattern
-    when  = <bool-expr>            # optional: reactive trigger (edge-triggered)
+    topic = "mqtt/pattern/+name"
 
     transition "from" "to" {
-        guard  = <bool-expr>       # optional: transition only if true
-        action = <action-expr>     # optional: evaluated during the transition
+        guard  = get(var.enabled)
+        action = log::info("moving")
     }
 }
 ```
+
+<!-- vinculum:begin block-attrs fsm event level=3 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `topic` | string (topic-pattern) |  | Topic pattern that maps a received message to this event. |
+| `when` | expression (reactive-expression) |  | Reactive condition that fires this event. |
+
+**`topic`**
+
+MQTT-style; named captures are available to hooks as `ctx.topic_params`.
+
+**`when`**
+
+Re-evaluated whenever any watchable it references changes; the event fires on a false-to-true edge.
+
+### Blocks
+
+- `transition "<from>" "<to>"` (0..n) — A transition from one state to another.
+
+<!-- vinculum:end block-attrs fsm event -->
+
+### `transition` blocks
+
+<!-- vinculum:begin block-attrs fsm event transition level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `action` | expression (action-expression) |  | Evaluated when the transition is taken. |
+| `guard` | expression (predicate-expression) |  | Condition that must hold for the transition to be taken. |
+
+**`action`**
+
+Evaluated against the `fsm-hook` context.
+
+**`guard`**
+
+Must evaluate to a bool. A false guard leaves the machine in its current state.
+
+Evaluated against the `fsm-hook` context.
+
+<!-- vinculum:end block-attrs fsm event transition -->
 
 When an event is received, transitions are evaluated in declaration order.
 The first transition whose `from-state` matches the current state and whose
@@ -155,15 +216,15 @@ heartbeat or refresh patterns.
 
 ### Guards
 
+A guard is evaluated at event-processing time, so it sees the machine's live
+storage and any variable or condition it references. A false guard does not
+stop the event: the next candidate transition is tried.
+
 ```hcl
 transition "idle" "active" {
     guard = get(var.enabled) == true
 }
 ```
-
-Guards are boolean expressions evaluated at event-processing time. If false,
-the transition is skipped and the next candidate is tried. Guards have access
-to the full runtime context (storage, variables, state).
 
 ---
 
@@ -189,10 +250,10 @@ debouncing, hysteresis, and timing — the FSM handles the state logic:
 
 ```hcl
 condition "threshold" "high_temp" {
-    input    = var.temperature
-    on_above = 100
+    input     = get(var.temperature)
+    on_above  = 100
     off_below = 80
-    debounce = "30s"
+    debounce  = "30s"
 }
 
 fsm "hvac" {
@@ -270,6 +331,12 @@ fsm "door" {
 }
 ```
 
+<!-- vinculum:begin block-attrs fsm storage level=4 -->
+
+*Attribute names here are chosen by you rather than fixed by the parser.*
+
+<!-- vinculum:end block-attrs fsm storage -->
+
 Values are evaluated at config time and set before `on_init` runs.
 
 ### Snapshot and Restore
@@ -316,25 +383,116 @@ fsm "door" {
 
 ## Hook Context
 
-All hook expressions (`on_init`, `on_entry`, `on_exit`, `on_event`,
-transition `action`, `on_change`, `on_error`) receive a `ctx` object with
-the following attributes:
+Every hook expression — `on_init`, `on_entry`, `on_exit`, `on_event`, a
+transition's `guard` and `action`, and `on_change` — sees the same shape:
 
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `ctx.event` | string | The event name |
-| `ctx.event_value` | dynamic | The message from `send()` or `OnEvent` |
-| `ctx.event_fields` | object | Optional string metadata from `send()`/`OnEvent` |
-| `ctx.old_state` | string | State before the transition |
-| `ctx.new_state` | string | State after the transition |
-| `ctx.topic` | string | Raw topic string from `OnEvent` |
-| `ctx.topic_params` | object | Named captures from MQTT pattern matching |
-| `ctx.fsm` | capsule | The FSM instance |
-| `ctx.error` | string | Error message (on_error only) |
-| `ctx.hook` | string | Hook name that failed (on_error only) |
+<!-- vinculum:begin context fsm-hook level=3 -->
 
-For `on_init`, only `ctx.fsm` is available. For reactive events,
-`ctx.event_value` and `ctx.event_fields` are null.
+Evaluated on a state-machine hook, guard, or transition action.
+
+Which fields are present depends on what drove the transition. `on_init` sees only `ctx.fsm`.
+
+Fields readable as `ctx.<name>` (shape `fsm-hook`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.event` | string | Name of the event being processed. *(not always present)* |
+| `ctx.event_value` | dynamic | Payload the event carried. *(not always present)* |
+| `ctx.event_fields` | object | String metadata the event carried. *(not always present)* |
+| `ctx.old_state` | string | State before the transition. *(not always present)* |
+| `ctx.new_state` | string | State after the transition. *(not always present)* |
+| `ctx.topic` | string | Topic the driving message arrived on. *(not always present)* |
+| `ctx.topic_params` | object | Named captures from matching the event's topic pattern. *(not always present)* |
+| `ctx.fsm` | capsule | The machine itself, for `get()` and `set()` on its storage. *(not always present)* |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.event_value`**
+
+Null for a reactive event, which has no message behind it.
+
+**`ctx.event_fields`**
+
+Null when the event carried none.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+#### Evaluated by
+
+- `fsm` › `on_change`
+- `fsm "event"` › `transition` › `guard`
+- `fsm "event"` › `transition` › `action`
+- `fsm "state"` › `on_init`
+- `fsm "state"` › `on_entry`
+- `fsm "state"` › `on_exit`
+- `fsm "state"` › `on_event`
+
+<!-- vinculum:end context fsm-hook -->
+
+`on_error` sees that shape plus the two fields describing the failure:
+
+<!-- vinculum:begin context fsm-error level=3 -->
+
+Evaluated when a hook, guard, or action fails.
+
+The hook shape, plus which hook failed and why.
+
+Fields readable as `ctx.<name>` (shape `fsm-error`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.event` | string | Name of the event being processed. *(not always present)* |
+| `ctx.event_value` | dynamic | Payload the event carried. *(not always present)* |
+| `ctx.event_fields` | object | String metadata the event carried. *(not always present)* |
+| `ctx.old_state` | string | State before the transition. *(not always present)* |
+| `ctx.new_state` | string | State after the transition. *(not always present)* |
+| `ctx.topic` | string | Topic the driving message arrived on. *(not always present)* |
+| `ctx.topic_params` | object | Named captures from matching the event's topic pattern. *(not always present)* |
+| `ctx.fsm` | capsule | The machine itself, for `get()` and `set()` on its storage. *(not always present)* |
+| `ctx.error` | string | The error message. |
+| `ctx.hook` | string | Name of the hook that failed. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.event_value`**
+
+Null for a reactive event, which has no message behind it.
+
+**`ctx.event_fields`**
+
+Null when the event carried none.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+#### Evaluated by
+
+- `fsm` › `on_error`
+
+<!-- vinculum:end context fsm-error -->
 
 ---
 
@@ -377,27 +535,17 @@ completing.
 
 ## Machine-Level Hooks
 
-### `on_change`
+Two hooks sit on the machine rather than on a state. `on_change` fires after
+the new state's `on_entry`, so it is the last thing to run in a transition;
+`on_error` catches a failure from any hook, guard, or action, and errors are
+logged when it is absent.
 
 ```hcl
 fsm "door" {
     on_change = log("${ctx.old_state} -> ${ctx.new_state}")
+    on_error  = log("FSM error in ${ctx.hook}: ${ctx.error}")
 }
 ```
-
-Evaluated after every state transition (including self-transitions), after
-`on_entry` of the new state.
-
-### `on_error`
-
-```hcl
-fsm "door" {
-    on_error = log("FSM error in ${ctx.hook}: ${ctx.error}")
-}
-```
-
-Evaluated when a hook expression produces an error. If not provided, errors
-are logged.
 
 ---
 
@@ -412,8 +560,8 @@ deadlock or hook interleaving.
   completes.
 - **Concurrent reads**: `state()`, `get()`, and `count()` use a separate
   `RWMutex` and do not block event processing.
-- **Queue sizing**: The buffer size is configurable via `queue_size`
-  (default 64).
+- **Queue sizing**: `queue_size` sets the buffer depth — how far the machine
+  may fall behind before a `send()` blocks.
 
 ---
 
@@ -458,38 +606,57 @@ fsm "door" {
 
 ## Full Attribute Reference
 
-```hcl
-fsm "name" {
-    initial        = "state_name"        # required
-    queue_size     = 64                  # optional (default 64)
-    shutdown_event = "event_name"        # optional
-    tracing        = <server-expr>       # optional (auto-wired)
-    disabled       = false               # optional
-    on_change      = <action-expr>       # optional
-    on_error       = <action-expr>       # optional
+<!-- vinculum:begin block-attrs fsm level=3 -->
 
-    storage {
-        key = value
-    }
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `initial` | string | yes |  | Name of the state the machine starts in. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `on_change` | expression (action-expression) |  |  | Evaluated after every state change. |
+| `on_error` | expression (action-expression) |  |  | Evaluated when a hook or guard fails. |
+| `queue_size` | number |  | `64` | Depth of the inbound event queue. |
+| `shutdown_event` | string |  |  | Event delivered to the machine at shutdown. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
 
-    state "name" {
-        on_init  = <action-expr>
-        on_entry = <action-expr>
-        on_exit  = <action-expr>
-        on_event = <action-expr>
-    }
+**`initial`**
 
-    event "name" {
-        topic = "mqtt/pattern"
-        when  = <bool-expr>
+Must match one of the `state` blocks.
 
-        transition "from" "to" {
-            guard  = <bool-expr>
-            action = <action-expr>
-        }
-    }
-}
-```
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
+
+**`on_change`**
+
+Includes self-transitions.
+
+Evaluated against the `fsm-hook` context.
+
+**`on_error`**
+
+`ctx.error` is the message and `ctx.hook` names the hook that failed.
+
+Evaluated against the `fsm-error` context.
+
+**`queue_size`**
+
+Events are processed one at a time by a single goroutine, so this is how far the machine can fall behind before a `send()` blocks.
+
+**`shutdown_event`**
+
+Lets the machine run its exit hooks and reach a terminal state before the process stops.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+### Blocks
+
+- `event "<name>"` (0..n) — One event the machine accepts, and the transitions it causes.
+- `state "<name>"` (0..n) — One state of the machine, with its lifecycle hooks.
+- `storage` (optional) — Initial values of the machine's storage keys.
+
+<!-- vinculum:end block-attrs fsm -->
 
 ### Interfaces
 

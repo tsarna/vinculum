@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -292,15 +293,14 @@ func TestReconnectBackoffFuncReportsABadDuration(t *testing.T) {
 	assert.True(t, diags.HasErrors())
 }
 
-// The invariant this whole shared-resolution shape exists to protect: one
-// block means one schedule, whichever client it lands in. It broke once —
-// vws inherited bus.NewAutoReconnector's 30s ceiling while the protocol
-// clients used 60s — so it is asserted rather than left to the reader.
+// The invariant the shared resolution exists to protect: one block means one
+// schedule, whichever client it lands in. The two paths reach different client
+// libraries by different means, so nothing but this holds them together.
 func TestBothReconnectPathsAgreeOnTheSchedule(t *testing.T) {
 	c := reconnectTestConfig()
 
 	for _, def := range []ReconnectDefinition{
-		{}, // the case that diverged: block present, everything omitted
+		{}, // block present, everything omitted — the case defaults decide
 		{MaxDelay: durationExpr(t, `"5s"`)},
 		{InitialDelay: durationExpr(t, `"250ms"`), MaxDelay: durationExpr(t, `"90s"`)},
 	} {
@@ -322,13 +322,40 @@ func TestBothReconnectPathsAgreeOnTheSchedule(t *testing.T) {
 	}
 }
 
+// The schema states these constants as the block's defaults, and
+// doc/client-*.md and `vinculum man` repeat what the schema says. The two are
+// the same expression, so they cannot disagree; this parses the documented
+// string back to confirm the formatting helpers produce what the constant means.
 func TestReconnectDefaultsAreTheOnesDocumented(t *testing.T) {
-	// The schema states these as `max_delay`'s and friends' defaults, and
-	// doc/client-*.md generates from the schema. A silent change here would
-	// make every one of those pages wrong.
-	assert.Equal(t, time.Second, time.Duration(defaultReconnectInitialDelay))
-	assert.Equal(t, 60*time.Second, time.Duration(defaultReconnectMaxDelay))
-	assert.Equal(t, 2.0, float64(defaultReconnectBackoffFactor))
+	initial, err := time.ParseDuration(ReconnectAttrs["initial_delay"].Default)
+	require.NoError(t, err, "a documented duration default must be a duration")
+	assert.Equal(t, time.Duration(defaultReconnectInitialDelay), initial)
+
+	maxDelay, err := time.ParseDuration(ReconnectAttrs["max_delay"].Default)
+	require.NoError(t, err)
+	assert.Equal(t, time.Duration(defaultReconnectMaxDelay), maxDelay)
+
+	factor, err := strconv.ParseFloat(ReconnectAttrs["backoff_factor"].Default, 64)
+	require.NoError(t, err, "a documented number default must be a number")
+	assert.Equal(t, float64(defaultReconnectBackoffFactor), factor)
+
+	// Spelled the way a config would spell them, not the way Go prints them:
+	// (60 * time.Second).String() is "1m0s", which nobody types into a duration
+	// slot, and FormatFloat drops the ".0" off a whole-numbered multiplier.
+	assert.Equal(t, "60s", ReconnectAttrs["max_delay"].Default)
+	assert.Equal(t, "2.0", ReconnectAttrs["backoff_factor"].Default)
+}
+
+// max_retries has no documented default: unlimited is what an absent attribute
+// means, and "no default worth stating" is exactly the case an empty Default is
+// for. It also must not claim to be unhonored any more — it is honored on every
+// client now, and a schema that says otherwise sends a reader looking for a
+// workaround they do not need.
+func TestMaxRetriesIsDocumentedAsHonored(t *testing.T) {
+	meta := ReconnectAttrs["max_retries"]
+	assert.Empty(t, meta.Default)
+	assert.NotContains(t, meta.Doc, "Not honored")
+	assert.Contains(t, meta.Doc, "forever when omitted")
 }
 
 // max_retries travels beside the schedule rather than inside it, because a
@@ -338,9 +365,8 @@ func TestReconnectMaxAttempts(t *testing.T) {
 	attempts := func(n int) *int { return &n }
 
 	// Zero is unlimited, and so is a negative number and an absent attribute.
-	// Zero has to be unlimited because it is the value a client library's field
-	// takes when nothing is passed: were it to mean "never reconnect", adding
-	// the attribute would have stopped every existing client from reconnecting.
+	// Zero must mean unlimited because it is the value a client library's field
+	// holds when nothing is passed, and an unconfigured client reconnects.
 	assert.Equal(t, 0, ReconnectMaxAttempts(nil))
 	assert.Equal(t, 0, ReconnectMaxAttempts(&ReconnectDefinition{}))
 	assert.Equal(t, 0, ReconnectMaxAttempts(&ReconnectDefinition{MaxRetries: attempts(0)}))
@@ -362,4 +388,26 @@ func TestTheScheduleIsIndifferentToTheLimit(t *testing.T) {
 	reconnector, diags := reconnectTestConfig().CreateReconnector(def)
 	require.False(t, diags.HasErrors())
 	require.NotNil(t, reconnector)
+}
+
+// Every spelling of "forever" — absent, zero, or any negative — reaches the
+// reconnector through ReconnectMaxAttempts as one value.
+//
+// AutoReconnector keeps maxRetries unexported with no accessor, so this asserts
+// that each spelling is accepted and builds; the normalization itself is pinned
+// by TestReconnectMaxAttempts.
+func TestCreateReconnectorAcceptsEverySpellingOfForever(t *testing.T) {
+	attempts := func(n int) *int { return &n }
+
+	for _, def := range []ReconnectDefinition{
+		{},
+		{MaxRetries: attempts(0)},
+		{MaxRetries: attempts(-1)},
+		{MaxRetries: attempts(-5)}, // below the builder's own floor of -1
+		{MaxRetries: attempts(3)},  // and an actual limit, for contrast
+	} {
+		reconnector, diags := reconnectTestConfig().CreateReconnector(def)
+		require.False(t, diags.HasErrors())
+		require.NotNil(t, reconnector)
+	}
 }

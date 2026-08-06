@@ -98,17 +98,25 @@ metrics — can be mounted into a route with ` + "`handler = server.<name>`" + `
 			Doc:     "Without this block, `ctx.request.remote_addr` is the immediate peer, which behind a proxy is the proxy itself.",
 			Attrs: map[string]cfg.AttrMeta{
 				"trusted_proxies": {
-					Summary: "CIDR ranges whose forwarded headers are believed.",
-					Doc:     "A header arriving from any other address is ignored.",
+					Summary: "CIDRs or bare IPs whose forwarded headers are believed.",
+					Doc: "A header arriving from any other address is ignored, which is what " +
+						"stops a client spoofing its own IP by sending one. nginx spells this " +
+						"`set_real_ip_from`.",
 				},
 				"header": {
 					Summary: "Header to read the client address from.",
-					Doc:     "Defaults to `X-Forwarded-For`.",
+					Doc: "Any header works; a single-valued one such as `X-Real-IP` is just " +
+						"the one-element case. nginx spells this `real_ip_header`.",
+					Default: "X-Forwarded-For",
 				},
 				"recursive": {
 					Summary: "Walk the header right to left, skipping trusted proxies.",
-					Doc:     "Use when several trusted proxies each append an address.",
+					Doc: "The first untrusted address found is the client. Use it when a " +
+						"chain of proxies each append an address; without it the rightmost " +
+						"entry is taken, which is right for a single hop. nginx spells this " +
+						"`real_ip_recursive`.",
 					Hint:    cfg.HintBool,
+					Default: "false",
 				},
 				"disabled": {
 					Summary: "Skip this block entirely.",
@@ -153,6 +161,8 @@ bytes object with its own content type, anything else as JSON, and ` + "`null`" 
 			Attrs: map[string]cfg.AttrMeta{
 				"directory": {
 					Summary: "Directory to serve files from.",
+					Doc: "A relative path resolves against the `--file-path` base directory, " +
+						"which `vinculum serve` requires whenever any `files` block is active.",
 				},
 				"disabled": {
 					Summary: "Skip this tree entirely.",

@@ -48,11 +48,16 @@ consume a queue and deliver what arrives to the bus or an action.`,
 		},
 		"heartbeat": {
 			Summary: "Interval between AMQP heartbeats.",
+			Doc: "Zero disables them, which leaves a silently broken TCP connection " +
+				"undetected until something tries to use it.",
 			Hint:    cfg.HintDuration,
+			Default: "10s",
 		},
 		"connection_timeout": {
 			Summary: "Deadline for establishing a connection.",
+			Doc:     "Covers the TCP dial and the AMQP handshake together.",
 			Hint:    cfg.HintDuration,
+			Default: "30s",
 		},
 		"on_connect":    cfg.OnConnectAttr,
 		"on_disconnect": cfg.OnDisconnectAttr,
@@ -72,22 +77,43 @@ consume a queue and deliver what arrives to the bus or an action.`,
 		"sender": {
 			Summary: "Publishes bus messages to an exchange.",
 			Attrs: map[string]cfg.AttrMeta{
-				"exchange": {Summary: "Exchange to publish to."},
+				"exchange": {
+					Summary: "Exchange to publish to.",
+					Doc: "The default exchange (`\"\"`) routes to the queue named by the " +
+						"routing key, which is enough for point-to-point messaging.",
+				},
 				"confirm_mode": {
 					Summary: "Wait for the broker to confirm each publish.",
+					Doc: "A publish blocks until acknowledged, and a nack surfaces as an " +
+						"error. Confirms guarantee delivery to the *exchange*, not to a " +
+						"queue: with no binding for the routing key the message is still " +
+						"discarded unless `mandatory` is set.",
 					Hint:    cfg.HintBool,
+					Default: "true",
 				},
 				"mandatory": {
 					Summary: "Return messages the exchange cannot route to any queue.",
-					Doc:     "Without this, an unroutable message is silently discarded.",
+					Doc: "Without this, an unroutable message is silently discarded. " +
+						"Requires `confirm_mode` for the return to surface as an error " +
+						"rather than only as a metric.",
 					Hint:    cfg.HintBool,
+					Default: "false",
 				},
 				"persistent": {
 					Summary: "Mark messages persistent so they survive a broker restart.",
+					Doc: "Delivery mode 2, which the broker writes to disk — and which " +
+						"survives a restart only if the queue is durable too. Turning it " +
+						"off trades that for throughput.",
 					Hint:    cfg.HintBool,
+					Default: "true",
 				},
 				"default_topic_transform": {
 					Summary: "How to derive a routing key from a bus topic with no `topic` block.",
+					Doc: "`slash_to_dot` rewrites `a/b/c` as `a.b.c`, matching AMQP's " +
+						"convention; `verbatim` publishes the bus topic unchanged; `error` " +
+						"fails the publish; `ignore` drops the message.",
+					Enum:    []string{"slash_to_dot", "verbatim", "error", "ignore"},
+					Default: "slash_to_dot",
 				},
 			},
 			Blocks: map[string]cfg.TypeSchema{
@@ -95,9 +121,14 @@ consume a queue and deliver what arrives to the bus or an action.`,
 					Summary: "Maps bus topics matching a pattern to a routing key.",
 					Doc:     "The label is the bus topic pattern.",
 					Attrs: map[string]cfg.AttrMeta{
-						"routing_key": {Summary: "Routing key to publish with."},
-						"exchange":    {Summary: "Exchange for this mapping.", Doc: "Overrides the sender's exchange."},
-						"persistent":  {Summary: "Persistence for this mapping.", Doc: "Overrides the sender's default.", Hint: cfg.HintBool},
+						"routing_key": {
+							Summary: "Routing key to publish with.",
+							Doc: "`default_topic_transform` applies when omitted. Evaluated per " +
+								"message, so it can interpolate the fields the pattern captured.",
+							Context: "message",
+						},
+						"exchange":   {Summary: "Exchange for this mapping.", Doc: "Overrides the sender's exchange."},
+						"persistent": {Summary: "Persistence for this mapping.", Doc: "Overrides the sender's default.", Hint: cfg.HintBool},
 					},
 				},
 			},
@@ -105,22 +136,38 @@ consume a queue and deliver what arrives to the bus or an action.`,
 		"receiver": {
 			Summary: "Consumes a queue and delivers what arrives.",
 			Attrs: cfg.MergeAttrs(cfg.SubscriberSourceAttrs, map[string]cfg.AttrMeta{
-				"queue": {Summary: "Queue to consume from."},
+				"queue": {
+					Summary: "Queue to consume from.",
+					Doc: "With no `declare` block the queue is declared passively at " +
+						"startup, so a missing queue fails immediately rather than later.",
+				},
 				"prefetch": {
 					Summary: "Unacknowledged messages the broker may have in flight.",
-					Doc:     "Bounds how much work is outstanding at once.",
+					Doc: "Bounds how much work is outstanding at once. Zero is unlimited, " +
+						"which lets the broker push an entire queue at once.",
+					Default: "10",
 				},
 				"exclusive": {
 					Summary: "Claim the queue exclusively for this connection.",
+					Doc: "Only one consumer may be active on the queue, so this rules out " +
+						"running more than one instance against it.",
 					Hint:    cfg.HintBool,
+					Default: "false",
 				},
 				"auto_ack": {
 					Summary: "Acknowledge on delivery rather than after handling.",
-					Doc:     "Faster, but a message is lost if handling fails.",
+					Doc: "Faster, but a message is lost if handling fails or the process " +
+						"dies holding it.",
 					Hint:    cfg.HintBool,
+					Default: "false",
 				},
 				"default_routing_key_transform": {
 					Summary: "How to derive a bus topic from a routing key with no `subscription` block.",
+					Doc: "`dot_to_slash` rewrites `a.b.c` as `a/b/c`, matching the bus's " +
+						"convention; `verbatim` uses the routing key unchanged; `error` " +
+						"fails the delivery; `ignore` drops the message.",
+					Enum:    []string{"dot_to_slash", "verbatim", "error", "ignore"},
+					Default: "dot_to_slash",
 				},
 				"on_decode_error": cfg.OnDecodeErrorAttr.WithContextFields(
 					cfg.ContextField{Name: "routing_key", Type: "string", Summary: "Routing key the message was delivered with."},
@@ -132,9 +179,12 @@ consume a queue and deliver what arrives to the bus or an action.`,
 			Blocks: map[string]cfg.TypeSchema{
 				"declare": {
 					Summary: "Declare the queue if it does not already exist.",
+					Doc: "Advanced queue arguments — dead-letter exchange, message TTL, " +
+						"maximum length — are deliberately not exposed here; set them with " +
+						"a RabbitMQ policy instead.",
 					Attrs: map[string]cfg.AttrMeta{
-						"durable":     {Summary: "Keep the queue across broker restarts.", Hint: cfg.HintBool},
-						"auto_delete": {Summary: "Delete the queue once its last consumer disconnects.", Hint: cfg.HintBool},
+						"durable":     {Summary: "Keep the queue across broker restarts.", Hint: cfg.HintBool, Default: "true"},
+						"auto_delete": {Summary: "Delete the queue once its last consumer disconnects.", Hint: cfg.HintBool, Default: "false"},
 					},
 				},
 				"binding": {
@@ -150,7 +200,11 @@ consume a queue and deliver what arrives to the bus or an action.`,
 					Attrs: map[string]cfg.AttrMeta{
 						"vinculum_topic": {
 							Summary: "Bus topic to publish arriving messages to.",
+							Doc: "`default_routing_key_transform` applies when omitted. Evaluated " +
+								"per delivery, so it can interpolate the fields the routing-key " +
+								"pattern captured.",
 							Hint:    cfg.HintTopicPattern,
+							Context: "amqp-delivery",
 						},
 					},
 				},
@@ -946,10 +1000,39 @@ func makeRoutingKeyFunc(config *cfg.Config, expr hcl.Expression) rmqsender.Routi
 	}
 }
 
+// The shape makeVinculumTopicFunc builds below. It is not the `message` shape:
+// two AMQP identity fields are added, and `topic` aliases the routing key rather
+// than naming a bus topic — the bus topic is what the expression is computing.
+func init() {
+	cfg.RegisterContextSchema("amqp-delivery", cfg.ContextSchema{
+		Summary: "Evaluated once per AMQP delivery, to derive a bus topic for it.",
+		Fields: []cfg.ContextField{
+			{Name: "routing_key", Type: "string", Summary: "Routing key the message was delivered with."},
+			{Name: "exchange", Type: "string", Summary: "Exchange the message was published to."},
+			{
+				Name: "topic", Type: "string",
+				Summary: "Alias for `routing_key`.",
+				Doc: "Carries the routing key, for consistency with the clients whose " +
+					"per-message expressions see a bus topic here. There is no bus topic " +
+					"yet: producing one is what this expression is for.",
+			},
+			{
+				Name: "msg", Type: cfg.CtxTypeDynamic,
+				Summary: "The message payload.",
+				Doc:     "Already decoded by the client's `wire_format`.",
+			},
+			{
+				Name: "fields", Type: cfg.CtxTypeObject,
+				Summary: "String metadata attached to the message.",
+				Doc:     "The AMQP headers table merged with the fields the routing-key pattern captured.",
+			},
+		},
+	})
+}
+
 // makeVinculumTopicFunc builds the per-message HCL evaluator for a receiver's
-// `subscription { vinculum_topic = ... }` expression. The expression sees
-// ctx.routing_key, ctx.exchange, ctx.topic (alias for routing_key), ctx.msg,
-// and ctx.fields.
+// `subscription { vinculum_topic = ... }` expression, against the
+// `amqp-delivery` shape registered above.
 func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) rmqreceiver.VinculumTopicFunc {
 	return func(routingKey, exchange string, fields map[string]string, msg any) (string, error) {
 		if b, ok := msg.([]byte); ok {

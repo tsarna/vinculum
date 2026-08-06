@@ -33,8 +33,10 @@ referenced by a ` + "`redis_kv`" + `, ` + "`redis_pubsub`" + `, or ` + "`redis_s
 	Attrs: map[string]cfg.AttrMeta{
 		"mode": {
 			Summary: "Topology to connect to.",
-			Doc:     "Defaults to `standalone`.",
+			Doc: "`standalone` takes a single `address`; `cluster` and `sentinel` take " +
+				"`addresses`, and `sentinel` also needs `master_name`.",
 			Enum:    []string{"standalone", "cluster", "sentinel"},
+			Default: "standalone",
 		},
 		"address": {
 			Summary: "Address of the server, for standalone mode.",
@@ -51,14 +53,32 @@ referenced by a ` + "`redis_kv`" + `, ` + "`redis_pubsub`" + `, or ` + "`redis_s
 		"database": {
 			Summary: "Database number to select.",
 			Doc:     "Not available in `cluster` mode, which has a single keyspace.",
+			Default: "0",
 		},
-		"username":          {Summary: "Username to authenticate with."},
+		"username": {
+			Summary: "Username to authenticate with.",
+			Doc: "Redis 6 and later, with ACLs configured. A server using plain " +
+				"`requirepass` wants `password` alone.",
+		},
 		"password":          {Summary: "Password to authenticate with.", Doc: "Supply it from the environment rather than a literal."},
-		"sentinel_username": {Summary: "Username to authenticate to the sentinels with.", Doc: "`sentinel` mode only."},
-		"sentinel_password": {Summary: "Password to authenticate to the sentinels with.", Doc: "`sentinel` mode only."},
-		"pool_size":         {Summary: "Maximum number of connections in the pool."},
-		"min_idle_conns":    {Summary: "Idle connections kept ready in the pool."},
-		"dial_timeout":      {Summary: "Deadline for establishing a connection.", Hint: cfg.HintDuration},
+		"sentinel_username": {Summary: "Username to authenticate to the sentinels with.", Doc: "`sentinel` mode only, and separate from the credentials used for the master."},
+		"sentinel_password": {Summary: "Password to authenticate to the sentinels with.", Doc: "`sentinel` mode only, and separate from the credentials used for the master."},
+		"pool_size": {
+			Summary: "Maximum number of connections in the pool, per node.",
+			Doc:     "The default is go-redis's, which scales with the machine.",
+			Default: "10 × GOMAXPROCS",
+		},
+		"min_idle_conns": {
+			Summary: "Idle connections kept ready in the pool.",
+			Doc:     "Keeping a few warm trades memory for latency on a burst.",
+			Default: "0",
+		},
+		"dial_timeout": {
+			Summary: "Deadline for establishing a connection.",
+			Doc:     "The default is go-redis's.",
+			Hint:    cfg.HintDuration,
+			Default: "5s",
+		},
 	},
 	Constraints: []cfg.Constraint{
 		cfg.MutuallyExclusive("address", "addresses"),

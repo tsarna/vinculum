@@ -54,6 +54,18 @@ type AttrTable struct {
 	Rows []AttrRow
 }
 
+// HasDefaults reports whether any row states a default, which is what decides
+// whether a sink spends a column on them. Most bodies have none, and an empty
+// column in every table would cost more than it tells.
+func (t AttrTable) HasDefaults() bool {
+	for _, r := range t.Rows {
+		if r.Default != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // AttrRow is one attribute in the overview.
 type AttrRow struct {
 	Name     string
@@ -62,6 +74,10 @@ type AttrRow struct {
 	Summary  string
 	// Hint is the value-completion hint, e.g. "duration" or "topic-pattern".
 	Hint config.Hint
+	// Default is the value used when the attribute is omitted, written as it
+	// would be written in a config file. Empty when there is no default worth
+	// stating.
+	Default string
 	// Deprecated is non-empty when the attribute is deprecated.
 	Deprecated string
 }
@@ -113,9 +129,13 @@ type ContextTable struct {
 
 // ContextRow is one field readable as ctx.<name>.
 type ContextRow struct {
-	Name     string
-	Type     string
+	Name string
+	Type string
+	// Summary is the one-line description shown in the table; Doc is the
+	// detail that follows it, rendered per field below the table the way an
+	// attribute's detail follows the attribute table.
 	Summary  string
+	Doc      string
 	Optional bool
 	// Universal is true for a field every `ctx` carries.
 	Universal bool

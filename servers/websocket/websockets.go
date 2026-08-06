@@ -52,15 +52,20 @@ Mount this on a route of a ` + "`server \"http\"`" + ` block with ` + "`handler 
 		},
 		"queue_size": {
 			Summary: "Per-connection outbound queue depth.",
-			Doc:     "Defaults to 256.",
+			Doc:     "How far one slow client may fall behind before its messages start being dropped.",
+			Default: "256",
 		},
 		"ping_interval": {
 			Summary: "How often to send WebSocket pings, to detect dead connections.",
+			Doc:     "A ping that goes unanswered within `write_timeout` means the peer is gone, and the connection is dropped along with its queue and subscriptions. Set `0` to disable pings, leaving a dead peer undetected until the OS gives up on the TCP connection.",
 			Hint:    cfg.HintDuration,
+			Default: "30s",
 		},
 		"write_timeout": {
 			Summary: "How long to wait writing to a client before closing the connection.",
+			Doc:     "Bounds each individual write and each ping, so a client that has stopped reading cannot hold the connection's writer indefinitely. Set `0` to wait forever.",
 			Hint:    cfg.HintDuration,
+			Default: "10s",
 		},
 		"initial_subscriptions": {
 			Summary: "Topic patterns each new connection is subscribed to on connect.",
@@ -111,7 +116,6 @@ func ProcessWebsocketsServerBlock(config *cfg.Config, block *hcl.Block, remainin
 
 	listenerBuilder := NewServer().WithEventBus(bus).WithLogger(config.Logger)
 
-	/*TODO
 	if cfg.IsExpressionProvided(serverDef.PingInterval) {
 		pingInterval, diags := config.ParseDuration(serverDef.PingInterval)
 		if diags.HasErrors() {
@@ -119,9 +123,7 @@ func ProcessWebsocketsServerBlock(config *cfg.Config, block *hcl.Block, remainin
 		}
 		listenerBuilder = listenerBuilder.WithPingInterval(pingInterval)
 	}
-	*/
 
-	/*TODO
 	if cfg.IsExpressionProvided(serverDef.WriteTimeout) {
 		writeTimeout, diags := config.ParseDuration(serverDef.WriteTimeout)
 		if diags.HasErrors() {
@@ -129,7 +131,6 @@ func ProcessWebsocketsServerBlock(config *cfg.Config, block *hcl.Block, remainin
 		}
 		listenerBuilder = listenerBuilder.WithWriteTimeout(writeTimeout)
 	}
-	*/
 
 	if serverDef.QueueSize != nil {
 		listenerBuilder = listenerBuilder.WithQueueSize(*serverDef.QueueSize)

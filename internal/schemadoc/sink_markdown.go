@@ -117,9 +117,18 @@ func (m *markdownSink) attrTable(t AttrTable) {
 	if len(t.Rows) == 0 {
 		return
 	}
+	// The Default column appears only when something in this table has one,
+	// so a body with no defaults is not given an empty column to explain.
+	defaults := t.HasDefaults()
+
 	m.para()
-	m.line("| Attribute | Type | Required | Description |")
-	m.line("|---|---|---|:---|")
+	if defaults {
+		m.line("| Attribute | Type | Required | Default | Description |")
+		m.line("|---|---|---|---|:---|")
+	} else {
+		m.line("| Attribute | Type | Required | Description |")
+		m.line("|---|---|---|:---|")
+	}
 	for _, r := range t.Rows {
 		req := ""
 		if r.Required {
@@ -129,7 +138,16 @@ func (m *markdownSink) attrTable(t AttrTable) {
 		if r.Deprecated != "" {
 			desc = "**Deprecated.** " + desc
 		}
-		m.line(fmt.Sprintf("| `%s` | %s | %s | %s |", r.Name, typeLabel(r.Type, r.Hint), req, desc))
+		if !defaults {
+			m.line(fmt.Sprintf("| `%s` | %s | %s | %s |", r.Name, typeLabel(r.Type, r.Hint), req, desc))
+			continue
+		}
+		def := ""
+		if r.Default != "" {
+			def = "`" + r.Default + "`"
+		}
+		m.line(fmt.Sprintf("| `%s` | %s | %s | %s | %s |",
+			r.Name, typeLabel(r.Type, r.Hint), req, def, desc))
 	}
 }
 
@@ -190,21 +208,40 @@ func (m *markdownSink) contextTable(t ContextTable) {
 	m.line("| Field | Type | Description |")
 	m.line("|---|---|:---|")
 	for _, r := range t.Rows {
-		desc := oneLine(r.Summary)
+		// Annotations are collected and appended once, because a field can be
+		// more than one of these at a time — a site-added field that some
+		// deliveries omit is both added and optional.
+		var notes []string
 		switch {
 		case r.Added:
-			desc = strings.TrimSuffix(desc, ".") + ". *(added here)*"
+			notes = append(notes, "*(added here)*")
 		case r.Universal:
-			desc = strings.TrimSuffix(desc, ".") + ". *(every `ctx` carries this)*"
+			notes = append(notes, "*(every `ctx` carries this)*")
 		}
 		if r.Optional {
-			desc = strings.TrimSuffix(desc, ".") + ". *(not always present)*"
+			notes = append(notes, "*(not always present)*")
+		}
+
+		desc := oneLine(r.Summary)
+		if len(notes) > 0 {
+			desc = strings.TrimSuffix(desc, ".") + ". " + strings.Join(notes, " ")
 		}
 		m.line(fmt.Sprintf("| `ctx.%s` | %s | %s |", r.Name, r.Type, desc))
 	}
 	if t.OpenFields {
 		m.para()
 		m.line("*This shape is open: a particular site may carry fields beyond these.*")
+	}
+	// Detail for the fields that carry any, below the table — the same shape
+	// as an attribute table followed by its per-attribute detail.
+	for _, r := range t.Rows {
+		if r.Doc == "" {
+			continue
+		}
+		m.para()
+		m.line("**`ctx." + r.Name + "`**")
+		m.para()
+		m.line(strings.TrimRight(r.Doc, "\n"))
 	}
 }
 

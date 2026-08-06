@@ -524,11 +524,13 @@ trigger; ` + "`set(trigger.<name>)`" + ` restarts using the configured ` + "`del
 		"jitter": {
 			Summary: "Fraction of the delay to randomize by, in [0, 1].",
 			Doc:     "The actual wait is drawn uniformly from `[delay*(1-jitter/2), delay*(1+jitter/2)]`, so the average is unchanged. Use it to desynchronize instances running the same schedule. Applies to a `set()` override as well.",
+			Default: "0",
 		},
 		"repeat": {
-			Summary: "Keep rescheduling after each run. Defaults to true.",
+			Summary: "Keep rescheduling after each run.",
 			Doc:     "When false, the trigger fires once and goes dormant until `set()` revives it — a one-shot timer driven by external state, such as an FSM whose `on_entry` hooks set a different delay per state.",
 			Hint:    cfg.HintBool,
+			Default: "true",
 		},
 		"stop_when": {
 			Summary: "Stop the trigger when this evaluates true.",

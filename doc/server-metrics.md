@@ -24,10 +24,9 @@ The server starts its own HTTP listener and serves the metrics endpoint directly
 
 ```hcl
 server "metrics" "name" {
-    listen = ":9090"      # required in standalone mode
-    path   = "/metrics"   # optional, default "/metrics"
+    listen = ":9090"
 
-    tls {                 # optional; standalone mode only
+    tls {
         enabled = true
         cert    = "/etc/certs/server.crt"
         key     = "/etc/certs/server.key"
@@ -68,13 +67,53 @@ but the metrics will not be scraped. This may be useful during development.
 
 ## Attributes
 
-| Attribute            | Type   | Required | Default      | Description                                                               |
-|----------------------|--------|----------|--------------|---------------------------------------------------------------------------|
-| `listen`             | string | no       | —            | If set, starts a standalone HTTP server on this address (e.g. `":9090"`)  |
-| `path`               | string | no       | `"/metrics"` | Metrics endpoint path; only used in standalone mode                       |
-| `default_metrics`    | bool   | no       | see below    | Whether this is the default metrics backend                               |
-| `include_go_metrics` | bool   | no       | `true`       | When `false`, Go runtime metrics are not registered                       |
-| `tls {}`             | block  | no       | —            | Enable HTTPS; standalone mode only. See [TLS configuration](config.md#tls)|
+<!-- vinculum:begin block-attrs server metrics level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `default_metrics` | bool |  |  | Make this the default metrics backend. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `include_go_metrics` | bool |  | `true` | Register Go runtime metrics. |
+| `listen` | string (listen-addr) |  |  | Address to serve metrics on, as a standalone server. |
+| `path` | string |  | `/metrics` | Path the metrics are served at. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces for scrape requests. |
+
+**`default_metrics`**
+
+Blocks that report metrics without naming a backend use the default. A
+single metrics-capable block — this or a `client "otlp"` — is the default
+automatically; with several, exactly one may set this.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
+
+**`include_go_metrics`**
+
+Set false to omit the goroutine, memory, and GC instrumentation.
+
+**`listen`**
+
+Omit to mount this server into a `server "http"` route instead.
+
+**`path`**
+
+Standalone mode only. A mounted server is reached at the route its `handle` block declares, and setting this alongside a mount warns.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default when omitted.
+
+### Blocks
+
+- `auth "<mode>"` (optional) — Authentication required by this server or handler.
+- `tls` (optional) — TLS settings for this connection.
+
+<!-- vinculum:end block-attrs server metrics -->
+
+The `tls` block enables HTTPS and applies to standalone mode only — see
+[TLS configuration](config.md#tls). `auth` requires authentication before the
+endpoint is served; see [Authentication](#authentication) below.
 
 ---
 

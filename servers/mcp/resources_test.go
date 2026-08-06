@@ -147,3 +147,23 @@ func TestResourceCtxAttributes(t *testing.T) {
 	require.Len(t, res.Contents, 1)
 	assert.Equal(t, "server=test uri=meta://info", res.Contents[0].Text)
 }
+
+// There is no implicit encoding: an object has to be passed through
+// jsonencode() rather than returned as-is. Documented, so pinned.
+func TestResourceRejectsUnencodedStructuredValue(t *testing.T) {
+	srv := newTestServer(t, []ResourceDef{
+		{URI: "cfg://raw", Name: "Raw", Action: parseExpr(t, `{a = 1}`)},
+		{URI: "cfg://json", Name: "JSON", Action: parseExpr(t, `jsonencode({a = 1})`)},
+	}, nil, nil)
+
+	cs := connectInMemory(t, srv)
+	ctx := context.Background()
+
+	_, err := cs.ReadResource(ctx, &sdkmcp.ReadResourceParams{URI: "cfg://raw"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported type")
+
+	res, err := cs.ReadResource(ctx, &sdkmcp.ReadResourceParams{URI: "cfg://json"})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"a":1}`, res.Contents[0].Text)
+}

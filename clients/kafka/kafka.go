@@ -46,35 +46,55 @@ consume from Kafka topics as part of a consumer group.`,
 		},
 		"acks": {
 			Summary: "How many replicas must acknowledge a produced record.",
+			Doc: "`all` waits for every in-sync replica, `leader` for the partition " +
+				"leader alone, and `none` does not wait at all. Idempotent production " +
+				"requires `all`.",
 			Enum:    []string{"none", "leader", "all"},
+			Default: "all",
 		},
 		"compression": {
 			Summary: "Compression applied to produced records.",
 			Enum:    []string{"none", "gzip", "snappy", "lz4", "zstd"},
+			Default: "none",
 		},
 		"idempotent": {
 			Summary: "Enable idempotent production, so retries cannot duplicate a record.",
+			Doc:     "Requires `acks = \"all\"`.",
 			Hint:    cfg.HintBool,
+			Default: "true",
 		},
 		"linger": {
 			Summary: "How long to wait for more records before sending a batch.",
-			Doc:     "Trades latency for throughput.",
+			Doc: "Trades latency for throughput. The default is franz-go's; zero sends " +
+				"each batch as soon as it is ready.",
 			Hint:    cfg.HintDuration,
+			Default: "10ms",
 		},
 		"max_records": {
-			Summary: "Maximum records fetched in a single request.",
+			Summary: "Records that may be buffered awaiting production.",
+			Doc: "A produce blocks once this many records are outstanding, which is what " +
+				"bounds memory when the brokers cannot keep up. The default is " +
+				"franz-go's.",
+			Default: "10000",
 		},
 		"dial_timeout": {
 			Summary: "Deadline for establishing a connection to a broker.",
+			Doc:     "The default is franz-go's.",
 			Hint:    cfg.HintDuration,
+			Default: "10s",
 		},
 		"request_timeout": {
 			Summary: "Deadline for a single broker request.",
+			Doc: "Added to the timeout the request itself asks for, rather than replacing " +
+				"it. The default is franz-go's.",
 			Hint:    cfg.HintDuration,
+			Default: "10s",
 		},
 		"metadata_max_age": {
 			Summary: "How long cluster metadata may be reused before it is refreshed.",
+			Doc:     "The default is franz-go's.",
 			Hint:    cfg.HintDuration,
+			Default: "5m",
 		},
 		"wire_format": cfg.WireFormatAttr,
 		"metrics":     cfg.MetricsAttr,
@@ -86,7 +106,8 @@ consume from Kafka topics as part of a consumer group.`,
 			Attrs: map[string]cfg.AttrMeta{
 				"mechanism": {
 					Summary: "SASL mechanism to authenticate with.",
-					Enum:    []string{"plain", "scram-sha-256", "scram-sha-512"},
+					Doc:     "Spelled as Kafka spells it, in upper case.",
+					Enum:    []string{"PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"},
 				},
 				"username": {Summary: "Username to authenticate with."},
 				"password": {Summary: "Password to authenticate with.", Doc: "Supply it from the environment rather than a literal."},
@@ -97,10 +118,19 @@ consume from Kafka topics as part of a consumer group.`,
 			Attrs: map[string]cfg.AttrMeta{
 				"produce_mode": {
 					Summary: "Whether to wait for the broker to acknowledge each record.",
-					Doc:     "Asynchronous production is faster; synchronous surfaces failures to the caller.",
+					Doc: "`sync` surfaces failures to the caller and applies backpressure; " +
+						"`async` returns as soon as the record is queued and logs any failure " +
+						"instead of returning it.",
+					Enum:    []string{"sync", "async"},
+					Default: "sync",
 				},
 				"default_topic_transform": {
 					Summary: "How to derive a Kafka topic from a bus topic with no `topic` block.",
+					Doc: "`error` refuses the message, which is the default because a bus " +
+						"topic is rarely a valid Kafka topic by accident; `slash_to_dot` " +
+						"rewrites `a/b/c` as `a.b.c`; `ignore` drops it.",
+					Enum:    []string{"error", "slash_to_dot", "ignore"},
+					Default: "error",
 				},
 			},
 			Blocks: map[string]cfg.TypeSchema{
@@ -111,7 +141,10 @@ consume from Kafka topics as part of a consumer group.`,
 						"kafka_topic": {Summary: "Kafka topic to produce to."},
 						"key": {
 							Summary: "Expression producing the record key.",
-							Doc:     "Records sharing a key land on the same partition, so a key is what preserves per-entity ordering.",
+							Doc: "Records sharing a key land on the same partition, so a key is what " +
+								"preserves per-entity ordering. Evaluated per message; null produces " +
+								"a record with no key.",
+							Context: "message",
 						},
 					},
 				},
@@ -126,14 +159,27 @@ consume from Kafka topics as part of a consumer group.`,
 				},
 				"start_offset": {
 					Summary: "Where to start when the group has no committed offset.",
-					Enum:    []string{"earliest", "latest"},
+					Doc: "`stored` resumes from the group's committed offset, which is what " +
+						"production wants; `earliest` replays the whole topic; `latest` skips " +
+						"everything already there.",
+					Enum:    []string{"stored", "earliest", "latest"},
+					Default: "stored",
 				},
 				"commit_mode": {
 					Summary: "When to commit consumed offsets.",
-					Doc:     "Committing after delivery risks reprocessing on restart; committing before risks loss.",
+					Doc: "`after_process` commits once delivery succeeds, giving at-least-once " +
+						"delivery; `periodic` commits on a timer, which can lose or duplicate " +
+						"messages across a crash; `manual` never commits automatically and is " +
+						"reserved for transactional use.",
+					Enum:    []string{"after_process", "periodic", "manual"},
+					Default: "after_process",
 				},
 				"dlq_topic": {
 					Summary: "Kafka topic to publish messages that could not be handled.",
+					Doc: "The record keeps its key and value and gains `vinculum-error`, " +
+						"`vinculum-original-topic`, and `vinculum-timestamp` headers. The " +
+						"offset is committed only once the dead-letter send succeeds, so a " +
+						"failure there redelivers rather than drops.",
 				},
 				"on_decode_error": cfg.OnDecodeErrorAttr.WithContextFields(
 					cfg.ContextField{
@@ -158,7 +204,10 @@ consume from Kafka topics as part of a consumer group.`,
 					Attrs: map[string]cfg.AttrMeta{
 						"vinculum_topic": {
 							Summary: "Bus topic to publish arriving records to.",
+							Doc: "Evaluated per record, so it can interpolate the record's own " +
+								"identity and headers.",
 							Hint:    cfg.HintTopicPattern,
+							Context: "kafka-record",
 						},
 					},
 				},
@@ -927,6 +976,36 @@ func buildConsumerSpec(config *cfg.Config, clientName string, def ConsumerDefini
 	return spec, nil
 }
 
+// The shape makeVinculumTopicFunc builds below. It is not the `message` shape:
+// a record identifies itself by Kafka topic and key rather than by a bus topic,
+// and the bus topic is what the expression is computing.
+func init() {
+	cfg.RegisterContextSchema("kafka-record", cfg.ContextSchema{
+		Summary: "Evaluated once per consumed record, to derive a bus topic for it.",
+		Fields: []cfg.ContextField{
+			{Name: "kafka_topic", Type: "string", Summary: "Kafka topic the record was read from."},
+			{
+				Name: "key", Type: "string", Optional: true,
+				Summary: "The record's key.",
+				Doc:     "Null when the record was produced without one.",
+			},
+			{
+				Name: "msg", Type: cfg.CtxTypeDynamic,
+				Summary: "The record's payload.",
+				Doc:     "Already decoded by the client's `wire_format`.",
+			},
+			{
+				Name: "fields", Type: cfg.CtxTypeObject,
+				Summary: "String metadata attached to the record.",
+				Doc:     "Populated from the record's Kafka headers.",
+			},
+		},
+	})
+}
+
+// makeVinculumTopicFunc builds the per-record HCL evaluator for a receiver's
+// `subscription { vinculum_topic = ... }` expression, against the `kafka-record`
+// shape registered above.
 func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) kconsumer.VinculumTopicFunc {
 	return func(kafkaTopic string, key *string, fields map[string]string, msg any) (string, error) {
 		if b, ok := msg.([]byte); ok {

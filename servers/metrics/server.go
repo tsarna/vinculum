@@ -183,7 +183,8 @@ With ` + "`listen`" + ` it runs its own HTTP server; without one, mount it on a 
 		},
 		"path": {
 			Summary: "Path the metrics are served at.",
-			Doc:     "Defaults to `/metrics`. Standalone mode only.",
+			Doc:     "Standalone mode only. A mounted server is reached at the route its `handle` block declares, and setting this alongside a mount warns.",
+			Default: "/metrics",
 		},
 		"default_metrics": {
 			Summary: "Make this the default metrics backend.",
@@ -194,8 +195,9 @@ automatically; with several, exactly one may set this.`,
 		},
 		"include_go_metrics": {
 			Summary: "Register Go runtime metrics.",
-			Doc:     "Defaults to true; set false to omit goroutine, memory, and GC metrics.",
+			Doc:     "Set false to omit the goroutine, memory, and GC instrumentation.",
 			Hint:    cfg.HintBool,
+			Default: "true",
 		},
 		"tracing": {
 			Summary: "Where to report traces for scrape requests.",

@@ -64,21 +64,72 @@ client "otlp" "tracer" {
 
 ### Attributes
 
-| Attribute            | Required | Description                                                                  |
-|----------------------|----------|------------------------------------------------------------------------------|
-| `disabled`           | no       | When `true`, the client is skipped entirely (no exporters, not registered, not auto-wired). Required attributes are not validated, so the block can hold placeholders. Often driven by an env var, e.g. `disabled = try(env.OTEL_EXPORTER_OTLP_ENDPOINT, "") == ""`. |
-| `endpoint`           | yes      | Base URL of the OTLP/HTTP collector (e.g. `"http://localhost:4318"`)         |
-| `service_name`       | yes      | Service name recorded on every span and metric                               |
-| `service_version`    | no       | Service version recorded on every span and metric                            |
-| `sampling_ratio`     | no       | Head-based sampling ratio for new root spans (default `1.0`)                 |
-| `default`            | no       | Mark as the default tracing backend for auto-wiring                          |
-| `record_baggage`     | no       | `list(string)` of [baggage](baggage.md) keys to copy onto every span as attributes (default `[]`); see [Projecting baggage onto spans](baggage.md#projecting-baggage-onto-spans) |
-| `metric_endpoint`    | no       | Separate endpoint for metric export (defaults to `endpoint`)                 |
-| `metric_interval`    | no       | Push interval for periodic metric export (default `"60s"`)                   |
-| `include_go_metrics` | no       | Include Go runtime metrics (default `true`)                                  |
-| `default_metrics`    | no       | Mark as the default metrics backend for auto-wiring                          |
-| `headers`            | no       | `map(string)` of HTTP headers added to export requests                       |
-| `tls`                | no       | TLS configuration block; see [TLS configuration](config.md#tls)              |
+`disabled` skips the client entirely — no exporters, not registered, not
+auto-wired — and required attributes are not validated, so the block can hold
+placeholders. It is often driven by an env var, e.g.
+`disabled = try(env.OTEL_EXPORTER_OTLP_ENDPOINT, "") == ""`. See
+[Projecting baggage onto spans](baggage.md#projecting-baggage-onto-spans) for
+what `record_baggage` does, and [TLS configuration](config.md#tls) for the `tls`
+block.
+
+<!-- vinculum:begin block-attrs client otlp level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `endpoint` | string (url) | yes |  | OTLP collector endpoint to export traces to. |
+| `service_name` | string | yes |  | Value of the `service.name` resource attribute. |
+| `default` | bool |  |  | Make this the default tracing backend. |
+| `default_metrics` | bool |  |  | Make this the default metrics backend. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `headers` | expression |  |  | Headers sent with each export request. |
+| `include_go_metrics` | bool |  | `true` | Export Go runtime metrics. |
+| `metric_endpoint` | string (url) |  |  | Separate endpoint for metrics. |
+| `metric_interval` | string (duration) |  | `60s` | How often metrics are pushed to the collector. |
+| `record_baggage` | list |  | `[]` | Baggage keys to copy onto each span as attributes. |
+| `sampling_ratio` | number |  | `1.0` | Fraction of traces to sample, from 0 to 1. |
+| `service_version` | string |  |  | Value of the `service.version` resource attribute. |
+
+**`service_name`**
+
+This is how the exported telemetry identifies this process.
+
+**`default`**
+
+Blocks that emit traces without naming one use the default. A single otlp client is the default automatically.
+
+**`default_metrics`**
+
+The same rule as `default`, but for metrics: at most one backend — this or a `server "metrics"` — may claim it.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
+
+**`headers`**
+
+Typically an API key for a hosted collector.
+
+**`include_go_metrics`**
+
+Set false to omit goroutine, memory, and GC metrics.
+
+**`metric_endpoint`**
+
+`endpoint` is used when omitted. Setting either this or `metric_interval` is what enables metric export at all.
+
+**`record_baggage`**
+
+Nothing is copied when omitted, since baggage can carry data that should not reach a trace backend.
+
+**`sampling_ratio`**
+
+Head-based, and applied when a root span starts — a span with a sampled parent is kept regardless.
+
+### Blocks
+
+- `tls` (optional) — TLS settings for this connection.
+
+<!-- vinculum:end block-attrs client otlp -->
 
 ---
 

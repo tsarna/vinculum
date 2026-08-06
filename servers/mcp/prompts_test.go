@@ -97,3 +97,37 @@ func TestPromptDescriptionPropagated(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "A well-described prompt", res.Description)
 }
+
+// Prompt arguments are strings on the wire, so a default is stringified to
+// match — an action must not have to handle one argument arriving as a number
+// only because the caller omitted it.
+func TestPromptDefaultAppliedAsString(t *testing.T) {
+	srv := newTestServer(t, nil, nil, []PromptDef{
+		{
+			Name: "summarize",
+			Params: []ParamDef{
+				{Name: "text", Type: "string", Required: true},
+				{Name: "sentences", Type: "number", DefaultVal: float64(3)},
+			},
+			Action: parseExpr(t, `mcp::user_message("${ctx.args.sentences}: ${ctx.args.text}")`),
+		},
+	})
+
+	cs := connectInMemory(t, srv)
+
+	res, err := cs.GetPrompt(context.Background(), &sdkmcp.GetPromptParams{
+		Name:      "summarize",
+		Arguments: map[string]string{"text": "hello"},
+	})
+	require.NoError(t, err)
+	require.Len(t, res.Messages, 1)
+	assert.Equal(t, "3: hello", res.Messages[0].Content.(*sdkmcp.TextContent).Text)
+
+	// A supplied argument still wins.
+	res, err = cs.GetPrompt(context.Background(), &sdkmcp.GetPromptParams{
+		Name:      "summarize",
+		Arguments: map[string]string{"text": "hello", "sentences": "7"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "7: hello", res.Messages[0].Content.(*sdkmcp.TextContent).Text)
+}

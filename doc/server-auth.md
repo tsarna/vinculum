@@ -73,6 +73,102 @@ When authentication succeeds, `ctx.auth` is available in all action expressions 
 
 ---
 
+## Attributes
+
+The block's label selects the mode, and each mode uses a different subset of
+these. Which subset is noted per attribute below, and the [Modes](#modes)
+section covers each one in context.
+
+<!-- vinculum:begin block-attrs server http auth level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `action` | expression (action-expression) |  |  | Expression that authenticates the request itself. |
+| `algorithms` | expression |  | `["RS256", "ES256"]` | Permitted token signing algorithms. |
+| `audience` | expression |  |  | Accepted `aud` values. |
+| `cache_ttl` | expression (duration) |  | `0s` | How long to cache introspection results. |
+| `client_id` | string |  |  | Client ID for the introspection endpoint. |
+| `client_secret` | string |  |  | Client secret for the introspection endpoint. |
+| `clock_skew` | expression (duration) |  | `30s` | Tolerance applied to `exp` and `nbf`. |
+| `credentials` | expression |  |  | Map of username to plaintext password. |
+| `disabled` | bool |  |  | Parse the block but do not enforce it. |
+| `introspect_client_id` | string |  |  | Client ID for the introspection endpoint. |
+| `introspect_client_secret` | string |  |  | Client secret for the introspection endpoint. |
+| `introspect_url` | string (url) |  |  | RFC 7662 token introspection endpoint. |
+| `issuer` | string (url) |  |  | OIDC issuer URL, used for discovery. |
+| `jwks_url` | string (url) |  |  | JWKS endpoint to fetch signing keys from. |
+| `realm` | string |  |  | Realm shown in the `WWW-Authenticate` header. |
+
+- client_id and client_secret must be specified together.
+- introspect_client_id and introspect_client_secret must be specified together.
+- Setting jwks_url replaces OIDC discovery, which is what issuer is used for.
+
+**`action`**
+
+`custom` (and `basic`) only. Returns the identity to expose as `ctx.auth`, or a falsey value to reject.
+
+Evaluated against the `http-request` context.
+
+**`algorithms`**
+
+`oidc` only.
+
+**`audience`**
+
+`oidc` and `oauth2`. The token must carry at least one of them.
+
+**`cache_ttl`**
+
+`oauth2` only. Zero calls the introspection endpoint on every request; a cache trades revocation latency for that round trip.
+
+**`client_id`**
+
+`oauth2` only, where it is required.
+
+**`client_secret`**
+
+`oauth2` only, where it is required. Supply it from the environment.
+
+**`clock_skew`**
+
+`oidc` only. Accepts a duration string, a number of seconds, or a duration value.
+
+**`credentials`**
+
+`basic` only. Supply passwords from the environment rather than literals.
+
+**`disabled`**
+
+Behaves as if the block were absent, without validating the mode's required fields. Usually driven by an env expression so one variable can both supply credentials and switch auth off.
+
+**`introspect_client_id`**
+
+`oidc` introspection only.
+
+**`introspect_client_secret`**
+
+`oidc` introspection only.
+
+**`introspect_url`**
+
+Required for `oauth2`; optional for `oidc`, where it adds a revocation check.
+
+**`issuer`**
+
+`oidc` only.
+
+**`jwks_url`**
+
+`oidc` only. Setting it skips OIDC discovery.
+
+**`realm`**
+
+`basic` only. Defaults to the server's name.
+
+<!-- vinculum:end block-attrs server http auth -->
+
+---
+
 ## Modes
 
 ### `auth "none"`
@@ -156,16 +252,10 @@ auth "oidc" {
 }
 ```
 
-| Attribute | Type | Default | Description |
-|---|---|---|---|
-| `issuer` | string | — | OIDC issuer URL; used for discovery. Required unless `jwks_url` is set |
-| `jwks_url` | string | — | JWKS endpoint URL; skips OIDC discovery. Mutually exclusive with `introspect_url` |
-| `audience` | list(string) | — | If set, the token must contain at least one of these values in its `aud` claim |
-| `algorithms` | list(string) | `["RS256","ES256"]` | Permitted JWT signing algorithms |
-| `clock_skew` | string, number, or duration | `"30s"` | Permitted clock skew for `exp`/`nbf` validation. String uses Go duration syntax (`"30s"`, `"1m"`); number is seconds |
-| `introspect_url` | string | — | Use token introspection instead of local JWT validation |
-| `introspect_client_id` | string | — | Client ID for the introspection endpoint (required with `introspect_url`) |
-| `introspect_client_secret` | string | — | Client secret for the introspection endpoint (required with `introspect_url`) |
+Uses `issuer` (required unless `jwks_url` is set), `jwks_url`, `audience`,
+`algorithms`, `clock_skew`, and — to introspect rather than validate locally —
+`introspect_url` with `introspect_client_id` and `introspect_client_secret`. See
+[Attributes](#attributes) for their types and defaults.
 
 At startup, vinculum fetches the OIDC discovery document from `{issuer}/.well-known/openid-configuration`
 and caches the JWKS endpoint. The JWKS key set is refreshed automatically in the background and on
@@ -201,13 +291,10 @@ auth "oauth2" {
 }
 ```
 
-| Attribute | Type | Default | Description |
-|---|---|---|---|
-| `introspect_url` | string | — | RFC 7662 introspection endpoint URL |
-| `client_id` | string | — | Client ID sent as HTTP Basic auth to the introspection endpoint |
-| `client_secret` | string | — | Client secret sent as HTTP Basic auth to the introspection endpoint |
-| `audience` | list(string) | — | If set, the token's `aud` claim must contain at least one of these values |
-| `cache_ttl` | string, number, or duration | — | Cache introspection results for this duration. String uses Go duration syntax; number is seconds. By default every request calls the introspection endpoint |
+Uses `introspect_url`, `client_id`, and `client_secret` — all required — plus
+optional `audience` and `cache_ttl`. The client ID and secret are sent as HTTP
+Basic auth to the introspection endpoint. See [Attributes](#attributes) for
+their types and defaults.
 
 On success, `ctx.auth` contains:
 

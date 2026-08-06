@@ -41,10 +41,19 @@ func registerPrompts(s *Server, defs []PromptDef) {
 
 func makePromptHandler(s *Server, def PromptDef) sdkmcp.PromptHandler {
 	return func(goCtx context.Context, req *sdkmcp.GetPromptRequest) (*sdkmcp.GetPromptResult, error) {
-		// Prompt arguments are always map[string]string at the protocol level
+		// Prompt arguments are map[string]string at the protocol level, so a
+		// param's declared type does not survive the wire — every value
+		// reaches the action as a string, and a default is stringified to
+		// match rather than arriving as the only differently-typed argument.
 		args := make(map[string]cty.Value, len(req.Params.Arguments))
 		for k, v := range req.Params.Arguments {
 			args[k] = cty.StringVal(v)
+		}
+		for _, p := range def.Params {
+			if _, ok := args[p.Name]; ok || p.DefaultVal == nil {
+				continue
+			}
+			args[p.Name] = cty.StringVal(fmt.Sprintf("%v", p.DefaultVal))
 		}
 
 		evalCtx, err := buildPromptEvalContext(goCtx, s.parentEvalCtx, s.name, def.Name, args)

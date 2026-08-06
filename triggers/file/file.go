@@ -477,13 +477,15 @@ mounts — poll those with ` + "`trigger \"interval\"`" + ` instead.`,
 		},
 		"events": {
 			Summary: "Which event types fire the action.",
-			Doc:     "A list; all five by default. On some platforms inotify reports a permission change as `\"write\"`, so rely on `\"chmod\"` only where portability does not matter.",
+			Doc:     "On some platforms inotify reports a permission change as `\"write\"`, so rely on `\"chmod\"` only where portability does not matter.",
 			Enum:    []string{"create", "write", "delete", "rename", "chmod"},
+			Default: `["create", "write", "delete", "rename", "chmod"]`,
 		},
 		"recursive": {
 			Summary: "Watch subdirectories too.",
 			Doc:     "Subdirectories created after startup are picked up automatically. On Linux each one consumes an inotify watch descriptor, so a very large tree may need `fs.inotify.max_user_watches` raised.",
 			Hint:    cfg.HintBool,
+			Default: "false",
 		},
 		"filter": {
 			Summary: "Glob pattern the event path must match.",
@@ -491,13 +493,15 @@ mounts — poll those with ` + "`trigger \"interval\"`" + ` instead.`,
 		},
 		"debounce": {
 			Summary: "Quiet period that coalesces rapid events on the same path.",
-			Doc:     "The timer restarts on each new event; the action fires once the path has been quiet for the full duration. Per-path, so two files each dispatch after their own window. Useful for editors that emit several events per save.",
+			Doc:     "The timer restarts on each new event; the action fires once the path has been quiet for the full duration. Per-path, so two files each dispatch after their own window. Useful for editors that emit several events per save. Zero dispatches every event as it arrives.",
 			Hint:    cfg.HintDuration,
+			Default: "0",
 		},
 		"on_start_existing": {
 			Summary: "Emit a synthetic create for files already present at startup.",
 			Doc:     "Lets a spool-directory handler pick up files that arrived while vinculum was not running. Synthetic events respect `filter` and `debounce`, and are dispatched after every startable component is ready.",
 			Hint:    cfg.HintBool,
+			Default: "false",
 		},
 		"skip_when": {
 			Summary: "Skip this firing when true.",

@@ -153,18 +153,29 @@ server "http" "api" {
 
 ### Attributes
 
-| Attribute     | Type           | Description |
-|---------------|----------------|-------------|
-| `passthrough` | bool           | Trust **all** inbound baggage. Mutually exclusive with `allow`/`deny`. |
-| `allow`       | `list(string)` | Trust only these exact keys; drop all others. |
-| `deny`        | `list(string)` | Drop keys matching any of these prefixes; trust all others. |
-| `max_entries` | number         | Cap on total entries (default 64), applied within `allow`/`deny`. Surplus dropped. |
-| `max_bytes`   | number         | Cap on total serialized size in bytes (default 8192), applied within `allow`/`deny`. Surplus dropped. |
+<!-- vinculum:begin block-attrs server http baggage level=4 -->
 
-`passthrough`, `allow`, and `deny` are mutually exclusive per block. Omitting the
-block (or an empty block) strips all inbound baggage. `passthrough` skips the
-size caps; `allow`/`deny` enforce them. Surplus entries beyond the caps are
-dropped silently with a debug log.
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `allow` | list |  |  | Keys to keep; everything else is dropped. |
+| `deny` | list |  |  | Key prefixes to drop; everything else is kept. |
+| `max_bytes` | number |  | `8192` | Cap on the total serialized size, in bytes. |
+| `max_entries` | number |  | `64` | Cap on the number of baggage entries. |
+| `passthrough` | bool |  |  | Trust all inbound baggage. |
+
+- Specify at most one of passthrough, allow, or deny.
+
+**`max_bytes`**
+
+Applied within `allow`/`deny`; `passthrough` skips it. Surplus entries are dropped with a debug log.
+
+**`max_entries`**
+
+Applied within `allow`/`deny`; `passthrough` skips it. Surplus entries are dropped with a debug log.
+
+<!-- vinculum:end block-attrs server http baggage -->
+
+Omitting the block, or writing an empty one, strips all inbound baggage.
 
 The filter runs immediately after the inbound baggage is extracted but before
 action evaluation begins, so dropped entries never appear in `ctx.baggage` and

@@ -65,16 +65,19 @@ func makeToolHandler(s *Server, def ToolDef) sdkmcp.ToolHandler {
 	}
 }
 
-// jsonArgsToCty converts JSON-unmarshaled arguments to typed cty values.
+// jsonArgsToCty converts JSON-unmarshaled arguments to typed cty values,
+// substituting each param's default for the ones the caller left out. A client
+// is free to ignore the default published in the input schema, so applying it
+// here is what makes the attribute mean anything.
 func jsonArgsToCty(rawArgs map[string]any, params []ParamDef) map[string]cty.Value {
-	if len(rawArgs) == 0 {
-		return nil
-	}
 	result := make(map[string]cty.Value, len(rawArgs))
 	for _, p := range params {
 		v, ok := rawArgs[p.Name]
 		if !ok {
-			continue
+			if p.DefaultVal == nil {
+				continue
+			}
+			v = p.DefaultVal
 		}
 		result[p.Name] = anyToCty(v)
 	}

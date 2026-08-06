@@ -145,6 +145,26 @@ type AttrMeta struct {
 	// Enum is the closed set of legal string values, when there is one.
 	Enum []string
 
+	// Default is the value the attribute takes when it is omitted, written as
+	// it would be written in a config file: `30s`, `true`, `0`. A computed
+	// default may be written as the pattern it follows
+	// (`vinculum-<name>-<hostname>`).
+	//
+	// Leave it empty when there is no default worth stating — a required
+	// attribute has none, and neither does an optional one whose absence means
+	// "do nothing" rather than "do this instead". It is rendered as a literal,
+	// so a default that can only be explained in a sentence ("the vinculum
+	// topic, verbatim") belongs in Doc instead; a backticked sentence in a
+	// Default column reads as a value and is not one.
+	//
+	// This is curated, like Summary, because the defaults are applied
+	// imperatively while processing a block (`keepAlive := 30 * time.Second`)
+	// rather than declared anywhere reflection can reach. Prefer stating it
+	// here over burying it in Doc prose: a default is the second thing a reader
+	// wants after what the attribute means, and a consumer can only put it in
+	// its own column if it arrives as its own field.
+	Default string
+
 	// Deprecated, when non-empty, marks the attribute deprecated and explains
 	// the replacement.
 	Deprecated string
@@ -158,6 +178,20 @@ type AttrMeta struct {
 //	),
 func (meta AttrMeta) WithContextFields(fields ...ContextField) AttrMeta {
 	meta.ContextFields = fields
+	return meta
+}
+
+// WithDefault returns a copy of meta stating the given default. Use it where a
+// shared AttrMeta describes an attribute whose default is genuinely the host's
+// choice rather than the attribute's:
+//
+//	"max_delay": cfg.SomeSharedAttrs["max_delay"].WithDefault("60s"),
+//
+// Reach for it sparingly. A shared attribute that means different things per
+// host is usually a bug wearing a schema, and the fix is to make the hosts
+// agree rather than to document that they do not.
+func (meta AttrMeta) WithDefault(value string) AttrMeta {
+	meta.Default = value
 	return meta
 }
 
@@ -253,7 +287,7 @@ var universalContextFields = []ContextField{
 		Name:    "baggage",
 		Type:    CtxTypeCapsule,
 		Summary: "OpenTelemetry baggage riding with this context.",
-		Doc:     "Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See doc/baggage.md.",
+		Doc:     "Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).",
 	},
 	{
 		Name:    "trace_id",
@@ -872,7 +906,11 @@ type SchemaAttr struct {
 	// an open shape. Read them as appended to the shape's own fields.
 	ContextFields []*SchemaContextField `json:"contextFields,omitempty"`
 	Enum          []string              `json:"enum,omitempty"`
-	Deprecated    string                `json:"deprecated,omitempty"`
+	// Default is the value used when the attribute is omitted, written as it
+	// would be written in a config file. Absent when there is no default worth
+	// stating rather than when the zero value applies.
+	Default    string `json:"default,omitempty"`
+	Deprecated string `json:"deprecated,omitempty"`
 }
 
 // SchemaContext describes one `ctx` shape, named by an attribute's `context`.
@@ -1093,6 +1131,12 @@ func (b *schemaBuilder) mergeBody(path string, rb *reflectedBody, ts TypeSchema)
 		if b.opts.RequireDocs && meta.Summary == "" {
 			b.problemf("%s.%s: missing summary", path, ra.Name)
 		}
+		// A required attribute cannot be omitted, so a default for it is
+		// either a lie or a sign the attribute is not really required.
+		if meta.Default != "" && ra.Required {
+			b.problemf("%s.%s: required attributes have no default, but one is documented (%q)",
+				path, ra.Name, meta.Default)
+		}
 		body.Attributes = append(body.Attributes, &SchemaAttr{
 			Name:          ra.Name,
 			Required:      ra.Required,
@@ -1103,6 +1147,7 @@ func (b *schemaBuilder) mergeBody(path string, rb *reflectedBody, ts TypeSchema)
 			Context:       meta.Context,
 			ContextFields: schemaContextFields(meta.ContextFields),
 			Enum:          meta.Enum,
+			Default:       meta.Default,
 			Deprecated:    meta.Deprecated,
 		})
 	}
@@ -1568,8 +1613,11 @@ var (
 	// DisabledAttr documents `disabled`.
 	DisabledAttr = AttrMeta{
 		Summary: "Skip this block entirely.",
-		Doc:     "The block is parsed and validated, but nothing is created from it.",
-		Hint:    HintBool,
+		Doc: "The block is parsed and validated, but nothing is created from it. " +
+			"A block that would publish a name — `condition.<name>`, `client.<name>` — does not, " +
+			"so any expression reading that name fails to resolve. Disable the blocks that read it too, " +
+			"or drop the reference.",
+		Hint: HintBool,
 	}
 
 	// TracingAttr documents `tracing`, which selects a tracing backend.
@@ -1590,8 +1638,11 @@ var (
 	// payloads are encoded and decoded on the wire.
 	WireFormatAttr = AttrMeta{
 		Summary: "How to encode and decode message payloads.",
-		Doc:     "A `wire_format` block. Payloads are passed through unchanged when omitted.",
+		Doc: "A `wire_format` block, or the name of a built-in format. Under `auto`, " +
+			"strings and bytes pass through and everything else is JSON-encoded; " +
+			"decoding auto-detects JSON and falls back to a string.",
 		Hint:    HintExpression,
+		Default: "auto",
 	}
 
 	// OnConnectAttr documents `on_connect`, which every client with a

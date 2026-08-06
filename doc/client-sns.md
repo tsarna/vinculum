@@ -82,24 +82,128 @@ subscription "alerts_to_sns" {
 }
 ```
 
-| Attribute | Type | Description |
-| --------- | ---- | ----------- |
-| `aws` | expression | Reference to a `client "aws"` block. |
-| `region` | string | AWS region (ignored if `aws` is set). |
-| `sns_topic` | expression | SNS target value expression. Auto-detects TopicArn, TargetArn, or PhoneNumber. If omitted, vinculum topic is used as-is. |
-| `subject` | expression | Default Subject for SNS messages (per-message expression). Overridden by `$Subject` field. |
-| `message_structure` | string | Message structure (`"json"` for per-protocol payloads). Overridden by `$MessageStructure` field. |
-| `topic_attribute` | string | If set, includes the vinculum topic as a message attribute with this name. |
-| `message_group_id` | expression | **Required for FIFO topics.** Per-message group ID expression. |
-| `deduplication_id` | expression | Per-message deduplication ID expression (FIFO topics). |
-| `wire_format` | expression | Wire format for serialization. Default: `"auto"`. |
-| `metrics` | expression | Metrics backend reference. |
-| `tracing` | expression | Tracing backend reference. |
+The `client "aws"` block this can reference is documented under
+[SQS](client-sqs.md#client-aws-name), since both services share it.
+
+<!-- vinculum:begin block-attrs client sns_sender level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `aws` | expression (client-ref) |  |  | Shared AWS configuration to use. |
+| `deduplication_id` | expression |  |  | Deduplication ID for a FIFO topic. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `message_group_id` | expression |  |  | Group ID for a FIFO topic. |
+| `message_structure` | string |  |  | Set to `json` to send a different payload per protocol. |
+| `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
+| `region` | string |  |  | AWS region to operate in. |
+| `sns_topic` | expression |  |  | Where to publish: a topic ARN, an endpoint ARN, or a phone number. |
+| `subject` | expression |  |  | Subject line for subscribers that have one, such as email. |
+| `topic_attribute` | string |  |  | Message attribute carrying the bus topic. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
+| `wire_format` | expression |  | `auto` | How to encode and decode message payloads. |
+
+**`aws`**
+
+A `client "aws"` block. Without one, the default AWS credential chain is used.
+
+**`deduplication_id`**
+
+AWS discards a repeat of the same ID within the deduplication window. Evaluated per message.
+
+Evaluated against the `message` context.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
+
+**`message_group_id`**
+
+Messages sharing a group are delivered in order; different groups proceed independently. Required by a FIFO topic, and evaluated per message.
+
+Evaluated against the `message` context.
+
+**`message_structure`**
+
+The message must then be a JSON object keyed by protocol, with a `default` entry. A `$MessageStructure` field on the message overrides it for that message.
+
+One of: `json`.
+
+**`metrics`**
+
+A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
+
+**`region`**
+
+Overrides the region of the referenced `client "aws"` block.
+
+**`sns_topic`**
+
+Which of the three it is, is detected from the value — a leading `+` is an SMS phone number, an ARN containing `/` is an endpoint target for mobile push, and any other SNS ARN is a topic. A value matching none of them fails the publish.
+
+The bus topic is used as the target when this is omitted. A constant is resolved once at config load; anything else is evaluated per message.
+
+Evaluated against the `message` context.
+
+**`subject`**
+
+Evaluated per message. A `$Subject` field on the message overrides it for that message.
+
+Evaluated against the `message` context.
+
+**`topic_attribute`**
+
+Lets a subscriber recover the topic a message was published on.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+**`wire_format`**
+
+A `wire_format` block, or the name of a built-in format. Under `auto`, strings and bytes pass through and everything else is JSON-encoded; decoding auto-detects JSON and falls back to a string.
+
+<!-- vinculum:end block-attrs client sns_sender -->
 
 ### Target resolution
 
-The `sns_topic` expression has access to the per-message context: `ctx.topic`,
-`ctx.msg`, `ctx.fields`.
+`sns_topic`, `subject`, `message_group_id`, and `deduplication_id` are each
+evaluated per message against this context:
+
+<!-- vinculum:begin block-ctx client sns_sender sns_topic level=3 -->
+
+Fields readable as `ctx.<name>` (shape `message`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.topic` | string | Topic the message was delivered on. |
+| `ctx.msg` | dynamic | The message payload. |
+| `ctx.fields` | object | String metadata attached to the message. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.msg`**
+
+Already decoded by the client's `wire_format`, so its type follows the data rather than the transport.
+
+**`ctx.fields`**
+
+Always present; an empty object when the message carries no metadata.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+<!-- vinculum:end block-ctx client sns_sender sns_topic -->
 
 **Constant expression optimization:** If `sns_topic` is a constant (e.g. a
 string literal ARN), the value is resolved once at config time and reused for

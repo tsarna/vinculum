@@ -7,8 +7,10 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/tsarna/go2cty2go"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // McpServer wraps an mcp.Server and implements the config Listener, Startable,
@@ -90,10 +92,17 @@ func init() {
 // mcpParamSchema documents the param block shared by tools and prompts.
 var mcpParamSchema = cfg.TypeSchema{
 	Summary: "One argument the client may pass.",
-	Doc:     "The label is the parameter name; its value arrives as `ctx.args.<name>`.",
+	Doc: `The label is the parameter name; its value arrives as ` + "`ctx.args.<name>`" + `.
+
+A tool publishes its parameters as a JSON Schema, so ` + "`type`" + `, ` + "`enum`" + `, and
+` + "`default`" + ` all reach the model and its arguments arrive with those types. The
+prompt protocol carries only a name, a description, and whether the argument is
+required — so on a prompt, ` + "`type`" + ` and ` + "`enum`" + ` constrain nothing at runtime and
+every argument arrives as a string.`,
 	Attrs: map[string]cfg.AttrMeta{
 		"type": {
 			Summary: "Type of the parameter.",
+			Doc:     "Published to the model on a tool. On a prompt it checks `default` and `enum` at config time only, since prompt arguments are strings on the wire.",
 			Enum:    []string{"string", "number", "boolean"},
 		},
 		"description": {
@@ -102,13 +111,16 @@ var mcpParamSchema = cfg.TypeSchema{
 		"required": {
 			Summary: "Whether the client must supply the parameter.",
 			Hint:    cfg.HintBool,
+			Default: "false",
 		},
 		"default": {
 			Summary: "Value used when the client omits the parameter.",
+			Doc:     "Applied when the argument is absent, whether or not the client honours the default published in a tool's schema. It must match `type`. On a prompt it is stringified with every other argument.",
 			Hint:    cfg.HintExpression,
 		},
 		"enum": {
 			Summary: "Closed set of values the parameter accepts.",
+			Doc:     "Every entry must match `type`. Published in a tool's input schema; the prompt protocol has nowhere to carry it, so on a prompt it documents intent without constraining the caller.",
 		},
 	},
 	Constraints: []cfg.Constraint{
@@ -133,14 +145,16 @@ With ` + "`listen`" + ` it runs its own HTTP server; without one, mount it on a 
 		},
 		"path": {
 			Summary: "Path the MCP endpoint is served at.",
-			Doc:     "Standalone mode only.",
+			Doc:     "Standalone mode only. A mounted server is reached at the route its `handle` block declares.",
+			Default: "/",
 		},
 		"server_name": {
 			Summary: "Name reported to clients during initialization.",
-			Doc:     "Defaults to the block's name.",
+			Default: "<name>",
 		},
 		"server_version": {
 			Summary: "Version reported to clients during initialization.",
+			Default: "0.0.0",
 		},
 		"disabled": cfg.DisabledAttr,
 		"tracing": {
@@ -168,12 +182,13 @@ template — ` + "`db://records/{table}/{id}`" + ` — and each placeholder arri
 				},
 				"action": {
 					Summary: "Expression evaluated when a client reads the resource.",
-					Doc:     "Its value becomes the contents: a string is returned as-is, anything else is JSON-encoded. `ctx.uri` is the resolved URI and `ctx.args` holds any template placeholders.",
+					Doc:     "Required unless the resource is disabled. Its value becomes the contents, and must be a string — served as-is under `mime_type` — or an `mcp::image()`. Wrap structured data in `jsonencode()`; anything else is an error at request time. `ctx.uri` is the resolved URI and `ctx.args` holds any template placeholders.",
 					Hint:    cfg.HintActionExpression,
 					Context: "mcp-resource",
 				},
 				"disabled": {
 					Summary: "Skip this resource entirely.",
+					Doc:     "The resource is not registered, so clients never see it.",
 					Hint:    cfg.HintBool,
 				},
 			},
@@ -188,12 +203,13 @@ template — ` + "`db://records/{table}/{id}`" + ` — and each placeholder arri
 				},
 				"action": {
 					Summary: "Expression evaluated when the tool is called.",
-					Doc:     "Arguments arrive as `ctx.args.<param>`. Return `mcp::error(message)` to report failure to the model.",
+					Doc:     "Required unless the tool is disabled. Arguments arrive as `ctx.args.<param>`. A string becomes text content, `mcp::image()` image content, and `mcp::error(message)` reports failure to the model; any other type is an error. Wrap structured data in `jsonencode()`.",
 					Hint:    cfg.HintActionExpression,
 					Context: "mcp-tool",
 				},
 				"disabled": {
 					Summary: "Skip this tool entirely.",
+					Doc:     "The tool is not registered, so the model never sees it.",
 					Hint:    cfg.HintBool,
 				},
 			},
@@ -208,12 +224,13 @@ template — ` + "`db://records/{table}/{id}`" + ` — and each placeholder arri
 				},
 				"action": {
 					Summary: "Expression evaluated when a client requests the prompt.",
-					Doc:     "Arguments arrive as `ctx.args.<param>`. Return a string, or `mcp::user_message()`/`mcp::assistant_message()` values to control message roles.",
+					Doc:     "Required unless the prompt is disabled. Arguments arrive as `ctx.args.<param>`. Return a string, or `mcp::user_message()`/`mcp::assistant_message()` values — singly or as a list — to control message roles.",
 					Hint:    cfg.HintActionExpression,
 					Context: "mcp-prompt",
 				},
 				"disabled": {
 					Summary: "Skip this prompt entirely.",
+					Doc:     "The prompt is not registered, so clients never see it.",
 					Hint:    cfg.HintBool,
 				},
 			},
@@ -245,14 +262,14 @@ func ProcessMcpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody h
 	}
 
 	// Build tool defs
-	tools, toolDiags := buildToolDefs(def.Tools, block)
+	tools, toolDiags := buildToolDefs(config, def.Tools, block)
 	diags = diags.Extend(toolDiags)
 	if diags.HasErrors() {
 		return nil, diags
 	}
 
 	// Build prompt defs
-	prompts, promptDiags := buildPromptDefs(def.Prompts, block)
+	prompts, promptDiags := buildPromptDefs(config, def.Prompts, block)
 	diags = diags.Extend(promptDiags)
 	if diags.HasErrors() {
 		return nil, diags
@@ -384,7 +401,7 @@ func buildResourceDefs(defs []mcpResourceDefinition, block *hcl.Block) ([]Resour
 	return result, diags
 }
 
-func buildToolDefs(defs []mcpToolDefinition, block *hcl.Block) ([]ToolDef, hcl.Diagnostics) {
+func buildToolDefs(config *cfg.Config, defs []mcpToolDefinition, block *hcl.Block) ([]ToolDef, hcl.Diagnostics) {
 	var diags hcl.Diagnostics
 	var result []ToolDef
 	for _, d := range defs {
@@ -401,7 +418,7 @@ func buildToolDefs(defs []mcpToolDefinition, block *hcl.Block) ([]ToolDef, hcl.D
 			})
 			continue
 		}
-		params, paramDiags := buildParamDefs(d.Params)
+		params, paramDiags := buildParamDefs(config, d.Params)
 		diags = diags.Extend(paramDiags)
 		result = append(result, ToolDef{
 			Name:        d.Name,
@@ -413,7 +430,7 @@ func buildToolDefs(defs []mcpToolDefinition, block *hcl.Block) ([]ToolDef, hcl.D
 	return result, diags
 }
 
-func buildPromptDefs(defs []mcpPromptDefinition, block *hcl.Block) ([]PromptDef, hcl.Diagnostics) {
+func buildPromptDefs(config *cfg.Config, defs []mcpPromptDefinition, block *hcl.Block) ([]PromptDef, hcl.Diagnostics) {
 	var diags hcl.Diagnostics
 	var result []PromptDef
 	for _, d := range defs {
@@ -430,7 +447,7 @@ func buildPromptDefs(defs []mcpPromptDefinition, block *hcl.Block) ([]PromptDef,
 			})
 			continue
 		}
-		params, paramDiags := buildParamDefs(d.Params)
+		params, paramDiags := buildParamDefs(config, d.Params)
 		diags = diags.Extend(paramDiags)
 		result = append(result, PromptDef{
 			Name:        d.Name,
@@ -442,7 +459,7 @@ func buildPromptDefs(defs []mcpPromptDefinition, block *hcl.Block) ([]PromptDef,
 	return result, diags
 }
 
-func buildParamDefs(defs []mcpParamDefinition) ([]ParamDef, hcl.Diagnostics) {
+func buildParamDefs(config *cfg.Config, defs []mcpParamDefinition) ([]ParamDef, hcl.Diagnostics) {
 	var diags hcl.Diagnostics
 	result := make([]ParamDef, 0, len(defs))
 	for _, d := range defs {
@@ -458,12 +475,104 @@ func buildParamDefs(defs []mcpParamDefinition) ([]ParamDef, hcl.Diagnostics) {
 			})
 			continue
 		}
-		result = append(result, ParamDef{
+
+		param := ParamDef{
 			Name:        d.Name,
 			Type:        d.Type,
 			Description: d.Description,
 			Required:    d.Required,
-		})
+		}
+
+		if cfg.IsExpressionProvided(d.Default) {
+			v, moreDiags := paramLiteral(config, d.Default, d.Type, d.Name, "default")
+			diags = diags.Extend(moreDiags)
+			param.DefaultVal = v
+		}
+
+		if cfg.IsExpressionProvided(d.Enum) {
+			values, moreDiags := paramEnum(config, d.Enum, d.Type, d.Name)
+			diags = diags.Extend(moreDiags)
+			param.Enum = values
+		}
+
+		result = append(result, param)
+	}
+	return result, diags
+}
+
+// paramLiteral evaluates one param value and checks it against the param's
+// declared type, so a mismatch is a config error rather than a tool whose
+// published input schema contradicts itself.
+func paramLiteral(config *cfg.Config, expr hcl.Expression, paramType, paramName, attr string) (any, hcl.Diagnostics) {
+	val, diags := expr.Value(config.EvalCtx())
+	if diags.HasErrors() {
+		return nil, diags
+	}
+	return paramLiteralValue(val, paramType, paramName, attr, expr.Range())
+}
+
+// paramLiteralValue is the type check itself, shared by `default` (one value)
+// and `enum` (each element).
+func paramLiteralValue(val cty.Value, paramType, paramName, attr string, rng hcl.Range) (any, hcl.Diagnostics) {
+	if val.IsNull() || !val.IsKnown() {
+		return nil, nil
+	}
+
+	want := map[string]cty.Type{
+		"string":  cty.String,
+		"number":  cty.Number,
+		"boolean": cty.Bool,
+	}[paramType]
+	if val.Type() != want {
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "Param value does not match its type",
+			Detail: fmt.Sprintf("Param %q declares type %q, so its %s must be a %s, not a %s.",
+				paramName, paramType, attr, want.FriendlyName(), val.Type().FriendlyName()),
+			Subject: &rng,
+		}}
+	}
+
+	goVal, err := go2cty2go.CtyToAny(val)
+	if err != nil {
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "Invalid param value",
+			Detail:   fmt.Sprintf("Param %q: %s: %v", paramName, attr, err),
+			Subject:  &rng,
+		}}
+	}
+	return goVal, nil
+}
+
+// paramEnum evaluates an enum list, checking every element against the param's
+// declared type.
+func paramEnum(config *cfg.Config, expr hcl.Expression, paramType, paramName string) ([]any, hcl.Diagnostics) {
+	val, diags := expr.Value(config.EvalCtx())
+	if diags.HasErrors() {
+		return nil, diags
+	}
+	if val.IsNull() || !val.IsKnown() {
+		return nil, nil
+	}
+	if !val.Type().IsTupleType() && !val.Type().IsListType() && !val.Type().IsSetType() {
+		rng := expr.Range()
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "Invalid param enum",
+			Detail:   fmt.Sprintf("Param %q: enum must be a list of values.", paramName),
+			Subject:  &rng,
+		}}
+	}
+
+	var result []any
+	for it := val.ElementIterator(); it.Next(); {
+		_, elem := it.Element()
+		goVal, elemDiags := paramLiteralValue(elem, paramType, paramName, "enum", expr.Range())
+		diags = diags.Extend(elemDiags)
+		if goVal != nil {
+			result = append(result, goVal)
+		}
 	}
 	return result, diags
 }

@@ -8,32 +8,35 @@ like "has the temperature been above 80° for at least 30 seconds?" or
 
 ```hcl
 condition "type" "name" {
-    disabled = false  # optional — if true, block is skipped entirely
-
     # ... behavioral attributes
 }
 ```
-
-`disabled = true` skips the block: nothing is created and `condition.<name>`
-is never defined, so any expression referring to it fails to resolve. Disable
-the blocks that read it too, or delete the reference.
 
 Every condition implements the [Watchable](trigger.md#watchables) interface,
 so it can be referenced from `trigger "watch"`, composed into other
 conditions via `input = get(condition.other)`, or read imperatively from any
 expression with `get(condition.name)`.
 
-There are four subtypes, each answering a different question:
+There are four subtypes:
 
-| Subtype | Input | Question |
-|---|---|---|
-| `condition "timer"` | Boolean (imperative or declared) | Apply temporal semantics to a boolean signal |
-| `condition "threshold"` | Numeric (declared expression) | Derive a boolean from a numeric value with hysteresis |
-| `condition "counter"` | Events (`increment()` / `decrement()` calls) | Produce a boolean when an event count reaches a preset |
-| `condition "flipflop"` | Booleans (declared "wire" expressions) | Edge-driven set/reset/toggle and gated/clocked sampling (T, SR, JK, D, D-latch) |
+<!-- vinculum:begin block-index condition level=3 -->
+
+- [`condition "counter"`](condition.md#condition-counter-name) — Counts events and activates when the count reaches a preset.
+- [`condition "flipflop"`](condition.md#condition-flipflop-name) — Edge-driven bistable: T, SR, JK, D, D-latch, and gated variants.
+- [`condition "threshold"`](condition.md#condition-threshold-name) — Derives a boolean from a numeric input, with hysteresis.
+- [`condition "timer"`](condition.md#condition-timer-name) — Applies temporal rules to a boolean signal.
+
+<!-- vinculum:end block-index condition -->
+
+They differ in what drives them. A `timer` takes a boolean — imperatively via
+`set()`, or from a declared `input` expression. A `threshold` reads a numeric
+`input`. A `counter` is driven only by `increment()` and `decrement()` calls.
+A `flipflop` is driven by boolean *wire* expressions, on their edges.
 
 All four share a common four-state model and a common set of behavioral
-attributes described below.
+attributes described below. Each subtype's own section carries the full
+attribute reference for it, including which of the common attributes it
+accepts.
 
 ---
 
@@ -59,82 +62,40 @@ are internal and never fire the trigger.
 
 ---
 
-## Common Behavioral Attributes
+## Behavior Common to Every Subtype
 
-These attributes apply to every subtype unless the per-subtype section below
-notes otherwise. All are optional; a condition with no attributes tracks its
-input signal one-to-one.
+Every subtype draws on the same vocabulary of behavioral attributes —
+`activate_after`, `deactivate_after`, `timeout`, `latch`, `start_active`,
+`invert`, `cooldown`, `inhibit`, and, where they make sense, `debounce` and
+`retentive`. All are optional: a condition that declares none tracks its input
+one-to-one. Each subtype's reference table below lists exactly the ones it
+accepts, with their types and defaults.
 
-### `activate_after`
+### Delaying, filtering, and rate-limiting
 
-```hcl
-activate_after = "30s"
-```
+Three of them are easy to confuse, because each one stops a condition from
+reacting immediately. They act at different points:
 
-After the input asserts (or the counter reaches its preset), wait this
-additional duration before the output activates. The timer does not reset if
-the underlying signal flickers during the window — it is an intentional delay,
-not a noise filter. Use `debounce` for noise filtering.
+| Attribute | Acts on | Answers |
+|---|---|---|
+| `debounce` | the input, before any transition begins | Is this change real? |
+| `activate_after` | the transition into `active` | Has it been true long enough to matter? |
+| `cooldown` | the *next* activation, after deactivating | Not more often than this |
 
-### `deactivate_after`
+`debounce` restarts its timer whenever the input flips, so noise never gets
+through. `activate_after` does not — it is a deliberate delay, and a signal
+that flickers during the window still activates at the end of it. Combining
+them runs debounce first.
 
-```hcl
-deactivate_after = "5m"
-```
+`deactivate_after` completes the family and is the only one that *extends*
+rather than defers: it holds an already-active output up past the point it
+would otherwise drop.
 
-After the output would otherwise deactivate, hold it active for this
-additional duration. Prevents flapping and enforces a minimum active time.
+### Fail-safe start
 
-### `timeout`
-
-```hcl
-timeout = "10m"
-```
-
-If the condition remains active for this duration, auto-deactivate. The
-timeout clock starts on activation and restarts whenever the input is
-re-asserted while the condition is already active. Ignored when
-`latch = true`. When the condition boots active via `start_active`, the
-timeout clock starts at boot (unless latched, in which case timeout is
-ignored as usual).
-
-### `latch`
-
-```hcl
-latch = true
-```
-
-Once active, stay active regardless of input. `deactivate_after` and
-`timeout` are ignored while latched.
-
-- Release a timer or threshold latch with `clear(condition.name)`.
-- Release a counter latch with `reset(condition.name)` (which also resets the count).
-
-`clear()` releases the latch but does **not** silence an ongoing-true input.
-After resetting, a declared `input =` expression is re-sampled: if it is still
-asserted (for `threshold`, with hysteresis applied from the freshly-reset
-baseline), the condition re-activates and — when `latch = true` — re-engages
-the latch. Debounce is bypassed on the re-activation edge since the signal
-has already proven stable; `activate_after`, `cooldown`, and `inhibit` still
-apply normally. This avoids the "latched fault you can clear while the cause
-persists" footgun: clearing tells you whether the fault really went away,
-rather than masking it.
-
-### `start_active`
-
-```hcl
-start_active = true
-```
-
-Force the condition to begin in the `active` state at startup, rather than the
-default `inactive`. No `inactive → active` transition event is emitted —
-`trigger "watch"` will only fire on the first transition *out of* the boot-
-active state. `activate_after` and `cooldown` do not apply to the boot state;
-they govern input-driven activations.
-
-Combined with `latch = true`, this implements the standard **fail-safe** /
-**power-loss-is-a-fault** pattern: the system comes up with the condition
-latched and cannot proceed until an operator clears it.
+`start_active = true` with `latch = true` is the standard
+power-loss-is-a-fault pattern. The system comes up with the condition already
+latched and cannot proceed until an operator clears it:
 
 ```hcl
 # Power loss is a fault. Fault must be cleared before operation resumes.
@@ -150,77 +111,29 @@ subscription "clear_fault" {
 }
 ```
 
-Without `latch`, the condition starts active but behaves normally from then on:
-the next input edge (for `timer`), the first numeric sample crossing a
-threshold (for `threshold`), or the `Start()` preset reconcile (for `counter`)
-may deactivate it. This is the "assume worst until proven otherwise" variant.
+Without `latch` this is instead the "assume the worst until proven otherwise"
+variant: the condition starts active, and the first thing that would normally
+deactivate it does — the next input edge for a `timer`, the first numeric
+sample for a `threshold`, the `Start()` preset reconcile for a `counter`.
 
-**Interactions:**
+Clearing a latch does not silence a cause that is still present. A declared
+`input` is re-sampled on `clear()`, so a condition whose input is still
+asserted re-activates and re-latches immediately. That is deliberate: clearing
+tells you whether the fault really went away instead of masking it.
 
-- `start_active` sets the internal state. `invert` still applies as a final
-  transform on the output — `start_active = true` combined with `invert = true`
-  yields `get() == false` at boot.
-- `inhibit` does **not** suppress `start_active`. A condition with
-  `start_active = true` starts active even if `inhibit` evaluates `true` at
-  boot, because the boot state is a configured initial condition, not a new
-  activation. Inhibit takes effect from the first subsequent input event.
-- `clear()` / `reset()` always return the condition to `inactive`. They do
-  **not** restore the configured `start_active` state — otherwise a
-  boot-latched fault could never be cleared.
+### Suppressing a condition while something else is true
 
-### `invert`
+`inhibit` is a reactive boolean gate. While it is true the condition cannot
+enter `pending_activation`, and a pending activation already underway is
+cancelled. It does not deactivate a condition that is already active — it
+prevents activations, it does not force deactivations.
 
-```hcl
-invert = true
-```
-
-Invert the logical output after all other rules apply. `get()` returns
-`true` when the underlying state would otherwise be `false`, and vice versa.
-Watcher notifications see the inverted values.
-
-### `cooldown`
+Any `Watchable` the expression references — conditions, variables, metrics —
+is subscribed to, and the expression is re-evaluated whenever any of them
+changes.
 
 ```hcl
-cooldown = "5m"
-```
-
-Minimum quiet period between activations. After the condition fully
-deactivates, it cannot re-activate until this duration has elapsed, even if
-the input immediately re-asserts.
-
-Distinct from `debounce` (which filters input noise *before* the first
-activation) and from `deactivate_after` (which extends an existing active
-period). Example: prevent a notification from firing more than once every
-five minutes.
-
-### `inhibit`
-
-```hcl
-inhibit = expression
-```
-
-A reactive boolean gate. While `inhibit` evaluates to `true`, the condition
-cannot enter `pending_activation`. If it is already in `pending_activation`
-when `inhibit` becomes true, the pending activation is cancelled and the
-condition returns to `inactive`.
-
-An already-active condition is **not** affected by `inhibit` becoming true —
-inhibit prevents new activations, it does not force deactivation.
-
-When `inhibit` clears while the input is still asserting, activation resumes
-from scratch (including any `activate_after` delay).
-
-**Interaction with retentive timers:** if a retentive timer is in
-`pending_activation` (accumulating time) when `inhibit` becomes true, the
-pending activation is cancelled and the accumulated time is discarded.
-
-The `inhibit` expression is reactive: any `Watchable` it references
-(conditions, variables, metrics) is subscribed to, and the expression is
-re-evaluated whenever any source changes.
-
-Example — suppress a temperature alarm during a scheduled maintenance window:
-
-```hcl
+# Suppress the tank alarm during a scheduled maintenance window.
 condition "timer" "tank_alarm" {
     input   = get(condition.high_pressure)
     latch   = true
@@ -245,12 +158,62 @@ They are the locality-friendly alternative to a separate
 
 All three expressions see the same `ctx`:
 
-| Key | Value |
-|---|---|
-| `ctx.trigger` | `"condition"` |
-| `ctx.name` | Name of this condition |
-| `ctx.new_value` | See table above |
-| `ctx.old_value` | See table above (not set for `on_init`) |
+<!-- vinculum:begin context condition-hook level=3 -->
+
+Evaluated on a condition's lifecycle transition.
+
+Hooks fire inline on the goroutine that caused the transition, so the
+`set()` / `clear()` / `reset()` call blocks until the hook returns.
+
+Fields readable as `ctx.<name>` (shape `condition-hook`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.trigger` | string | Always `"condition"`. |
+| `ctx.name` | string | Name of the condition. |
+| `ctx.new_value` | bool | The output after the transition. |
+| `ctx.old_value` | bool | The output before the transition. *(not always present)* |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.new_value`**
+
+For `on_init`, the condition's current output at startup, whatever it is.
+
+**`ctx.old_value`**
+
+Absent in `on_init`, which reports a starting state rather than a transition.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+#### Evaluated by
+
+- `condition "counter"` › `on_init`
+- `condition "counter"` › `on_activate`
+- `condition "counter"` › `on_deactivate`
+- `condition "flipflop"` › `on_init`
+- `condition "flipflop"` › `on_activate`
+- `condition "flipflop"` › `on_deactivate`
+- `condition "threshold"` › `on_init`
+- `condition "threshold"` › `on_activate`
+- `condition "threshold"` › `on_deactivate`
+- `condition "timer"` › `on_init`
+- `condition "timer"` › `on_activate`
+- `condition "timer"` › `on_deactivate`
+
+<!-- vinculum:end context condition-hook -->
 
 **Synchronous dispatch.** `on_activate` / `on_deactivate` fire inline on the
 caller's goroutine at the moment of the transition — this means a `set()` /
@@ -335,61 +298,15 @@ Applies temporal conditioning rules to a boolean signal. Equivalent in
 capability to IEC 61131-3 timer function blocks (TON, TOF, TP, TONR) plus the
 SR bistable.
 
-```hcl
-condition "timer" "name" {
-    # behavioral attributes (all optional)
-}
-```
-
-### Timer-specific attributes
-
-#### `debounce`
-
-```hcl
-debounce = "50ms"
-```
-
-The input must be stable for this duration before any transition begins. The
-timer **resets** whenever the input flips during the window, filtering
-transient noise. Answers "is this change real?" When combined with
-`activate_after`, debounce runs first: the input must settle, then the
-activation delay begins.
-
-#### `retentive`
-
-```hcl
-retentive = true
-```
-
-Accumulate elapsed time toward `activate_after` **across** multiple
-asserted intervals instead of requiring continuous assertion. Accumulated
-time persists until the condition activates or is explicitly cleared via
-`clear()`. Corresponds to IEC 61131-3's TONR function block.
-
-Example — alarm after the motor has run hot for a cumulative 10 minutes,
-regardless of how the time is spread across intervals:
-
-```hcl
-condition "timer" "motor_overtemp" {
-    input          = get(condition.high_temp)
-    activate_after = "10m"
-    retentive      = true
-    latch          = true
-}
-```
-
-#### `input` (declared expression)
+A timer can be driven either declaratively or imperatively. Declare an `input`
+and it evaluates that expression reactively, whenever any Watchable the
+expression reads changes:
 
 ```hcl
 input = get(condition.high_temp) || get(condition.low_voltage)
 ```
 
-When `input` is declared, the condition evaluates the expression reactively
-— whenever any referenced Watchable changes — rather than relying on
-imperative `set()` calls. Calling `set(condition.name, …)` on a condition
-with a declared `input` is a runtime error.
-
-When `input` is **not** declared, drive the condition imperatively:
+Leave `input` out and drive it imperatively instead:
 
 ```hcl
 subscription "door_sensor" {
@@ -399,7 +316,112 @@ subscription "door_sensor" {
 }
 ```
 
+It is one or the other: calling `set()` on a condition that declares an
+`input` is a runtime error.
+
+### Timer attributes
+
+<!-- vinculum:begin block-attrs condition timer level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `activate_after` | expression (duration) |  | Wait this long after the input asserts before activating. |
+| `cooldown` | expression (duration) |  | Minimum quiet period between activations. |
+| `deactivate_after` | expression (duration) |  | Hold the output active this long after it would otherwise deactivate. |
+| `debounce` | expression (duration) |  | The input must be stable this long before any transition begins. |
+| `disabled` | bool |  | Skip this block entirely. |
+| `inhibit` | expression (reactive-expression) |  | While true, block new activations. |
+| `input` | expression (reactive-expression) |  | Boolean expression driving the condition. |
+| `invert` | bool |  | Invert the output after every other rule applies. |
+| `latch` | bool |  | Once active, stay active regardless of input. |
+| `on_activate` | expression (action-expression) |  | Evaluated on each transition to active. |
+| `on_deactivate` | expression (action-expression) |  | Evaluated on each transition to inactive. |
+| `on_init` | expression (action-expression) |  | Evaluated once at startup, after every startable component is ready. |
+| `retentive` | bool |  | Accumulate time toward `activate_after` across separate asserted intervals. |
+| `start_active` | bool |  | Begin in the active state at startup. |
+| `timeout` | expression (duration) |  | Auto-deactivate after this long active. |
+
+**`activate_after`**
+
+An intentional delay, not a noise filter: the timer does not restart if the underlying signal flickers during the window. Use `debounce` to filter noise.
+
+**`cooldown`**
+
+After deactivating, the condition cannot re-activate until this has elapsed, even if the input immediately re-asserts. Distinct from `debounce` (which filters input noise before the first activation) and `deactivate_after` (which extends an active period).
+
+**`deactivate_after`**
+
+Prevents flapping and enforces a minimum active time.
+
+**`debounce`**
+
+The timer restarts whenever the input flips during the window, filtering transient noise: it answers "is this change real?". Combined with `activate_after`, debounce runs first — the input settles, then the activation delay begins.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
+
+**`inhibit`**
+
+A pending activation is cancelled and the condition returns to inactive; a retentive timer discards its accumulated time. An already-active condition is unaffected — inhibit prevents activation, it does not force deactivation. When it clears with the input still asserting, activation resumes from scratch, including any `activate_after` delay.
+
+**`input`**
+
+Re-evaluated whenever any watchable it references changes. Omit it to drive the condition imperatively with `set(condition.<name>, bool)` instead — calling `set()` on a condition that declares `input` is a runtime error.
+
+**`invert`**
+
+`get()` returns true where the underlying state would be false, and watchers see the inverted values.
+
+**`latch`**
+
+`deactivate_after` and `timeout` are ignored while latched. Release with `clear(condition.<name>)` — or `reset()` on a counter, which also resets the count. Clearing does not silence an input that is still asserting: a declared `input` is re-sampled and may re-activate and re-latch immediately, so clearing tells you whether the cause really went away rather than masking it. That re-activation edge skips `debounce`, since the signal has already proven stable, but `activate_after`, `cooldown`, and `inhibit` apply to it as usual.
+
+**`on_activate`**
+
+Fires on the user-visible edge, after `invert` applies, inline on the goroutine that caused the transition.
+
+Evaluated against the `condition-hook` context.
+
+**`on_deactivate`**
+
+Fires on the user-visible edge, after `invert` applies, inline on the goroutine that caused the transition.
+
+Evaluated against the `condition-hook` context.
+
+**`on_init`**
+
+Fires whatever the boot state, with `ctx.new_value` set to the condition's current output and no `ctx.old_value`. `on_activate` does not fire at boot, so this is how a dashboard learns the initial state.
+
+Evaluated against the `condition-hook` context.
+
+**`retentive`**
+
+Rather than requiring continuous assertion. Accumulated time persists until the condition activates or is cleared. Corresponds to IEC 61131-3's TONR.
+
+**`start_active`**
+
+No transition event is emitted, so `on_activate` and `trigger "watch"` fire only on the first transition *out of* the boot state. `activate_after`, `cooldown`, and `inhibit` do not apply to it — they govern input-driven activations, and the boot state is a configured starting point rather than an activation. `invert` does still apply, so `start_active` and `invert` together boot to a `get()` of false. With `latch = true` this is the standard fail-safe pattern: the system comes up latched and an operator must clear it before work resumes. Without a latch the condition merely starts active and behaves normally from the next input onward. `clear()` and `reset()` return to inactive; they never restore this state, or a boot-latched fault could never be cleared.
+
+**`timeout`**
+
+The clock starts on activation and restarts whenever the input re-asserts while already active. A condition that boots active through `start_active` starts its clock at boot. Ignored when `latch = true`.
+
+<!-- vinculum:end block-attrs condition timer -->
+
 ### Timer examples
+
+Cumulative run time — alarm after the motor has run hot for a total of ten
+minutes, however the time is spread across intervals:
+
+```hcl
+condition "timer" "motor_overtemp" {
+    input          = get(condition.high_temp)
+    activate_after = "10m"
+    retentive      = true
+    latch          = true
+}
+```
 
 Debounced door sensor:
 
@@ -465,9 +487,9 @@ High-threshold form (activate when the value rises above a level):
 
 ```hcl
 condition "threshold" "high_temp" {
-    input     = get(metric.temperature)   # required: numeric expression
-    on_above  = 80.0                      # activate when value crosses above
-    off_below = 70.0                      # deactivate when value crosses below
+    input     = get(metric.temperature)
+    on_above  = 80.0   # activate when the value crosses above
+    off_below = 70.0   # deactivate when it crosses back below
 }
 ```
 
@@ -475,37 +497,139 @@ Low-threshold form (activate when the value falls below a level):
 
 ```hcl
 condition "threshold" "low_battery" {
-    input     = get(metric.battery_pct)   # required: numeric expression
-    on_below  = 20.0                      # activate when value crosses below
-    off_above = 25.0                      # deactivate when value crosses above
+    input     = get(metric.battery_pct)
+    on_below  = 20.0   # activate when the value crosses below
+    off_above = 25.0   # deactivate when it crosses back above
 }
 ```
 
 The two forms are mutually exclusive; mixing attributes from both pairs is a
 configuration error. For high form `on_above > off_below` is required; for
-low form `off_above > on_below` is required.
-
-### Required attributes
-
-- `input` — a numeric expression, evaluated reactively whenever referenced
-  Watchables change. There is no imperative `set()` for threshold conditions.
-- One complete pair: either (`on_above`, `off_below`) or (`on_below`,
-  `off_above`).
-
-### Threshold-specific attribute notes
-
-- **`debounce`** applies to the derived boolean (has the threshold been
-  crossed?), not to the raw numeric value.
-- **`retentive`** accumulates time spent above (or below) the threshold
-  across multiple crossings; time in the deadband or on the inactive side
-  does not accumulate.
+low form `off_above > on_below` is required. There is no imperative `set()`
+for a threshold condition — the `input` expression is the only way to drive it.
 
 ### Initial state
 
 If the input value starts within the hysteresis deadband at startup, the
 initial output is `inactive`. The condition activates only when an
 unambiguous threshold crossing is observed. Use `start_active = true` to
-override this default — see the common attribute section above.
+override this default.
+
+### Threshold attributes
+
+<!-- vinculum:begin block-attrs condition threshold level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `input` | expression (reactive-expression) | yes | Numeric expression to compare against the thresholds. |
+| `activate_after` | expression (duration) |  | Wait this long after the input asserts before activating. |
+| `cooldown` | expression (duration) |  | Minimum quiet period between activations. |
+| `deactivate_after` | expression (duration) |  | Hold the output active this long after it would otherwise deactivate. |
+| `debounce` | expression (duration) |  | The input must be stable this long before any transition begins. |
+| `disabled` | bool |  | Skip this block entirely. |
+| `inhibit` | expression (reactive-expression) |  | While true, block new activations. |
+| `invert` | bool |  | Invert the output after every other rule applies. |
+| `latch` | bool |  | Once active, stay active regardless of input. |
+| `off_above` | number |  | Deactivate when the value crosses above this. |
+| `off_below` | number |  | Deactivate when the value crosses below this. |
+| `on_above` | number |  | Activate when the value crosses above this. |
+| `on_activate` | expression (action-expression) |  | Evaluated on each transition to active. |
+| `on_below` | number |  | Activate when the value crosses below this. |
+| `on_deactivate` | expression (action-expression) |  | Evaluated on each transition to inactive. |
+| `on_init` | expression (action-expression) |  | Evaluated once at startup, after every startable component is ready. |
+| `retentive` | bool |  | Accumulate time toward `activate_after` across separate asserted intervals. |
+| `start_active` | bool |  | Begin in the active state at startup. |
+| `timeout` | expression (duration) |  | Auto-deactivate after this long active. |
+
+- on_above and off_below must be specified together.
+- on_below and off_above must be specified together.
+- the high form (on_above/off_below) and the low form (on_below/off_above) cannot be mixed
+- the high form (on_above/off_below) and the low form (on_below/off_above) cannot be mixed
+- a threshold condition needs one complete pair: on_above/off_below or on_below/off_above
+
+**`input`**
+
+Re-evaluated whenever any watchable it references changes. There is no imperative `set()` for a threshold condition.
+
+**`activate_after`**
+
+An intentional delay, not a noise filter: the timer does not restart if the underlying signal flickers during the window. Use `debounce` to filter noise.
+
+**`cooldown`**
+
+After deactivating, the condition cannot re-activate until this has elapsed, even if the input immediately re-asserts. Distinct from `debounce` (which filters input noise before the first activation) and `deactivate_after` (which extends an active period).
+
+**`deactivate_after`**
+
+Prevents flapping and enforces a minimum active time.
+
+**`debounce`**
+
+Applies to the derived boolean — has the threshold been crossed? — not to the raw numeric value.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
+
+**`inhibit`**
+
+A pending activation is cancelled and the condition returns to inactive; a retentive timer discards its accumulated time. An already-active condition is unaffected — inhibit prevents activation, it does not force deactivation. When it clears with the input still asserting, activation resumes from scratch, including any `activate_after` delay.
+
+**`invert`**
+
+`get()` returns true where the underlying state would be false, and watchers see the inverted values.
+
+**`latch`**
+
+`deactivate_after` and `timeout` are ignored while latched. Release with `clear(condition.<name>)` — or `reset()` on a counter, which also resets the count. Clearing does not silence an input that is still asserting: a declared `input` is re-sampled and may re-activate and re-latch immediately, so clearing tells you whether the cause really went away rather than masking it. That re-activation edge skips `debounce`, since the signal has already proven stable, but `activate_after`, `cooldown`, and `inhibit` apply to it as usual.
+
+**`off_above`**
+
+Pairs with `on_below`.
+
+**`off_below`**
+
+Pairs with `on_above`.
+
+**`on_above`**
+
+Pairs with `off_below`.
+
+**`on_activate`**
+
+Fires on the user-visible edge, after `invert` applies, inline on the goroutine that caused the transition.
+
+Evaluated against the `condition-hook` context.
+
+**`on_below`**
+
+Pairs with `off_above`.
+
+**`on_deactivate`**
+
+Fires on the user-visible edge, after `invert` applies, inline on the goroutine that caused the transition.
+
+Evaluated against the `condition-hook` context.
+
+**`on_init`**
+
+Fires whatever the boot state, with `ctx.new_value` set to the condition's current output and no `ctx.old_value`. `on_activate` does not fire at boot, so this is how a dashboard learns the initial state.
+
+Evaluated against the `condition-hook` context.
+
+**`retentive`**
+
+Time spent above (or below) the threshold accumulates across separate crossings; time in the deadband or on the inactive side does not.
+
+**`start_active`**
+
+No transition event is emitted, so `on_activate` and `trigger "watch"` fire only on the first transition *out of* the boot state. `activate_after`, `cooldown`, and `inhibit` do not apply to it — they govern input-driven activations, and the boot state is a configured starting point rather than an activation. `invert` does still apply, so `start_active` and `invert` together boot to a `get()` of false. With `latch = true` this is the standard fail-safe pattern: the system comes up latched and an operator must clear it before work resumes. Without a latch the condition merely starts active and behaves normally from the next input onward. `clear()` and `reset()` return to inactive; they never restore this state, or a boot-latched fault could never be cleared.
+
+**`timeout`**
+
+The clock starts on activation and restarts whenever the input re-asserts while already active. A condition that boots active through `start_active` starts its clock at boot. Ignored when `latch = true`.
+
+<!-- vinculum:end block-attrs condition threshold -->
 
 ---
 
@@ -517,83 +641,22 @@ Corresponds to IEC 61131-3 CTU, CTD, and CTUD function blocks.
 
 ```hcl
 condition "counter" "fault_count" {
-    preset = 5           # required
-    initial = 0          # optional (default 0)
-    rollover = false     # optional (default false)
-    count_down = false   # optional (default false)
+    preset = 5
 }
 ```
 
-### Required attributes
+`decrement()` always clamps the count at `0`, whatever else is configured,
+which is what makes the bidirectional CTUD pattern work.
 
-- `preset` — the count value at which the output becomes true (after any
-  `activate_after` delay).
+### Sliding-window mode
 
-### Optional counter-specific attributes
-
-#### `initial`
-
-```hcl
-initial = 0   # default
-```
-
-The count value assigned at startup and after `reset()`. Allows starting at
-a non-zero value — for example, a CTUD pattern that counts down from a
-preset toward zero.
-
-#### `rollover`
-
-```hcl
-rollover = false   # default
-```
-
-When `false`: the count saturates — it stops incrementing once it reaches
-`preset` and stops decrementing below `0`. The condition remains active
-until `reset()` is called.
-
-When `true`: when the count reaches `preset`, the output fires and the
-count automatically resets to `initial`. This implements a one-shot /
-auto-reset pulse pattern.
-
-The lower bound is always clamped at `0` by `decrement()` regardless of the
-`rollover` setting (bidirectional CTUD use case).
-
-**Interaction with `latch`:** when both `rollover = true` and `latch = true`
-are set, the latch wins. Reaching `preset` auto-resets the count to
-`initial` but the output remains continuously active — no deactivate/
-reactivate edge is emitted, and `trigger "watch"` does not fire a spurious
-transition.
-
-#### `count_down`
-
-```hcl
-count_down = false   # default
-```
-
-When `false`: the output activates when `count >= preset` (count-up
-semantics, CTU).
-
-When `true`: the output activates when `count <= preset` (count-down
-semantics, CTD). Typically paired with `initial = N` and `preset = 0` to
-implement the classic "load N, count down to zero" pattern. All other
-behavior (latch, activate_after, rollover, etc.) is unchanged — only the
-comparison direction flips.
-
-#### `window`
-
-```hcl
-window = "1m"   # optional, default unset
-```
-
-When set, the counter runs in **sliding-window** mode: the count reflects
-the number of `increment()` calls in the last `window` duration. Each
-increment timestamps the events into a FIFO; entries that age out (i.e.
-`event_time + window <= now`) are dropped automatically. This implements
-the classic "N events in the last T" rate primitive.
+Setting `window` turns the counter into the classic "N events in the last T"
+rate primitive: the count becomes the number of `increment()` calls inside the
+window, and entries age out on their own.
 
 ```hcl
 # Trip if 5 errors arrive within any 1-minute span. Latched so the alarm
-# survives the burst's tail aging out and requires explicit clear.
+# survives the burst's tail aging out and requires an explicit clear.
 condition "counter" "error_rate" {
     preset = 5
     window = "1m"
@@ -601,33 +664,125 @@ condition "counter" "error_rate" {
 }
 ```
 
-A single internal timer is armed for the next-to-expire event, so the
-implementation cost is `O(1)` timers regardless of event rate; memory is
-`O(N-in-window)` (one timestamp per live event).
+One internal timer is armed for the next event to expire, so the cost is
+`O(1)` timers regardless of event rate; memory is one timestamp per live
+event. `decrement(condition.x [, n])` pops the `n` oldest entries — useful to
+retract an in-flight count — and decrementing past empty is a no-op.
 
-`decrement(condition.x [, n])` pops the `n` oldest entries from the FIFO
-(useful for "retract an in-flight count"); decrementing past empty is a
-no-op.
+### Counter attributes
 
-`reset(condition.x)` and `clear(condition.x)` both empty the FIFO and
-release any latch — counters have no `input =` to re-sample, so the two
-functions are equivalent on a counter.
+<!-- vinculum:begin block-attrs condition counter level=4 -->
 
-`window` is incompatible with `rollover`, `count_down`, and a non-zero
-`initial`: rollover snap-back, count-down semantics, and synthetic
-baseline events all require a notion of "current count" independent of
-event timestamps. These combinations are rejected at parse time.
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `preset` | number | yes |  | The count at which the output activates. |
+| `activate_after` | expression (duration) |  |  | Wait this long after the input asserts before activating. |
+| `cooldown` | expression (duration) |  |  | Minimum quiet period between activations. |
+| `count_down` | bool |  | `false` | Activate when the count falls to `preset` rather than rising to it. |
+| `deactivate_after` | expression (duration) |  |  | Hold the output active this long after it would otherwise deactivate. |
+| `debounce` | expression |  |  | Not supported on a counter. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `inhibit` | expression (reactive-expression) |  |  | While true, block new activations. |
+| `initial` | number |  | `0` | The count assigned at startup and after `reset()`. |
+| `input` | expression |  |  | Not supported on a counter. |
+| `invert` | bool |  |  | Invert the output after every other rule applies. |
+| `latch` | bool |  |  | Once active, stay active regardless of input. |
+| `on_activate` | expression (action-expression) |  |  | Evaluated on each transition to active. |
+| `on_deactivate` | expression (action-expression) |  |  | Evaluated on each transition to inactive. |
+| `on_init` | expression (action-expression) |  |  | Evaluated once at startup, after every startable component is ready. |
+| `retentive` | bool |  |  | Not supported on a counter. |
+| `rollover` | bool |  | `false` | Reset the count to `initial` on reaching `preset`. |
+| `start_active` | bool |  |  | Begin in the active state at startup. |
+| `timeout` | expression (duration) |  |  | Auto-deactivate after this long active. |
+| `window` | expression (duration) |  |  | Count only events from the last this-long. |
 
-### Attribute applicability
+**`preset`**
 
-Counter conditions support the common attributes `activate_after`,
-`deactivate_after`, `timeout`, `latch`, `invert`, `cooldown`, `inhibit`.
+After any `activate_after` delay.
 
-Counter conditions do **not** support:
+**`activate_after`**
 
-- `debounce` — the count is a discrete integer, not a noisy continuous signal.
-- `retentive` — the counter itself is the accumulator; `retentive` is a timer concept.
-- `input =` — input is driven exclusively by `increment()` and `decrement()` calls.
+An intentional delay, not a noise filter: the timer does not restart if the underlying signal flickers during the window. Use `debounce` to filter noise.
+
+**`cooldown`**
+
+After deactivating, the condition cannot re-activate until this has elapsed, even if the input immediately re-asserts. Distinct from `debounce` (which filters input noise before the first activation) and `deactivate_after` (which extends an active period).
+
+**`count_down`**
+
+Only the comparison direction flips; everything else behaves the same. Typically paired with `initial = N` and `preset = 0` for the classic load-N-and-count-to-zero pattern.
+
+**`deactivate_after`**
+
+Prevents flapping and enforces a minimum active time.
+
+**`debounce`**
+
+The count is a discrete integer, not a noisy continuous signal.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
+
+**`inhibit`**
+
+A pending activation is cancelled and the condition returns to inactive; a retentive timer discards its accumulated time. An already-active condition is unaffected — inhibit prevents activation, it does not force deactivation. When it clears with the input still asserting, activation resumes from scratch, including any `activate_after` delay.
+
+**`initial`**
+
+Starting non-zero supports the CTUD pattern of counting down from a preset toward zero.
+
+**`input`**
+
+The count is driven by `increment()` and `decrement()` calls.
+
+**`invert`**
+
+`get()` returns true where the underlying state would be false, and watchers see the inverted values.
+
+**`latch`**
+
+`deactivate_after` and `timeout` are ignored while latched. Release with `clear(condition.<name>)` — or `reset()` on a counter, which also resets the count. Clearing does not silence an input that is still asserting: a declared `input` is re-sampled and may re-activate and re-latch immediately, so clearing tells you whether the cause really went away rather than masking it. That re-activation edge skips `debounce`, since the signal has already proven stable, but `activate_after`, `cooldown`, and `inhibit` apply to it as usual.
+
+**`on_activate`**
+
+Fires on the user-visible edge, after `invert` applies, inline on the goroutine that caused the transition.
+
+Evaluated against the `condition-hook` context.
+
+**`on_deactivate`**
+
+Fires on the user-visible edge, after `invert` applies, inline on the goroutine that caused the transition.
+
+Evaluated against the `condition-hook` context.
+
+**`on_init`**
+
+Fires whatever the boot state, with `ctx.new_value` set to the condition's current output and no `ctx.old_value`. `on_activate` does not fire at boot, so this is how a dashboard learns the initial state.
+
+Evaluated against the `condition-hook` context.
+
+**`retentive`**
+
+The counter is itself the accumulator; `retentive` is a timer concept.
+
+**`rollover`**
+
+When false the count saturates: it stops at `preset` going up and at 0 going down, and the output stays active until `reset()`. When true, reaching `preset` fires and snaps the count back — a one-shot pulse. `decrement()` clamps at 0 either way. If `latch` is also set the latch wins: the count snaps back but the output stays continuously active, with no spurious deactivate/reactivate edge.
+
+**`start_active`**
+
+No transition event is emitted, so `on_activate` and `trigger "watch"` fire only on the first transition *out of* the boot state. `activate_after`, `cooldown`, and `inhibit` do not apply to it — they govern input-driven activations, and the boot state is a configured starting point rather than an activation. `invert` does still apply, so `start_active` and `invert` together boot to a `get()` of false. With `latch = true` this is the standard fail-safe pattern: the system comes up latched and an operator must clear it before work resumes. Without a latch the condition merely starts active and behaves normally from the next input onward. `clear()` and `reset()` return to inactive; they never restore this state, or a boot-latched fault could never be cleared.
+
+**`timeout`**
+
+The clock starts on activation and restarts whenever the input re-asserts while already active. A condition that boots active through `start_active` starts its clock at boot. Ignored when `latch = true`.
+
+**`window`**
+
+Switches the counter to sliding-window mode, the classic "N events in T" rate primitive: each increment is timestamped and entries age out automatically. `decrement()` pops the oldest entries. Cannot be combined with `rollover = true`, `count_down = true`, or a non-zero `initial`, all of which need a current count independent of event timestamps.
+
+<!-- vinculum:end block-attrs condition counter -->
 
 ### Counter examples
 
@@ -712,8 +867,7 @@ or `set_from` must be declared.
 | `set_from` + `gate_on` | `gate_edge` | Sample `set_from`'s level when the gate permits |
 
 **Event wires** (`set_on` / `reset_on` / `toggle_on`) fire on an *edge* of their
-expression. The edge attribute is `"rising"` (default), `"falling"`, or
-`"both"`:
+expression, and their edge attribute says which:
 
 | Edge | Fires when |
 |---|---|
@@ -767,7 +921,7 @@ output value per this priority:
 1. **Gate first.** If `gate_on` is configured and its edge / level criterion is
    not satisfied this cycle, the other wires are suppressed.
 2. **Set/Reset dominance.** If both `set_on` and `reset_on` fire, `dominant`
-   (`"reset"` default, or `"set"`) picks the winner.
+   picks the winner.
 3. **Set/Reset over toggle.** A `set_on` / `reset_on` fire wins over `toggle_on`.
 4. **D-sample over toggle.** A `set_from` sample is applied before `toggle_on`.
 
@@ -778,24 +932,118 @@ the eventual state, but a downstream watcher may briefly observe the
 intermediate value. Funnel inputs through a single derived source upstream if
 you need strict cross-input atomicity.
 
-### Flipflop-specific attribute
+### Flipflop attributes
 
-#### `dominant`
+A flipflop responds to its inputs immediately, so it accepts none of the
+temporal attributes — no `activate_after`, `deactivate_after`, `timeout`,
+`retentive`, or `debounce`, and no `input`. Debounce belongs on the
+signal-producing source upstream; for self-deactivating or continuous-level
+behavior use `condition "timer"`.
 
-`"reset"` (default) or `"set"` — picks the winner when `set_on` and `reset_on`
-fire in the same cycle.
+<!-- vinculum:begin block-attrs condition flipflop level=4 -->
 
-### Attribute applicability
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `cooldown` | expression (duration) |  |  | Minimum quiet period between activations. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `dominant` | string |  | `"reset"` | Which wire wins when `set_on` and `reset_on` fire together. |
+| `gate_edge` | string |  | `"rising"` | How `gate_on` gates. |
+| `gate_on` | expression (reactive-expression) |  |  | Gate controlling when the other wires take effect. |
+| `inhibit` | expression (reactive-expression) |  |  | While true, block new activations. |
+| `invert` | bool |  |  | Invert the output after every other rule applies. |
+| `latch` | bool |  |  | Once active, stay active regardless of input. |
+| `on_activate` | expression (action-expression) |  |  | Evaluated on each transition to active. |
+| `on_deactivate` | expression (action-expression) |  |  | Evaluated on each transition to inactive. |
+| `on_init` | expression (action-expression) |  |  | Evaluated once at startup, after every startable component is ready. |
+| `reset_edge` | string |  | `"rising"` | Which edge of `reset_on` fires. |
+| `reset_on` | expression (reactive-expression) |  |  | On this wire's edge, drive the output false. |
+| `set_edge` | string |  | `"rising"` | Which edge of `set_on` fires. |
+| `set_from` | expression (reactive-expression) |  |  | Level sampled into the output when the gate permits. |
+| `set_on` | expression (reactive-expression) |  |  | On this wire's edge, drive the output true. |
+| `start_active` | bool |  |  | Begin in the active state at startup. |
+| `toggle_edge` | string |  | `"rising"` | Which edge of `toggle_on` fires. |
+| `toggle_on` | expression (reactive-expression) |  |  | On this wire's edge, flip the output. |
 
-Flipflop conditions support the common attributes `start_active`, `latch`,
-`invert`, `cooldown`, `inhibit`, and the lifecycle hooks. A latched flipflop
-ignores `reset_on`, gate drop-out, and `toggle_on` flips that would deactivate
-it until released with `clear()`.
+- a flipflop needs at least one of set_on, reset_on, toggle_on, or set_from
+- set_from requires gate_on.
+- set_edge requires set_on.
+- reset_edge requires reset_on.
+- toggle_edge requires toggle_on.
+- gate_edge requires gate_on.
 
-Flipflop conditions do **not** support the temporal attributes
-`activate_after`, `deactivate_after`, `timeout`, `retentive`, `debounce`, or
-`input =`. Debounce belongs on the signal-producing source upstream; for
-self-deactivating or continuous-level behavior use `condition "timer"`.
+**`cooldown`**
+
+After deactivating, the condition cannot re-activate until this has elapsed, even if the input immediately re-asserts. Distinct from `debounce` (which filters input noise before the first activation) and `deactivate_after` (which extends an active period).
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
+
+**`dominant`**
+
+One of: `reset`, `set`.
+
+**`gate_edge`**
+
+`"rising"`, `"falling"`, and `"both"` sample on that edge, giving an edge-triggered D flip-flop. `"high"` makes the output track `set_from` reactively while the gate is true and hold the last sample when it goes false — an active-high D latch; `"low"` is the active-low counterpart.
+
+One of: `rising`, `falling`, `both`, `high`, `low`.
+
+**`gate_on`**
+
+With `set_from`, it clocks the sample. Without `set_from`, it is an enable that gates the effective window of `set_on` / `reset_on` / `toggle_on` — edges outside the window are ignored.
+
+**`inhibit`**
+
+A pending activation is cancelled and the condition returns to inactive; a retentive timer discards its accumulated time. An already-active condition is unaffected — inhibit prevents activation, it does not force deactivation. When it clears with the input still asserting, activation resumes from scratch, including any `activate_after` delay.
+
+**`invert`**
+
+`get()` returns true where the underlying state would be false, and watchers see the inverted values.
+
+**`latch`**
+
+A latched flipflop ignores `reset_on`, gate drop-out, and deactivating `toggle_on` flips until released with `clear(condition.<name>)`.
+
+**`on_activate`**
+
+Fires on the user-visible edge, after `invert` applies, inline on the goroutine that caused the transition.
+
+Evaluated against the `condition-hook` context.
+
+**`on_deactivate`**
+
+Fires on the user-visible edge, after `invert` applies, inline on the goroutine that caused the transition.
+
+Evaluated against the `condition-hook` context.
+
+**`on_init`**
+
+Fires whatever the boot state, with `ctx.new_value` set to the condition's current output and no `ctx.old_value`. `on_activate` does not fire at boot, so this is how a dashboard learns the initial state.
+
+Evaluated against the `condition-hook` context.
+
+**`reset_edge`**
+
+One of: `rising`, `falling`, `both`.
+
+**`set_edge`**
+
+One of: `rising`, `falling`, `both`.
+
+**`set_from`**
+
+Never edge-detected on its own — this is the D input. Requires `gate_on`.
+
+**`start_active`**
+
+No transition event is emitted, so `on_activate` and `trigger "watch"` fire only on the first transition *out of* the boot state. `activate_after`, `cooldown`, and `inhibit` do not apply to it — they govern input-driven activations, and the boot state is a configured starting point rather than an activation. `invert` does still apply, so `start_active` and `invert` together boot to a `get()` of false. With `latch = true` this is the standard fail-safe pattern: the system comes up latched and an operator must clear it before work resumes. Without a latch the condition merely starts active and behaves normally from the next input onward. `clear()` and `reset()` return to inactive; they never restore this state, or a boot-latched fault could never be cleared.
+
+**`toggle_edge`**
+
+One of: `rising`, `falling`, `both`.
+
+<!-- vinculum:end block-attrs condition flipflop -->
 
 ### Flipflop examples
 
@@ -859,7 +1107,7 @@ summary:
 | `state(condition.name)` → string | all | Current internal state name |
 | `set(condition.name, value)` | timer (no declared `input`), flipflop | Force the boolean output (honors latch / inhibit / cooldown) |
 | `toggle(condition.name)` → bool | timer (no declared `input`), flipflop | Flip the output; equivalent to `set(condition.name, !current)`. Returns the new value |
-| `clear(condition.name)` | timer, threshold, flipflop | Reset to inactive, release latch, discard retentive accumulation |
+| `clear(condition.name)` | all | Reset to inactive, release latch, discard retentive accumulation. On a counter it is identical to `reset()` — there is no `input` to re-sample |
 | `increment(condition.name[, n])` | counter | Add `n` (default 1) to the count |
 | `decrement(condition.name[, n])` | counter | Subtract `n` (default 1) from the count |
 | `reset(condition.name)` | counter | Reset count to `initial`, release latch, return to inactive |

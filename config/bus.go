@@ -16,7 +16,6 @@ type BusDefinition struct {
 	QueueSize *int           `hcl:"queue_size,optional"`
 	Metrics   hcl.Expression `hcl:"metrics,optional"`
 	Tracing   hcl.Expression `hcl:"tracing,optional"`
-	Options   hcl.Body       `hcl:",remain"`
 }
 
 type BusBlockHandler struct {

@@ -39,6 +39,21 @@ func TestTermRendersAVariant(t *testing.T) {
 // over: a synopsis and a worked example are code, and wrapping code to fit
 // would corrupt what it says. They overflow a narrow terminal instead, which
 // the terminal itself then wraps — ugly, but still true.
+// The terminal sink spends no column on defaults — it trails them after the
+// summary alongside the type, for the reason attrTable gives.
+func TestTermTrailsTheDefaultAfterTheSummary(t *testing.T) {
+	out := RenderTerm([]Event{AttrTable{Rows: []AttrRow{
+		{Name: "keep_alive", Type: "expression", Hint: config.HintDuration,
+			Default: "30s", Summary: "Ping interval."},
+		{Name: "brokers", Type: "list", Required: true, Summary: "Broker addresses."},
+	}}}, TermOptions{Width: 78})
+
+	assert.NotContains(t, out, "| Default |")
+	assert.Contains(t, out, "(expression, duration, default `30s`)")
+	// Required and default never crowd each other: one excludes the other.
+	assert.Contains(t, out, "(list, required)")
+}
+
 func TestTermWrapsEveryProseLineToTheWidth(t *testing.T) {
 	doc := testDoc()
 

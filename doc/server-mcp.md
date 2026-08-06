@@ -7,19 +7,8 @@ server, exposing resources, tools, and prompts to MCP clients such as AI assista
 
 ```hcl
 server "mcp" "name" {
-    listen         = ":8080"       # required unless mounted under an HTTP server
-    path           = "/mcp"        # optional, default "/"
-    server_name    = "My Server"   # optional
-    server_version = "1.0.0"       # optional
-    disabled       = false         # optional
-
-    tls {                          # optional; standalone mode only
-        ...
-    }
-
-    baggage {                      # optional
-        ...
-    }
+    listen         = ":8080"
+    server_name    = "My Server"
 
     resource ...
     tool ...
@@ -27,17 +16,64 @@ server "mcp" "name" {
 }
 ```
 
-- `listen` — address and port to listen on (e.g. `":9000"`). Omit when mounting under an HTTP server (see [Mounting under HTTP](#mounting-under-http)).
-- `path` — URL path to mount the MCP endpoint on
-- `server_name` / `server_version` — reported to clients during capability negotiation
-- `disabled` — if true, the server block is skipped entirely
-- `tracing` — optional reference to a `client "otlp"` block for OpenTelemetry tracing (auto-wired when there is exactly one OTLP client). See [Observability](#observability).
-- `metrics` — optional reference to a `server "metrics"` or `client "otlp"` block for metrics (auto-wired when there is only one metrics backend). See [Observability](#observability).
-- `tls` — optional sub-block to enable HTTPS; standalone mode only. See [TLS](#tls) below.
-- `baggage` — optional sub-block controlling which inbound [baggage](baggage.md) keys are trusted. Inbound baggage is **stripped by default**; see [Server-side trust filtering](baggage.md#server-side-trust-filtering). A server mounted under an HTTP server inherits that server's filter.
-
 The server uses the [Streamable HTTP transport](https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/transports/#streamable-http)
 (MCP spec 2025-03-26).
+
+`listen` is what separates the two deployment modes: with it the block runs its
+own HTTP server, without it the block is mounted on a route of a
+`server "http"` block — see [Mounting under HTTP](#mounting-under-http). `tls`
+and `path` apply to standalone mode only; a mounted server takes both from its
+parent.
+
+The `baggage` sub-block controls which inbound [baggage](baggage.md) keys are
+trusted. Inbound baggage is **stripped by default** — see
+[Server-side trust filtering](baggage.md#server-side-trust-filtering). A mounted
+server inherits its parent's filter. `tracing` and `metrics` resolve the same
+way they do on [`server "http"`](server-http.md); see
+[Observability](#observability).
+
+<!-- vinculum:begin block-attrs server mcp level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `listen` | string (listen-addr) |  |  | Address to serve on, as a standalone server. |
+| `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
+| `path` | string |  | `/` | Path the MCP endpoint is served at. |
+| `server_name` | string |  | `<name>` | Name reported to clients during initialization. |
+| `server_version` | string |  | `0.0.0` | Version reported to clients during initialization. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report request traces. |
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
+
+**`listen`**
+
+Omit to mount this server into a `server "http"` route instead.
+
+**`metrics`**
+
+A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
+
+**`path`**
+
+Standalone mode only. A mounted server is reached at the route its `handle` block declares.
+
+**`tracing`**
+
+A `client "otlp"` block. Spans follow the GenAI/MCP semantic conventions. Auto-wires to the default when omitted.
+
+### Blocks
+
+- `auth "<mode>"` (optional) — Authentication required by this server or handler.
+- `baggage` (optional) — Which inbound baggage keys to trust.
+- `prompt "<name>"` (0..n) — A reusable prompt template clients can render.
+- `resource "<uri>"` (0..n) — Data the server exposes to clients.
+- `tls` (optional) — TLS settings for this connection.
+- `tool "<name>"` (0..n) — An operation the model can invoke.
+
+<!-- vinculum:end block-attrs server mcp -->
 
 ---
 
@@ -46,20 +82,7 @@ The server uses the [Streamable HTTP transport](https://spec.modelcontextprotoco
 Resources expose data to MCP clients. Both static URIs and templated URIs are
 supported.
 
-```hcl
-resource "uri" {
-    name        = "Display Name"
-    description = "Human-readable description"  # optional
-    mime_type   = "text/plain"                   # optional
-    action      = expression
-}
-```
-
-The `action` expression is evaluated when a client requests the resource. Its return
-value becomes the resource content:
-
-- A string is returned as-is (using `mime_type` if set).
-- Any other value is JSON-encoded.
+The block label is the resource URI.
 
 ### Static URI
 
@@ -72,8 +95,8 @@ resource "status://current" {
 
 ### Templated URI
 
-Curly-brace placeholders in the URI are extracted and made available under
-`ctx.args.<name>` (consistent with tool and prompt arguments):
+Curly-brace placeholders in the URI make it a template. Each one is captured and
+arrives as `ctx.args.<name>`, the same way tool and prompt arguments do:
 
 ```hcl
 resource "db://records/{table}/{id}" {
@@ -82,14 +105,67 @@ resource "db://records/{table}/{id}" {
 }
 ```
 
-### Resource Context Variables
+### Resource attributes
 
-| Variable | Description |
-|---|---|
-| `ctx.server_name` | Name of the MCP server |
-| `ctx.uri` | The fully resolved URI of the request |
-| `ctx.args` | Object containing all `{name}` placeholders from a templated URI (empty for a static URI) |
-| `ctx.args.<name>` | Value of a specific `{name}` placeholder in a templated URI |
+<!-- vinculum:begin block-attrs server mcp resource level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `name` | string | yes | Display name shown to clients. |
+| `action` | expression (action-expression) |  | Expression evaluated when a client reads the resource. |
+| `description` | string |  | What the resource holds, shown to the model. |
+| `disabled` | bool |  | Skip this resource entirely. |
+| `mime_type` | string |  | Content type of the resource's contents. |
+
+**`action`**
+
+Required unless the resource is disabled. Its value becomes the contents, and must be a string — served as-is under `mime_type` — or an `mcp::image()`. Wrap structured data in `jsonencode()`; anything else is an error at request time. `ctx.uri` is the resolved URI and `ctx.args` holds any template placeholders.
+
+Evaluated against the `mcp-resource` context.
+
+**`disabled`**
+
+The resource is not registered, so clients never see it.
+
+<!-- vinculum:end block-attrs server mcp resource -->
+
+### Resource action context
+
+<!-- vinculum:begin block-ctx server mcp resource action level=4 -->
+
+Fields readable as `ctx.<name>` (shape `mcp-resource`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.server_name` | string | Name of the enclosing `server "mcp"` block. |
+| `ctx.uri` | string | The URI that was requested. |
+| `ctx.args` | object | Variables captured from the URI template. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.uri`**
+
+The concrete URI, not the template — `"file:///logs/app.log"` rather than `"file:///logs/{name}"`.
+
+**`ctx.args`**
+
+Empty for a static resource, which has nothing to capture.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+<!-- vinculum:end block-ctx server mcp resource action -->
 
 ---
 
@@ -102,31 +178,119 @@ tool "name" {
     description = "What this tool does"
 
     param "param_name" {
-        type        = "string"   # "string", "number", or "boolean"
-        description = "..."      # optional
-        required    = true       # optional, default false
-        default     = value      # optional
-        enum        = [...]      # optional, list of allowed values
+        type     = "string"
+        required = true
     }
 
     action = expression
 }
 ```
 
-The `action` expression is evaluated when a client calls the tool. Return values:
+The block label is the tool name.
 
-- A string is returned as text content.
-- `mcp::image(data [, mime_type])` returns image content — `data` may be a base64 string or a `bytes` capsule.
-- `mcp::error(message)` signals a tool error to the client.
+### Tool attributes
 
-### Tool Context Variables
+<!-- vinculum:begin block-attrs server mcp tool level=4 -->
 
-| Variable | Description |
-|---|---|
-| `ctx.server_name` | Name of the MCP server |
-| `ctx.tool_name` | Name of the tool being called |
-| `ctx.args` | Object containing all arguments passed by the client |
-| `ctx.args.<param>` | Value of a specific parameter |
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `description` | string | yes | What the tool does, shown to the model. |
+| `action` | expression (action-expression) |  | Expression evaluated when the tool is called. |
+| `disabled` | bool |  | Skip this tool entirely. |
+
+**`description`**
+
+This is how the model decides when to call it, so be specific.
+
+**`action`**
+
+Required unless the tool is disabled. Arguments arrive as `ctx.args.<param>`. A string becomes text content, `mcp::image()` image content, and `mcp::error(message)` reports failure to the model; any other type is an error. Wrap structured data in `jsonencode()`.
+
+Evaluated against the `mcp-tool` context.
+
+**`disabled`**
+
+The tool is not registered, so the model never sees it.
+
+#### Blocks
+
+- `param "<name>"` (0..n) — One argument the client may pass.
+
+<!-- vinculum:end block-attrs server mcp tool -->
+
+### `param` blocks
+
+`param` blocks declare the arguments a tool or prompt accepts. Each label is a
+parameter name, and its value arrives as `ctx.args.<name>`.
+
+Tools and prompts carry them differently, because the two protocols differ. A
+tool publishes a full JSON Schema, so the model sees each parameter's type,
+`enum`, and `default`, and arguments arrive typed. The prompt protocol carries
+only a name, a description, and whether the argument is required — so on a
+prompt, `type` and `enum` are checked at config time but constrain nothing at
+runtime, and every argument reaches the action as a string.
+
+<!-- vinculum:begin block-attrs server mcp tool param level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `type` | string | yes |  | Type of the parameter. |
+| `default` | expression |  |  | Value used when the client omits the parameter. |
+| `description` | string |  |  | What the parameter means, shown to the model. |
+| `enum` | expression |  |  | Closed set of values the parameter accepts. |
+| `required` | bool |  | `false` | Whether the client must supply the parameter. |
+
+- A parameter with a default is not required.
+
+**`type`**
+
+Published to the model on a tool. On a prompt it checks `default` and `enum` at config time only, since prompt arguments are strings on the wire.
+
+One of: `string`, `number`, `boolean`.
+
+**`default`**
+
+Applied when the argument is absent, whether or not the client honours the default published in a tool's schema. It must match `type`. On a prompt it is stringified with every other argument.
+
+**`enum`**
+
+Every entry must match `type`. Published in a tool's input schema; the prompt protocol has nowhere to carry it, so on a prompt it documents intent without constraining the caller.
+
+<!-- vinculum:end block-attrs server mcp tool param -->
+
+### Tool action context
+
+<!-- vinculum:begin block-ctx server mcp tool action level=4 -->
+
+Fields readable as `ctx.<name>` (shape `mcp-tool`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.server_name` | string | Name of the enclosing `server "mcp"` block. |
+| `ctx.tool_name` | string | Name of the tool being called. |
+| `ctx.args` | object | The call's arguments, keyed by the tool's declared `param` names. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.args`**
+
+Already validated against each param's declared type.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+<!-- vinculum:end block-ctx server mcp tool action -->
 
 ### Example
 
@@ -155,28 +319,72 @@ prompt "name" {
     description = "What this prompt does"
 
     param "param_name" {
-        type        = "string"
-        description = "..."
-        required    = true
-        default     = value
-        enum        = [...]
+        type     = "string"
+        required = true
     }
 
     action = expression
 }
 ```
 
-The `action` expression must return one or more prompt messages using the MCP message
-functions. A single message or a list of messages is accepted.
+Prompts take the same [`param` blocks](#param-blocks) as tools, with the
+runtime differences noted there: prompt arguments always arrive as strings.
 
-### Prompt Context Variables
+### Prompt attributes
 
-| Variable | Description |
-|---|---|
-| `ctx.server_name` | Name of the MCP server |
-| `ctx.prompt_name` | Name of the prompt being rendered |
-| `ctx.args` | Object containing all arguments passed by the client |
-| `ctx.args.<param>` | Value of a specific parameter |
+<!-- vinculum:begin block-attrs server mcp prompt level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `action` | expression (action-expression) |  | Expression evaluated when a client requests the prompt. |
+| `description` | string |  | What the prompt is for, shown to the model. |
+| `disabled` | bool |  | Skip this prompt entirely. |
+
+**`action`**
+
+Required unless the prompt is disabled. Arguments arrive as `ctx.args.<param>`. Return a string, or `mcp::user_message()`/`mcp::assistant_message()` values — singly or as a list — to control message roles.
+
+Evaluated against the `mcp-prompt` context.
+
+**`disabled`**
+
+The prompt is not registered, so clients never see it.
+
+#### Blocks
+
+- `param "<name>"` (0..n) — One argument the client may pass.
+
+<!-- vinculum:end block-attrs server mcp prompt -->
+
+### Prompt action context
+
+<!-- vinculum:begin block-ctx server mcp prompt action level=4 -->
+
+Fields readable as `ctx.<name>` (shape `mcp-prompt`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.server_name` | string | Name of the enclosing `server "mcp"` block. |
+| `ctx.prompt_name` | string | Name of the prompt being requested. |
+| `ctx.args` | object | The request's arguments, keyed by the prompt's declared `param` names. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+<!-- vinculum:end block-ctx server mcp prompt action -->
 
 ### Example
 
@@ -214,6 +422,10 @@ See [functions.md](functions.md#mcp-functions) for full details.
 | `mcp::error(message)` | Tool error | tools only |
 | `mcp::user_message(content)` | User-role prompt message | prompts |
 | `mcp::assistant_message(content)` | Assistant-role prompt message | prompts |
+
+An action must return one of these. There is no implicit encoding of other
+types — a resource or tool that wants to return structured data passes it
+through `jsonencode()` first, as the examples on this page do.
 
 `data` in `mcp::image` may be a base64-encoded string (requires `mime_type`) or a `bytes` capsule
 (MIME type taken from the capsule's content type, optionally overridden by a second argument).

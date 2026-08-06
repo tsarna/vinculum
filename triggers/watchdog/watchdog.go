@@ -408,13 +408,16 @@ acknowledge-and-rearm flow, ` + "`set()`" + ` is the right call.`,
 			Hint:    cfg.HintDuration,
 		},
 		"repeat": {
-			Summary: "Keep firing every window until fed. Defaults to false.",
+			Summary: "Keep firing every window until fed.",
 			Doc:     "When false the watchdog goes dormant after firing and waits to be fed again, so a known-broken condition does not flood alerts. Set true for paging systems where ongoing alerting is wanted.",
 			Hint:    cfg.HintBool,
+			Default: "false",
 		},
 		"max_misses": {
 			Summary: "Auto-stop after this many consecutive fires.",
-			Doc:     "At least 1. Feeding the watchdog resets the miss count to 0 and re-arms it immediately, so this caps how many times an alert repeats before an explicit acknowledgement.",
+			Doc: "At least 1, and unlimited when omitted. Feeding the watchdog resets the " +
+				"miss count to 0 and re-arms it immediately, so this caps how many times an " +
+				"alert repeats before an explicit acknowledgement.",
 		},
 		"stop_when": {
 			Summary: "Auto-stop when this evaluates true.",

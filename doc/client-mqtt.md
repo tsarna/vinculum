@@ -74,45 +74,154 @@ client "mqtt" "iot" {
 }
 ```
 
-### Connection attributes
+### Attributes
 
-| Attribute | Type | Default | Description |
-|---|---|---|---|
-| `brokers` | `list(string)` | required | Broker URLs. |
-| `client_id` | expression | `"vinculum-<name>-<hostname>"` | MQTT client identifier. Must be unique per active connection. |
-| `keep_alive` | duration | `"30s"` | How often to send a PINGREQ to the broker. |
-| `clean_start` | bool | `false` | Request a clean session on the initial connection. |
-| `session_expiry_interval` | duration | `0` | How long the broker retains session state after disconnect. `0` means the session ends when the connection closes. |
+<!-- vinculum:begin block-attrs client mqtt level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `brokers` | list (url) | yes |  | Broker addresses to connect to. |
+| `clean_start` | bool |  | `false` | Discard any session the broker holds for this client id. |
+| `client_id` | expression |  | `vinculum-<name>-<hostname>` | MQTT client identifier presented to the broker. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `keep_alive` | expression (duration) |  | `30s` | Interval at which to send keep-alive pings. |
+| `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
+| `on_connect` | expression (action-expression) |  |  | Evaluated after the connection is established and ready. |
+| `on_disconnect` | expression (action-expression) |  |  | Evaluated when the connection is lost or closed. |
+| `session_expiry_interval` | expression (duration) |  | `0` | How long the broker keeps the session after disconnect. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
+| `wire_format` | expression |  | `auto` | How to encode and decode message payloads. |
+
+**`brokers`**
+
+For example `["tcp://mqtt.example.com:1883"]`. Several addresses are tried in order.
+
+**`clean_start`**
+
+When false, the broker resumes the existing session and replays queued messages.
+
+**`client_id`**
+
+Must be unique per connection.
+
+**`disabled`**
+
+The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
+
+**`metrics`**
+
+A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
+
+**`on_connect`**
+
+Runs synchronously: no messages are produced or consumed until it returns. There is no message in flight, so no message variables are in scope.
+
+Evaluated against the `connection` context.
+
+**`on_disconnect`**
+
+Always runs before any reconnection attempt, and on a graceful shutdown before the connection is torn down. Every `on_connect` after the first is preceded by one.
+
+Evaluated against the `connection` context.
+
+**`session_expiry_interval`**
+
+Zero means the session ends when the connection closes.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+**`wire_format`**
+
+A `wire_format` block, or the name of a built-in format. Under `auto`, strings and bytes pass through and everything else is JSON-encoded; decoding auto-detects JSON and falls back to a string.
+
+#### Blocks
+
+- `auth` (optional) — Credentials presented to the broker.
+- `receiver "<name>"` (0..n) — Subscribes to MQTT topics and delivers what arrives.
+- `reconnect` (optional) — How to retry a lost connection.
+- `sender "<name>"` (0..n) — Publishes bus messages to MQTT topics.
+- `tls` (optional) — TLS settings for this connection.
+- `will` (optional) — Message the broker publishes if this client disconnects ungracefully.
+
+<!-- vinculum:end block-attrs client mqtt -->
 
 ### `tls`
 
 The `tls` sub-block configures transport security. See also [TLS configuration](config.md#tls).
 
-| Attribute | Type | Description |
-|---|---|---|
-| `enabled` | bool | Enable TLS. Must be `true` for TLS to take effect. |
-| `ca_cert` | string | Path to a PEM-encoded CA certificate for verifying the broker. If omitted, the system CA pool is used. |
-| `cert` | string | Path to a PEM-encoded client certificate (for mutual TLS). |
-| `key` | string | Path to the private key corresponding to `cert`. |
-| `insecure_skip_verify` | bool | Skip broker certificate verification. Not recommended outside of testing. Default: `false`. |
+<!-- vinculum:begin block-attrs client mqtt tls level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `ca_cert` | string |  | PEM file of CA certificates to trust. |
+| `cert` | string |  | PEM file holding this side's certificate. |
+| `enabled` | bool |  | Turn TLS on. |
+| `insecure_skip_verify` | bool |  | Accept any server certificate without verifying it. |
+| `key` | string |  | PEM file holding the private key for `cert`. |
+| `require_client_cert` | bool |  | Require clients to present a certificate. |
+| `self_signed` | bool |  | Generate a self-signed certificate at startup. |
+
+- cert and key must be specified together.
+- Specify at most one of self_signed or cert.
+
+**`ca_cert`**
+
+On a client, verifies the server's certificate. On a server, verifies presented client certificates.
+
+**`enabled`**
+
+Nothing else in the block takes effect while this is false.
+
+**`insecure_skip_verify`**
+
+Client-side only, and unsafe outside development.
+
+**`require_client_cert`**
+
+Server-side only; verified against `ca_cert`.
+
+**`self_signed`**
+
+Server-side only, for development. Mutually exclusive with `cert`/`key`.
+
+<!-- vinculum:end block-attrs client mqtt tls -->
 
 ### `auth`
 
-| Attribute | Type | Description |
-|---|---|---|
-| `username` | string | MQTT username. |
-| `password` | expression | MQTT password. Use `env.VAR_NAME` to avoid hardcoding credentials. |
+<!-- vinculum:begin block-attrs client mqtt auth level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `password` | expression |  | Password to authenticate with. |
+| `username` | string |  | Username to authenticate with. |
+
+**`password`**
+
+Supply it from the environment rather than a literal.
+
+<!-- vinculum:end block-attrs client mqtt auth -->
 
 ### `reconnect`
 
-Controls how autopaho backs off between reconnection attempts. If omitted,
+Controls how the client backs off between reconnection attempts. If omitted,
 autopaho uses its own default constant backoff.
 
-| Attribute | Type | Default | Description |
-|---|---|---|---|
-| `initial_delay` | duration | `"1s"` | Delay before the first reconnect attempt. |
-| `max_delay` | duration | `"60s"` | Maximum delay between reconnect attempts. |
-| `backoff_factor` | number | `2.0` | Exponential multiplier applied to the delay on each attempt. |
+<!-- vinculum:begin block-attrs client mqtt reconnect level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `backoff_factor` | number |  | `2.0` | Multiplier applied to the wait after each failed attempt. |
+| `initial_delay` | expression (duration) |  | `1s` | Wait before the first retry. |
+| `max_delay` | expression (duration) |  | `60s` | Ceiling on the wait between retries. |
+| `max_retries` | number |  |  | Give up after this many attempts. |
+
+**`max_retries`**
+
+Retries forever when omitted, and also when set to zero or a negative number. Counts attempts to recover a *lost* connection; the initial connection is retried regardless. Giving up is quiet and final — the client logs an error and stays down, and the process keeps running.
+
+<!-- vinculum:end block-attrs client mqtt reconnect -->
 
 ### `will`
 
@@ -120,12 +229,22 @@ Last Will and Testament: the broker publishes this message when the client
 disconnects unexpectedly (network failure, process kill). A graceful
 `Stop()` suppresses the will — the broker discards it on a clean DISCONNECT.
 
-| Attribute | Type | Description |
-|---|---|---|
-| `topic` | expression | MQTT topic to publish the will on. Evaluated once at config time. |
-| `payload` | expression | Message payload (string). Evaluated once at config time. |
-| `qos` | number | QoS for the will message (0 or 1). Default: `0`. |
-| `retain` | bool | Whether the broker retains the will. Default: `false`. |
+Both `topic` and `payload` are evaluated once, at config load.
+
+<!-- vinculum:begin block-attrs client mqtt will level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `payload` | expression | yes |  | Payload of the will message. |
+| `topic` | expression (topic-pattern) | yes |  | MQTT topic to publish the will to. |
+| `qos` | number |  | `0` | MQTT quality of service for the will. |
+| `retain` | bool |  | `false` | Ask the broker to retain the will message. |
+
+**`qos`**
+
+`0` at most once, `1` at least once, `2` exactly once.
+
+<!-- vinculum:end block-attrs client mqtt will -->
 
 ### `on_connect` / `on_disconnect`
 
@@ -173,6 +292,26 @@ sender "main" {
 }
 ```
 
+### Sender attributes
+
+<!-- vinculum:begin block-attrs client mqtt sender level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `default_topic_transform` | string |  | `verbatim` | How to derive an MQTT topic from a bus topic with no `topic` block. |
+| `qos` | number |  | `1` | Default quality of service for published messages. |
+| `retain` | bool |  | `false` | Ask the broker to retain published messages. |
+
+**`qos`**
+
+`0` at most once, `1` at least once, `2` exactly once.
+
+#### Blocks
+
+- `topic "<pattern>"` (0..n) — Maps bus topics matching a pattern to an MQTT topic.
+
+<!-- vinculum:end block-attrs client mqtt sender -->
+
 ### `topic "<pattern>"`
 
 Each `topic` block maps a vinculum topic pattern to MQTT delivery settings.
@@ -180,19 +319,70 @@ The pattern is the block label. The primary purpose is to set per-pattern QoS
 and retain flags; `mqtt_topic` is optional for cases where the MQTT topic
 should differ from the vinculum topic.
 
-| Attribute | Type | Description |
-|---|---|---|
-| `mqtt_topic` | expression | MQTT topic to publish to. If omitted, the vinculum topic is used verbatim. |
-| `qos` | number | QoS for messages matching this pattern (0 or 1). Overrides the sender-level default. |
-| `retain` | bool | Retain flag for messages matching this pattern. Overrides the sender-level default. |
+<!-- vinculum:begin block-attrs client mqtt sender topic level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `mqtt_topic` | expression (topic-pattern) |  | MQTT topic to publish to. |
+| `qos` | number |  | Quality of service for this mapping. |
+| `retain` | bool |  | Retain flag for this mapping. |
+
+**`mqtt_topic`**
+
+The vinculum topic is used verbatim when omitted. Evaluated per message, so it can interpolate the fields the pattern captured.
+
+Evaluated against the `message` context.
+
+**`qos`**
+
+Overrides the sender's default.
+
+**`retain`**
+
+Overrides the sender's default.
+
+<!-- vinculum:end block-attrs client mqtt sender topic -->
 
 **`mqtt_topic` expression context:**
 
-| Variable | Description |
-|---|---|
-| `ctx.topic` | The vinculum topic string |
-| `ctx.msg` | The message payload |
-| `ctx.fields` | Named segments captured from the pattern (e.g. `ctx.fields.deviceId`) |
+<!-- vinculum:begin block-ctx client mqtt sender topic mqtt_topic level=4 -->
+
+Fields readable as `ctx.<name>` (shape `message`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.topic` | string | Topic the message was delivered on. |
+| `ctx.msg` | dynamic | The message payload. |
+| `ctx.fields` | object | String metadata attached to the message. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.msg`**
+
+Already decoded by the client's `wire_format`, so its type follows the data rather than the transport.
+
+**`ctx.fields`**
+
+Always present; an empty object when the message carries no metadata.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+<!-- vinculum:end block-ctx client mqtt sender topic mqtt_topic -->
+
+Named segments captured from the pattern arrive in `ctx.fields` — `+deviceId`
+in the label becomes `ctx.fields.deviceId`.
 
 ### `default_topic_transform`
 
@@ -254,6 +444,63 @@ receiver "main" {
 }
 ```
 
+### Receiver attributes
+
+<!-- vinculum:begin block-attrs client mqtt receiver level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `action` | expression (action-expression) |  |  | Expression evaluated once per message. |
+| `handle_retained` | bool |  | `true` | Deliver messages the broker retained before this subscription. |
+| `on_decode_error` | expression (action-expression) |  |  | Evaluated when an inbound message cannot be decoded. |
+| `qos` | number |  | `0` | Default quality of service to subscribe with. |
+| `queue_size` | number |  |  | Depth of an async queue wrapping the subscriber. |
+| `shared_group` | string |  |  | Shared subscription group name. |
+| `subscriber` | expression (subscriber-ref) |  |  | Subscriber to forward messages to, instead of evaluating an action. |
+| `transforms` | expression (transform-pipeline) |  |  | Transform pipeline applied before the action or subscriber. |
+
+- Specify at most one of action or subscriber.
+- Specify either an action to evaluate or a subscriber to forward to.
+
+**`action`**
+
+`ctx.topic` is the message topic and `ctx.msg` the payload; a protocol that extracts metadata also provides `ctx.fields`.
+
+Evaluated against the `message` context.
+
+**`on_decode_error`**
+
+The message is dropped rather than delivered. Use this to publish to a dead-letter destination or record the failure.
+
+Evaluated against the `decode-error` context.
+
+**`qos`**
+
+`0` at most once, `1` at least once, `2` exactly once.
+
+**`queue_size`**
+
+When set, decouples delivery from the action so a slow action does not block the source.
+
+**`shared_group`**
+
+Instances in the same group share the topic's messages rather than each receiving all of them.
+
+**`subscriber`**
+
+Anything that can receive messages: a bus, an FSM, a subscriber-implementing server or client.
+
+**`transforms`**
+
+A list of transform functions applied in order to each message. Only transform functions are in scope here.
+
+#### Blocks
+
+- `baggage` (optional) — Which inbound baggage keys to trust.
+- `subscription "<mqtt_topic>"` (0..n) — One MQTT topic filter to subscribe to.
+
+<!-- vinculum:end block-attrs client mqtt receiver -->
+
 ### `subscriber` / `action`
 
 Exactly one must be specified.
@@ -269,11 +516,44 @@ block.
 
 #### Action context variables
 
-| Variable | Description |
-|---|---|
-| `ctx.topic` | Vinculum topic of the received message |
-| `ctx.msg` | Deserialized message payload |
-| `ctx.fields` | `map(string)` from MQTT 5 user properties and extracted pattern fields |
+<!-- vinculum:begin block-ctx client mqtt receiver action level=5 -->
+
+Fields readable as `ctx.<name>` (shape `message`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.topic` | string | Topic the message was delivered on. |
+| `ctx.msg` | dynamic | The message payload. |
+| `ctx.fields` | object | String metadata attached to the message. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.msg`**
+
+Already decoded by the client's `wire_format`, so its type follows the data rather than the transport.
+
+**`ctx.fields`**
+
+Always present; an empty object when the message carries no metadata.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+<!-- vinculum:end block-ctx client mqtt receiver action -->
+
+`ctx.fields` carries the MQTT 5 user properties and the segments extracted from
+the subscription pattern.
 
 ### `handle_retained`
 
@@ -305,18 +585,65 @@ only baggage key/value pairs are filtered.)
 Each `subscription` block subscribes to one MQTT topic pattern. The MQTT
 topic (or pattern) is the block label.
 
-| Attribute | Type | Description |
-|---|---|---|
-| `vinculum_topic` | expression | Vinculum topic for dispatching the message. Default: use the MQTT topic verbatim. |
-| `qos` | number | QoS for this subscription (0 or 1). Overrides the receiver-level default. |
+<!-- vinculum:begin block-attrs client mqtt receiver subscription level=4 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `qos` | number |  | Quality of service for this subscription. |
+| `vinculum_topic` | expression (topic-pattern) |  | Bus topic to publish arriving messages to. |
+
+**`qos`**
+
+Overrides the receiver's default.
+
+**`vinculum_topic`**
+
+The MQTT topic is used verbatim when omitted. Evaluated per message, so placeholders captured by the filter can be interpolated.
+
+Evaluated against the `message` context.
+
+<!-- vinculum:end block-attrs client mqtt receiver subscription -->
 
 **`vinculum_topic` expression context:**
 
-| Variable | Description |
-|---|---|
-| `ctx.topic` | The incoming MQTT topic string |
-| `ctx.msg` | The deserialized message payload |
-| `ctx.fields` | `map(string)` from MQTT 5 user properties and topic pattern field extraction |
+<!-- vinculum:begin block-ctx client mqtt receiver subscription vinculum_topic level=4 -->
+
+Fields readable as `ctx.<name>` (shape `message`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.topic` | string | Topic the message was delivered on. |
+| `ctx.msg` | dynamic | The message payload. |
+| `ctx.fields` | object | String metadata attached to the message. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.msg`**
+
+Already decoded by the client's `wire_format`, so its type follows the data rather than the transport.
+
+**`ctx.fields`**
+
+Always present; an empty object when the message carries no metadata.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+<!-- vinculum:end block-ctx client mqtt receiver subscription vinculum_topic -->
+
+Here `ctx.topic` is the incoming MQTT topic, and `ctx.fields` carries the MQTT 5
+user properties along with the segments the pattern extracted.
 
 **Named wildcard field extraction:** `+deviceId` in the subscription label
 extracts the matched segment into `fields["deviceId"]`. The broker subscription
@@ -358,14 +685,42 @@ receiver "in" {
 
 **Hook context variables:**
 
-| Variable | Description |
-|---|---|
-| `ctx.raw` | The undecoded payload, as a [`bytes`](functions.md) object |
-| `ctx.error` | The deserialize error message |
-| `ctx.wire_format` | The configured format name (`"json"`, …) |
-| `ctx.topic` | Best-effort vinculum topic |
-| `ctx.fields` | Fields extracted before the failure |
-| `ctx.mqtt_topic` | The MQTT topic the message arrived on |
+<!-- vinculum:begin block-ctx client mqtt receiver on_decode_error level=5 -->
+
+Fields readable as `ctx.<name>` (shape `decode-error`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.raw` | object | The undecoded body, as a bytes object. |
+| `ctx.error` | string | The deserialize error message. |
+| `ctx.wire_format` | string | Name of the configured wire format that rejected it. |
+| `ctx.topic` | string | Best-effort vinculum topic for the message. |
+| `ctx.fields` | object | Metadata extracted before the failure. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.mqtt_topic` | string | The MQTT topic the message arrived on. *(added here)* |
+
+*This shape is open: a particular site may carry fields beyond these.*
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+**`ctx.mqtt_topic`**
+
+Equal to `ctx.topic` here: a vinculum topic derived from the payload cannot be computed once the payload has failed to decode, so `ctx.topic` falls back to this.
+
+<!-- vinculum:end block-ctx client mqtt receiver on_decode_error -->
 
 `ctx.topic` and `ctx.mqtt_topic` carry the same string here, because a vinculum
 topic that depends on the payload cannot be computed once the payload has failed
