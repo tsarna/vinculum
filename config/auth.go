@@ -118,12 +118,14 @@ An authenticated request exposes its identity to expressions as ` + "`ctx.auth`"
 		},
 		"algorithms": {
 			Summary: "Permitted token signing algorithms.",
-			Doc:     "`oidc` only. Defaults to `[\"RS256\", \"ES256\"]`.",
+			Doc:     "`oidc` only.",
+			Default: `["RS256", "ES256"]`,
 		},
 		"clock_skew": {
 			Summary: "Tolerance applied to `exp` and `nbf`.",
-			Doc:     "`oidc` only. Defaults to `\"30s\"`. Accepts a duration string, a number of seconds, or a duration value.",
+			Doc:     "`oidc` only. Accepts a duration string, a number of seconds, or a duration value.",
 			Hint:    HintDuration,
+			Default: "30s",
 		},
 		"introspect_url": {
 			Summary: "RFC 7662 token introspection endpoint.",
@@ -148,8 +150,10 @@ An authenticated request exposes its identity to expressions as ` + "`ctx.auth`"
 		},
 		"cache_ttl": {
 			Summary: "How long to cache introspection results.",
-			Doc:     "`oauth2` only. Defaults to `\"0s\"`, which disables caching.",
+			Doc: "`oauth2` only. Zero calls the introspection endpoint on every request; " +
+				"a cache trades revocation latency for that round trip.",
 			Hint:    HintDuration,
+			Default: "0s",
 		},
 	},
 	Constraints: []Constraint{
