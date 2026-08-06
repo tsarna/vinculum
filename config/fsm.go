@@ -94,7 +94,8 @@ see the FSM reference.`,
 		},
 		"queue_size": {
 			Summary: "Depth of the inbound event queue.",
-			Doc:     "Defaults to 64.",
+			Doc:     "Events are processed one at a time by a single goroutine, so this is how far the machine can fall behind before a `send()` blocks.",
+			Default: "64",
 		},
 		"shutdown_event": {
 			Summary: "Event delivered to the machine at shutdown.",
