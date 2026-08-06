@@ -9,41 +9,64 @@ ordered regex match-and-replace rules.
 
 ```hcl
 editor "line" "name" {
-    params         = [param1, param2]  # optional — declared parameter names
-    variadic_param = rest              # optional — collects extra args into a list
-
-    mode            = "file"           # optional — "file" (default) or "string"
-    backup          = "~"              # optional — suffix for hard-link backup
-    create_if_absent = false           # optional — treat missing file as empty
-    lock            = false            # optional — acquire exclusive flock before editing
-
-    state = {                          # optional — initial state variable values
-        count = 0
-        last  = ""
-    }
-
-    before {                           # optional — content prepended to output
-        content    = expr
-        incidental = true              # optional — don't count as a change
-    }
+    params = [param1, param2]
 
     match "<regex>" {
-        required     = 1               # optional — minimum required matches
-        max          = 1               # optional — stop matching after n occurrences
-        when         = expr            # optional — guard; skip rule if falsy
-        replace      = expr            # optional — replacement text
-        abort        = expr            # optional — discard and return false/error if truthy
-        update_state = expr            # optional — merge into state after this match
-    }
-
-    # additional match blocks...
-
-    after {                            # optional — content appended to output
-        content    = expr
-        incidental = true              # optional — don't count as a change
+        when    = expr
+        replace = expr
     }
 }
 ```
+
+<!-- vinculum:begin block-attrs editor line level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `backup` | string |  |  | Suffix for a hard-link backup of the original file. |
+| `create_if_absent` | bool |  |  | Treat a missing file as empty rather than an error. |
+| `lock` | bool |  |  | Take an exclusive lock on the file for the duration of the edit. |
+| `mode` | string |  | `"file"` | Whether the function edits a file or a string. |
+| `params` | expression |  |  | Names of the parameters the compiled function takes. |
+| `state` | expression |  |  | Initial values for the state accumulated across lines. |
+| `variadic_param` | expression |  |  | Name for a parameter collecting any extra arguments. |
+
+**`backup`**
+
+For example `"~"` keeps the previous contents as `file~`. File mode only.
+
+**`create_if_absent`**
+
+File mode only.
+
+**`lock`**
+
+File mode only.
+
+**`mode`**
+
+File mode edits a file on disk and returns whether it was written; it requires `--write-path`, resolves relative paths against it, and rejects paths outside it. String mode processes its argument in memory and returns the result, with `backup`, `create_if_absent`, `lock`, and the path restrictions not applying.
+
+One of: `file`, `string`.
+
+**`params`**
+
+Written as bare identifiers, e.g. `params = [host, port]`. They come after the target argument: `params = [a, b]` yields `name(ctx, target, a, b)`. Each is in scope in every expression in the block.
+
+**`state`**
+
+An object. `update_state` on a match rule merges into it, and every expression in the block reads it as `state.<name>`.
+
+**`variadic_param`**
+
+A bare identifier. Arguments beyond the declared `params` are gathered into it as a list.
+
+### Blocks
+
+- `after` (optional) — Content appended to the output.
+- `before` (optional) — Content prepended to the output.
+- `match "<pattern>"` (0..n) — One match-and-replace rule.
+
+<!-- vinculum:end block-attrs editor line -->
 
 ---
 
@@ -95,32 +118,62 @@ do not apply. The `--write-path` flag is not required.
 
 ## Match Blocks
 
-```hcl
-match "<regex>" {
-    required     = n     # optional; default 0
-    max          = n     # optional; default unlimited
-    when         = expr  # optional
-    replace      = expr  # optional
-    abort        = expr  # optional
-    update_state = expr  # optional
-    incidental   = true  # optional; replacement doesn't count as a change on its own
-}
-```
-
 The label is a Go RE2 regular expression. Match rules are evaluated in **declaration
 order**: the first rule whose guards pass and whose regex matches wins for that line.
 
-**`required`**: This rule must match at least `n` lines, or the edit is aborted cleanly
-(returns `false`, temp file discarded). `required = true` is eqivalent to `required = 1`.
+<!-- vinculum:begin block-attrs editor line match level=3 -->
 
-**`max`**: The rule stops matching after `n` occurrences. Lines that would have matched
-are passed to subsequent rules instead (or copied unchanged if no later rule matches).
-`required = 1, max = 1` means the pattern must match exactly once.
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `abort` | expression (predicate-expression) |  |  | When true, discard the whole edit immediately. |
+| `incidental` | expression |  |  | Don't let this rule's replacement count as a change on its own. |
+| `max` | expression |  |  | Stop applying this rule after this many matches. |
+| `replace` | expression |  |  | The output for this line. |
+| `required` | expression |  | `0` | This rule must match at least this many lines. |
+| `update_state` | expression |  |  | Object merged into the running state after this match. |
+| `when` | expression (predicate-expression) |  |  | Guard evaluated after the regex matches; skip the rule if false. |
 
-**`when`**: A guard expression evaluated after the regex matches. If falsy, the rule is
-skipped for that line and matching continues with the next rule. The full match context
-is in scope — `ctx.groups`, `ctx.named`, `ctx.count`, and `ctx.line` — so `when` can
-inspect capture groups to further qualify a match:
+**`abort`**
+
+Returns false in file mode, an error in string mode. For when a match shows the edit is unnecessary rather than wrong.
+
+Evaluated against the `editor-match` context.
+
+**`incidental`**
+
+The replacement still happens. If every modification in the whole edit was incidental, the file is not written and the function returns false — so housekeeping edits like a timestamp bump ride along with a real change without causing a write by themselves. Evaluated once at config load, not per line.
+
+**`max`**
+
+Unlimited when omitted. Further lines that would have matched fall through to later rules instead, so `required = 1, max = 1` means the pattern must match exactly once. Evaluated once at config load, not per line.
+
+**`replace`**
+
+Should end with `\n`. Absent, the line is written unchanged but still counts toward `required`. `""` deletes the line; `"${ctx.line}extra\n"` inserts after it; `error("...")` aborts with an error.
+
+Evaluated against the `editor-match` context.
+
+**`required`**
+
+Otherwise the edit is abandoned cleanly: the file is left alone and the function returns false. `required = true` means 1. Evaluated once at config load, not per line.
+
+**`update_state`**
+
+Evaluated after `replace` and `abort`. Keys it does not mention are left as they were, and later rules see the result.
+
+Evaluated against the `editor-match` context.
+
+**`when`**
+
+Matching continues with the next rule. The full match context is in scope, so the guard can inspect capture groups — `ctx.count` reflects the count this match *would* have if the guard passes.
+
+Evaluated against the `editor-match` context.
+
+<!-- vinculum:end block-attrs editor line match -->
+
+A `when` guard is what lets one rule's regex be broad while the rule itself is
+narrow — the full match context is in scope, so the guard can inspect capture
+groups:
 
 ```hcl
 # Match any A record but only act on the one for the target host
@@ -130,8 +183,8 @@ match "^(\\S+)(\\s+(?:IN\\s+)?A\\s+)\\S+" {
 }
 ```
 
-**`replace`**: An expression evaluated to produce the output for this line. If absent, the
-original line is written unchanged (but the match is still counted for `required`).
+`replace` is where a rule earns its keep, and the whole line's output is whatever
+it produces:
 
 - `replace = "${ctx.groups[1]}: ${value}\n"` — replace the line
 - `replace = ""` — delete the line
@@ -139,68 +192,118 @@ original line is written unchanged (but the match is still counted for `required
 - `replace = "${ctx.line}inserted\n"` — insert a line after
 - `replace = error("message")` — abort with an error
 
-Replacements should end with `\n` for proper line termination.
-
-**`abort`**: If truthy, immediately discard the temp file and return `false` (file mode)
-or an error (string mode). Useful when a match indicates the edit is unnecessary or
-invalid without being an error condition. Has the same expression context as `replace`.
-
-**`update_state`**: An object expression merged into the running state after `replace`
-and `abort` have been evaluated. Keys not present in the expression are preserved
-unchanged. State is then available to subsequent rules via `state.<name>`.
-
-**`incidental = true`**: The replacement fires normally, but does not itself mark the
-file as changed. If every modification across the entire edit (all match rules,
-`before`, and `after`) was incidental, the file is not written and the function returns
-`false`. Useful for housekeeping replacements — like updating a timestamp or serial
-number — that should ride along when another change is made but should not trigger a
-write on their own.
-
 ---
 
 ## Context Variables in Expressions
 
-### Inside `replace`, `abort`, and `update_state`
+Alongside `ctx`, every expression in an editor block also sees `state` and the
+editor's declared `params` as top-level variables. Those are not `ctx` fields,
+so they do not appear in the tables below.
 
-| Variable | Description |
-|---|---|
-| `ctx.line` | The original line, including its trailing newline |
-| `ctx.lineno` | 1-based line number in the original file |
-| `ctx.filename` | Resolved absolute path of the file (empty in string mode) |
-| `ctx.groups` | List of regex capture groups (`ctx.groups[0]` = full match, `ctx.groups[1]` = first group, etc.) |
-| `ctx.named` | Map of named capture groups (`(?P<name>...)` syntax) |
-| `ctx.count` | Number of times this rule has matched so far, including this line (1 on the first match) |
-| `state` | Current accumulated state object |
-| `<param>` | Declared function parameters, by name |
+### Inside `when`, `replace`, `abort`, and `update_state`
 
-### Inside `when`
+<!-- vinculum:begin context editor-match level=4 -->
 
-Same as `replace`/`abort`/`update_state` — `when` is evaluated after the regex matches,
-so the full match context is available. `ctx.count` reflects the count this match would
-have if `when` passes (i.e. one more than the current count).
+Evaluated for a line the rule's regex matched.
+
+`state.<name>` and the editor's declared params are also in scope.
+
+Fields readable as `ctx.<name>` (shape `editor-match`):
+
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.line` | string | The original line, including its trailing newline. |
+| `ctx.lineno` | number | 1-based line number in the input. |
+| `ctx.filename` | string | Resolved absolute path of the file. |
+| `ctx.groups` | list | Regex capture groups. |
+| `ctx.named` | map | Named capture groups, from `(?P<name>...)`. |
+| `ctx.count` | number | How many times this rule has matched, including this line. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.filename`**
+
+Empty in string mode.
+
+**`ctx.groups`**
+
+`ctx.groups[0]` is the whole match, `ctx.groups[1]` the first group. Empty when the pattern has no groups.
+
+**`ctx.named`**
+
+Empty when the pattern has none.
+
+**`ctx.count`**
+
+1 on the first match. In `when`, the count this match *would* have if the guard passes.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+##### Evaluated by
+
+- `editor "line"` › `match` › `when`
+- `editor "line"` › `match` › `replace`
+- `editor "line"` › `match` › `abort`
+- `editor "line"` › `match` › `update_state`
+
+<!-- vinculum:end context editor-match -->
 
 ### Inside `before` and `after`
 
-| Variable | Description |
-|---|---|
-| `ctx.filename` | Resolved absolute path of the file (empty in string mode) |
-| `state` | Final accumulated state (all rules have been processed) |
-| `<param>` | Declared function parameters, by name |
+<!-- vinculum:begin context editor-content level=4 -->
 
-### Universal context fields
+Evaluated once, after every line has been processed.
 
-Every expression above also sees the fields every `ctx` carries, taken from the
-context passed as the editor function's first argument:
+There is no line in scope. `state.<name>` holds the final accumulated state, and the editor's declared params are in scope too.
 
-| Variable | Description |
-|---|---|
-| `ctx.auth` | The authenticated identity of the caller, or null |
-| `ctx.baggage` | OpenTelemetry baggage — see [baggage](baggage.md) |
-| `ctx.trace_id` | Trace ID of the active span, or empty |
-| `ctx.span_id` | Span ID of the active span, or empty |
+Fields readable as `ctx.<name>` (shape `editor-content`):
 
-So an editor called from an HTTP handler can log against the request's trace, or
-make an edit that depends on who is asking.
+| Field | Type | Description |
+|---|---|:---|
+| `ctx.filename` | string | Resolved absolute path of the file. |
+| `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
+| `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
+| `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+**`ctx.filename`**
+
+Empty in string mode.
+
+**`ctx.auth`**
+
+Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+
+**`ctx.baggage`**
+
+Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen by later `send()` and `http::*()` calls on the same context. See [the baggage reference](baggage.md).
+
+**`ctx.trace_id`**
+
+Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+##### Evaluated by
+
+- `editor "line"` › `after` › `content`
+- `editor "line"` › `before` › `content`
+
+<!-- vinculum:end context editor-content -->
+
+The universal fields come from the context passed as the editor function's first
+argument, so an editor called from an HTTP handler can log against the request's
+trace, or make an edit that depends on who is asking.
 
 > **Changed in 0.45.0.** These four were missing: the editor built its context
 > object directly instead of the way every other evaluation site does, so
@@ -246,17 +349,33 @@ with final state) is prepended atomically.
 
 ## `before` and `after` Blocks
 
-**`before`**: Content written before any input lines in the output. Evaluated once, after
-all lines have been processed (so that `state` reflects accumulated values from the entire
-file). Content must end with `\n` for proper line termination. Accepts `incidental = true`
-to write the content without marking it as a change.
+`before` content goes ahead of every input line and `after` content follows them,
+but both are *evaluated* at the same moment: once, after every line has been
+processed, so each sees the final accumulated `state`. Neither sees line-specific
+context — there is no `ctx.line` or `ctx.groups` by then.
 
-**`after`**: Content written after all input lines in the output. Evaluated once, after
-all lines have been processed. Accepts `incidental = true` to write the content without
-marking it as a change.
+The two blocks share a body:
 
-Both `before` and `after` have access to final state and function parameters, but not to
-line-specific context (`ctx.line`, `ctx.groups`, etc.).
+<!-- vinculum:begin block-attrs editor line before level=3 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `content` | expression | yes | The text to add. |
+| `incidental` | expression |  | Don't let this content count as a change on its own. |
+
+**`content`**
+
+Evaluated once, after every line has been processed, so it sees the final accumulated `state`.
+
+Evaluated against the `editor-content` context.
+
+**`incidental`**
+
+As on a `match` rule: if every modification in the edit was incidental, nothing is written. Evaluated once at config load.
+
+<!-- vinculum:end block-attrs editor line before -->
+
+Content should end with `\n` for proper line termination.
 
 ---
 

@@ -73,9 +73,10 @@ produces that line's output. Lines matching no rule are copied through
 unchanged.`,
 	Attrs: map[string]cfg.AttrMeta{
 		"mode": {
-			Summary: "Whether the function edits a file or a string. Defaults to `\"file\"`.",
+			Summary: "Whether the function edits a file or a string.",
 			Doc:     "File mode edits a file on disk and returns whether it was written; it requires `--write-path`, resolves relative paths against it, and rejects paths outside it. String mode processes its argument in memory and returns the result, with `backup`, `create_if_absent`, `lock`, and the path restrictions not applying.",
 			Enum:    []string{"file", "string"},
+			Default: `"file"`,
 		},
 		"backup": {
 			Summary: "Suffix for a hard-link backup of the original file.",
@@ -105,10 +106,11 @@ order and the first that matches a line wins it.`,
 				"required": {
 					Summary: "This rule must match at least this many lines.",
 					Doc:     "Otherwise the edit is abandoned cleanly: the file is left alone and the function returns false. `required = true` means 1. Evaluated once at config load, not per line.",
+					Default: "0",
 				},
 				"max": {
 					Summary: "Stop applying this rule after this many matches.",
-					Doc:     "Further lines that would have matched fall through to later rules instead. `required = 1, max = 1` means the pattern must match exactly once. Evaluated once at config load, not per line.",
+					Doc:     "Unlimited when omitted. Further lines that would have matched fall through to later rules instead, so `required = 1, max = 1` means the pattern must match exactly once. Evaluated once at config load, not per line.",
 				},
 				"when": {
 					Summary: "Guard evaluated after the regex matches; skip the rule if false.",
