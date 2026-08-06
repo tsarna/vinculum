@@ -295,10 +295,8 @@ func (s reconnectSchedule) delay(attempt int) time.Duration {
 // asks how long to wait next, so a func(int) time.Duration is all it can
 // accept.
 //
-// One consequence is visible in the schema: max_retries cannot be honored
-// here. Giving up is a property of the loop, and this side does not own the
-// loop. Honoring it needs a config field on those clients, so
-// UnhonoredMaxRetriesAttr documents the gap until they grow one.
+// max_retries does not travel with the schedule, because giving up cannot be
+// expressed in a duration. It is passed separately — see ReconnectMaxAttempts.
 func (c *Config) ReconnectBackoffFunc(def *ReconnectDefinition) (func(int) time.Duration, hcl.Diagnostics) {
 	if def == nil {
 		return nil, nil
@@ -310,9 +308,26 @@ func (c *Config) ReconnectBackoffFunc(def *ReconnectDefinition) (func(int) time.
 	return schedule.delay, nil
 }
 
+// ReconnectMaxAttempts is max_retries as a client library's max-attempts field
+// wants it: the number of attempts to allow, where zero or negative means
+// unlimited. Zero is unlimited rather than "do not reconnect" because that is
+// what bus.AutoReconnector has always meant by it (`maxRetries > 0 && ...`), and
+// because it makes an omitted attribute mean what it meant before the attribute
+// was honored at all.
+//
+// A companion to ReconnectBackoffFunc rather than part of it: a backoff function
+// answers "how long until the next attempt", and stopping is not an answer to
+// that question. Clients pass both.
+func ReconnectMaxAttempts(def *ReconnectDefinition) int {
+	if def == nil || def.MaxRetries == nil || *def.MaxRetries < 0 {
+		return 0
+	}
+	return *def.MaxRetries
+}
+
 // CreateReconnector lowers a reconnect block into the bus.AutoReconnector a bus
-// client takes. Unlike ReconnectBackoffFunc's consumers, this one owns its
-// retry loop, so it is the only path that can honor max_retries.
+// client takes. Unlike ReconnectBackoffFunc's consumers, this one is handed the
+// whole schedule at once because the reconnector owns the retry loop itself.
 //
 // Every value is set explicitly rather than left to bus.NewAutoReconnector's
 // own defaults, which is what makes the block mean the same here as everywhere
