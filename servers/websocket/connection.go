@@ -61,8 +61,15 @@ func newConnection(ctx context.Context, conn *websocket.Conn, eventBus bus.Event
 		wrappedSubscriber = subutils.NewTransformingSubscriber(wrappedSubscriber, config.outboundTransforms...)
 	}
 
-	// Create AsyncQueueingSubscriber with configured queue size and start it
-	asyncSubscriber := subutils.NewAsyncQueueingSubscriber(wrappedSubscriber, config.queueSize).Start()
+	// Create AsyncQueueingSubscriber with configured queue size and start it.
+	// The ticker rides the same queue as outbound messages, so a ping is written
+	// by the goroutine that writes everything else — two goroutines writing to
+	// one websocket.Conn concurrently is not allowed.
+	asyncSubscriber := subutils.NewAsyncQueueingSubscriber(wrappedSubscriber, config.queueSize)
+	if config.pingInterval > 0 {
+		asyncSubscriber = asyncSubscriber.WithTicker(config.pingInterval)
+	}
+	asyncSubscriber = asyncSubscriber.Start()
 
 	// Store the async subscriber for cleanup and EventBus subscriptions
 	baseConnection.AsyncSubscriber = asyncSubscriber
@@ -272,8 +279,12 @@ func (c *Connection) OnEvent(ctx context.Context, topic string, payload any, fie
 		zap.Any("fields", fields),
 	)
 
-	// Send directly to WebSocket client
-	err = c.conn.Write(c.ctx, messageType, data)
+	// Send directly to WebSocket client, bounded by the write timeout so a peer
+	// that has stopped reading cannot hold this goroutine indefinitely.
+	writeCtx, cancel := c.writeContext()
+	defer cancel()
+
+	err = c.conn.Write(writeCtx, messageType, data)
 	if err != nil {
 		c.logger.Error("Failed to send WebSocket message", zap.Error(err))
 		c.metrics.RecordMessageError(c.ctx, "write_failed", messageType.String())
@@ -289,6 +300,45 @@ func (c *Connection) OnEvent(ctx context.Context, topic string, payload any, fie
 	return nil
 }
 
+// writeContext bounds a single write by the configured timeout. A zero or
+// negative timeout means wait indefinitely, so the connection context is
+// returned unchanged with a no-op cancel.
+func (c *Connection) writeContext() (context.Context, context.CancelFunc) {
+	if c.config.writeTimeout <= 0 {
+		return c.ctx, func() {}
+	}
+	return context.WithTimeout(c.ctx, c.config.writeTimeout)
+}
+
+// PassThrough receives the queue's own messages rather than bus events. The
+// only one this server acts on is the tick that drives connection pings; it
+// arrives here because the ticker is attached to the outbound queue.
 func (c *Connection) PassThrough(msg bus.EventBusMessage) error {
+	if msg.MsgType != bus.MessageTypeTick {
+		return nil
+	}
+
+	writeCtx, cancel := c.writeContext()
+	defer cancel()
+
+	if err := c.conn.Ping(writeCtx); err != nil {
+		// A ping that does not come back means the peer is gone or wedged.
+		// Tearing down here is what makes the ping worth sending: the
+		// connection, its queue, and its subscriptions are all released.
+		//
+		// CloseNow rather than the graceful close cleanup() would do: a close
+		// handshake waits for the peer's close frame, and a peer that just
+		// failed to answer a ping is exactly the peer that will never send one.
+		// Dropping the socket immediately is also what unblocks the reader, so
+		// the connection leaves the listener's tracking map.
+		c.logger.Debug("Ping failed, closing connection", zap.Error(err))
+		c.metrics.RecordMessageError(c.ctx, "ping_failed", "ping")
+		if closeErr := c.conn.CloseNow(); closeErr != nil {
+			c.logger.Debug("Immediate close after failed ping", zap.Error(closeErr))
+		}
+		return err
+	}
+
+	c.logger.Debug("Ping sent")
 	return nil
 }

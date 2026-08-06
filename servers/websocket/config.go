@@ -2,6 +2,7 @@ package websocketserver
 
 import (
 	"fmt"
+	"time"
 
 	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum-bus/transform"
@@ -17,6 +18,8 @@ type Config struct {
 	logger               *zap.Logger
 	meterProvider        metric.MeterProvider
 	queueSize            int
+	pingInterval         time.Duration
+	writeTimeout         time.Duration
 	initialSubscriptions []string
 	sendBinary           bool
 	textTopic            string
@@ -28,6 +31,16 @@ type Config struct {
 const (
 	// DefaultQueueSize is the default size for the WebSocket message queue.
 	DefaultQueueSize = 256
+
+	// DefaultPingInterval is how often a connection sends a ping frame. A dead
+	// peer that never closed the TCP connection is otherwise invisible: the
+	// server holds the connection and its queue open indefinitely.
+	DefaultPingInterval = 30 * time.Second
+
+	// DefaultWriteTimeout bounds a single write. Without it a client that has
+	// stopped reading blocks the connection's writer goroutine forever, and the
+	// queue behind it fills with messages that will never be delivered.
+	DefaultWriteTimeout = 10 * time.Second
 )
 
 // NewServer creates a new Config for building a simple WebSocket server.
@@ -48,9 +61,11 @@ const (
 //	    Build()
 func NewServer() *Config {
 	return &Config{
-		queueSize:   DefaultQueueSize,
-		textTopic:   "text",
-		binaryTopic: "binary",
+		queueSize:    DefaultQueueSize,
+		pingInterval: DefaultPingInterval,
+		writeTimeout: DefaultWriteTimeout,
+		textTopic:    "text",
+		binaryTopic:  "binary",
 	}
 }
 
@@ -88,6 +103,26 @@ func (c *Config) WithQueueSize(size int) *Config {
 	if size > 0 {
 		c.queueSize = size
 	}
+	return c
+}
+
+// WithPingInterval sets how often each connection sends a WebSocket ping frame.
+// A zero or negative interval disables pings, leaving a dead peer undetected
+// until the OS gives up on the TCP connection.
+//
+// Default: 30 seconds
+func (c *Config) WithPingInterval(interval time.Duration) *Config {
+	c.pingInterval = interval
+	return c
+}
+
+// WithWriteTimeout sets how long a single write to a client may take before the
+// connection is considered broken and torn down. A zero or negative timeout
+// waits indefinitely.
+//
+// Default: 10 seconds
+func (c *Config) WithWriteTimeout(timeout time.Duration) *Config {
+	c.writeTimeout = timeout
 	return c
 }
 
