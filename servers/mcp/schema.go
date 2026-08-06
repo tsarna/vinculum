@@ -41,6 +41,9 @@ func BuildToolInputSchema(params []ParamDef) (json.RawMessage, error) {
 		if len(p.Enum) > 0 {
 			prop["enum"] = p.Enum
 		}
+		if p.DefaultVal != nil {
+			prop["default"] = p.DefaultVal
+		}
 		properties[p.Name] = prop
 
 		if p.Required {

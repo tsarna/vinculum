@@ -155,3 +155,71 @@ func TestToolSchemaGenerated(t *testing.T) {
 	require.True(t, ok)
 	assert.Contains(t, required, "query")
 }
+
+// A default has to reach the action even when the client ignores the one
+// published in the input schema, which is the only guarantee a config author
+// can rely on.
+func TestToolDefaultAppliedWhenArgumentOmitted(t *testing.T) {
+	srv := newTestServer(t, nil, []ToolDef{
+		{
+			Name:        "search",
+			Description: "Search",
+			Params: []ParamDef{
+				{Name: "query", Type: "string", Required: true},
+				{Name: "limit", Type: "number", DefaultVal: float64(10)},
+			},
+			Action: parseExpr(t, `"${ctx.args.query}:${ctx.args.limit}"`),
+		},
+	}, nil)
+
+	cs := connectInMemory(t, srv)
+
+	res, err := cs.CallTool(context.Background(), &sdkmcp.CallToolParams{
+		Name:      "search",
+		Arguments: callArgs(map[string]any{"query": "widgets"}),
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	assert.Equal(t, "widgets:10", res.Content[0].(*sdkmcp.TextContent).Text)
+
+	// An argument the client does send wins over the default.
+	res, err = cs.CallTool(context.Background(), &sdkmcp.CallToolParams{
+		Name:      "search",
+		Arguments: callArgs(map[string]any{"query": "widgets", "limit": float64(3)}),
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	assert.Equal(t, "widgets:3", res.Content[0].(*sdkmcp.TextContent).Text)
+}
+
+// enum and default are advertised to the model through the input schema; a
+// param carrying them and a param carrying neither have to coexist.
+func TestToolSchemaCarriesEnumAndDefault(t *testing.T) {
+	srv := newTestServer(t, nil, []ToolDef{
+		{
+			Name:        "report",
+			Description: "Report",
+			Params: []ParamDef{
+				{Name: "length", Type: "string", DefaultVal: "medium",
+					Enum: []any{"short", "medium", "long"}},
+				{Name: "plain", Type: "string"},
+			},
+			Action: parseExpr(t, `ctx.args.length`),
+		},
+	}, nil)
+
+	cs := connectInMemory(t, srv)
+
+	list, err := cs.ListTools(context.Background(), nil)
+	require.NoError(t, err)
+	props := list.Tools[0].InputSchema.(map[string]any)["properties"].(map[string]any)
+
+	length := props["length"].(map[string]any)
+	assert.Equal(t, "medium", length["default"])
+	assert.Equal(t, []any{"short", "medium", "long"}, length["enum"])
+
+	// A param with neither gets neither key, rather than a null one.
+	plain := props["plain"].(map[string]any)
+	assert.NotContains(t, plain, "default")
+	assert.NotContains(t, plain, "enum")
+}
