@@ -67,9 +67,10 @@ minimal container image.`,
 			Doc:     "For example `\"acme.orders.v1.Order\"`. Omit it to expose every message in the set.",
 		},
 		"mode": {
-			Summary: "How messages are represented as VCL values. Defaults to `\"native\"`.",
+			Summary: "How messages are represented as VCL values.",
 			Doc:     "Native maps protobuf types to their natural VCL counterparts; json round-trips through protojson's canonical JSON mapping. Applies to every message the block exposes.",
 			Enum:    []string{"native", "json"},
+			Default: `"native"`,
 		},
 	},
 }

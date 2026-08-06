@@ -49,17 +49,39 @@ Length-delimited streaming framing is out of scope.
 
 ```hcl
 wire_format "protobuf" "<name>" {
-  descriptor_set = "<path>"         # required: compiled FileDescriptorSet
-  message        = "<full.Name>"    # optional: bind to a single message type
-  mode           = "native"         # optional: "native" (default) | "json"
+  descriptor_set = "schemas/orders.binpb"
+  message        = "acme.orders.v1.Order"
 }
 ```
 
-| Attribute | Req | Description |
-|---|---|---|
-| `descriptor_set` | yes | Path to a compiled `FileDescriptorSet`. Relative paths resolve against the config directory (`--file-path`), so a `git`-materialized schema tree works. |
-| `message` | no | Fully-qualified message name (e.g. `acme.orders.v1.Order`). When present, the block value is a single wire format capsule. When omitted, the block value is an object of capsules, one per message. |
-| `mode` | no | Representation mode: `native` (default) or `json`. Applies to every message the block exposes. See [Representation modes](#representation-modes). |
+<!-- vinculum:begin block-attrs wire_format protobuf level=3 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `descriptor_set` | string | yes |  | Path to a compiled `FileDescriptorSet`. |
+| `message` | string |  |  | Fully-qualified name of the message to bind to. |
+| `mode` | string |  | `"native"` | How messages are represented as VCL values. |
+
+**`descriptor_set`**
+
+Produce one with `protoc --include_imports --descriptor_set_out=x.binpb x.proto` or `buf build -o x.binpb`. Relative paths resolve against the config directory, so a `git`-materialized schema tree works. `--include_imports` is recommended but not required: the `google/protobuf/*` well-known types are bundled and resolved automatically.
+
+**`message`**
+
+For example `"acme.orders.v1.Order"`. Omit it to expose every message in the set.
+
+**`mode`**
+
+Native maps protobuf types to their natural VCL counterparts; json round-trips through protojson's canonical JSON mapping. Applies to every message the block exposes.
+
+One of: `native`, `json`.
+
+<!-- vinculum:end block-attrs wire_format protobuf -->
+
+Whether `message` is set decides the shape of the block's value: present, it is a
+single wire format capsule; absent, an object of capsules, one per message. See
+[Message binding](#message-binding) below, and
+[Representation modes](#representation-modes) for what `mode` changes.
 
 ### Producing a descriptor set
 
