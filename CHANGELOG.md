@@ -30,6 +30,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consumer can complete inside an `action =` and not just up to it — `ctx` is
   assembled per site, so a receiver's `action` sees the message while `on_connect` on
   the same client sees none of it. See [`doc/schema.md`](doc/schema.md).
+
+  **`--format markdown` writes the reference into `doc/`.** The same document,
+  rendered as prose instead of JSON: to stdout for a single-page reference, or —
+  with `--update` — into the *marked regions* of the hand-written pages. `doc/` is
+  not generated and should not become generated; it carries worked examples, syntax,
+  and the reasoning behind a design, none of which the schema knows. So a page marks
+  only the parts that are mechanically derivable and keeps the rest:
+
+  ```md
+  <!-- vinculum:begin block-attrs client mqtt -->
+  … rewritten by `vinculum schema --format markdown --update doc/` …
+  <!-- vinculum:end block-attrs client mqtt -->
+  ```
+
+  The author picks the granularity per section, because it is genuinely mixed:
+  `block-index` for a list of types linking out to their pages, `block-body` for a
+  type in full, or `block-synopsis` / `block-attrs` / `block-ctx` / `context` for one
+  part of it under a hand-written heading, with `level=` placing its headings under
+  whichever one precedes it. `--check` reports any region that is out of date and is
+  what CI runs, so the loop closes in both directions: an undocumented attribute fails
+  `--strict --require-docs`, and a documented attribute whose prose was never
+  regenerated fails `--check`. `DocPage` names each type's hand-written page and is
+  validated to name a file that exists — and, for a `#fragment`, a real heading in it —
+  so the generated index links cannot rot into dead ones. 156 regions across 25 pages
+  are generated today. Adopting them is what turned up the drift: the shared
+  `wire_format` prose had been wrong for all nine clients that share it — it said
+  payloads pass through unchanged when the attribute is omitted, where the default
+  `auto` passes through only strings and bytes and JSON-encodes everything else —
+  mqtt's `client_id` was documented as a random identifier when it is
+  `vinculum-<name>-<hostname>`, and mqtt's `sender` and `receiver` had no attribute
+  table on either side.
 - **`vinculum man` — read the configuration-language reference from the binary.**
   Renders the document `vinculum schema` emits as documentation for a person, so the
   reference and the parser cannot disagree: it describes exactly what *that* binary
@@ -106,7 +137,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   component already did; a condition rejected it outright. A disabled condition
   registers nothing, so `condition.<name>` is undefined and any expression referring to
   it fails to resolve — the same as a disabled `fsm`.
-- **Config that was silently ignored is now rejected.** Two cases, both of which used to
+- **Config that was silently ignored is now rejected.** Three cases, all of which used to
   report "Configuration is valid" while doing nothing:
   - A `condition "flipflop"` edge attribute without its wire — `set_edge` with no
     `set_on` — was parsed and dropped, so a typo, or a wire deleted without its edge,
@@ -114,6 +145,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A `var` block ignored any attribute other than `type`, `nullable`, and `value`, so
     a misspelled attribute parsed cleanly and had no effect. Unknown attributes are now
     rejected like everywhere else.
+  - A `bus` block accepted *anything*: it carried a catch-all body that nothing read, so
+    `bus "main" { queue_sizee = 500 }` validated cleanly and the bus quietly took its
+    default queue size. It now produces the same "Unsupported argument. Did you mean
+    queue_size?" every other block already did.
+- **A `reconnect` block means the same schedule wherever it appears.** With `max_delay`
+  omitted it capped backoff at 30s on `client "vws"` and 60s on the protocol clients —
+  the same block, two schedules, for no reason a reader of it could have predicted and
+  with nothing anywhere saying so. Both paths now resolve through one place and settle
+  on **60s**, which is what two of the three clients already did and what
+  vinculum-rabbitmq's own default backoff uses. A `client "vws"` that writes a
+  `reconnect` block and omits `max_delay` will back off further apart than before; one
+  that sets `max_delay`, or omits the block entirely, is unaffected.
 
 ### Fixed
 
@@ -132,6 +175,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the defect would have failed CI rather than shipping. (The existing subscriber test
   missed it: it declares an exact channel *and* a pattern, which pipelines two
   confirmations into the buffer and clears 36 bytes between them.)
+- **`max_retries` in a `reconnect` block is honoured on the mqtt and rabbitmq clients.**
+  It has been decoded and validated since it was introduced, and read by exactly one of
+  the three client types that accept the block. On the other two it parsed cleanly and
+  did nothing: a configuration asking to give up after three attempts got a client that
+  retried forever, with no diagnostic to say otherwise. Giving up is a property of a
+  retry loop and neither loop lives in this repository, so the fix was upstream first —
+  vinculum-mqtt v0.11.0 and vinculum-rabbitmq v0.4.0 each gained the capability, with
+  semantics copied from the bus reconnector rather than invented. All three clients now
+  behave identically: zero or negative retries forever, the limit bounds *reconnection*
+  only and never the initial connection, and giving up is quiet and final.
+
+  **Check any config that sets `max_retries = 0` expecting it to disable retrying.**
+  `doc/server-vws.md` documented that spelling as "no retries", which was never true on
+  any path — zero has always meant unlimited — so a configuration written against that
+  sentence got the opposite of what it asked for. The documentation now says what the
+  number does.
+- **`server "websocket"` honours `ping_interval` and `write_timeout`.** Both were
+  parsed, described in the schema, and then discarded — the code that applied them sat
+  commented out behind a TODO and the connection builder had no way to receive them —
+  so writing either attribute did nothing at all. They now default to 30s and 10s
+  respectively, and either can be disabled with `0`. `write_timeout` also bounds
+  ordinary writes, so a client that stops reading can no longer pin the connection's
+  writer while its queue fills with messages that will never be delivered. A ping that
+  goes unanswered closes the connection immediately rather than opening a close
+  handshake, since a peer that did not answer a ping is precisely the peer that will
+  never send a close frame back. Pings ride the outbound queue's existing ticker rather
+  than a goroutine of their own, matching `server "vws"` — two goroutines may not write
+  to one WebSocket concurrently.
+- **An MCP tool `param`'s `default` and `enum` do something.** Both are decoded from
+  HCL, and both were then dropped on the floor: the default was never assigned or read
+  anywhere, and the branch that would have published an enum could not fire because the
+  field was always empty. Writing either attribute was silently inert. Both are now
+  evaluated at config time and checked against the param's declared type — so
+  `type = "number"` with `default = "ten"` is a configuration error rather than a
+  published input schema that contradicts itself — and both reach the model through the
+  tool's JSON Schema. A default is also substituted server-side when the argument is
+  absent, since a client is free to ignore the default it was shown.
+
+  A `prompt`'s params differ, because the protocol does: an MCP prompt argument carries
+  only a name, a description, and whether it is required, so `type` and `enum` constrain
+  nothing at runtime there and every argument arrives as a string — a default is
+  stringified to match rather than being the one differently-typed argument an action
+  sees. Two schema descriptions were corrected alongside: a resource or tool action does
+  not JSON-encode a non-string result, it fails with "unsupported type" (`jsonencode()`
+  is the caller's job, as the examples already did), and `server_version` defaults to
+  `0.0.0`.
 - **Documentation corrections found by building the schema.** `trigger "start"`
   runs after every startable component is ready, not "during the configuration build
   phase before any server or client starts", and an error in it is logged rather than
