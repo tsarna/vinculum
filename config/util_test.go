@@ -281,6 +281,48 @@ func TestReconnectBackoffFuncWithAConstantSchedule(t *testing.T) {
 	assert.Equal(t, 5*time.Second, fn(9))
 }
 
+// The ceiling has to hold for every attempt number a client can reach, not
+// only the ones near the start.
+//
+// initial_delay × factor^attempt passes math.MaxInt64 at attempt 34 on the
+// default schedule — around half an hour into an outage, since every attempt
+// past the sixth is one clamped minute — and an out-of-range float-to-integer
+// conversion is implementation-defined in Go. Clamping after the conversion
+// gave math.MaxInt64 on arm64, which clamps correctly, and math.MinInt64 on
+// amd64, which does not: the client was handed a *negative* wait and retried
+// with no delay at all, hammering a broker that was already down.
+//
+// So this asserts the property rather than a value, across the boundary and
+// far past it. It is worth an explicit test even though the cases above
+// happened to catch it, because they caught it on one architecture only.
+func TestTheCeilingHoldsPastTheOverflowBoundary(t *testing.T) {
+	fn, diags := reconnectTestConfig().ReconnectBackoffFunc(&ReconnectDefinition{})
+	require.False(t, diags.HasErrors())
+
+	for _, attempt := range []int{0, 5, 6, 32, 33, 34, 35, 63, 64, 100, 1000, 1 << 20} {
+		d := fn(attempt)
+		assert.Positive(t, d, "attempt %d: a wait must be a wait", attempt)
+		assert.LessOrEqual(t, d, 60*time.Second, "attempt %d: above the ceiling", attempt)
+	}
+}
+
+// The same, for a schedule whose own numbers are large enough that the product
+// leaves the range immediately rather than after thirty-odd attempts.
+func TestTheCeilingHoldsForAnAlreadyHugeSchedule(t *testing.T) {
+	factor := 1e300
+	fn, diags := reconnectTestConfig().ReconnectBackoffFunc(&ReconnectDefinition{
+		InitialDelay:  durationExpr(t, `"1h"`),
+		MaxDelay:      durationExpr(t, `"24h"`),
+		BackoffFactor: &factor,
+	})
+	require.False(t, diags.HasErrors())
+
+	assert.Equal(t, time.Hour, fn(0))
+	for _, attempt := range []int{1, 2, 10} {
+		assert.Equal(t, 24*time.Hour, fn(attempt), "attempt %d", attempt)
+	}
+}
+
 func TestReconnectBackoffFuncReportsABadDuration(t *testing.T) {
 	_, diags := reconnectTestConfig().ReconnectBackoffFunc(&ReconnectDefinition{
 		InitialDelay: durationExpr(t, `"not a duration"`),

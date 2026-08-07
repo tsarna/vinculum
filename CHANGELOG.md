@@ -175,6 +175,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the defect would have failed CI rather than shipping. (The existing subscriber test
   missed it: it declares an exact channel *and* a pattern, which pipelines two
   confirmations into the buffer and clears 36 bytes between them.)
+- **`client "mqtt"` and `client "rabbitmq"` no longer stop backing off after a long
+  outage.** Given a `reconnect` block, the wait before attempt *n* is
+  `initial_delay × backoff_factor^n`, clamped to `max_delay` — but the clamp was applied
+  *after* converting that product to a duration, and on the default schedule the product
+  passes the largest representable duration at attempt 34. Since every attempt past the
+  sixth is one clamped minute, that is around half an hour into an outage. Go leaves an
+  out-of-range float-to-integer conversion implementation-defined, and on **amd64** —
+  what the published Linux images run — it yields the most *negative* duration there is.
+  A negative wait is no wait: the client stopped backing off altogether and reconnected
+  as fast as the loop would turn, against a broker that was already down.
+
+  Present since v0.19.0, and invisible on arm64, where the same conversion saturates the
+  other way and the clamp happens to hold. `client "vws"` was never affected — it backs
+  off through the bus reconnector, which multiplies and clamps once per attempt and so
+  never leaves the range. The clamp now happens before the conversion, and a regression
+  test pins the ceiling past a million attempts as well as at the boundary.
 - **`max_retries` in a `reconnect` block is honoured on the mqtt and rabbitmq clients.**
   It has been decoded and validated since it was introduced, and read by exactly one of
   the three client types that accept the block. On the other two it parsed cleanly and

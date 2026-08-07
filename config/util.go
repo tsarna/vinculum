@@ -317,12 +317,28 @@ func (c *Config) resolveReconnectSchedule(def *ReconnectDefinition) (reconnectSc
 }
 
 // delay is the wait before a given 0-based attempt: exponential, clamped.
+//
+// The clamp is applied to the float, before the conversion, and has to be.
+// initial_delay × factor^attempt passes math.MaxInt64 at attempt 34 on the
+// default schedule, and Go leaves an out-of-range float-to-integer conversion
+// implementation-defined: amd64 yields math.MinInt64 while arm64 saturates to
+// math.MaxInt64. A clamp on the far side of that conversion therefore holds on
+// one architecture and inverts on the other, returning a negative wait — which
+// is a retry loop with no wait in it.
+//
+// The bus integration point has no such problem because it multiplies and
+// clamps once per attempt, so its running delay never leaves the range. Only a
+// stateless func(int) duration has to raise a power, and only raising a power
+// can overshoot this far.
 func (s reconnectSchedule) delay(attempt int) time.Duration {
-	d := time.Duration(float64(s.initialDelay) * math.Pow(s.backoffFactor, float64(attempt)))
-	if d > s.maxDelay {
+	d := float64(s.initialDelay) * math.Pow(s.backoffFactor, float64(attempt))
+	// Written as a rejected "below the ceiling" rather than an accepted "at or
+	// above" it so that a NaN — which compares false against everything — lands
+	// on the ceiling with every other unusable value instead of being converted.
+	if !(d < float64(s.maxDelay)) {
 		return s.maxDelay
 	}
-	return d
+	return time.Duration(d)
 }
 
 // ReconnectBackoffFunc lowers a reconnect block into the exponential backoff
