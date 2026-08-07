@@ -101,6 +101,9 @@ func (m *markdownSink) render(e Event) {
 			m.line("    " + item)
 		}
 
+	case Results:
+		m.results(v)
+
 	case Example:
 		m.para()
 		if v.Caption != "" {
@@ -169,6 +172,24 @@ func (m *markdownSink) attrDetail(d AttrDetail) {
 	if d.Context != "" {
 		m.para()
 		m.line("Evaluated against the `" + d.Context + "` context.")
+	}
+}
+
+// results renders search hits as a table, so that a search redirected to a file
+// or piped somewhere arrives as something a reader can scan two columns of.
+func (m *markdownSink) results(v Results) {
+	if len(v.Rows) == 0 {
+		return
+	}
+	m.para()
+	if v.Intro != "" {
+		m.line(v.Intro)
+		m.para()
+	}
+	m.line("| Topic | Description |")
+	m.line("|---|:---|")
+	for _, r := range v.Rows {
+		m.line(fmt.Sprintf("| `%s` | %s |", r.Command, resultDesc(r)))
 	}
 }
 

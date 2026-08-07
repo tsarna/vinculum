@@ -190,6 +190,9 @@ func (t *termSink) render(e Event) {
 			t.line(t.pad() + "    " + t.st.apply(spanCode, item))
 		}
 
+	case Results:
+		t.results(v)
+
 	case Example:
 		t.gap()
 		if v.Caption != "" {
@@ -351,6 +354,46 @@ func (t *termSink) attrDetail(d AttrDetail) {
 	}
 
 	t.emit(renderProse(strings.Join(parts, "\n\n"), t.width, t.indent+indentStep, t.st)...)
+}
+
+// results lays each hit out as its command and then its description, rather
+// than as the two aligned columns every other listing here uses.
+//
+// The left-hand item is a whole invocation, not a name: it is routinely wider
+// than the third of the terminal a name column may take, so aligning would put
+// every description on the following line anyway — indented past a gutter sized
+// for the longest command in the list. Giving the description a fixed shallow
+// indent costs the same number of lines and leaves it room to read in.
+func (t *termSink) results(v Results) {
+	if len(v.Rows) == 0 {
+		return
+	}
+	t.gap()
+	if v.Intro != "" {
+		t.emit(renderProse(v.Intro, t.width, t.indent, t.st)...)
+		t.blank()
+	}
+
+	indent := strings.Repeat(" ", indentStep)
+	for _, r := range v.Rows {
+		t.line(t.pad() + t.st.apply(spanCode, r.Command))
+		for _, l := range wrapWords(splitWords(parseInline(resultDesc(r))), t.avail()-indentStep, t.st) {
+			t.line(t.pad() + indent + l)
+		}
+	}
+}
+
+// resultDesc leads with what matched when the command names its container: a
+// row pointing at a shape has to say which of its fields the query found.
+func resultDesc(r ResultRow) string {
+	desc := oneLine(r.Summary)
+	if r.Detail == "" {
+		return desc
+	}
+	if desc == "" {
+		return "`" + r.Detail + "`"
+	}
+	return "`" + r.Detail + "` — " + desc
 }
 
 func (t *termSink) blockTable(v BlockTable) {

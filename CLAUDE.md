@@ -103,8 +103,10 @@ repl/           Interactive REPL (serve -i)
 hclutil/        Shared HCL helpers (ContextObjectBuilder, capsule/ctx/auth/env/tracing)
 internal/       Internal-only helpers
   schemadoc/    Renders config.SchemaDocument as documentation: resolver
-                (topic path -> node), walker (node -> events, whole or one
-                section), and the Markdown / terminal / plain sinks. Behind
+                (topic path -> node), keyword search (apropos.go, behind
+                `man --apropos` and the REPL's `:apropos`), walker (node ->
+                events, whole or one section), and the Markdown / terminal /
+                plain sinks. Behind
                 `vinculum man`; behind the marker-delimited generated regions
                 of doc/ (regions.go) that `schema --format markdown` writes;
                 and behind `help()`, which it reaches by registering a

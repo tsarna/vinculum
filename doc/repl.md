@@ -114,6 +114,28 @@ It is the same reference [`vinculum man`](man.md) prints from a shell. `:man`
 writes everything to **stdout**, including "no such topic" — so running the REPL
 with `2>vinculum.log` (below) does not swallow it.
 
+### Searching: `:apropos`
+
+`:man` needs a path. When you have a word instead — an attribute name you saw in
+someone's config, a term from an error — `:apropos` searches names and summaries
+across every block, attribute, `ctx` field and function, and prints the `:man`
+command that reads each hit:
+
+```console
+1> :apropos keep_alive
+2 topics match "keep_alive":
+
+:man client http disable_keep_alives
+  Close each connection after a single request.
+:man client mqtt keep_alive
+  Interval at which to send keep-alive pings.
+```
+
+Every keyword must match, so a second word narrows the search. Because the
+corpus is this session's own eval context, functions your `.cty` files and
+plugins declare are searched too — which the shell command's
+[`--apropos`](man.md#searching) cannot do.
+
 The number in the prompt is the index the **next** result will be bound to: at
 `3>` a successful, non-null result becomes `_3` (see
 [Result history](#result-history-_-and-_1--_n) below). Inputs that don't produce
@@ -211,6 +233,7 @@ Lines beginning with `:` are meta-commands rather than expressions:
 | `:unset NAME` | Remove a session binding. |
 | `:vars` | List session bindings with their types. |
 | `:man [TOPIC …]` | Show reference documentation; no topic lists what there is. |
+| `:apropos WORD …` | Search the reference; lists every topic matching all the words. |
 | `:loglevel LEVEL` | Set the async log level (`debug`/`info`/`warn`/`error`). |
 | `:quiet` | Mute async logs. |
 | `:logs on` / `:logs off` | Unmute / mute async logs. |

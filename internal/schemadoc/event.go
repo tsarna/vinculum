@@ -174,6 +174,32 @@ type Menu struct {
 	Items []string
 }
 
+// Results is what a keyword search found: one row per hit, each naming the
+// invocation that reads it.
+//
+// Distinct from Menu, which it resembles: a menu resolves one name that turned
+// out to mean several things, and needs no descriptions because the reader
+// already knows what they were looking for. A search result is the opposite —
+// the reader has a word and not a topic, so the summary column is the whole
+// point of the event.
+type Results struct {
+	// Intro is the line above the rows, e.g. `3 topics match "keep alive":`.
+	Intro string
+	Rows  []ResultRow
+}
+
+// ResultRow is one search hit.
+type ResultRow struct {
+	// Command is the pre-rendered invocation that reads the hit, spelled by the
+	// caller in its own idiom the way Menu.Items are.
+	Command string
+	// Detail spells the matched thing when Command names its container rather
+	// than it — `ctx.topic` for a field of a context shape. Empty otherwise.
+	Detail string
+	// Summary is the one-line description of whatever matched.
+	Summary string
+}
+
 // Example is a worked configuration example. Reserved: the schema carries no
 // structured examples yet (see SCHEMA-OUTPUT-SPEC.md), and this exists so that
 // when it does, adding them is a walk change rather than a vocabulary change.
@@ -193,4 +219,5 @@ func (ContextTable) isEvent() {}
 func (Constraints) isEvent()  {}
 func (SeeAlso) isEvent()      {}
 func (Menu) isEvent()         {}
+func (Results) isEvent()      {}
 func (Example) isEvent()      {}

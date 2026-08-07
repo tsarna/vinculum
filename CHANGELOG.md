@@ -30,6 +30,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consumer can complete inside an `action =` and not just up to it — `ctx` is
   assembled per site, so a receiver's `action` sees the message while `on_connect` on
   the same client sees none of it. See [`doc/schema.md`](doc/schema.md).
+- **`vinculum man` — read the configuration-language reference from the binary.**
+  Renders the document `vinculum schema` emits as documentation for a person, so the
+  reference and the parser cannot disagree: it describes exactly what *that* binary
+  parses, including the block types a plugin adds when `--config` and `--plugin-path`
+  are given. A topic is a path through the language — `vinculum man client mqtt` for a
+  type, `client mqtt tls` for one of its sub-blocks, `subscription action` for one
+  attribute together with the shape of the `ctx` it sees, `message` for that shape on
+  its own, and `send` for a function. A type label resolves alone where it is
+  unambiguous, so `vinculum man mqtt` is the same page; where it is not — `http` and
+  `vws` are each both a client type and a server type — the ambiguity is answered with
+  the exact commands that resolve it rather than with an error, and a name that matches
+  nothing gets near-miss suggestions. Output to a terminal is styled, wrapped, and
+  paged; output anywhere else is Markdown, so `vinculum man client mqtt > mqtt.md` and
+  `| glow` both work as they stand. `vinculum man <Tab>` completes topics, offering at
+  each position exactly what would resolve there. Flags: `--type`, `--format`,
+  `--color`, `--width`, `--no-pager`. The same reference is reachable from the two
+  other places you might be standing: `:man` in the REPL, and `help("client", "mqtt")`
+  from inside any expression, which now answers questions about the block language and
+  not only about functions. See [`doc/man.md`](doc/man.md).
+
+  **`--apropos` (`-k`) searches it.** A path is the way in when you know where
+  something lives; when you have a *word* instead — an attribute name from someone
+  else's config, a term out of an error message — `vinculum man -k keep_alive` lists
+  every topic whose name or summary matches, each with the command that reads it.
+  It searches block types, variants, sub-blocks, attributes, `ctx` shapes and their
+  fields, and the function library, so it does not matter which of those the answer
+  turns out to live in. Matching is case-insensitive substring and every keyword must
+  match, so a second word narrows (`-k baggage keys`). This is what makes a bare
+  attribute name findable at all: `action` appears in dozens of blocks, so it is
+  deliberately not resolvable as a path, and search is the other half of that bargain.
+  Every command it prints resolves to the page it was printed for. The REPL spells it
+  `:apropos`, and searches that session's own functions — including any that your
+  `.cty` files and plugins declare.
 - **`vinculum test` — run a configuration's `.cty` test blocks against the running
   system.** Boots the full server exactly as `vinculum serve` would — buses, servers,
   subscriptions, triggers — runs the functy `test "..." { ... }` blocks embedded in the

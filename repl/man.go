@@ -81,6 +81,43 @@ var manExamples = []string{
 	":man client mqtt",
 	":man server http handle",
 	":man send",
+	":apropos keep_alive",
+}
+
+// cmdApropos searches by keyword, for the reader who has a word rather than a
+// topic. It is its own command rather than a flag on :man because a
+// meta-command line is bare words — the same reason :man takes a `kind:` prefix
+// instead of --type — and because :help lists it by name.
+func (h *host) cmdApropos(args []string, _ io.Writer) bool {
+	h.aproposTo(os.Stdout, args)
+	return false
+}
+
+// aproposTo is cmdApropos with its destination named, so a test can read what
+// it wrote.
+func (h *host) aproposTo(out io.Writer, args []string) {
+	terms := make([]string, 0, len(args))
+	for _, a := range args {
+		if a = strings.TrimSpace(a); a != "" {
+			terms = append(terms, a)
+		}
+	}
+	if len(terms) == 0 {
+		fmt.Fprintln(out, "usage: :apropos <keyword> [keyword ...]")
+		return
+	}
+
+	doc, _ := config.GenerateSchema(config.SchemaGenOptions{})
+
+	// h.cfg is this session's own eval context, so a function contributed by a
+	// plugin or a .cty file is searched here even though the command's catalog
+	// would not have it.
+	hits := schemadoc.Apropos(doc, h.cfg, "", terms)
+	if len(hits) == 0 {
+		fmt.Fprintf(out, "nothing matches %q\n", strings.Join(terms, " "))
+		return
+	}
+	h.showMan(out, []schemadoc.Event{schemadoc.ResultsFor(terms, hits, ManSpeller)})
 }
 
 // parseManArgs splits an optional leading `kind:` off the first word.

@@ -36,7 +36,8 @@ A type label resolves on its own wherever it is unambiguous, so
 `vinculum man mqtt` and `vinculum man client mqtt` are the same page.
 
 Attribute names are **not** addressable on their own. `action` appears in
-dozens of blocks, so it is only reachable as the end of a path.
+dozens of blocks, so it is only reachable as the end of a path — which is what
+[searching](#searching) is for when the block is the part you do not know.
 
 ### `ctx` shapes
 
@@ -80,6 +81,51 @@ vinculum man get      → get(ctx?: ctx, thing, fallback?, *args) -> any
 
 A bare name declared in two `.cty` namespaces resolves to neither, so `man`
 lists the qualified names instead of reporting it missing.
+
+---
+
+## Searching
+
+A path is the right way in when you know where something lives. When you have a
+*word* instead — an attribute name from someone else's config, a term from an
+error message — `--apropos` (`-k`) searches the whole reference and prints the
+command that reads each hit:
+
+```console
+$ vinculum man -k keep_alive
+2 topics match "keep_alive":
+
+vinculum man client http disable_keep_alives
+  Close each connection after a single request.
+vinculum man client mqtt keep_alive
+  Interval at which to send keep-alive pings.
+```
+
+It searches names and one-line summaries across everything: block types, type
+variants, sub-blocks, attributes, `ctx` shapes and their fields, and the callable
+functions. Matching is case-insensitive substring, and **every** keyword must
+match, so a second word narrows rather than widens:
+
+```sh
+vinculum man -k baggage          # everything about baggage
+vinculum man -k baggage keys     # only where both words appear
+vinculum man --type context -k topic    # only ctx shapes
+```
+
+Two things follow from how hits are addressed:
+
+- **Every printed command works.** Where one word names topics of two kinds, the
+  rows carry `--type` so each still resolves to the page it was printed for.
+- **A `ctx` field names its shape**, because a field is searchable but not
+  addressable. The row points at the shape and says which field matched:
+
+  ```
+  vinculum man fsm-hook
+    ctx.topic_params — Named captures from matching the event's topic pattern.
+  ```
+
+A search that matches nothing exits 1 and says so on stderr. The
+[REPL](repl.md) spells the same search `:apropos`.
 
 ---
 

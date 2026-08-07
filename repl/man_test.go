@@ -2,6 +2,7 @@ package repl
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -137,6 +138,73 @@ func TestManNotFound(t *testing.T) {
 	got = runMan(t, h, "zzzzzzzz")
 	assert.Contains(t, got, "Type :man for a list of topics.")
 	assert.NotContains(t, got, "did you mean")
+}
+
+// :apropos — the same search, in this front door's idiom.
+
+func TestAproposIsAMetaCommandWithASummary(t *testing.T) {
+	h := manTestHost(t)
+
+	for _, m := range h.metaCommands() {
+		if m.Names[0] == ":apropos" {
+			assert.NotEmpty(t, m.Summary, ":help lists commands by their Summary")
+			assert.NotNil(t, m.Run)
+			return
+		}
+	}
+	t.Fatal(":apropos is not registered")
+}
+
+func TestAproposSpellsItsRowsAsMetaCommands(t *testing.T) {
+	var out bytes.Buffer
+	manTestHost(t).aproposTo(&out, []string{"keep_alive"})
+	got := out.String()
+
+	assert.Contains(t, got, `topics match "keep_alive"`)
+	assert.NotContains(t, got, "vinculum man", "the shell command's idiom, not this one")
+
+	// Every row it printed is typeable here and reaches a page rather than a
+	// menu or a miss.
+	var checked int
+	for _, line := range strings.Split(got, "\n") {
+		if !strings.HasPrefix(line, ":man ") {
+			continue
+		}
+		argv := strings.Fields(strings.TrimPrefix(line, ":man "))
+		page := runMan(t, manTestHost(t), argv...)
+		assert.NotContains(t, page, "is ambiguous", "`:man %s`", strings.Join(argv, " "))
+		assert.NotContains(t, page, "no topic named", "`:man %s`", strings.Join(argv, " "))
+		checked++
+	}
+	require.NotZero(t, checked, "printed no rows to check:\n%s", got)
+}
+
+// The REPL searches the live session's own functions, so a name declared by the
+// config being worked on is findable here even though the command's sourceless
+// catalog has never heard of it.
+func TestAproposSearchesTheSessionsOwnFunctions(t *testing.T) {
+	cfg, diags := config.NewConfig().
+		WithSources("../config/testdata/funcambig").
+		WithLogger(zap.NewNop()).
+		Build()
+	require.False(t, diags.HasErrors(), "%s", diags)
+
+	var out bytes.Buffer
+	newHost(cfg, NewInteractiveLogging(zapcore.InfoLevel)).aproposTo(&out, []string{"dup"})
+
+	assert.Contains(t, out.String(), ":man alpha::dup")
+}
+
+func TestAproposReportsNothingFoundAndBadUsage(t *testing.T) {
+	h := manTestHost(t)
+
+	var found bytes.Buffer
+	h.aproposTo(&found, []string{"zzzznope"})
+	assert.Contains(t, found.String(), `nothing matches "zzzznope"`)
+
+	var usage bytes.Buffer
+	h.aproposTo(&usage, nil)
+	assert.Contains(t, usage.String(), "usage: :apropos")
 }
 
 func TestManReportsABadKind(t *testing.T) {

@@ -24,7 +24,7 @@ func runManCmd(t *testing.T, args ...string) (stdout, stderr string, err error) 
 
 	// Flags bind to package-level variables that cobra does not reset between
 	// runs, so restore their declared defaults before each one.
-	manType, manNoPager, manConfigs, pluginPath = "", false, nil, ""
+	manType, manNoPager, manApropos, manConfigs, pluginPath = "", false, false, nil, ""
 
 	var out, errOut bytes.Buffer
 	rootCmd.SetOut(&out)
@@ -167,6 +167,7 @@ func TestManUsageErrors(t *testing.T) {
 		{"an unknown kind", []string{"--type", "nope", "client"}},
 		{"--plugin-path with no config to search", []string{"--plugin-path", "/plugins", "client"}},
 		{"--config with no --plugin-path", []string{"--config", "x.vcl", "client"}},
+		{"--apropos with nothing to search for", []string{"--apropos"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, err := runManCmd(t, tc.args...)
@@ -283,6 +284,100 @@ func TestManSuggestsNearMissFunctions(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, errOut, `no topic named "sendd"`)
 	assert.Contains(t, errOut, "vinculum man send")
+}
+
+// --apropos, against the real language.
+
+func TestAproposFindsAnAttributeWithoutItsBlock(t *testing.T) {
+	out, _, err := runManCmd(t, "-k", "keep_alive")
+	require.NoError(t, err)
+
+	assert.Contains(t, out, "vinculum man client mqtt keep_alive")
+	// A bare attribute name is exactly what a path cannot resolve, which is why
+	// searching for it has to be a different question.
+	_, _, err = runManCmd(t, "keep_alive")
+	require.Error(t, err)
+}
+
+// A reader searching for a word has no reason to know whether the config
+// language or the function library owns the answer, so both are searched.
+func TestAproposSearchesBothCorpora(t *testing.T) {
+	out, _, err := runManCmd(t, "-k", "send")
+	require.NoError(t, err)
+
+	assert.Contains(t, out, "vinculum man client mqtt sender", "the block corpus")
+	assert.Contains(t, out, "vinculum man send", "the function corpus")
+}
+
+// A ctx field is not addressable, so its row names the shape that carries it
+// and says which field matched.
+func TestAproposNamesTheShapeForAContextField(t *testing.T) {
+	out, _, err := runManCmd(t, "-k", "topic_params")
+	require.NoError(t, err)
+
+	assert.Contains(t, out, "`ctx.topic_params` —")
+	assert.Contains(t, out, "| `vinculum man fsm-hook` |")
+}
+
+// Every command an apropos row prints must read that row. A row resolving to
+// the ambiguity menu, or to nothing, would be a row that lied.
+func TestAproposRowsAreWorkingInvocations(t *testing.T) {
+	for _, term := range []string{"topic", "baggage", "tls", "assert"} {
+		out, _, err := runManCmd(t, "-k", term)
+		require.NoError(t, err, "%q found nothing", term)
+
+		var checked int
+		for _, line := range strings.Split(out, "\n") {
+			// The Markdown sink puts each command in the first cell.
+			if !strings.HasPrefix(line, "| `vinculum man ") {
+				continue
+			}
+			argv := strings.Fields(strings.TrimPrefix(
+				strings.Split(line, "`")[1], "vinculum man "))
+
+			_, _, err := runManCmd(t, argv...)
+			require.NoError(t, err, "%q: `vinculum man %s` does not resolve",
+				term, strings.Join(argv, " "))
+			checked++
+		}
+		require.NotZero(t, checked, "%q printed no rows to check", term)
+	}
+}
+
+func TestAproposAndsItsTerms(t *testing.T) {
+	both, _, err := runManCmd(t, "-k", "baggage", "keys")
+	require.NoError(t, err)
+	one, _, err := runManCmd(t, "-k", "baggage")
+	require.NoError(t, err)
+
+	assert.Less(t, strings.Count(both, "| `vinculum man "),
+		strings.Count(one, "| `vinculum man "),
+		"a second term must narrow the search, not widen it")
+}
+
+func TestAproposRestrictsToAKind(t *testing.T) {
+	out, _, err := runManCmd(t, "--type", "context", "-k", "topic")
+	require.NoError(t, err)
+
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.HasPrefix(line, "| `vinculum man ") {
+			continue
+		}
+		// A ctx shape is a one-word path, so nothing from a block body can
+		// have survived the filter.
+		argv := strings.Fields(strings.Split(line, "`")[1])
+		assert.Len(t, argv, 3, "not a context shape: %s", line)
+	}
+}
+
+func TestAproposFindsNothing(t *testing.T) {
+	out, errOut, err := runManCmd(t, "-k", "zzzznope")
+
+	require.Error(t, err)
+	assert.Equal(t, 1, ExitCode(err), "a search that found nothing failed, it was not misused")
+	assert.True(t, Reported(err))
+	assert.Contains(t, errOut, `nothing matches "zzzznope"`)
+	assert.Empty(t, out)
 }
 
 // manTestConfig builds the same sourceless config funcCatalog does.

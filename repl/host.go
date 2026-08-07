@@ -83,6 +83,7 @@ func (h *host) Reserved(name string) bool {
 func (h *host) metaCommands() []engine.MetaCommand {
 	return []engine.MetaCommand{
 		{Names: []string{":man"}, Summary: "show reference documentation (:man client mqtt)", Run: h.cmdMan},
+		{Names: []string{":apropos"}, Summary: "search the reference by keyword (:apropos keep_alive)", Run: h.cmdApropos},
 		{Names: []string{":loglevel"}, Summary: "set async log level (debug|info|warn|error)", Run: h.cmdLoglevel},
 		{Names: []string{":quiet"}, Summary: "mute async logs", Run: h.cmdQuiet},
 		{Names: []string{":logs"}, Summary: "unmute / mute async logs (:logs on|off)", Run: h.cmdLogs},

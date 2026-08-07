@@ -18,6 +18,7 @@ var (
 	manColor    string
 	manWidth    int
 	manNoPager  bool
+	manApropos  bool
 	manConfigs  []string
 	manExamples = []string{
 		"vinculum man subscription",
@@ -27,6 +28,9 @@ var (
 		// what help() is for — so the footer is where a reader learns they
 		// are reachable at all.
 		"vinculum man send",
+		// The one thing to reach for when none of the above is what you have:
+		// a word rather than a topic.
+		"vinculum man -k keep_alive",
 	}
 )
 
@@ -51,6 +55,14 @@ it. Use --type to choose between kinds of topic rather than paths.
 
 With no topic, lists what there is to read.
 
+With --apropos (-k), the arguments are keywords rather than a path: every block,
+attribute, sub-block, context field and function whose name or summary contains
+all of them is listed, with the command that reads each one. It is how to find
+an attribute whose name you know and whose block you do not.
+
+  vinculum man -k keep_alive          who has an attribute by that name
+  vinculum man -k topic pattern       both words, anywhere in name or summary
+
 The documentation is generated from the same decode structs the parser uses, so
 it describes exactly what this binary can parse. Give --config together with
 --plugin-path to load plugins first and document the block types they add.
@@ -71,6 +83,7 @@ func init() {
 	manCmd.Flags().StringVar(&manColor, "color", "auto", "colorize output: always, never, or auto")
 	manCmd.Flags().IntVar(&manWidth, "width", 0, "wrap width (default: the terminal's, clamped)")
 	manCmd.Flags().BoolVar(&manNoPager, "no-pager", false, "write to stdout instead of invoking a pager")
+	manCmd.Flags().BoolVarP(&manApropos, "apropos", "k", false, "treat the arguments as keywords and list every topic matching all of them")
 	manCmd.Flags().StringArrayVarP(&manConfigs, "config", "c", nil, "config path to search for .vinit plugin blocks (with --plugin-path)")
 	manCmd.Flags().StringVar(&pluginPath, "plugin-path", "", "directory of Go plugin .so files; load the plugins declared by --config so their block types are described too")
 }
@@ -96,6 +109,10 @@ func runMan(cmd *cobra.Command, args []string) error {
 	// `vinculum schema --strict` reports them and CI fails on them. Rendering
 	// what is there is more useful here than refusing to.
 	doc, _ := config.GenerateSchema(config.SchemaGenOptions{})
+
+	if manApropos {
+		return runApropos(cmd, doc, kind, args)
+	}
 
 	if len(args) == 0 {
 		events := schemadoc.Index(doc, schemadoc.WalkOptions{})
@@ -129,19 +146,48 @@ func runMan(cmd *cobra.Command, args []string) error {
 	}
 }
 
-// funcCatalog is the function corpus: the functions of a config with no sources
-// of its own, which is every built-in plus everything the linked libraries and
-// loaded plugins register.
-//
-// Built lazily and only when the query could name a function, because building
-// one runs the whole config pipeline — worth it to answer `vinculum man count`,
+// runApropos searches rather than resolves: the arguments are keywords, and
+// every topic matching all of them is listed with the command that reads it.
+func runApropos(cmd *cobra.Command, doc *config.SchemaDocument, kind schemadoc.Kind, terms []string) error {
+	if len(terms) == 0 {
+		return &ExitCodeError{Code: 2, Err: fmt.Errorf("--apropos needs at least one keyword to search for")}
+	}
+
+	hits := schemadoc.Apropos(doc, buildFuncCatalog(kind), kind, terms)
+	if len(hits) == 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "nothing matches %q\n", strings.Join(terms, " "))
+		return &ExitCodeError{
+			Code:     1,
+			Err:      fmt.Errorf("nothing matches %q", strings.Join(terms, " ")),
+			Reported: true,
+		}
+	}
+	return page(cmd, []schemadoc.Event{
+		schemadoc.ResultsFor(terms, hits, schemadoc.CommandSpeller),
+	})
+}
+
+// funcCatalog is the function corpus for a lookup: nothing unless the query
+// could name a function, since a function name is a whole path and building the
+// catalog runs the config pipeline — worth it to answer `vinculum man count`,
 // wasted on `vinculum man client mqtt tls`.
 func funcCatalog(kind schemadoc.Kind, args []string) schemadoc.FuncCatalog {
-	if kind != "" && kind != schemadoc.KindFunction {
+	if len(args) != 1 {
 		return nil
 	}
-	if len(args) != 1 {
-		return nil // a function name is a whole path
+	return buildFuncCatalog(kind)
+}
+
+// buildFuncCatalog builds the functions of a config with no sources of its own,
+// which is every built-in plus everything the linked libraries and loaded
+// plugins register.
+//
+// A search always pays for it: a keyword can match a function's name or its
+// prose whatever else it matches, and leaving the corpus out would make the
+// answer depend on how many words were typed.
+func buildFuncCatalog(kind schemadoc.Kind) schemadoc.FuncCatalog {
+	if kind != "" && kind != schemadoc.KindFunction {
+		return nil
 	}
 	// A discarding logger: building this config is a lookup, and its startup
 	// chatter is not the answer to the question being asked.
