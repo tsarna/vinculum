@@ -1,12 +1,14 @@
 package config
 
 import (
+	"math"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -321,6 +323,98 @@ func TestTheCeilingHoldsForAnAlreadyHugeSchedule(t *testing.T) {
 	for _, attempt := range []int{1, 2, 10} {
 		assert.Equal(t, 24*time.Hour, fn(attempt), "attempt %d", attempt)
 	}
+}
+
+// A schedule that cannot back off is rejected at load rather than discovered in
+// production, where it looks like a client hammering a service that is down.
+//
+// Every one of these parsed cleanly and validated cleanly before, and each
+// reaches a zero or negative wait by its own route: a shrinking factor
+// underflows, a zero or negative factor gets there at once, and a zero initial
+// delay can never grow because zero times anything is zero.
+func TestReconnectRejectsAScheduleThatCannotBackOff(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		def  ReconnectDefinition
+		want string
+	}{
+		{"a shrinking factor", ReconnectDefinition{BackoffFactor: backoffFactor(0.5)}, "at least 1"},
+		{"a zero factor", ReconnectDefinition{BackoffFactor: backoffFactor(0)}, "at least 1"},
+		{"a negative factor", ReconnectDefinition{BackoffFactor: backoffFactor(-2)}, "at least 1"},
+		{"a NaN factor", ReconnectDefinition{BackoffFactor: backoffFactor(math.NaN())}, "at least 1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, diags := reconnectTestConfig().ReconnectBackoffFunc(&tc.def)
+			require.True(t, diags.HasErrors(), "accepted a schedule that reaches zero")
+			assert.Contains(t, diags.Error(), tc.want)
+
+			// Both integration points reject it, not just the one.
+			_, diags = reconnectTestConfig().CreateReconnector(tc.def)
+			assert.True(t, diags.HasErrors(), "the bus path accepted what the protocol path rejected")
+		})
+	}
+}
+
+func TestReconnectRejectsAZeroInitialDelay(t *testing.T) {
+	for _, src := range []string{`"0s"`, `0`} {
+		_, diags := reconnectTestConfig().ReconnectBackoffFunc(&ReconnectDefinition{
+			InitialDelay: durationExpr(t, src),
+		})
+		require.True(t, diags.HasErrors(), "accepted initial_delay = %s", src)
+		assert.Contains(t, diags.Error(), "greater than zero")
+	}
+}
+
+// The boundary is 1, and 1 itself stays legal: it is how a configuration asks
+// for a constant delay between retries, which is a real thing to want.
+func TestReconnectAcceptsTheBoundaryValues(t *testing.T) {
+	for _, f := range []float64{1, 1.5, 2, 100} {
+		_, diags := reconnectTestConfig().ReconnectBackoffFunc(&ReconnectDefinition{
+			BackoffFactor: backoffFactor(f),
+		})
+		assert.False(t, diags.HasErrors(), "rejected backoff_factor = %v", f)
+	}
+
+	_, diags := reconnectTestConfig().ReconnectBackoffFunc(&ReconnectDefinition{
+		InitialDelay: durationExpr(t, `"1ns"`),
+	})
+	assert.False(t, diags.HasErrors(), "rejected the smallest positive initial_delay")
+}
+
+// The diagnostic underlines the attribute that is wrong. A reconnect block has
+// five of them, and pointing at the block would leave a reader to guess.
+func TestReconnectRejectionPointsAtTheAttribute(t *testing.T) {
+	def := reconnectBlockFrom(t, `reconnect {
+  initial_delay  = "1s"
+  backoff_factor = 0.5
+}`)
+
+	_, diags := reconnectTestConfig().ReconnectBackoffFunc(def)
+	require.True(t, diags.HasErrors())
+	require.NotNil(t, diags[0].Subject)
+	assert.Equal(t, 3, diags[0].Subject.Start.Line, "should underline the backoff_factor line")
+}
+
+// backoffFactor rather than factor: three tests here already bind a local
+// named factor, and a package-level function of that name would be shadowed
+// wherever it read most naturally.
+func backoffFactor(f float64) *float64 { return &f }
+
+// reconnectBlockFrom decodes a literal `reconnect { … }`, so a test can assert
+// on the source ranges gohcl fills in. A hand-built struct has none, which is
+// exactly what a diagnostic pointing at the wrong place would also look like.
+func reconnectBlockFrom(t *testing.T, src string) *ReconnectDefinition {
+	t.Helper()
+	f, diags := hclsyntax.ParseConfig([]byte(src), "test.hcl", hcl.Pos{Line: 1, Column: 1})
+	require.False(t, diags.HasErrors(), "parse: %v", diags)
+
+	var wrapper struct {
+		Reconnect *ReconnectDefinition `hcl:"reconnect,block"`
+	}
+	diags = gohcl.DecodeBody(f.Body, &hcl.EvalContext{}, &wrapper)
+	require.False(t, diags.HasErrors(), "decode: %v", diags)
+	require.NotNil(t, wrapper.Reconnect)
+	return wrapper.Reconnect
 }
 
 func TestReconnectBackoffFuncReportsABadDuration(t *testing.T) {

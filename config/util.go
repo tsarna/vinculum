@@ -187,6 +187,12 @@ type ReconnectDefinition struct {
 	BackoffFactor *float64       `hcl:"backoff_factor,optional"`
 	MaxRetries    *int           `hcl:"max_retries,optional"`
 	DefRange      hcl.Range      `hcl:",def_range"`
+
+	// BackoffFactorRange underlines the attribute itself when its value is
+	// rejected. A *float64 carries no range of its own, and pointing at the
+	// whole block would leave a reader of a five-attribute block looking for
+	// which one was meant.
+	BackoffFactorRange hcl.Range `hcl:"backoff_factor,attr_range"`
 }
 
 func init() {
@@ -223,6 +229,9 @@ const (
 var ReconnectAttrs = map[string]AttrMeta{
 	"initial_delay": {
 		Summary: "Wait before the first retry.",
+		Doc: "Must be greater than zero: every later wait is this one multiplied by " +
+			"`backoff_factor`, so a zero here stays zero however many times it is " +
+			"multiplied, and the client retries continuously.",
 		Hint:    HintDuration,
 		Default: durationDefault(defaultReconnectInitialDelay),
 	},
@@ -233,6 +242,9 @@ var ReconnectAttrs = map[string]AttrMeta{
 	},
 	"backoff_factor": {
 		Summary: "Multiplier applied to the wait after each failed attempt.",
+		Doc: "Must be at least 1. Use `1` for a constant delay between retries; a " +
+			"factor below 1 would shorten the wait after every failure rather than " +
+			"lengthen it, reaching zero and retrying continuously, so it is rejected.",
 		Default: floatDefault(defaultReconnectBackoffFactor),
 	},
 	"max_retries": {
@@ -288,6 +300,15 @@ type reconnectSchedule struct {
 // resolveReconnectSchedule is the single place a reconnect block becomes
 // numbers. Both integration points below go through it, which is what keeps them
 // from disagreeing about what an omitted attribute means.
+//
+// It is also where a schedule that cannot back off is rejected. A wait that
+// reaches zero is a reconnect loop with nothing in it, spinning against a
+// service that is already down, and there are two ways to write one: a factor
+// below 1, which shrinks the wait until it underflows to zero, and a zero
+// initial delay, which can never grow because zero times anything is zero.
+// Neither is a schedule anyone means to ask for, and both are quiet at runtime
+// — the client simply retries forever at full speed — so they are worth an
+// error at load rather than a discovery in production.
 func (c *Config) resolveReconnectSchedule(def *ReconnectDefinition) (reconnectSchedule, hcl.Diagnostics) {
 	s := reconnectSchedule{
 		initialDelay:  defaultReconnectInitialDelay,
@@ -300,6 +321,16 @@ func (c *Config) resolveReconnectSchedule(def *ReconnectDefinition) (reconnectSc
 		if diags.HasErrors() {
 			return s, diags
 		}
+		if d <= 0 {
+			return s, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "Invalid reconnect initial_delay",
+				Detail: "initial_delay must be greater than zero. Every later wait is " +
+					"this one multiplied by backoff_factor, so a zero here stays zero and " +
+					"the client retries continuously.",
+				Subject: def.InitialDelay.Range().Ptr(),
+			}}
+		}
 		s.initialDelay = d
 	}
 	if IsExpressionProvided(def.MaxDelay) {
@@ -310,6 +341,18 @@ func (c *Config) resolveReconnectSchedule(def *ReconnectDefinition) (reconnectSc
 		s.maxDelay = d
 	}
 	if def.BackoffFactor != nil {
+		// NaN fails this too, since it compares false against everything.
+		if !(*def.BackoffFactor >= 1) {
+			return s, hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "Invalid reconnect backoff_factor",
+				Detail: fmt.Sprintf("backoff_factor must be at least 1, got %s. A factor "+
+					"below 1 shortens the wait after every failure instead of lengthening "+
+					"it, reaching zero and retrying continuously; use 1 for a constant "+
+					"delay between retries.", floatDefault(*def.BackoffFactor)),
+				Subject: def.BackoffFactorRange.Ptr(),
+			}}
+		}
 		s.backoffFactor = *def.BackoffFactor
 	}
 

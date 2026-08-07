@@ -148,6 +148,14 @@ When present, the client automatically attempts to reconnect after a disconnect.
 | `max_delay` | expression (duration) |  | `60s` | Ceiling on the wait between retries. |
 | `max_retries` | number |  |  | Give up after this many attempts. |
 
+**`backoff_factor`**
+
+Must be at least 1. Use `1` for a constant delay between retries; a factor below 1 would shorten the wait after every failure rather than lengthen it, reaching zero and retrying continuously, so it is rejected.
+
+**`initial_delay`**
+
+Must be greater than zero: every later wait is this one multiplied by `backoff_factor`, so a zero here stays zero however many times it is multiplied, and the client retries continuously.
+
 **`max_retries`**
 
 Retries forever when omitted, and also when set to zero or a negative number. Counts attempts to recover a *lost* connection; the initial connection is retried regardless. Giving up is quiet and final — the client logs an error and stays down, and the process keeps running.

@@ -137,8 +137,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   component already did; a condition rejected it outright. A disabled condition
   registers nothing, so `condition.<name>` is undefined and any expression referring to
   it fails to resolve — the same as a disabled `fsm`.
-- **Config that was silently ignored is now rejected.** Three cases, all of which used to
-  report "Configuration is valid" while doing nothing:
+- **Config that was silently ignored is now rejected.** Four cases, all of which used to
+  report "Configuration is valid" while doing something other than what they said:
   - A `condition "flipflop"` edge attribute without its wire — `set_edge` with no
     `set_on` — was parsed and dropped, so a typo, or a wire deleted without its edge,
     looked configured. It is now an error.
@@ -149,6 +149,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `bus "main" { queue_sizee = 500 }` validated cleanly and the bus quietly took its
     default queue size. It now produces the same "Unsupported argument. Did you mean
     queue_size?" every other block already did.
+  - A `reconnect` block that cannot back off — `backoff_factor` below 1, or an
+    `initial_delay` of zero — is now an error. Both describe a retry schedule whose wait
+    *shrinks* toward zero rather than growing, which at runtime is a client reconnecting
+    continuously against a service that is already down, and neither says anything on
+    the way there. `backoff_factor = 1` remains the way to ask for a constant delay.
 - **A `reconnect` block means the same schedule wherever it appears.** With `max_delay`
   omitted it capped backoff at 30s on `client "vws"` and 60s on the protocol clients —
   the same block, two schedules, for no reason a reader of it could have predicted and
