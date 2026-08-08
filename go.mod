@@ -12,7 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.43.4
 	github.com/aws/aws-sdk-go-v2/config v1.32.35
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.34
-	github.com/aws/aws-sdk-go-v2/service/sns v1.42.3
+	github.com/aws/aws-sdk-go-v2/service/sns v1.42.4
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.46.3
 	github.com/aws/aws-sdk-go-v2/service/sts v1.45.4
 	github.com/coder/websocket v1.8.15
