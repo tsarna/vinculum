@@ -152,6 +152,52 @@ than silently processing blocks in an incorrect order.
 
 ---
 
+## Reference Checking
+
+Most attributes are evaluated while the configuration is loaded, so a name that
+resolves to nothing is reported there. Event-time expressions — an `action`, an
+`on_connect`, a computed metric's `value` — are not evaluated until something
+happens, and would otherwise carry a bad reference until the first event arrived.
+
+They are checked at load time instead. Once every block has been processed, the
+references each event-time expression makes are resolved against the namespace
+it will see when it runs. Three cases are errors, reported with a source range
+like any other:
+
+- a leading name that is in no namespace at all;
+- a `ctx` field the expression's context does not provide. The shape of `ctx`
+  is a property of the attribute, not the block, so `on_connect` does not see
+  the `ctx.msg` an `action` on the same block does;
+- a name read out of something that has names in it: a namespace whose members
+  come from blocks — `bus`, `client`, `condition`, `fsm`, `metric`, `server`,
+  `trigger`, `var`, `wire_format` — or an object-valued `const`. A disabled block
+  publishes no name, so a reference to one is an error here.
+
+A const is read only where it can be: an attribute of an object, as
+`routing.alpha`. A const reached into dynamically, as `routing[ctx.kind]`, names
+nothing to check, and one holding a map rather than an object has no fixed set of
+attributes to check against.
+
+Three things are outside the check:
+
+- **`env`, `sys`, and `http_status`** are checked only as far as the leading
+  name. `env` is the environment of whichever process is running, so a
+  `vinculum check` on a build machine would otherwise report a variable that only
+  the deployment sets as missing.
+- **`try()` and `can()` arguments**, which exist to refer to something that may
+  not be there. Reach for them where an optional field, or a name that depends on
+  the environment, is the point.
+- **Disabled blocks.** Nothing is created from a `disabled = true` block and its
+  expressions are never evaluated, so its references are not checked. Disabling
+  a block is therefore also how to park one that refers to names the rest of the
+  configuration no longer publishes.
+
+An `editor` body is not checked. Its expressions read `state` alongside `ctx`,
+and `update_state` may add keys to `state` that are only known once it has run,
+so there is no fixed set of names to check against.
+
+---
+
 ## Block Reference
 
 ### `assert`

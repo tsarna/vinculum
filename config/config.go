@@ -384,6 +384,15 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		return nil, diags
 	}
 
+	// Everything that resolves a name has now resolved it, so the namespace an
+	// event-time expression will see is finally knowable. Check the ones that
+	// have not been evaluated yet — they would otherwise fail at every event
+	// instead of here.
+	diags = diags.Extend(config.checkDeferredReferences(blocks))
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
 	config.Logger.Info("Config built successfully")
 
 	return config, diags

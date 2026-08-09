@@ -133,6 +133,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`vinculum check` catches a bad reference in an expression that has not run yet.**
+  An `action`, an `on_connect`, a computed metric's `value` are stored at load and
+  evaluated when something happens, so a name that resolves to nothing used to pass
+  `check` cleanly and then fail at the first event — and at every event after it,
+  identically, forever, with nothing escalating. Those expressions are now resolved
+  against the namespace they will actually see, once every block has been processed,
+  and an unresolvable reference is an error with a source range like any other.
+
+  It catches three things: a leading name that is in no namespace at all; a `ctx`
+  field the expression's context does not provide (the shape differs per attribute,
+  so `on_connect` does not see the `ctx.msg` an `action` on the same block does); and
+  a name read out of something that has names in it — a namespace whose members come
+  from blocks, so `bus.mian` when the bus is called `main`, or an object-valued
+  `const`, so `routing.gamma` when the const holds `alpha` and `beta`. Each message
+  names what *is* available.
+
+  There is no second model of the language behind this. Which attributes are
+  event-time, and what `ctx` each one gets, is read from the same schema
+  `vinculum schema` emits and CI already checks for drift; the namespace is read from
+  the finished evaluation context rather than described anywhere. `try()` and `can()`
+  arguments are exempt — referring to something that may be absent is what they are
+  for — as are `env`, `sys`, and `http_status` below their leading name, and disabled
+  blocks entirely. See "Reference Checking" in `doc/config.md`.
 - **`condition` blocks accept `disabled`.** Every other block that creates a runtime
   component already did; a condition rejected it outright. A disabled condition
   registers nothing, so `condition.<name>` is undefined and any expression referring to
@@ -165,6 +188,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A computed metric whose `value` keeps failing says so once, not every interval.**
+  Each failed poll logged at Error level, so one broken expression restated one fact
+  every `computed_interval` for as long as the process ran, burying whatever else the
+  log had to say — including a *different* failure. The first failure is still loud;
+  identical repeats drop to Debug and carry a `repeats` count, a failure that changes
+  is loud again, and a poll that succeeds after failures logs a recovery with how many
+  it took. Only the log line is dampened: the poll's span is still marked and the
+  duration histogram still records it, so nothing a monitor watches goes quiet.
 - **`client "redis_pubsub"` no longer hangs at startup on a short channel name.**
   Subscribing to a channel of six characters or fewer (or a pattern of four or fewer)
   blocked forever inside `Start()`, so the whole runtime failed to come up on a

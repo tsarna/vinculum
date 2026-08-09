@@ -430,6 +430,46 @@ type computedEval struct {
 	scopeFn  PollScopeFunc
 	logger   *zap.Logger // UserLogger: these errors are all caused by the VCL
 	interval time.Duration
+
+	// The failure the last poll reported, so an unchanging one can be said
+	// once rather than every interval. Only ever touched from the goroutine
+	// startPolling launches, which is the sole caller of evaluate.
+	lastWhat, lastDetail string
+	repeats              int
+}
+
+// failed reports one failed poll: loudly the first time, and quietly for as
+// long as it keeps saying the same thing.
+//
+// A `value` that cannot be evaluated cannot be evaluated at every interval
+// forever, so at Error level one broken expression will fill a log with one
+// fact restated a few times a minute — and bury the failure that is new. The
+// repeat count rides along on the quiet lines so it is still visible that it is
+// still happening, and a failure that changes is loud again.
+//
+// Only the log line is dampened. The poll's span is still marked and the
+// duration histogram still records it, so nothing that is being watched by a
+// monitor goes quiet.
+func (c *computedEval) failed(what, detail string) {
+	msg := "computed " + c.kind + ": " + what
+	if what == c.lastWhat && detail == c.lastDetail {
+		c.repeats++
+		c.logger.Debug(msg, zap.String("error", detail), zap.Int("repeats", c.repeats))
+		return
+	}
+	c.lastWhat, c.lastDetail, c.repeats = what, detail, 0
+	c.logger.Error(msg, zap.String("error", detail))
+}
+
+// succeeded closes out a run of failures, so a recovery is as visible as the
+// break was and the next failure starts loud again.
+func (c *computedEval) succeeded() {
+	if c.lastWhat == "" {
+		return
+	}
+	c.logger.Info("computed "+c.kind+": recovered",
+		zap.Int("failed_polls", c.repeats+1))
+	c.lastWhat, c.lastDetail, c.repeats = "", "", 0
 }
 
 // evaluate runs one poll, returning false when no value could be produced.
@@ -438,26 +478,25 @@ type computedEval struct {
 func (c *computedEval) evaluate(ctx context.Context) (context.Context, float64, bool) {
 	scope, err := c.scopeFn(ctx)
 	if err != nil {
-		c.logger.Error("computed "+c.kind+": building poll context", zap.Error(err))
+		c.failed("building poll context", err.Error())
 		return ctx, 0, false
 	}
 
 	val, diags := c.expr.Value(scope.EvalCtx)
 	if diags.HasErrors() {
-		c.logger.Error("computed "+c.kind+": expression evaluation failed",
-			zap.String("err", diags.Error()))
+		c.failed("expression evaluation failed", diags.Error())
 		scope.Done(diags)
 		return scope.Ctx, 0, false
 	}
 
 	f, err := valueToFloat64(val)
 	if err != nil {
-		c.logger.Error("computed "+c.kind+": expression did not return a number",
-			zap.Error(err))
+		c.failed("expression did not return a number", err.Error())
 		scope.Done(err)
 		return scope.Ctx, 0, false
 	}
 
+	c.succeeded()
 	scope.Done(nil)
 	return scope.Ctx, f, true
 }
