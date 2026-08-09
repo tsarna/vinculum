@@ -11,7 +11,28 @@ import (
 func init() {
 	cfg.RegisterAmbientProvider("http_status", func(_ *cfg.Config) cty.Value {
 		return getStatusCodeObject()
-	})
+	}, cfg.WithNamespaceSchema(httpStatusNamespace))
+}
+
+// httpStatusNamespace describes `http_status`. Every member says the same thing
+// — it is a status code — and differs only in which one, so the summary is
+// uniform and the code itself is the emitted value.
+var httpStatusNamespace = cfg.NamespaceSchema{
+	Summary: "Constants for the HTTP status codes.",
+	Doc: "Names are PascalCase, matching Go's `net/http` package: `http_status.OK` is `200`, " +
+		"`http_status.NotFound` is `404`. All standard 1xx–5xx codes are included. Prefer these " +
+		"to bare integers — `status = http_status.NoContent` says what `status = 204` means.",
+	DocPage:              "config.md#variables",
+	Constant:             true,
+	UniformMemberSummary: "The numeric HTTP status code.",
+	Members: map[string]cfg.MemberMeta{
+		"bycode": {
+			Summary: "Status code to name, keyed by the code as a string.",
+			Doc: "For turning a code you were given back into something readable: " +
+				"`http_status.bycode[\"404\"]` is `\"NotFound\"`. HCL coerces an integer key to a " +
+				"string, so `http_status.bycode[404]` works too.",
+		},
+	},
 }
 
 func getStatusCodeObject() cty.Value {

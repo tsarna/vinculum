@@ -26,7 +26,108 @@ var processStartTime = time.Now()
 func init() {
 	cfg.RegisterAmbientProvider("sys", func(c *cfg.Config) cty.Value {
 		return GetSysObject(c.BaseDir, c.WriteDir, c.EnabledFeatureNames(), c.Testing)
-	})
+	}, cfg.WithNamespaceSchema(sysNamespace))
+}
+
+// sysNamespace describes `sys`. The values are not constant — they describe the
+// machine and the invocation — so no value is emitted, only what each member
+// means. Every member GetSysObject builds must appear here, and nothing else
+// may.
+var sysNamespace = cfg.NamespaceSchema{
+	Summary: "Process and host identity, captured at startup.",
+	Doc: "All values are read-only, and all are captured once when the process starts rather " +
+		"than read afresh on each use.",
+	DocPage: "config.md#variables",
+	Members: map[string]cfg.MemberMeta{
+		"pid":      {Summary: "Process ID of the running process."},
+		"hostname": {Summary: "Hostname of the machine."},
+		"user":     {Summary: "Username the process is running as."},
+		"uid":      {Summary: "Numeric user ID."},
+		"group":    {Summary: "Primary group name."},
+		"gid":      {Summary: "Numeric primary group ID."},
+		"os":       {Summary: "Operating system, e.g. `linux`, `darwin`, `windows`."},
+		"arch":     {Summary: "CPU architecture, e.g. `amd64`, `arm64`."},
+		"cpus":     {Summary: "Number of logical CPUs available."},
+		"version":  {Summary: "Vinculum release version, or `dev` for a local build."},
+		"commit":   {Summary: "Git commit the binary was built from, or empty if unknown."},
+		"build_time": {
+			Summary: "Build timestamp in RFC 3339, or empty if unknown.",
+		},
+		"modified": {
+			Summary: "True if the working tree had uncommitted changes at build time.",
+		},
+		"functy": {
+			Summary: "The bundled [functy](functy.md) (`.cty`) language.",
+			Members: map[string]cfg.MemberMeta{
+				"version": {
+					Summary: "Version of the bundled functy language.",
+					Doc: "Read from the binary's build info — `(devel)` in a workspace build, empty if " +
+						"unavailable. Only the module version is recorded for a dependency, so functy's " +
+						"own commit and build time are not available; `sys.commit` and `sys.build_time` " +
+						"describe the Vinculum binary, not functy.",
+				},
+			},
+		},
+		"executable": {Summary: "Path to the running executable."},
+		"cwd":        {Summary: "Working directory the process started in."},
+		"homedir":    {Summary: "Home directory of the current user."},
+		"tempdir":    {Summary: "Default directory for temporary files."},
+		"testing": {
+			Summary: "True when running under `vinculum test`.",
+			Doc: "Write `disabled = sys.testing` to switch off real external connections while a " +
+				"configuration is under test. See [testing](testing.md).",
+		},
+		"filepath": {
+			Summary: "The `--file-path` directory, or empty if it was not given.",
+			Doc: "The base directory the file read and write functions resolve against. See " +
+				"[file functions](functions.md#file-functions).",
+		},
+		"writepath": {
+			Summary: "The `--write-path` directory, or empty if it was not given.",
+			Doc: "The base directory `filewrite` and `fileappend` resolve against; it must be within " +
+				"`sys.filepath`. See [file write functions](functions.md#file-write-functions).",
+		},
+		"starttime": {
+			Summary: "Approximate time the process started.",
+			Doc:     "Captured when the process loads. `time::since(sys.starttime)` is process uptime.",
+		},
+		"boottime": {
+			Summary: "Approximate time the host booted.",
+			Doc: "Exact on macOS (`kern.boottime`), accurate to about a second on Linux " +
+				"(`sysinfo(2)`), and equal to `sys.starttime` on platforms that expose neither. " +
+				"`time::since(sys.boottime)` is host uptime.",
+		},
+		"plugins": {
+			Summary: "Names of every registered plugin component.",
+			Doc: "For example `[\"ambient.sys\", \"client.kafka\", \"functions.kill\", \"server.mcp\"]`. " +
+				"Both in-tree components and those a `.vinit` [plugin](plugins.md) contributed are " +
+				"listed, so this is how a configuration tells whether the binary it is running on has " +
+				"what it needs.",
+		},
+		"features": {
+			Summary: "Names of the enabled feature flags.",
+			Doc: "Each CLI flag that gates an optional capability registers a name: `readfiles` " +
+				"(`--file-path`), `writefiles` (`--write-path`), `allowkill` (`--allow-kill`). " +
+				"`contains(sys.features, \"allowkill\")` branches on one.",
+		},
+		"signals": {
+			Summary: "Signal numbers for the host OS, by name.",
+			Doc: "`sys.signals.SIGUSR1` is the number of `SIGUSR1` on the current OS. Which signals " +
+				"exist is OS-dependent — everything the OS enumerates in the range 1–64 is here — so " +
+				"use these instead of hardcoding a number that is right on one platform:\n\n" +
+				"```hcl\n" +
+				"kill(sys.pid, sys.signals.SIGUSR1)   # portable signal reference\n" +
+				"```",
+			FreeMembers: true,
+			Members: map[string]cfg.MemberMeta{
+				"bynumber": {
+					Summary: "Signal name, keyed by the number as a string.",
+					Doc: "`sys.signals.bynumber[\"9\"]` is `\"SIGKILL\"`. HCL coerces an integer key to a " +
+						"string, so `sys.signals.bynumber[9]` works too.",
+				},
+			},
+		},
+	},
 }
 
 // GetSysObject returns a cty object containing process and host identity

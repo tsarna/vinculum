@@ -460,8 +460,9 @@ func Requires(attr string, requires ...string) Constraint {
 type RegisterOption func(*registerOptions)
 
 type registerOptions struct {
-	schema   *TypeSchema
-	variants map[string]TypeSchema
+	schema    *TypeSchema
+	variants  map[string]TypeSchema
+	namespace *NamespaceSchema
 }
 
 func applyRegisterOptions(opts []RegisterOption) registerOptions {
@@ -490,6 +491,16 @@ func WithSchema(ts TypeSchema) RegisterOption {
 func WithVariantSchemas(schemas map[string]TypeSchema) RegisterOption {
 	return func(o *registerOptions) {
 		o.variants = schemas
+	}
+}
+
+// WithNamespaceSchema attaches the machine-readable description of the
+// top-level namespace an ambient provider contributes:
+//
+//	cfg.RegisterAmbientProvider("sys", provide, cfg.WithNamespaceSchema(sysNamespace))
+func WithNamespaceSchema(ns NamespaceSchema) RegisterOption {
+	return func(o *registerOptions) {
+		o.namespace = &ns
 	}
 }
 
@@ -835,6 +846,11 @@ type SchemaDocument struct {
 	// Contexts maps a `ctx` shape name to its description. An attribute's
 	// `context` field names one of these.
 	Contexts map[string]*SchemaContext `json:"contexts"`
+	// Namespaces maps a top-level name in the evaluation namespace to its
+	// description: what `sys.`, `env.`, and `bus.` mean and what may follow
+	// them. Where `contexts` says what an expression sees at a particular site,
+	// this says what every expression sees everywhere.
+	Namespaces map[string]*SchemaNamespace `json:"namespaces"`
 	// Plugins lists the registry entries plugins contributed to this document,
 	// e.g. "client.acme". Absent when no plugins were loaded, so its presence
 	// is what tells a consumer the document describes more than a stock binary.
@@ -1278,6 +1294,7 @@ func GenerateSchema(opts SchemaGenOptions) (*SchemaDocument, []error) {
 		doc.Blocks[header.Type] = b.topLevelBlock(header, handlers)
 	}
 	doc.Contexts = b.contexts(doc)
+	doc.Namespaces = b.namespaces()
 	return doc, b.problems
 }
 

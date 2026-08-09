@@ -39,6 +39,11 @@ func TestDocPagesResolve(t *testing.T) {
 			collectDocPages(blockType+" "+variant, block.Variants[variant], pages)
 		}
 	}
+	for _, name := range sortedKeys(doc.Namespaces) {
+		if page := doc.Namespaces[name].DocPage; page != "" {
+			pages[page] = append(pages[page], name)
+		}
+	}
 	require.NotEmpty(t, pages, "no DocPage is set anywhere; the check would pass vacuously")
 
 	headings := map[string]map[string]bool{} // file -> anchors

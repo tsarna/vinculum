@@ -40,15 +40,21 @@ func RegisteredPlugins() []string {
 type AmbientProvider func(cfg *Config) cty.Value
 
 type ambientEntry struct {
-	name string
-	p    AmbientProvider
+	name   string
+	p      AmbientProvider
+	schema *NamespaceSchema
 }
 
 var ambientProviders []ambientEntry
 
 // RegisterAmbientProvider registers a named provider that contributes a top-level
 // value to the HCL evaluation context. Sub-packages call this from init().
-func RegisterAmbientProvider(name string, p AmbientProvider) {
+//
+// Pass WithNamespaceSchema to describe what the value carries. A provider
+// registered without one still appears in `vinculum schema`, flagged
+// "undocumented", so the gap is visible rather than invisible.
+func RegisterAmbientProvider(name string, p AmbientProvider, opts ...RegisterOption) {
 	recordPlugin("ambient." + name)
-	ambientProviders = append(ambientProviders, ambientEntry{name, p})
+	o := applyRegisterOptions(opts)
+	ambientProviders = append(ambientProviders, ambientEntry{name: name, p: p, schema: o.namespace})
 }

@@ -154,48 +154,66 @@ func keepFunctyPath(path string) bool {
 	return strings.HasSuffix(path, functy.Extension)
 }
 
-// newFunctyParser builds a functy parser configured with Vinculum's named types
-// so .cty type annotations can reference the capsule and rich-object types that
-// VCL expressions expose.
+// functyBuiltinTypes are the named types config itself supplies for use in .cty
+// type annotations, so those annotations can reference the capsule and
+// rich-object types that VCL expressions expose.
 //
-// Prefer closed (identity) types; a closed type is usable in more positions than
-// an open one. The deciding factor is whether the value has a single fixed
-// cty.Type:
-//   - Closed → RegisterType (identity). Anything with a fixed type: a raw capsule
+// It is a table rather than a chain of RegisterType calls because it is read
+// twice: once to configure the parser, and once to name a type in the schema —
+// `sys.starttime` is reported as a `time` because that is what a config author
+// would write for it (see coarseCtyType).
+//
+// Prefer closed (identity) types when adding one; a closed type is usable in
+// more positions than an open one. The deciding factor is whether the value has
+// a single fixed cty.Type:
+//   - Closed → ty set. Anything with a fixed type: a raw capsule
 //     (bus/server/variable/time/duration/baggage/metric/wire_format), or a rich
 //     object with a *fixed* attribute set (url/bytes and the http* request/
 //     response objects, whose Object types are static cty.Object values).
-//   - Open → RegisterOpenType (value passed through untouched, attributes
-//     preserved). Only where no single fixed type exists: a rich object whose
-//     attribute set *varies per instance* (ctx — handler-dependent fields;
-//     sql_client — one attribute per declared query), or a heterogeneous
-//     interface-dispatch type spanning many capsule types (client — any
-//     config.Client; subscriber — any bus.Subscriber).
+//   - Open → pred set (value passed through untouched, attributes preserved).
+//     Only where no single fixed type exists: a rich object whose attribute set
+//     *varies per instance* (ctx — handler-dependent fields; sql_client — one
+//     attribute per declared query), or a heterogeneous interface-dispatch type
+//     spanning many capsule types (client — any config.Client; subscriber — any
+//     bus.Subscriber).
+var functyBuiltinTypes = []functyTypeRegistration{
+	// Raw capsule types (identity).
+	{name: "bus", ty: EventBusCapsuleType},
+	{name: "server", ty: ServerCapsuleType},
+	{name: "variable", ty: types.VariableCapsuleType},
+	{name: "time", ty: timecty.TimeCapsuleType},
+	{name: "duration", ty: timecty.DurationCapsuleType},
+	{name: "baggage", ty: types.BaggageCapsuleType},
+	{name: "metric", ty: types.MetricCapsuleType},
+	{name: "wire_format", ty: WireFormatCapsuleType},
+	// Rich object types (identity on the object wrapping the capsule).
+	{name: "url", ty: urlcty.URLObjectType},
+	{name: "bytes", ty: bytescty.BytesObjectType},
+	{name: "http_request", ty: types.HTTPRequestObjectType},
+	{name: "http_response", ty: types.HTTPResponseObjectType},
+	{name: "http_client_response", ty: types.HTTPClientResponseObjectType},
+	// Open, predicate-backed types (non-destructive pass-through).
+	{name: "ctx", pred: richcty.IsContextObject, open: true},
+	{name: "subscriber", pred: IsSubscriber, open: true},
+	{name: "client", pred: IsClient, open: true},
+}
+
+// newFunctyParser builds a functy parser configured with the named types above,
+// then with those leaf packages and plugins contributed at init().
 func newFunctyParser() *functy.Parser {
 	p := functy.NewParser().
 		// Top-level var/const declarations are folded into Vinculum's own const
 		// and var pools (see foldFunctyConsts / foldFunctyVars).
 		AllowTopLevelConst(true).
-		AllowTopLevelVar(true).
-		// Raw capsule types (identity).
-		RegisterType("bus", EventBusCapsuleType).
-		RegisterType("server", ServerCapsuleType).
-		RegisterType("variable", types.VariableCapsuleType).
-		RegisterType("time", timecty.TimeCapsuleType).
-		RegisterType("duration", timecty.DurationCapsuleType).
-		RegisterType("baggage", types.BaggageCapsuleType).
-		RegisterType("metric", types.MetricCapsuleType).
-		RegisterType("wire_format", WireFormatCapsuleType).
-		// Rich object types (identity on the object wrapping the capsule).
-		RegisterType("url", urlcty.URLObjectType).
-		RegisterType("bytes", bytescty.BytesObjectType).
-		RegisterType("http_request", types.HTTPRequestObjectType).
-		RegisterType("http_response", types.HTTPResponseObjectType).
-		RegisterType("http_client_response", types.HTTPClientResponseObjectType).
-		// Open, predicate-backed types (non-destructive pass-through).
-		RegisterOpenType("ctx", richcty.IsContextObject).
-		RegisterOpenType("subscriber", IsSubscriber).
-		RegisterOpenType("client", IsClient)
+		AllowTopLevelVar(true)
+
+	for _, r := range functyBuiltinTypes {
+		if r.open {
+			p.RegisterOpenType(r.name, r.pred)
+		} else {
+			p.RegisterType(r.name, r.ty)
+		}
+	}
 
 	// Apply types contributed by leaf packages (and future plugins) via
 	// RegisterFunctyType / RegisterFunctyOpenType. These cannot be referenced

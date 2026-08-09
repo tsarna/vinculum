@@ -100,6 +100,93 @@ func TestSchemaCoversRegisteredTypes(t *testing.T) {
 	assert.Contains(t, doc.Blocks["condition"].Variants, "flipflop")
 }
 
+// TestSchemaCoversAmbientProviders is the same cross-check for the other
+// registry: every ambient provider recorded at init() must have a namespace in
+// the document, so registering one and describing it are a single change.
+func TestSchemaCoversAmbientProviders(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+
+	var registered []string
+	for _, plugin := range config.RegisteredPlugins() {
+		if kind, name, found := strings.Cut(plugin, "."); found && kind == "ambient" {
+			registered = append(registered, name)
+		}
+	}
+	require.NotEmpty(t, registered, "no ambient providers registered")
+	for _, name := range registered {
+		ns := doc.Namespaces[name]
+		require.NotNil(t, ns, "ambient provider %q missing from schema", name)
+		assert.Equal(t, config.NamespaceProvider, ns.Kind, "%s should be a provider namespace", name)
+	}
+	assert.Subset(t, registered, []string{"env", "http_status", "sys"})
+}
+
+// TestSchemaNamespaces covers what the namespace section says about the two
+// kinds of root and about the members whose shape is not simply "a scalar".
+func TestSchemaNamespaces(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+
+	// A block namespace names the block that publishes into it, and has no
+	// members of its own: they are whatever the config declares.
+	for name, ns := range doc.Namespaces {
+		if ns.Kind != config.NamespaceBlock {
+			continue
+		}
+		assert.NotEmpty(t, ns.Block, "namespace %q names no block", name)
+		assert.Contains(t, doc.Blocks, ns.Block, "namespace %q names an unknown block", name)
+		assert.True(t, ns.FreeMembers, "namespace %q should be free", name)
+		assert.Empty(t, ns.Members, "namespace %q should have no members", name)
+	}
+	assert.Equal(t, "bus", doc.Namespaces["bus"].Block)
+
+	// env's members are the environment of whatever process is running, so
+	// nothing is enumerated — otherwise the document would describe the machine
+	// that produced it.
+	env := doc.Namespaces["env"]
+	require.NotNil(t, env)
+	assert.True(t, env.FreeMembers)
+	assert.Empty(t, env.Members)
+
+	// http_status's values are the same in every process, so they are emitted.
+	status := doc.Namespaces["http_status"]
+	require.NotNil(t, status)
+	assert.True(t, status.Constant)
+	assert.Equal(t, "404", findMember(t, status.Members, "NotFound").Value)
+	assert.Equal(t, "map", findMember(t, status.Members, "bycode").Type)
+
+	// sys's values describe the machine, so no value is emitted for them.
+	sys := doc.Namespaces["sys"]
+	require.NotNil(t, sys)
+	assert.False(t, sys.Constant)
+	assert.Empty(t, findMember(t, sys.Members, "hostname").Value)
+	assert.Equal(t, "string", findMember(t, sys.Members, "hostname").Type)
+	// A capsule is named the way a .cty annotation would name it.
+	assert.Equal(t, "time", findMember(t, sys.Members, "starttime").Type)
+
+	// An object member is described a level down.
+	functy := findMember(t, sys.Members, "functy")
+	assert.Equal(t, "object", functy.Type)
+	assert.NotEmpty(t, findMember(t, functy.Members, "version").Summary)
+
+	// sys.signals carries whichever signals the host defines, so only the fixed
+	// member beside them is described — the document must not vary by OS.
+	signals := findMember(t, sys.Members, "signals")
+	assert.True(t, signals.FreeMembers)
+	require.Len(t, signals.Members, 1)
+	assert.Equal(t, "bynumber", signals.Members[0].Name)
+}
+
+func findMember(t *testing.T, members []*config.SchemaMember, name string) *config.SchemaMember {
+	t.Helper()
+	for _, m := range members {
+		if m.Name == name {
+			return m
+		}
+	}
+	t.Fatalf("no member %q", name)
+	return nil
+}
+
 // TestSchemaConditionalTypes covers types whose availability depends on config
 // state: they are emitted as part of the superset, flagged conditional.
 func TestSchemaConditionalTypes(t *testing.T) {
@@ -174,6 +261,21 @@ func TestSchemaIsCompleteAndConsistent(t *testing.T) {
 		for variant, body := range block.Variants {
 			assertBodyDocumented(t, name+" "+variant, body)
 		}
+	}
+	for name, ns := range doc.Namespaces {
+		require.NotNil(t, ns, name)
+		assert.False(t, ns.Undocumented, "namespace %q is undocumented", name)
+		assert.NotEmpty(t, ns.Summary, "namespace %q has no summary", name)
+		assertMembersDocumented(t, name, ns.Members)
+	}
+}
+
+func assertMembersDocumented(t *testing.T, path string, members []*config.SchemaMember) {
+	t.Helper()
+	for _, m := range members {
+		assert.NotEmpty(t, m.Summary, "%s.%s has no summary", path, m.Name)
+		assert.NotEmpty(t, m.Type, "%s.%s has no type", path, m.Name)
+		assertMembersDocumented(t, path+"."+m.Name, m.Members)
 	}
 }
 
@@ -904,7 +1006,12 @@ func TestSchemaCommandUsageErrors(t *testing.T) {
 func TestSchemaCommandOmitsPluginsWhenNoneLoaded(t *testing.T) {
 	out, err := runSchemaCommand(t)
 	require.NoError(t, err)
-	assert.NotContains(t, out, "\"plugins\"")
+
+	// The top-level key specifically: "plugins" also names a member of the sys
+	// namespace, so a substring check would find that instead.
+	var top map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal([]byte(out), &top))
+	assert.NotContains(t, top, "plugins")
 }
 
 func TestExitCodeDefaultsToOne(t *testing.T) {
