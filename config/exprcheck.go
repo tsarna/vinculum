@@ -40,15 +40,24 @@ import (
 // handlers'), and nothing describes those additions, so an unknown-function
 // check would report working configs.
 
-// exprCheckSkipBlockTypes names block types whose deferred expressions cannot
-// be checked against the global namespace.
+// exprCheckSkipBlockTypes names block types this check does not visit.
 //
-// An `editor` body is evaluated with its user-declared parameters — and, in a
-// `match` block, `state` — copied into the same scope as `ctx`
-// (editors/line/line.go), so its references legitimately resolve to names no
-// schema describes. Editor blocks are also extracted before the block handlers
-// run, so they never reach this check anyway; the entry records the reason
-// rather than relying on that.
+// `editor` does not reach it in the first place: extractEditorFunctions strips
+// editor blocks out of the bodies before GetBlocks runs, alongside `function`
+// and `jq`, so they are never in the block list. The entry is a guard in case
+// that changes, and this is where the reason to keep it belongs.
+//
+// The reason is `state`, not the parameters. An editor body evaluates with its
+// user-declared params, its variadic param, and `state` all copied in beside
+// `ctx` (lineEditor.finishCtx). The param names are bare identifiers written in
+// the block — `params = [host, port]` — so those are collectable, as are the
+// initial keys of `state = { ... }`. But mergeState folds in whatever
+// attributes an `update_state` object turns out to have, and that object is a
+// runtime expression: literal for `{ count = state.count + 1 }`, unknowable for
+// anything built by merge() or jsondecode(). So the scope has no closed name
+// set, and checking it would report working editors. Params are also copied
+// last, so one named `ctx` or `state` shadows the built-in — a checker that
+// took this on would have to model that too.
 var exprCheckSkipBlockTypes = map[string]bool{
 	"editor": true,
 }

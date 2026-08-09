@@ -192,8 +192,9 @@ Three things are outside the check:
   a block is therefore also how to park one that refers to names the rest of the
   configuration no longer publishes.
 
-An `editor` body is not checked: its user-declared parameters, and a `match`
-block's `state`, are in scope alongside `ctx`.
+An `editor` body is not checked. Its expressions read `state` alongside `ctx`,
+and `update_state` may add keys to `state` that are only known once it has run,
+so there is no fixed set of names to check against.
 
 ---
 
