@@ -53,6 +53,10 @@ func Walk(n Node, opts WalkOptions) []Event {
 		w.walkAttr(n, level)
 	case shapeContext:
 		w.walkContext(n, level)
+	case shapeNamespace:
+		w.walkNamespace(n, level)
+	case shapeMember:
+		w.walkMember(n, level)
 	case shapeFunction:
 		w.walkFunction(n, level)
 	}

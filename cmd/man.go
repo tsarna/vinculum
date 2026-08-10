@@ -47,6 +47,8 @@ blocks that take one, then an attribute or sub-block, to any depth.
   vinculum man client mqtt            client "mqtt" in full
   vinculum man client mqtt tls        one sub-block of it
   vinculum man subscription action    one attribute, with the ctx it sees
+  vinculum man sys                    a namespace an expression can start from
+  vinculum man sys starttime          one member of it
 
 A type label resolves on its own where it is unambiguous, so "vinculum man mqtt"
 is the same page. Where it is not — http and vws are each both a client type and
@@ -56,9 +58,9 @@ it. Use --type to choose between kinds of topic rather than paths.
 With no topic, lists what there is to read.
 
 With --apropos (-k), the arguments are keywords rather than a path: every block,
-attribute, sub-block, context field and function whose name or summary contains
-all of them is listed, with the command that reads each one. It is how to find
-an attribute whose name you know and whose block you do not.
+attribute, sub-block, context field, namespace member and function whose name or
+summary contains all of them is listed, with the command that reads each one. It
+is how to find an attribute whose name you know and whose block you do not.
 
   vinculum man -k keep_alive          who has an attribute by that name
   vinculum man -k topic pattern       both words, anywhere in name or summary
@@ -78,7 +80,7 @@ say so explicitly. See VINCULUM_PAGER, PAGER, NO_COLOR, and MANWIDTH.`,
 func init() {
 	rootCmd.AddCommand(manCmd)
 
-	manCmd.Flags().StringVar(&manType, "type", "", "restrict the search to one kind of topic (block, context, function)")
+	manCmd.Flags().StringVar(&manType, "type", "", "restrict the search to one kind of topic (block, context, namespace, function)")
 	manCmd.Flags().StringVar(&manFormat, "format", "auto", "output format: term, markdown, or auto (term on a terminal)")
 	manCmd.Flags().StringVar(&manColor, "color", "auto", "colorize output: always, never, or auto")
 	manCmd.Flags().IntVar(&manWidth, "width", 0, "wrap width (default: the terminal's, clamped)")

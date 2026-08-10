@@ -143,6 +143,54 @@ func testDoc() *config.SchemaDocument {
 				},
 			},
 		},
+		// One namespace of each kind that renders differently: a fixed one with
+		// a nested object and a partly-free member, a wholly free one, a
+		// constant one, and a block namespace — which is in the document but is
+		// not a topic, and is here so a test can prove it.
+		Namespaces: map[string]*config.SchemaNamespace{
+			"sys": {
+				Kind:    config.NamespaceProvider,
+				Summary: "Process and host identity.",
+				Doc:     "Captured once at startup.",
+				DocPage: "config.md#variables",
+				Members: []*config.SchemaMember{
+					{Name: "hostname", Type: "string", Summary: "Hostname of the machine."},
+					{
+						Name: "functy", Type: "object", Summary: "The bundled functy language.",
+						Members: []*config.SchemaMember{
+							{Name: "version", Type: "string", Summary: "Its version.", Doc: "Read from build info."},
+						},
+					},
+					{
+						Name: "signals", Type: "object", Summary: "Signal numbers for the host OS.",
+						FreeMembers: true,
+						Members: []*config.SchemaMember{
+							{Name: "bynumber", Type: "map", Summary: "Signal name by number.", Doc: "Keyed as a string."},
+						},
+					},
+				},
+			},
+			"env": {
+				Kind:        config.NamespaceProvider,
+				Summary:     "Environment variables of the running process.",
+				FreeMembers: true,
+			},
+			"http_status": {
+				Kind:     config.NamespaceProvider,
+				Summary:  "Constants for the HTTP status codes.",
+				Constant: true,
+				Members: []*config.SchemaMember{
+					{Name: "NotFound", Type: "number", Value: "404", Summary: "The numeric HTTP status code."},
+					{Name: "OK", Type: "number", Value: "200", Summary: "The numeric HTTP status code."},
+				},
+			},
+			"subscription": {
+				Kind:        config.NamespaceBlock,
+				Block:       "subscription",
+				Summary:     "Each subscription, by name.",
+				FreeMembers: true,
+			},
+		},
 	}
 }
 

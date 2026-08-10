@@ -11,6 +11,7 @@ vinculum man client mqtt            # client "mqtt" in full
 vinculum man client mqtt tls        # one sub-block of it
 vinculum man subscription action    # one attribute, with the ctx it sees
 vinculum man message                # a ctx shape
+vinculum man sys starttime          # a member of a namespace
 ```
 
 It is generated from the same decode structs the parser uses, so it describes
@@ -31,6 +32,8 @@ A topic is a **path** through the language. Each element narrows the last:
 | `client mqtt tls` | a sub-block of that variant |
 | `client mqtt tls cert` | an attribute of that sub-block |
 | `server mcp tool param` | nesting goes as deep as the language does |
+| `sys` | a namespace an expression may start from |
+| `sys signals bynumber` | a member of one |
 
 A type label resolves on its own wherever it is unambiguous, so
 `vinculum man mqtt` and `vinculum man client mqtt` are the same page.
@@ -52,6 +55,32 @@ vinculum man decode-error     # what an on_decode_error sees
 A shape's page lists every attribute evaluated against it. Going the other way,
 an attribute's page inlines the shape it sees, so you rarely need to look one up
 by name.
+
+### Namespaces
+
+Where a `ctx` shape is what one expression sees at one site, a **namespace** is
+what every expression sees everywhere — the names a reference may start from.
+Those are topics too, and unlike a shape they have members:
+
+```
+vinculum man sys                    # what sys carries
+vinculum man sys starttime          # one member of it
+vinculum man sys signals bynumber   # nesting goes as deep as the value does
+vinculum man http_status            # the status-code constants, with their values
+```
+
+Two things are deliberately *not* addressable here:
+
+- **A name the language does not choose.** `env` is the environment of whichever
+  process is running, and `sys.signals` carries whichever signals the host OS
+  defines, so `vinculum man env HOME` is not a page. The namespace's own page
+  says so, and lists the members that *are* fixed — `sys.signals.bynumber` is
+  one.
+- **The roots a configuration fills in.** `bus.<name>`, `var.<name>`,
+  `client.<name>` and the rest are named by the blocks that declare them, so
+  they are documented on the block's page: read `vinculum man bus`, not
+  `vinculum man` a namespace of the same name. The schema document describes
+  them all the same — see [schema.md](schema.md#namespaces).
 
 ### Functions
 
@@ -102,9 +131,10 @@ vinculum man client mqtt keep_alive
 ```
 
 It searches names and one-line summaries across everything: block types, type
-variants, sub-blocks, attributes, `ctx` shapes and their fields, and the callable
-functions. Matching is case-insensitive substring, and **every** keyword must
-match, so a second word narrows rather than widens:
+variants, sub-blocks, attributes, `ctx` shapes and their fields, namespaces and
+their members, and the callable functions. Matching is case-insensitive
+substring, and **every** keyword must match, so a second word narrows rather
+than widens:
 
 ```sh
 vinculum man -k baggage          # everything about baggage
@@ -157,9 +187,9 @@ did you mean:
 Both go to **stderr**, so redirecting a lookup that turns out to be ambiguous
 never writes a menu into your file.
 
-`--type` narrows the search to one kind of topic — `block`, `context`, or
-`function` — for when the ambiguity is not between paths but between kinds.
-That happens where one word names things in two corpora at once:
+`--type` narrows the search to one kind of topic — `block`, `context`,
+`namespace`, or `function` — for when the ambiguity is not between paths but
+between kinds. That happens where one word names things in two corpora at once:
 
 ```console
 $ vinculum man assert
@@ -184,7 +214,7 @@ vinculum man client mqtt | glow     # Markdown, rendered by something else
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--type <kind>` | — | Restrict to one kind of topic: `block`, `context`, or `function`. |
+| `--type <kind>` | — | Restrict to one kind of topic: `block`, `context`, `namespace`, or `function`. |
 | `--format <fmt>` | `auto` | `term`, `markdown`, or `auto` (term on a terminal). |
 | `--color <when>` | `auto` | `always`, `never`, or `auto`. |
 | `--width <n>` | terminal's | Wrap width, clamped to 40–100. |

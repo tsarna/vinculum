@@ -84,6 +84,9 @@ func (m *markdownSink) render(e Event) {
 	case ContextTable:
 		m.contextTable(v)
 
+	case MemberTable:
+		m.memberTable(v)
+
 	case Constraints:
 		m.para()
 		for _, c := range v.Items {
@@ -261,6 +264,58 @@ func (m *markdownSink) contextTable(t ContextTable) {
 		}
 		m.para()
 		m.line("**`ctx." + r.Name + "`**")
+		m.para()
+		m.line(strings.TrimRight(r.Doc, "\n"))
+	}
+}
+
+func (m *markdownSink) memberTable(t MemberTable) {
+	if len(t.Rows) == 0 && !t.FreeMembers {
+		return
+	}
+	prefix := strings.Join(t.Prefix, ".")
+	// A value column only where the values are the language's rather than the
+	// machine's; sys.hostname has a value here and it is not worth printing.
+	values := t.Constant && t.HasValues()
+
+	m.para()
+	if len(t.Rows) > 0 {
+		m.line("Readable as `" + prefix + ".<name>`:")
+		m.para()
+		if values {
+			m.line("| Name | Type | Value | Description |")
+			m.line("|---|---|---|:---|")
+		} else {
+			m.line("| Name | Type | Description |")
+			m.line("|---|---|:---|")
+		}
+		for _, r := range t.Rows {
+			desc := oneLine(r.Summary)
+			if r.HasMembers {
+				desc = strings.TrimSuffix(desc, ".") + ". *(has members of its own)*"
+			}
+			if values {
+				val := ""
+				if r.Value != "" {
+					val = "`" + r.Value + "`"
+				}
+				m.line(fmt.Sprintf("| `%s.%s` | %s | %s | %s |", prefix, r.Name, r.Type, val, desc))
+				continue
+			}
+			m.line(fmt.Sprintf("| `%s.%s` | %s | %s |", prefix, r.Name, r.Type, desc))
+		}
+	}
+	if t.FreeMembers {
+		m.para()
+		m.line("*Any name may be read here: what exists is decided outside the " +
+			"configuration language, so it is not listed and not checked.*")
+	}
+	for _, r := range t.Rows {
+		if r.Doc == "" {
+			continue
+		}
+		m.para()
+		m.line("**`" + prefix + "." + r.Name + "`**")
 		m.para()
 		m.line(strings.TrimRight(r.Doc, "\n"))
 	}

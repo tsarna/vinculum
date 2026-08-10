@@ -64,6 +64,9 @@ func Apropos(doc *config.SchemaDocument, cat FuncCatalog, kind Kind, terms []str
 	if kind == "" || kind == KindContext {
 		s.contexts(doc)
 	}
+	if kind == "" || kind == KindNamespace {
+		s.namespaces(doc)
+	}
 	if kind == "" || kind == KindFunction {
 		s.functions(cat)
 	}
@@ -191,6 +194,30 @@ func (s *search) contexts(doc *config.SchemaDocument) {
 			}
 			s.consider(KindContext, path, "ctx."+f.Name, f.Name, f.Summary)
 		}
+	}
+}
+
+// namespaces searches the addressable namespaces and their members.
+//
+// Unlike a `ctx` field, a member is addressable in its own right, so a hit is
+// the member's own path rather than its container's with a Detail. Nothing is
+// skipped the way universal `ctx` fields are: the namespaces are few, and a
+// member belongs to exactly one of them.
+func (s *search) namespaces(doc *config.SchemaDocument) {
+	if doc == nil {
+		return
+	}
+	for _, n := range namespaceTopics(doc) {
+		s.consider(KindNamespace, n.Path, "", n.Path[0], n.ns.Summary)
+		s.members(n.Path, n.ns.Members)
+	}
+}
+
+func (s *search) members(path []string, members []*config.SchemaMember) {
+	for _, m := range members {
+		mpath := append(append([]string(nil), path...), m.Name)
+		s.consider(KindNamespace, mpath, "", m.Name, m.Summary)
+		s.members(mpath, m.Members)
 	}
 }
 

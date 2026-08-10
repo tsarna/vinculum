@@ -178,10 +178,14 @@ func TestTopicsAreTheIndexPage(t *testing.T) {
 	assert.Equal(t, []string{
 		"block:client", "block:server", "block:subscription",
 		"context:connection", "context:decode-error", "context:message",
+		"namespace:env", "namespace:http_status", "namespace:sys",
 	}, got)
 	// Variants belong under their block, not in the index: 43 of them would
 	// bury the 15 blocks a reader is looking for.
 	assert.NotContains(t, got, "block:client/mqtt")
+	// Nor does a block namespace, which would list `subscription` twice for a
+	// page that repeats what the block's page says.
+	assert.NotContains(t, got, "namespace:subscription")
 }
 
 func TestEditDistance(t *testing.T) {

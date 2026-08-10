@@ -211,7 +211,7 @@ func TestManReportsABadKind(t *testing.T) {
 	got := runMan(t, manTestHost(t), "widget:http")
 
 	assert.Contains(t, got, `unknown kind "widget"`)
-	assert.Contains(t, got, "block, context, function")
+	assert.Contains(t, got, "block, context, namespace, function")
 }
 
 func TestParseManArgs(t *testing.T) {

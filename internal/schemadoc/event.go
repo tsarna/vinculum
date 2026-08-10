@@ -144,6 +144,57 @@ type ContextRow struct {
 	Added bool
 }
 
+// MemberTable lists what may follow a dot: the members of a namespace, or of a
+// member that is itself an object.
+//
+// Distinct from ContextTable, which it resembles. A `ctx` field is readable
+// only inside the expression that sees it and is spelled `ctx.<name>`; a
+// namespace member is readable in every expression and is spelled with its own
+// root. They also differ in what a reader needs: a member may carry a literal
+// value, and may be addressable one level further down.
+type MemberTable struct {
+	// Prefix is the dotted path the rows are read under, e.g. ["sys"] or
+	// ["sys", "signals"].
+	Prefix []string
+	Rows   []MemberRow
+	// FreeMembers is true when Rows is a floor rather than the whole list: the
+	// remaining names come from the environment or the host rather than from
+	// the language.
+	FreeMembers bool
+	// Constant is true when the values are the same in every process, which is
+	// what makes a row's Value meaningful.
+	Constant bool
+}
+
+// HasValues reports whether any row states a value, which is what decides
+// whether a sink spends a column on them.
+func (t MemberTable) HasValues() bool {
+	for _, r := range t.Rows {
+		if r.Value != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// MemberRow is one member in the overview.
+type MemberRow struct {
+	Name string
+	Type string
+	// Value is the member's literal value, for a namespace whose values are the
+	// same in every process. Empty otherwise.
+	Value string
+	// Summary is the one-line description shown in the table; Doc is the detail
+	// rendered below it, the way an attribute's detail follows its table.
+	Summary string
+	Doc     string
+	// HasMembers is true when the member is an object with members of its own,
+	// so a sink can say the path continues.
+	HasMembers bool
+	// Path is the argv that names the member, for a sink that links.
+	Path []string
+}
+
 // Constraints are the advisory cross-attribute rules of a body.
 type Constraints struct {
 	Items []config.Constraint
@@ -216,6 +267,7 @@ func (AttrTable) isEvent()    {}
 func (AttrDetail) isEvent()   {}
 func (BlockTable) isEvent()   {}
 func (ContextTable) isEvent() {}
+func (MemberTable) isEvent()  {}
 func (Constraints) isEvent()  {}
 func (SeeAlso) isEvent()      {}
 func (Menu) isEvent()         {}

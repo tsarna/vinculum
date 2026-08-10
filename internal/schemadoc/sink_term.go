@@ -173,6 +173,9 @@ func (t *termSink) render(e Event) {
 	case ContextTable:
 		t.contextTable(v)
 
+	case MemberTable:
+		t.memberTable(v)
+
 	case Constraints:
 		t.gap()
 		for _, c := range v.Items {
@@ -461,6 +464,54 @@ func (t *termSink) contextTable(v ContextTable) {
 		}
 		t.gap()
 		t.line(t.pad() + t.st.apply(spanCode, "ctx."+r.Name))
+		t.emit(renderProse(r.Doc, t.width, t.indent+indentStep, t.st)...)
+	}
+}
+
+func (t *termSink) memberTable(v MemberTable) {
+	if len(v.Rows) == 0 && !v.FreeMembers {
+		return
+	}
+	prefix := strings.Join(v.Prefix, ".")
+	values := v.Constant && v.HasValues()
+
+	if len(v.Rows) > 0 {
+		t.gap()
+		t.emit(renderProse("Readable as `"+prefix+".<name>`:", t.width, t.indent, t.st)...)
+		t.blank()
+
+		names := make([]string, len(v.Rows))
+		for i, r := range v.Rows {
+			names[i] = prefix + "." + r.Name
+		}
+		width := t.columnWidth(names)
+
+		for i, r := range v.Rows {
+			// The type trails the summary rather than taking a column, as in
+			// attrTable and for the same reason.
+			notes := []string{r.Type}
+			if values && r.Value != "" {
+				notes = append(notes, "`"+r.Value+"`")
+			}
+			if r.HasMembers {
+				notes = append(notes, "has members")
+			}
+			desc := oneLine(r.Summary) + " *(" + strings.Join(notes, ", ") + ")*"
+			t.column(names[i], strings.TrimSpace(desc), width)
+		}
+	}
+	if v.FreeMembers {
+		t.blank()
+		t.emit(renderProse("*Any name may be read here: what exists is decided outside the "+
+			"configuration language, so it is not listed and not checked.*",
+			t.width, t.indent, t.st)...)
+	}
+	for _, r := range v.Rows {
+		if r.Doc == "" {
+			continue
+		}
+		t.gap()
+		t.line(t.pad() + t.st.apply(spanCode, prefix+"."+r.Name))
 		t.emit(renderProse(r.Doc, t.width, t.indent+indentStep, t.st)...)
 	}
 }

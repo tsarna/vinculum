@@ -33,6 +33,9 @@ func Resolve(doc *config.SchemaDocument, kind Kind, path []string) []Node {
 	if kind == "" || kind == KindContext {
 		out = append(out, resolveContext(doc, path)...)
 	}
+	if kind == "" || kind == KindNamespace {
+		out = append(out, resolveNamespace(doc, path)...)
+	}
 	return out
 }
 
@@ -145,6 +148,9 @@ func Topics(doc *config.SchemaDocument, kind Kind) []Node {
 			out = append(out, ContextNode(doc, name, doc.Contexts[name]))
 		}
 	}
+	if kind == "" || kind == KindNamespace {
+		out = append(out, namespaceTopics(doc)...)
+	}
 	return out
 }
 
@@ -179,6 +185,11 @@ func LeadingNames(doc *config.SchemaDocument, kind Kind) []string {
 	if kind == "" || kind == KindContext {
 		for _, name := range sortedContextKeys(doc.Contexts) {
 			add(name)
+		}
+	}
+	if kind == "" || kind == KindNamespace {
+		for _, n := range namespaceTopics(doc) {
+			add(n.Path[0])
 		}
 	}
 	sort.Strings(out)
@@ -220,6 +231,10 @@ func Members(doc *config.SchemaDocument, kind Kind, path []string) []string {
 			bodyMembers(n.body, add)
 		case shapeNested:
 			bodyMembers(&n.nested.SchemaBody, add)
+		case shapeNamespace:
+			memberNames(n.ns.Members, add)
+		case shapeMember:
+			memberNames(n.member.Members, add)
 		}
 	}
 	sort.Strings(out)

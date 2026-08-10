@@ -19,7 +19,7 @@ func TestHelpResolverIsRegistered(t *testing.T) {
 // are functy's to answer, and routing them here would reach a resolver with no
 // catalog to search.
 func TestHelpKindsExcludeFunctions(t *testing.T) {
-	assert.Equal(t, []string{"block", "context"}, helpResolver{}.HelpKinds())
+	assert.Equal(t, []string{"block", "context", "namespace"}, helpResolver{}.HelpKinds())
 	assert.Contains(t, Kinds, KindFunction, "but man --type function still resolves")
 }
 

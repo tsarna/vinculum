@@ -16,12 +16,21 @@ const (
 	KindBlock Kind = "block"
 	// KindContext is a `ctx` shape, named by an attribute's context field.
 	KindContext Kind = "context"
+	// KindNamespace is a top-level name in the evaluation namespace — `sys`,
+	// `env`, `http_status` — or a member reached through one.
+	//
+	// Only the namespaces whose members are part of the language are topics.
+	// The roots a config fills in (`bus`, `var`, …) are named in the document
+	// too, but resolving them here would make `vinculum man bus` ambiguous
+	// between a namespace and the block of the same name, for a page that could
+	// only say "each bus, by name" and point at that block.
+	KindNamespace Kind = "namespace"
 	// KindFunction is a callable function.
 	KindFunction Kind = "function"
 )
 
 // Kinds are the kinds a topic may be resolved in, in the order they are tried.
-var Kinds = []Kind{KindBlock, KindContext, KindFunction}
+var Kinds = []Kind{KindBlock, KindContext, KindNamespace, KindFunction}
 
 // ValidKind reports whether s names a kind.
 func ValidKind(s string) bool {
@@ -48,6 +57,10 @@ const (
 	shapeAttr
 	// shapeContext is a `ctx` shape.
 	shapeContext
+	// shapeNamespace is a top-level name in the evaluation namespace: `sys`.
+	shapeNamespace
+	// shapeMember is one member reached through a namespace: `sys.pid`.
+	shapeMember
 	// shapeFunction is a callable function, which comes from a FuncCatalog
 	// rather than from the document.
 	shapeFunction
@@ -73,6 +86,10 @@ type Node struct {
 	attr   *config.SchemaAttr
 	ctx    *config.SchemaContext
 	funcs  FuncCatalog
+	// ns is set for a namespace and for every member reached through one, so a
+	// member knows which root it hangs off and what page documents it.
+	ns     *config.SchemaNamespace
+	member *config.SchemaMember
 	// labels are the enclosing block's label names, so a variant or sub-block
 	// can render its own header line in a synopsis.
 	labels []string
@@ -106,6 +123,16 @@ func ContextNode(doc *config.SchemaDocument, name string, ctx *config.SchemaCont
 	return Node{Kind: KindContext, Path: []string{name}, Doc: doc, shape: shapeContext, ctx: ctx}
 }
 
+// NamespaceNode returns a node for a top-level name in the evaluation namespace.
+func NamespaceNode(doc *config.SchemaDocument, name string, ns *config.SchemaNamespace) Node {
+	return Node{Kind: KindNamespace, Path: []string{name}, Doc: doc, shape: shapeNamespace, ns: ns}
+}
+
+// MemberNode returns a node for one member reached through a namespace.
+func MemberNode(doc *config.SchemaDocument, path []string, ns *config.SchemaNamespace, m *config.SchemaMember) Node {
+	return Node{Kind: KindNamespace, Path: path, Doc: doc, shape: shapeMember, ns: ns, member: m}
+}
+
 // body returns the node's body, or nil for a node that has none (an attribute,
 // a context shape, or a typed block whose bodies are its variants).
 func (n Node) bodyOf() *config.SchemaBody {
@@ -132,6 +159,10 @@ func (n Node) Title() string {
 		return "`" + n.Path[len(n.Path)-1] + "`"
 	case shapeContext:
 		return "`ctx` — " + n.Path[0]
+	case shapeNamespace, shapeMember:
+		// The whole dotted path, because that is how it is written in an
+		// expression and because `pid` alone would not say what it is a member of.
+		return "`" + strings.Join(n.Path, ".") + "`"
 	case shapeFunction:
 		return "`" + n.Path[0] + "()`"
 	}
@@ -190,6 +221,10 @@ func (n Node) Summary() string {
 		return n.attr.Summary
 	case shapeContext:
 		return n.ctx.Summary
+	case shapeNamespace:
+		return n.ns.Summary
+	case shapeMember:
+		return n.member.Summary
 	}
 	return ""
 }
@@ -198,9 +233,12 @@ func (n Node) Summary() string {
 // doc/, or "" when it has none.
 //
 // Only types have one. An attribute is documented where it is defined, and a
-// `ctx` shape is documented by the attributes that see it.
+// `ctx` shape is documented by the attributes that see it. A namespace member
+// takes its namespace's page, which is where it is written up.
 func (n Node) DocPage() string {
 	switch n.shape {
+	case shapeNamespace, shapeMember:
+		return n.ns.DocPage
 	case shapeBlock:
 		if n.block.DocPage != "" {
 			return n.block.DocPage
@@ -234,6 +272,10 @@ func (n Node) Description() string {
 		return n.attr.Doc
 	case shapeContext:
 		return n.ctx.Doc
+	case shapeNamespace:
+		return n.ns.Doc
+	case shapeMember:
+		return n.member.Doc
 	}
 	return ""
 }

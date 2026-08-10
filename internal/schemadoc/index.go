@@ -42,6 +42,17 @@ func Index(doc *config.SchemaDocument, opts WalkOptions) []Event {
 		events = append(events, BlockTable{Rows: topicRows(shapes)})
 	}
 
+	namespaces := Topics(doc, KindNamespace)
+	if len(namespaces) > 0 {
+		events = append(events, Heading{Level: level + 1, Text: "Namespaces"})
+		events = append(events, Prose{
+			Markdown: "The names an expression may start from, wherever it appears. " +
+				"The blocks above publish names of their own — `bus.<name>`, `var.<name>` — " +
+				"which are documented with the block that declares them.",
+		})
+		events = append(events, BlockTable{Rows: topicRows(namespaces)})
+	}
+
 	return events
 }
 
@@ -82,6 +93,11 @@ func Everything(doc *config.SchemaDocument, opts WalkOptions) []Event {
 	events = append(events, Heading{Level: level + 1, Text: "Context shapes"})
 	for _, shape := range Topics(doc, KindContext) {
 		events = append(events, Walk(shape, WalkOptions{BaseLevel: level + 2})...)
+	}
+
+	events = append(events, Heading{Level: level + 1, Text: "Namespaces"})
+	for _, ns := range Topics(doc, KindNamespace) {
+		events = append(events, Walk(ns, WalkOptions{BaseLevel: level + 2})...)
 	}
 	return events
 }

@@ -116,7 +116,9 @@ its structure is reflected from a decode struct the plugin never supplied. See
   "blocks": {
     "subscription": { ... },
     "client": { ... }
-  }
+  },
+  "contexts":   { "message": { ... } },
+  "namespaces": { "sys": { ... } }
 }
 ```
 
@@ -278,6 +280,59 @@ A site's field may not shadow one the shape already declares — including a
 universal — because at runtime the fixed field wins and the site's value is
 dropped. Trying to declare one is a reported problem, and the field is left out
 of the document.
+
+### Namespaces
+
+Where `contexts` says what an expression sees at one site, the top-level
+`namespaces` map says what every expression sees everywhere: the names a
+reference may start from, and what may follow the dot.
+
+```json
+"namespaces": {
+  "sys": {
+    "kind": "provider",
+    "summary": "Process and host identity, captured at startup.",
+    "members": [
+      {"name": "hostname",  "type": "string", "summary": "Hostname of the machine."},
+      {"name": "starttime", "type": "time",   "summary": "Approximate time the process started."},
+      {"name": "signals",   "type": "object", "freeMembers": true, "summary": "…",
+       "members": [{"name": "bynumber", "type": "map", "summary": "…"}]}
+    ]
+  },
+  "http_status": {
+    "kind": "provider",
+    "constant": true,
+    "members": [{"name": "NotFound", "type": "number", "value": "404", "summary": "…"}]
+  },
+  "bus": {"kind": "block", "block": "bus", "freeMembers": true, "summary": "Each bus, by name."}
+}
+```
+
+`kind` tells the two halves apart, and the difference is where the member names
+come from — which is what decides whether an editor may flag one as unknown:
+
+| Kind | Members are | Checked |
+|---|---|---|
+| `provider` | part of the language, reflected from the value an ambient provider returns | yes, unless `freeMembers` |
+| `block` | the names in the configuration — every `bus` block publishes a `bus.<name>` | no; `block` names the block that declares them |
+
+A member's `type` is the attribute vocabulary plus `object`, `capsule`, and —
+for a capsule with a name usable in a `.cty` annotation — that name, so
+`sys.starttime` reports `time`. A member that is an `object` carries `members`
+of its own, to any depth.
+
+| Field | Meaning |
+|---|---|
+| `freeMembers` | `members` is a floor, not the whole list. The rest are not the language's to know: `env` is the environment of whichever process is running, and `sys.signals` carries whichever signals the host OS defines. Do not flag an unlisted name here. |
+| `constant` | The values are the same in every process, which is what makes `value` meaningful. True of `http_status`; false of `sys`, whose hostname describes the machine. |
+| `value` | The member's literal value, on a `constant` namespace only. |
+
+Provider members are reflected from the `cty.Value` the provider returns, so the
+prose beside them is checked against it in both directions the way a block's
+attributes are: a member with no summary and a documented member that does not
+exist are both reported. Nothing undescribed is emitted under `freeMembers`,
+which is also what keeps the document from varying with the machine that
+generated it.
 
 ### Nested blocks
 
