@@ -55,7 +55,7 @@ require (
 	github.com/tsarna/vinculum-vws v0.13.0
 	github.com/tsarna/vinculum-wire v0.5.0
 	github.com/twmb/franz-go v1.21.5
-	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260804154521-adb3a18abe14
+	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260811033724-b8e7523ac75a
 	github.com/twmb/franz-go/plugin/kotel v1.7.0
 	github.com/yosida95/uritemplate/v3 v3.0.2
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0
