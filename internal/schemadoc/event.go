@@ -191,7 +191,9 @@ type MemberRow struct {
 	// HasMembers is true when the member is an object with members of its own,
 	// so a sink can say the path continues.
 	HasMembers bool
-	// Path is the argv that names the member, for a sink that links.
+	// Path is the whole dotted path that names the member, for a sink that
+	// links — and for spelling the row, since a table may flatten a member's
+	// own members into it and Name alone would then be ambiguous.
 	Path []string
 }
 

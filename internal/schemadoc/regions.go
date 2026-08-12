@@ -43,6 +43,17 @@ const (
 	RegionBlockCtx = "block-ctx"
 	// RegionContext renders one `ctx` shape.
 	RegionContext = "context"
+	// RegionNamespaces renders what every top-level name in the evaluation
+	// namespace is, each under its own heading, without listing members.
+	//
+	// All of them, rather than one per region: the list is short, its whole
+	// value is being complete — the hand-written one it replaces was missing
+	// four roots — and a page that marked them one at a time could go stale by
+	// omitting the next one added.
+	RegionNamespaces = "namespaces"
+	// RegionNamespaceMembers renders one namespace's members alone, named by
+	// the namespace: `namespace-members sys`.
+	RegionNamespaceMembers = "namespace-members"
 )
 
 // sectionRegions maps the section-rendering region kinds to what they render.
@@ -159,9 +170,13 @@ func parseMarker(text string) (Region, error) {
 	}
 
 	switch r.Kind {
-	case RegionBlockIndex, RegionContext:
+	case RegionBlockIndex, RegionContext, RegionNamespaceMembers:
 		if len(r.Args) != 1 {
 			return Region{}, fmt.Errorf("%s takes one argument, got %d", r.Kind, len(r.Args))
+		}
+	case RegionNamespaces:
+		if len(r.Args) != 0 {
+			return Region{}, fmt.Errorf("%s takes no arguments, got %d", r.Kind, len(r.Args))
 		}
 	case RegionBlockBody, RegionBlockSynopsis, RegionBlockAttrs, RegionBlockCtx:
 		if len(r.Args) == 0 {
@@ -215,6 +230,19 @@ func RenderRegion(doc *config.SchemaDocument, r Region) (string, error) {
 		return RenderMarkdown(
 			Walk(ContextNode(doc, r.Args[0], shape), WalkOptions{BaseLevel: r.Level, NoHeading: true}),
 			MarkdownOptions{}), nil
+
+	case RegionNamespaces:
+		if len(doc.Namespaces) == 0 {
+			return "", fmt.Errorf("the document describes no namespaces")
+		}
+		return RenderMarkdown(namespacesSection(doc, r.Level), MarkdownOptions{}), nil
+
+	case RegionNamespaceMembers:
+		events, err := namespaceMembersSection(doc, r.Args[0], r.Level)
+		if err != nil {
+			return "", err
+		}
+		return RenderMarkdown(events, MarkdownOptions{}), nil
 	}
 	return "", fmt.Errorf("unknown region kind %q", r.Kind)
 }

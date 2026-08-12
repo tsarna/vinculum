@@ -299,10 +299,10 @@ func (m *markdownSink) memberTable(t MemberTable) {
 				if r.Value != "" {
 					val = "`" + r.Value + "`"
 				}
-				m.line(fmt.Sprintf("| `%s.%s` | %s | %s | %s |", prefix, r.Name, r.Type, val, desc))
+				m.line(fmt.Sprintf("| `%s` | %s | %s | %s |", memberPath(r), r.Type, val, desc))
 				continue
 			}
-			m.line(fmt.Sprintf("| `%s.%s` | %s | %s |", prefix, r.Name, r.Type, desc))
+			m.line(fmt.Sprintf("| `%s` | %s | %s |", memberPath(r), r.Type, desc))
 		}
 	}
 	if t.FreeMembers {
@@ -315,7 +315,7 @@ func (m *markdownSink) memberTable(t MemberTable) {
 			continue
 		}
 		m.para()
-		m.line("**`" + prefix + "." + r.Name + "`**")
+		m.line("**`" + memberPath(r) + "`**")
 		m.para()
 		m.line(strings.TrimRight(r.Doc, "\n"))
 	}

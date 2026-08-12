@@ -488,6 +488,8 @@ attribute table but not the synopsis above it.
 | `block-attrs <topic path>` | The attribute table, the rules governing how they combine, and the per-attribute detail. Sub-blocks are listed, not expanded. |
 | `block-ctx <topic path ending in an attribute>` | The `ctx` field table for that attribute, including the fields its own site adds to an open shape. |
 | `context <name>` | One `ctx` shape and the attributes evaluated against it. |
+| `namespaces` | What every top-level name in the evaluation namespace is, each under its own heading. Takes no argument: the value of the list is being complete. |
+| `namespace-members <name>` | One namespace's members, under whatever heading the page supplies. |
 
 `level=<n>` sets the heading level generated headings start at, so a region
 sits correctly under the hand-written heading above it. It defaults to 2.

@@ -20,8 +20,11 @@ func init() {
 var httpStatusNamespace = cfg.NamespaceSchema{
 	Summary: "Constants for the HTTP status codes.",
 	Doc: "Names are PascalCase, matching Go's `net/http` package: `http_status.OK` is `200`, " +
-		"`http_status.NotFound` is `404`. All standard 1xx–5xx codes are included. Prefer these " +
-		"to bare integers — `status = http_status.NoContent` says what `status = 204` means.",
+		"`http_status.NotFound` is `404`. All standard 1xx–5xx codes are included — run " +
+		"`vinculum man http_status` for the list. Prefer these to bare integers: " +
+		"`status = http_status.NoContent` says what `status = 204` means.\n\n" +
+		"One member is not a status code. `http_status.bycode` goes the other way, mapping a " +
+		"code you were given back to its name: `http_status.bycode[\"404\"]` is `\"NotFound\"`.",
 	DocPage:              "config.md#variables",
 	Constant:             true,
 	UniformMemberSummary: "The numeric HTTP status code.",

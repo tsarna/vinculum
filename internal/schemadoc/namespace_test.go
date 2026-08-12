@@ -123,6 +123,14 @@ func TestWalkNamespace(t *testing.T) {
 	assert.Contains(t, out, "[config.md#variables](config.md#variables)")
 	// No value column: sys describes the machine, not the language.
 	assert.NotContains(t, out, "| Value |")
+
+	// A member's own members are flattened into the same table under their
+	// whole dotted path, so the row says where it lives without needing
+	// hierarchy — and so a reader of the table is not sent elsewhere for them.
+	assert.Contains(t, out, "| `sys.functy.version` | string |")
+	assert.Contains(t, out, "| `sys.signals.bynumber` | map |")
+	assert.NotContains(t, out, "| `sys.version` |", "a nested member spelled as if it were top-level")
+	assert.Contains(t, out, "**`sys.functy.version`**", "and its detail is spelled the same way")
 }
 
 // TestWalkFreeNamespace covers the namespace whose members are not the

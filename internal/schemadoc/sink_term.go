@@ -482,7 +482,7 @@ func (t *termSink) memberTable(v MemberTable) {
 
 		names := make([]string, len(v.Rows))
 		for i, r := range v.Rows {
-			names[i] = prefix + "." + r.Name
+			names[i] = memberPath(r)
 		}
 		width := t.columnWidth(names)
 
@@ -511,7 +511,7 @@ func (t *termSink) memberTable(v MemberTable) {
 			continue
 		}
 		t.gap()
-		t.line(t.pad() + t.st.apply(spanCode, prefix+"."+r.Name))
+		t.line(t.pad() + t.st.apply(spanCode, memberPath(r)))
 		t.emit(renderProse(r.Doc, t.width, t.indent+indentStep, t.st)...)
 	}
 }
@@ -539,7 +539,7 @@ func (t *termSink) seeAlso(s SeeAlso) {
 
 // style applies the terminal's text attributes, or none at all.
 //
-// The vocabulary is deliberately four attributes wide and uses one colour.
+// The vocabulary is deliberately four attributes wide and uses one color.
 // Bold, dim, and underline render on any terminal and against any background;
 // a palette would not, and documentation that is unreadable on half of the
 // terminals it is displayed on has failed at the only thing it does.

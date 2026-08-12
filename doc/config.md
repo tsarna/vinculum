@@ -40,89 +40,205 @@ for the full expression language reference.
 
 ### Built-in Variables
 
-- `bus.<name>`: Each bus defined may be referenced by name. `bus.main` always exists,
-  even if not declared explicitly.
-- `client.<name>`: Each client defined via a `client` block may be referenced by name.
-- `env.<name>`: Environment variables are exposed through the `env` object. For
-  example, `env.HOME` is the value of the `HOME` environment variable.
-- `http_status.<Name>`: Constants for each HTTP status code, using PascalCase names
-  matching Go's `net/http` package. All standard 1xx–5xx codes are included. For
-  example: `http_status.OK` → `200`, `http_status.NotFound` → `404`,
-  `http_status.BadRequest` → `400`.
-- `http_status.bycode`: A map from status code number (as a string key) to its name.
-  Useful when you have a raw integer and need the canonical name. For example,
-  `http_status.bycode["200"]` → `"OK"`, `http_status.bycode["404"]` → `"NotFound"`.
-- `server.<name>`: Each server defined may be referenced by name. All server types
-  share a single namespace — you cannot have both an HTTP server and a WebSocket
-  server with the same name.
-- `trigger.<name>`: Each `trigger "start"` block that evaluates an action expression
-  creates a value accessible by name. All trigger types share a single name namespace.
-- `sys.*`: Process and host identity facts captured at startup. All values are
-  read-only. Available attributes:
-  - `sys.pid` (number): Process ID of the running process.
-  - `sys.hostname` (string): Hostname of the machine.
-  - `sys.user` (string): Username the process is running as.
-  - `sys.uid` (number): Numeric user ID.
-  - `sys.group` (string): Primary group name.
-  - `sys.gid` (number): Numeric primary group ID.
-  - `sys.os` (string): Operating system (e.g. `"linux"`, `"darwin"`, `"windows"`).
-  - `sys.arch` (string): CPU architecture (e.g. `"amd64"`, `"arm64"`).
-  - `sys.cpus` (number): Number of logical CPUs available.
-  - `sys.version` (string): Vinculum release version (e.g. `"v1.2.3"`), or `"dev"`
-    for a local build.
-  - `sys.commit` (string): Git commit SHA the binary was built from, or empty if
-    unknown.
-  - `sys.build_time` (string): Build/commit timestamp (RFC 3339), or empty if unknown.
-  - `sys.modified` (bool): True if the working tree had uncommitted changes at build
-    time.
-  - `sys.functy.version` (string): Version of the bundled [functy](functy.md) (`.cty`)
-    language (e.g. `"v0.11.0"`), read from the binary's build info — `"(devel)"` in a
-    workspace build, `""` if unavailable. Only the module version is recorded for a
-    dependency; functy's own commit and build time are not (the `sys.commit` /
-    `sys.build_time` above describe the Vinculum binary, not functy).
-  - `sys.executable` (string): Path to the running executable.
-  - `sys.cwd` (string): Current working directory at startup.
-  - `sys.homedir` (string): Home directory of the current user.
-  - `sys.tempdir` (string): Default directory for temporary files.
-  - `sys.filepath` (string): The value of the `--file-path` flag passed on the
-    command line, or empty string if it was not specified. This is the base
-    directory used by the file read and write functions.
-    See [File Functions](functions.md#file-functions) for details.
-  - `sys.writepath` (string): The value of the `--write-path` flag (`-w`), or
-    empty string if not set. This is the base directory used by the `filewrite`
-    and `fileappend` functions; it must be within `sys.filepath`. See
-    [File Write Functions](functions.md#file-write-functions) for details.
-  - `sys.starttime` (time): Approximate process start time, captured once when
-    the process loads. Use with
-    `time::since(sys.starttime)` to compute process uptime.
-  - `sys.boottime` (time): Approximate system boot time. On macOS this is exact
-    (via `kern.boottime` sysctl); on Linux it is accurate to ±1 second (via
-    `sysinfo(2)`). On other platforms it falls back to `sys.starttime`. Use with
-    `time::since(sys.boottime)` to compute host uptime.
-  - `sys.plugins` (list of string): Names of all registered plugin components,
-    e.g. `["ambient.sys", "client.kafka", "functions.kill", "server.mcp"]`.
-    Useful for introspection and conditional logic.
-  - `sys.features` (list of string): Names of all enabled feature flags. Each
-    CLI flag that gates optional capabilities registers a feature name:
-    `"readfiles"` (`--file-path`), `"writefiles"` (`--write-path`),
-    `"allowkill"` (`--allow-kill`). Use `contains(sys.features, "allowkill")` to
-    branch on feature availability.
-  - `sys.signals`: Platform signal table. Each attribute `sys.signals.SIGXXX` is
-    the integer number for signal `SIGXXX` on the current OS. The set of available
-    signals is OS-dependent (all signals enumerated by the OS for numbers 1–64 are
-    included). Use this instead of hardcoding platform-specific numbers:
+Every expression starts from one of these names. Some are supplied by Vinculum
+itself; the rest are filled in by the blocks you declare.
 
-    ```hcl
-    kill(sys.pid, sys.signals.SIGUSR1)   # portable signal reference
-    ```
+<!-- vinculum:begin namespaces level=4 -->
 
-    - `sys.signals.bynumber`: A `map(string)` keyed by signal number (as a string)
-      mapping back to the signal name. E.g. `sys.signals.bynumber["9"]` → `"SIGKILL"`.
-      HCL coerces integer literals to string keys, so `sys.signals.bynumber[9]` also
-      works.
-- `var.<name>`: Each variable defined via a `var` block may be referenced by name.
-  Variables are mutable and goroutine-safe; use `get()`, `set()`, and `increment()`
-  to read and write their values.
+#### `bus`
+
+Each bus, by name.
+
+`bus.main` always exists, even when it is not declared explicitly.
+
+*One name here for each `bus` block, so what exists is what your configuration declares.*
+
+- [`bus`](config.md#bus)
+
+#### `client`
+
+Each client, by name.
+
+All client types share a single name namespace.
+
+*One name here for each `client` block, so what exists is what your configuration declares.*
+
+- [`client`](config.md#client)
+
+#### `condition`
+
+Each condition, by name.
+
+Reads as the condition's current state with `get()`, and is watchable: a reactive expression naming one is re-evaluated whenever it changes. All condition types share a single name namespace.
+
+*One name here for each `condition` block, so what exists is what your configuration declares.*
+
+- [`condition`](condition.md)
+
+#### `env`
+
+Environment variables of the running process.
+
+`env.HOME` is the value of the `HOME` environment variable. Only variables that are actually set are present, so reading an unset one is an error — write `try(env.PORT, "8080")` for a fallback. A name containing characters HCL does not accept in an attribute name has them replaced with underscores.
+
+#### `fsm`
+
+Each state machine, by name.
+
+An fsm receives messages, so it may be used wherever a subscriber is expected, and its current state is readable with `get()`.
+
+*One name here for each `fsm` block, so what exists is what your configuration declares.*
+
+- [`fsm`](fsm.md)
+
+#### `http_status`
+
+Constants for the HTTP status codes.
+
+Names are PascalCase, matching Go's `net/http` package: `http_status.OK` is `200`, `http_status.NotFound` is `404`. All standard 1xx–5xx codes are included — run `vinculum man http_status` for the list. Prefer these to bare integers: `status = http_status.NoContent` says what `status = 204` means.
+
+One member is not a status code. `http_status.bycode` goes the other way, mapping a code you were given back to its name: `http_status.bycode["404"]` is `"NotFound"`.
+
+#### `metric`
+
+Each metric, by name.
+
+Pass one to `increment()`, `observe()`, or `set()` to record a measurement.
+
+*One name here for each `metric` block, so what exists is what your configuration declares.*
+
+- [`metric`](metric.md)
+
+#### `server`
+
+Each server, by name.
+
+All server types share a single name namespace — you cannot have both an HTTP server and a WebSocket server called `main`.
+
+*One name here for each `server` block, so what exists is what your configuration declares.*
+
+- [`server`](config.md#server)
+
+#### `sys`
+
+Process and host identity, captured at startup.
+
+All values are read-only, and all are captured once when the process starts rather than read afresh on each use.
+
+#### `trigger`
+
+Each trigger, by name.
+
+All trigger types share a single name namespace.
+
+*One name here for each `trigger` block, so what exists is what your configuration declares.*
+
+- [`trigger`](trigger.md)
+
+#### `var`
+
+Each variable, by name.
+
+Variables are mutable and goroutine-safe; read and write them with `get()`, `set()`, and `increment()`. A variable is watchable, so a reactive expression naming one is re-evaluated whenever it changes.
+
+*One name here for each `var` block, so what exists is what your configuration declares.*
+
+- [`var`](config.md#var)
+
+#### `wire_format`
+
+Each wire format, by name.
+
+Name one in a receiver's or sender's `wire_format` to encode and decode its payloads.
+
+*One name here for each `wire_format` block, so what exists is what your configuration declares.*
+
+- [`wire_format`](config.md#wire_format)
+
+<!-- vinculum:end namespaces -->
+
+### `sys` in Detail
+
+<!-- vinculum:begin namespace-members sys level=4 -->
+
+Readable as `sys.<name>`:
+
+| Name | Type | Description |
+|---|---|:---|
+| `sys.arch` | string | CPU architecture, e.g. `amd64`, `arm64`. |
+| `sys.boottime` | time | Approximate time the host booted. |
+| `sys.build_time` | string | Build timestamp in RFC 3339, or empty if unknown. |
+| `sys.commit` | string | Git commit the binary was built from, or empty if unknown. |
+| `sys.cpus` | number | Number of logical CPUs available. |
+| `sys.cwd` | string | Working directory the process started in. |
+| `sys.executable` | string | Path to the running executable. |
+| `sys.features` | list | Names of the enabled feature flags. |
+| `sys.filepath` | string | The `--file-path` directory, or empty if it was not given. |
+| `sys.functy` | object | The bundled [functy](functy.md) (`.cty`) language. *(has members of its own)* |
+| `sys.functy.version` | string | Version of the bundled functy language. |
+| `sys.gid` | number | Numeric primary group ID. |
+| `sys.group` | string | Primary group name. |
+| `sys.homedir` | string | Home directory of the current user. |
+| `sys.hostname` | string | Hostname of the machine. |
+| `sys.modified` | bool | True if the working tree had uncommitted changes at build time. |
+| `sys.os` | string | Operating system, e.g. `linux`, `darwin`, `windows`. |
+| `sys.pid` | number | Process ID of the running process. |
+| `sys.plugins` | list | Names of every registered plugin component. |
+| `sys.signals` | object | Signal numbers for the host OS, by name. *(has members of its own)* |
+| `sys.signals.bynumber` | map | Signal name, keyed by the number as a string. |
+| `sys.starttime` | time | Approximate time the process started. |
+| `sys.tempdir` | string | Default directory for temporary files. |
+| `sys.testing` | bool | True when running under `vinculum test`. |
+| `sys.uid` | number | Numeric user ID. |
+| `sys.user` | string | Username the process is running as. |
+| `sys.version` | string | Vinculum release version, or `dev` for a local build. |
+| `sys.writepath` | string | The `--write-path` directory, or empty if it was not given. |
+
+**`sys.boottime`**
+
+Exact on macOS (`kern.boottime`), accurate to about a second on Linux (`sysinfo(2)`), and equal to `sys.starttime` on platforms that expose neither. `time::since(sys.boottime)` is host uptime.
+
+**`sys.features`**
+
+Each CLI flag that gates an optional capability registers a name: `readfiles` (`--file-path`), `writefiles` (`--write-path`), `allowkill` (`--allow-kill`). `contains(sys.features, "allowkill")` branches on one.
+
+**`sys.filepath`**
+
+The base directory the file read and write functions resolve against. See [file functions](functions.md#file-functions).
+
+**`sys.functy.version`**
+
+Read from the binary's build info — `(devel)` in a workspace build, empty if unavailable. Only the module version is recorded for a dependency, so functy's own commit and build time are not available; `sys.commit` and `sys.build_time` describe the Vinculum binary, not functy.
+
+**`sys.plugins`**
+
+For example `["ambient.sys", "client.kafka", "functions.kill", "server.mcp"]`. Both in-tree components and those a `.vinit` [plugin](plugins.md) contributed are listed, so this is how a configuration tells whether the binary it is running on has what it needs.
+
+**`sys.signals`**
+
+`sys.signals.SIGUSR1` is the number of `SIGUSR1` on the current OS. Which signals exist is OS-dependent — everything the OS enumerates in the range 1–64 is here — so use these instead of hardcoding a number that is right on one platform:
+
+```hcl
+kill(sys.pid, sys.signals.SIGUSR1)   # portable signal reference
+```
+
+**`sys.signals.bynumber`**
+
+`sys.signals.bynumber["9"]` is `"SIGKILL"`. HCL coerces an integer key to a string, so `sys.signals.bynumber[9]` works too.
+
+**`sys.starttime`**
+
+Captured when the process loads. `time::since(sys.starttime)` is process uptime.
+
+**`sys.testing`**
+
+Write `disabled = sys.testing` to switch off real external connections while a configuration is under test. See [testing](testing.md).
+
+**`sys.writepath`**
+
+The base directory `filewrite` and `fileappend` resolve against; it must be within `sys.filepath`. See [file write functions](functions.md#file-write-functions).
+
+<!-- vinculum:end namespace-members sys -->
 
 ### Context Variables
 

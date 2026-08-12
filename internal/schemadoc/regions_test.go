@@ -64,6 +64,11 @@ func TestParseRegionsRejectsMalformedMarkers(t *testing.T) {
 		{"a section with no path", "<!-- vinculum:begin block-attrs -->\n", "takes a topic path"},
 		{"a missing argument", "<!-- vinculum:begin block-index -->\n", "takes one argument"},
 		{"too many arguments", "<!-- vinculum:begin context a b -->\n", "takes one argument"},
+		// The namespaces region deliberately takes no argument: its value is
+		// being the complete list, and one-at-a-time markers could go stale by
+		// omitting the next root added.
+		{"an argument to namespaces", "<!-- vinculum:begin namespaces sys -->\n", "takes no arguments"},
+		{"no argument to namespace-members", "<!-- vinculum:begin namespace-members -->\n", "takes one argument"},
 		{"a bad level", "<!-- vinculum:begin context message level=9 -->\n", "bad level"},
 		{"a non-numeric level", "<!-- vinculum:begin context message level=x -->\n", "bad level"},
 	} {
@@ -182,6 +187,14 @@ func TestRenderRegionRejectsWhatItCannotRender(t *testing.T) {
 			"not a typed block",
 		},
 		{"an unknown shape", Region{Kind: RegionContext, Args: []string{"nope"}}, "no such context shape"},
+		{"an unknown namespace", Region{Kind: RegionNamespaceMembers, Args: []string{"nope"}}, "no such namespace"},
+		// A block namespace's names come from the configuration, so an empty
+		// region here would claim the root carries nothing.
+		{
+			"a block namespace has no members",
+			Region{Kind: RegionNamespaceMembers, Args: []string{"subscription"}},
+			"has no members to list",
+		},
 		{"an unknown topic", Region{Kind: RegionBlockBody, Args: []string{"nope"}}, "resolves to 0 topics"},
 		// An ambiguous path is refused rather than resolved by picking one:
 		// silently documenting the wrong client would leave no trace.
@@ -219,6 +232,19 @@ func TestRenderRegionSections(t *testing.T) {
 			"one attribute's ctx alone",
 			Region{Kind: RegionBlockCtx, Args: []string{"subscription", "action"}},
 			"| Field | Type | Description |", "| Attribute |",
+		},
+		// The namespaces region says what each root is; members are a separate
+		// region because a page wants them selectively — `sys`'s are facts to
+		// look up, `http_status`'s sixty are one fact said sixty times.
+		{
+			"every namespace, without members",
+			Region{Kind: RegionNamespaces, Level: 4},
+			"#### `sys`", "| `sys.hostname` |",
+		},
+		{
+			"one namespace's members alone",
+			Region{Kind: RegionNamespaceMembers, Args: []string{"sys"}, Level: 4},
+			"| `sys.hostname` |", "#### `sys`",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
