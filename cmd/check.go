@@ -68,12 +68,10 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	reportWarnings(diags)
-
-	if diags.HasErrors() {
-		return diags
+	if err := reportBuildDiags(cmd.ErrOrStderr(), configBuilder, diags); err != nil {
+		return err
 	}
 
-	fmt.Println("Configuration is valid.")
+	fmt.Fprintln(cmd.OutOrStdout(), "Configuration is valid.")
 	return nil
 }

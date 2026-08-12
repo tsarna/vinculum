@@ -272,7 +272,7 @@ func resolveVarTypeConstraint(config *Config, typeAttr *hcl.Attribute) (types.Ty
 		constraint, diags := resolver.ParseType([]byte(val.AsString()), "<var type>")
 		// The quoted-string form is deprecated in favor of the type-spec form.
 		// Surfaced as a warn-severity diagnostic (non-fatal); the CLI prints
-		// warnings (see cmd.reportWarnings).
+		// warnings (see cmd.reportBuildDiags).
 		diags = diags.Append(&hcl.Diagnostic{
 			Severity: hcl.DiagWarning,
 			Summary:  "Deprecated var type string",

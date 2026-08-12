@@ -216,6 +216,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`check`, `serve`, and `test` report every configuration error, each quoting its
+  own source line.** All three handed their diagnostics back as an `error` for `main`
+  to render with `%v`, and `hcl.Diagnostics.Error()` is *the first diagnostic plus a
+  count* — so a file with three errors printed one of them, no quoted line, and "and 2
+  other diagnostic(s)". They now render the full set through the same diagnostic writer
+  `fmt`, `test`, and `schema` already used for their own output:
+
+  ```text
+  Error: Unsupported block type
+
+    on config.vcl line 1, in serverr "http" "web":
+     1: serverr "http" "web" {
+
+  Blocks of type "serverr" are not expected here. Did you mean "server"?
+  ```
+
+  The source of every file each pass parses — `.vinit`, `.vcl`, and `.cty` — is
+  retained for the purpose, so a bootstrap error and a functy parse error read the same
+  way as a VCL one; a `.vinit` diagnostic had no source context at all before. Warnings
+  are rendered the same way, and still do not fail the run. A config path that does not
+  exist is now one of those diagnostics rather than a nil-pointer panic.
 - **A mistyped top-level block or a stray top-level attribute is now an error.** The
   configuration's top-level schema was consumed with `PartialContent` and the remainder
   thrown away, so anything that did not match a known block header simply vanished:

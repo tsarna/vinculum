@@ -109,9 +109,8 @@ func runTest(cmd *cobra.Command, args []string) error {
 	}
 
 	cfg, diags := configBuilder.Build()
-	reportWarnings(diags)
-	if diags.HasErrors() {
-		return diags
+	if err := reportBuildDiags(cmd.ErrOrStderr(), configBuilder, diags); err != nil {
+		return err
 	}
 
 	// --fail-if-no-tests catches a config that forgot to declare any tests.

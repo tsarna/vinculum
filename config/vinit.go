@@ -75,7 +75,9 @@ func vinitStdlibFunctions() map[string]function.Function {
 //
 // On any fatal diagnostic the function returns immediately; subsequent
 // blocks are not processed.
-func processVinit(sources []any, pluginPath string, logger *zap.Logger) hcl.Diagnostics {
+// It returns the filename→file map of the .vinit files it parsed, so a caller
+// can render these diagnostics with the offending source line quoted.
+func processVinit(sources []any, pluginPath string, logger *zap.Logger) (map[string]*hcl.File, hcl.Diagnostics) {
 	return processVinitBlocks(sources, pluginPath, logger, true)
 }
 
@@ -85,18 +87,19 @@ func processVinit(sources []any, pluginPath string, logger *zap.Logger) hcl.Diag
 // so plugin-registered contributions (e.g. functy types via RegisterFunctyType)
 // are available when parsing/formatting, without the cost of a full Build.
 func ProcessVinitPlugins(sources []any, pluginPath string, logger *zap.Logger) hcl.Diagnostics {
-	return processVinitBlocks(sources, pluginPath, logger, false)
+	_, diags := processVinitBlocks(sources, pluginPath, logger, false)
+	return diags
 }
 
 // processVinitBlocks is the shared implementation. processGit gates the git
 // materialization pass so read-only tooling can load plugins without it.
-func processVinitBlocks(sources []any, pluginPath string, logger *zap.Logger, processGit bool) hcl.Diagnostics {
-	bodies, diags := ParseVinitFiles(sources...)
+func processVinitBlocks(sources []any, pluginPath string, logger *zap.Logger, processGit bool) (map[string]*hcl.File, hcl.Diagnostics) {
+	bodies, files, diags := parseVinitFiles(sources...)
 	if diags.HasErrors() {
-		return diags
+		return files, diags
 	}
 	if len(bodies) == 0 {
-		return nil
+		return files, nil
 	}
 
 	evalCtx := vinitEvalContext()
@@ -116,7 +119,7 @@ func processVinitBlocks(sources []any, pluginPath string, logger *zap.Logger, pr
 		}
 	}
 	if diags.HasErrors() {
-		return diags
+		return files, diags
 	}
 
 	// Process plugin blocks first (in source order) so any system-wide
@@ -125,7 +128,7 @@ func processVinitBlocks(sources []any, pluginPath string, logger *zap.Logger, pr
 	for _, block := range pluginBlocks {
 		diags = diags.Extend(processPluginBlock(block, evalCtx, pluginPath, logger, seen))
 		if diags.HasErrors() {
-			return diags
+			return files, diags
 		}
 	}
 
@@ -136,12 +139,12 @@ func processVinitBlocks(sources []any, pluginPath string, logger *zap.Logger, pr
 		for _, block := range gitBlocks {
 			diags = diags.Extend(processGitBlock(block, evalCtx, logger, seenGit))
 			if diags.HasErrors() {
-				return diags
+				return files, diags
 			}
 		}
 	}
 
-	return diags
+	return files, diags
 }
 
 // processPluginBlock validates a single `plugin "<label>" { ... }` block,

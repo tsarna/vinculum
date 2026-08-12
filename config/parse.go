@@ -35,6 +35,15 @@ func (cb *ConfigBuilder) GetBlocks(bodies []hcl.Body) (hcl.Blocks, hcl.Diagnosti
 }
 
 func ParseConfigFiles(sources ...any) ([]hcl.Body, hcl.Diagnostics) {
+	bodies, _, diags := parseConfigFiles(sources...)
+	return bodies, diags
+}
+
+// parseConfigFiles is ParseConfigFiles plus the filename→file map of everything
+// it parsed, so a caller can render diagnostics with the offending source line
+// quoted. Every file the parser saw is in the map, including one whose parse
+// failed — that is exactly the case a snippet helps most.
+func parseConfigFiles(sources ...any) ([]hcl.Body, map[string]*hcl.File, hcl.Diagnostics) {
 	return parseFilesWithExt(".vcl", true, sources...)
 }
 
@@ -43,10 +52,17 @@ func ParseConfigFiles(sources ...any) ([]hcl.Body, hcl.Diagnostics) {
 // and []string sources are ignored — vinit content is always discovered
 // from files on disk (or an embedded FS), never from in-memory bytes.
 func ParseVinitFiles(sources ...any) ([]hcl.Body, hcl.Diagnostics) {
+	bodies, _, diags := parseVinitFiles(sources...)
+	return bodies, diags
+}
+
+// parseVinitFiles is ParseVinitFiles plus the parsed-file map, as
+// parseConfigFiles is to ParseConfigFiles.
+func parseVinitFiles(sources ...any) ([]hcl.Body, map[string]*hcl.File, hcl.Diagnostics) {
 	return parseFilesWithExt(".vinit", false, sources...)
 }
 
-func parseFilesWithExt(ext string, acceptBytes bool, sources ...any) ([]hcl.Body, hcl.Diagnostics) {
+func parseFilesWithExt(ext string, acceptBytes bool, sources ...any) ([]hcl.Body, map[string]*hcl.File, hcl.Diagnostics) {
 	parser := hclparse.NewParser()
 	var diags hcl.Diagnostics
 	bodies := make([]hcl.Body, 0)
@@ -57,18 +73,22 @@ func parseFilesWithExt(ext string, acceptBytes bool, sources ...any) ([]hcl.Body
 			// Check if v is a file or directory
 			info, err := os.Stat(v)
 			if err != nil {
+				// Report and move on: info is nil, so anything below would
+				// panic — a missing config path must be a diagnostic, not a
+				// crash.
 				diags = diags.Append(&hcl.Diagnostic{
 					Severity: hcl.DiagError,
 					Summary:  "Failed to stat file",
 					Detail:   fmt.Sprintf("Error statting %s: %s", v, err),
 				})
+				continue
 			}
 
 			if info.IsDir() {
 				newBodies, newDiags := parseDirectory(parser, v, ext)
 				diags = diags.Extend(newDiags)
 				if diags.HasErrors() {
-					return nil, diags
+					return nil, parser.Files(), diags
 				}
 				bodies = append(bodies, newBodies...)
 			} else if strings.HasSuffix(v, ext) ||
@@ -95,7 +115,7 @@ func parseFilesWithExt(ext string, acceptBytes bool, sources ...any) ([]hcl.Body
 			newBodies, newDiags := parseFS(parser, v, ext)
 			diags = diags.Extend(newDiags)
 			if diags.HasErrors() {
-				return nil, diags
+				return nil, parser.Files(), diags
 			}
 			bodies = append(bodies, newBodies...)
 		case []string:
@@ -118,7 +138,7 @@ func parseFilesWithExt(ext string, acceptBytes bool, sources ...any) ([]hcl.Body
 		}
 	}
 
-	return bodies, diags
+	return bodies, parser.Files(), diags
 }
 
 func parseDirectory(parser *hclparse.Parser, dir, ext string) ([]hcl.Body, hcl.Diagnostics) {

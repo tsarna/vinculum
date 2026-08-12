@@ -20,6 +20,12 @@ type ConfigBuilder struct {
 	blockHandlers map[string]BlockHandler
 	pluginPath    string
 	testing       bool
+	// files holds every source file Build() parsed (.vinit, .vcl, .cty),
+	// keyed by filename, so diagnostics can be rendered with the offending
+	// line quoted. It is kept on the builder rather than the Config because
+	// the failure that most needs a source snippet is the one where Build()
+	// returns no Config at all.
+	files map[string]*hcl.File
 }
 
 type Startable interface {
@@ -153,7 +159,24 @@ func (c *ConfigBuilder) WithTesting(testing bool) *ConfigBuilder {
 	return c
 }
 
+// Files returns the source files parsed by the most recent Build(), keyed by
+// filename, for rendering that Build's diagnostics with the offending line
+// quoted (hcl.NewDiagnosticTextWriter takes exactly this map). It is populated
+// as each pass parses, so it is complete for the failure at hand whether or not
+// Build() returned a Config. Returns nil before the first Build.
+func (cb *ConfigBuilder) Files() map[string]*hcl.File {
+	return cb.files
+}
+
+func (cb *ConfigBuilder) addFiles(files map[string]*hcl.File) {
+	for name, file := range files {
+		cb.files[name] = file
+	}
+}
+
 func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
+	cb.files = make(map[string]*hcl.File)
+
 	userLogger := cb.logger
 	if userLogger != nil {
 		userLogger = userLogger.WithOptions(
@@ -208,11 +231,14 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	// Pass 1: process .vinit files (plugin loading, etc.) before any .vcl
 	// parsing. Plugin-registered ambients, functions, and types are visible
 	// to the rest of Build() below.
-	if vinitDiags := processVinit(cb.sources, cb.pluginPath, cb.logger); vinitDiags.HasErrors() {
+	vinitFiles, vinitDiags := processVinit(cb.sources, cb.pluginPath, cb.logger)
+	cb.addFiles(vinitFiles)
+	if vinitDiags.HasErrors() {
 		return nil, vinitDiags
 	}
 
-	bodies, diags := ParseConfigFiles(cb.sources...)
+	bodies, vclFiles, diags := parseConfigFiles(cb.sources...)
+	cb.addFiles(vclFiles)
 	if diags.HasErrors() {
 		return nil, diags
 	}
@@ -283,6 +309,9 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	// procedures. The parsed result is retained on config.functyState for later
 	// phases (top-level var/const folding).
 	functyFuncs, addDiags := config.functyState.compile(functySources, evalCtxFn)
+	// compile records its file map before parsing, so a .cty parse or compile
+	// error renders with source context too.
+	cb.addFiles(config.functyFileMap())
 	diags = diags.Extend(addDiags)
 	if diags.HasErrors() {
 		return nil, diags

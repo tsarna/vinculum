@@ -117,10 +117,8 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	cfg, diags := configBuilder.Build()
 
-	reportWarnings(diags)
-
-	if diags.HasErrors() {
-		return diags
+	if err := reportBuildDiags(cmd.ErrOrStderr(), configBuilder, diags); err != nil {
+		return err
 	}
 
 	for _, startable := range cfg.Startables {
