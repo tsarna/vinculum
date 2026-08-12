@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
 
@@ -101,19 +102,90 @@ subscription "s" {
 	assert.Empty(t, buildRefCheckVCL(t, src))
 }
 
-// Ambient namespaces stop at their leading name. `env` is the environment of
-// whichever process is running, so a `vinculum check` on a build machine must
-// not report a variable that only the deployment sets as missing.
-func TestDeferredReferenceAcceptsAmbientMembers(t *testing.T) {
+// A namespace is checked exactly as far as the schema says the language chooses
+// the names, which is the whole point of describing it there.
+//
+// `env` is the environment of whichever process is running, so a `vinculum
+// check` on a build machine must not report a variable that only the deployment
+// sets as missing. `sys.signals` is the same problem a level down, since which
+// signals exist is the host OS's business. Everything else is fixed, and a
+// misspelling of it will fail at every event for the life of the process.
+func TestDeferredReferenceAcceptsFreeAmbientMembers(t *testing.T) {
 	src := `
 bus "main" {}
 subscription "s" {
   target = bus.main
   topics = ["in/#"]
-  action = [log::info(env.NOT_SET_ANYWHERE), log::info(sys.hostname)]
+  action = [
+    log::info(env.NOT_SET_ANYWHERE),
+    log::info(sys.hostname),
+    log::info(sys.functy.version),
+    log::info(sys.signals.SIGUSR1),
+    log::info(sys.signals.bynumber["9"]),
+    log::info(http_status.NotFound),
+    log::info(http_status.bycode["404"]),
+  ]
 }
 `
 	assert.Empty(t, buildRefCheckVCL(t, src))
+}
+
+func TestDeferredReferenceUnknownAmbientMember(t *testing.T) {
+	err := buildRefCheckVCL(t, subscriptionVCL(`log::info(sys.hostnam)`))
+
+	require.NotEmpty(t, err)
+	assert.Contains(t, err, `sys has no member "hostnam"`)
+	// Twenty-six names would bury the summary, so the detail points at the page
+	// that lists them.
+	assert.Contains(t, err, "run `vinculum man sys`")
+}
+
+// The check follows the dots as far as the schema describes objects, so a
+// member of a member is checked too — and named in full, since `versionx` alone
+// would not say where it was read.
+func TestDeferredReferenceUnknownNestedAmbientMember(t *testing.T) {
+	err := buildRefCheckVCL(t, subscriptionVCL(`log::info(sys.functy.versionx)`))
+
+	require.NotEmpty(t, err)
+	assert.Contains(t, err, `sys.functy has no member "versionx"`)
+	assert.Contains(t, err, "sys.functy provides: version.")
+}
+
+// A namespace short enough to list is listed, rather than sending the reader to
+// another command for three names.
+func TestDeferredReferenceUnknownMemberListsAShortNamespace(t *testing.T) {
+	withCleanAmbientProviders(t)
+	ambientProviders = append(ambientProviders, ambientEntry{
+		name: "fixture",
+		p: func(*Config) cty.Value {
+			return cty.ObjectVal(map[string]cty.Value{"alpha": cty.True, "beta": cty.True})
+		},
+		schema: &NamespaceSchema{
+			Summary: "A fixture.",
+			Members: map[string]MemberMeta{"alpha": {Summary: "A."}, "beta": {Summary: "B."}},
+		},
+	})
+
+	err := buildRefCheckVCL(t, subscriptionVCL(`log::info(fixture.gamma)`))
+
+	require.NotEmpty(t, err)
+	assert.Contains(t, err, `fixture has no member "gamma"`)
+	assert.Contains(t, err, "fixture provides: alpha, beta.")
+}
+
+// A provider registered without a schema describes no members, which is not the
+// same as describing none — checking against an empty list would report every
+// reference a plugin's namespace makes.
+func TestDeferredReferenceAcceptsAnUndocumentedNamespace(t *testing.T) {
+	withCleanAmbientProviders(t)
+	ambientProviders = append(ambientProviders, ambientEntry{
+		name: "fixture",
+		p: func(*Config) cty.Value {
+			return cty.ObjectVal(map[string]cty.Value{"alpha": cty.True})
+		},
+	})
+
+	assert.Empty(t, buildRefCheckVCL(t, subscriptionVCL(`log::info(fixture.anything)`)))
 }
 
 func TestDeferredReferenceUnknownVar(t *testing.T) {

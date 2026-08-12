@@ -288,6 +288,9 @@ like any other:
   come from blocks — `bus`, `client`, `condition`, `fsm`, `metric`, `server`,
   `trigger`, `var`, `wire_format` — or an object-valued `const`. A disabled block
   publishes no name, so a reference to one is an error here.
+- a member of `sys` or `http_status` that does not exist, following the dots as
+  far as the schema describes them: `sys.hostnam` and `sys.functy.versionx` are
+  both errors.
 
 A const is read only where it can be: an attribute of an object, as
 `routing.alpha`. A const reached into dynamically, as `routing[ctx.kind]`, names
@@ -296,10 +299,13 @@ attributes to check against.
 
 Three things are outside the check:
 
-- **`env`, `sys`, and `http_status`** are checked only as far as the leading
-  name. `env` is the environment of whichever process is running, so a
-  `vinculum check` on a build machine would otherwise report a variable that only
-  the deployment sets as missing.
+- **Names the language does not choose.** All of `env` is one: it is the
+  environment of whichever process is running, so a `vinculum check` on a build
+  machine would otherwise report a variable that only the deployment sets as
+  missing. `sys.signals` is the same a level down, since which signals exist is
+  the host OS's business — `sys.signals.SIGUSR1` is accepted without being
+  looked up. Both are marked in the [schema](schema.md#namespaces) as having
+  free members, and that mark is what this reads.
 - **`try()` and `can()` arguments**, which exist to refer to something that may
   not be there. Reach for them where an optional field, or a name that depends on
   the environment, is the point.

@@ -70,39 +70,11 @@ var exprCheckOpaqueFuncs = map[string]bool{
 	"can": true,
 }
 
-// exprCheckBlockNamespaces names the top-level namespaces whose members are
-// declared by config blocks. Everything reachable from the eval context that is
-// not an ambient can be checked a level deep; what this set decides is how the
-// failure reads, since "No bus named ..." says more than the generic wording a
-// const gets.
-var exprCheckBlockNamespaces = map[string]bool{
-	"bus":         true,
-	"client":      true,
-	"condition":   true,
-	"fsm":         true,
-	"metric":      true,
-	"server":      true,
-	"trigger":     true,
-	"var":         true,
-	"wire_format": true,
-}
-
-// ambientRoots returns the leading names the ambient providers contribute.
-//
-// These are the one part of the namespace not checked below their leading name.
-// `env` is the environment of whichever process is running, so checking a member
-// of it would report a `vinculum check` on a build machine as broken for naming
-// a variable only the deployment sets. `sys` and `http_status` have a fixed
-// shape and could be checked, but nothing in the registry distinguishes them
-// from `env` — an AmbientProvider is a func returning a cty.Value and no more.
-// Describing the ambient namespace in the schema is what would tell them apart.
-func ambientRoots() map[string]bool {
-	roots := make(map[string]bool, len(ambientProviders))
-	for _, e := range ambientProviders {
-		roots[e.name] = true
-	}
-	return roots
-}
+// exprCheckMemberListMax is how many names a "no such member" diagnostic spells
+// out before pointing at `vinculum man` instead. Twenty-six `sys` members read
+// as a list; sixty `http_status` constants read as a wall, and burying the
+// summary under one helps nobody.
+const exprCheckMemberListMax = 12
 
 // checkDeferredReferences reports references that cannot resolve when the
 // event-time expressions in blocks are eventually evaluated.
@@ -114,7 +86,7 @@ func (c *Config) checkDeferredReferences(blocks hcl.Blocks) hcl.Diagnostics {
 	if doc == nil {
 		return nil
 	}
-	ck := &refChecker{config: c, doc: doc, ambient: ambientRoots()}
+	ck := &refChecker{config: c, doc: doc}
 	for _, block := range blocks {
 		ck.block(block)
 	}
@@ -122,10 +94,9 @@ func (c *Config) checkDeferredReferences(blocks hcl.Blocks) hcl.Diagnostics {
 }
 
 type refChecker struct {
-	config  *Config
-	doc     *SchemaDocument
-	ambient map[string]bool
-	diags   hcl.Diagnostics
+	config *Config
+	doc    *SchemaDocument
+	diags  hcl.Diagnostics
 }
 
 // block checks one top-level block against the schema body that describes it.
@@ -272,20 +243,26 @@ func (ck *refChecker) ctxField(attr *SchemaAttr, traversal hcl.Traversal) {
 }
 
 // member checks the name a reference reads out of a value that has names in it:
-// a namespace declared by config blocks, or an object-valued const.
+// a namespace, or an object-valued const.
 //
-// Both are settled by the time this runs and neither can change afterwards, so
-// `bus.mian` and `routing.gamma` are the same mistake — a name that will not
-// resolve at any event, for the whole life of the process.
+// All of them are settled by the time this runs and none can change afterwards,
+// so `bus.mian`, `sys.hostnam` and `routing.gamma` are the same mistake — a name
+// that will not resolve at any event, for the whole life of the process.
 //
-// The two guards below are what keep that honest. A const the author reaches
-// into dynamically (`routing[ctx.kind]`) yields an index step, which
-// firstAttrStep declines to read; a const holding a cty map rather than an
-// object has no fixed attribute set, and IsObjectType declines that.
+// The two guards below are what keep that honest for the value-backed half. A
+// const the author reaches into dynamically (`routing[ctx.kind]`) yields an
+// index step, which firstAttrStep declines to read; a const holding a cty map
+// rather than an object has no fixed attribute set, and IsObjectType declines
+// that.
 func (ck *refChecker) member(root string, val cty.Value, traversal hcl.Traversal) {
-	if ck.ambient[root] {
+	// A provider namespace is checked against the schema rather than against
+	// the value, because only the schema records which parts of it the language
+	// does not choose the names of.
+	if ns := ck.doc.Namespaces[root]; ns != nil && ns.Kind == NamespaceProvider {
+		ck.providerMember(root, ns, traversal)
 		return
 	}
+
 	name, ok := firstAttrStep(traversal)
 	if !ok {
 		return
@@ -301,7 +278,7 @@ func (ck *refChecker) member(root string, val cty.Value, traversal hcl.Traversal
 	}
 	sort.Strings(declared)
 
-	if !exprCheckBlockNamespaces[root] {
+	if ck.doc.Namespaces[root] == nil {
 		detail := fmt.Sprintf("The const %s provides: %s.", root, joinNames(declared))
 		if len(declared) == 0 {
 			detail = fmt.Sprintf("The const %s is an empty object.", root)
@@ -315,6 +292,76 @@ func (ck *refChecker) member(root string, val cty.Value, traversal hcl.Traversal
 		detail = fmt.Sprintf("No %s is declared by this configuration.", root)
 	}
 	ck.report(traversal, fmt.Sprintf("No %s named %q", root, name), detail)
+}
+
+// providerMember checks a reference below an ambient provider's root against
+// the members the schema describes, following the dots as far as the schema
+// goes and stopping wherever it stops knowing.
+//
+// It reads the schema rather than the value in the eval context, even though
+// the value is right there, because the value cannot say which of its names are
+// the language's. `env` is the environment of whichever process is running:
+// checking a member of it would report a `vinculum check` on a build machine as
+// broken for naming a variable only the deployment sets. `sys.signals` is the
+// same problem one level down, since which signals exist is the host OS's
+// business. Both are marked free, and the free part is exactly what is skipped.
+//
+// It stops descending at anything that is not a described object, so a map read
+// with attribute syntax (`http_status.bycode.NotFound`) and a capsule are left
+// alone rather than judged against a member list they do not have.
+func (ck *refChecker) providerMember(root string, ns *SchemaNamespace, traversal hcl.Traversal) {
+	// A provider registered without a schema describes no members, which is not
+	// the same as describing none: checking against an empty list would report
+	// every reference a plugin's namespace makes.
+	if ns.Undocumented {
+		return
+	}
+
+	members, free, path := ns.Members, ns.FreeMembers, root
+	for _, step := range traversal[1:] {
+		attr, ok := step.(hcl.TraverseAttr)
+		if !ok {
+			return // an index step reads a name this cannot know
+		}
+
+		member := findSchemaMember(members, attr.Name)
+		if member == nil {
+			if !free {
+				ck.unknownMember(path, attr.Name, members, traversal)
+			}
+			return
+		}
+		if member.FreeMembers || len(member.Members) == 0 {
+			return // nothing below this the schema can speak for
+		}
+		path, members, free = path+"."+attr.Name, member.Members, false
+	}
+}
+
+// unknownMember reports a name that is not a member of the namespace or member
+// that path names.
+func (ck *refChecker) unknownMember(path, name string, members []*SchemaMember, traversal hcl.Traversal) {
+	declared := make([]string, 0, len(members))
+	for _, m := range members {
+		declared = append(declared, m.Name)
+	}
+
+	detail := fmt.Sprintf("%s provides: %s.", path, joinNames(declared))
+	if len(declared) > exprCheckMemberListMax {
+		detail = fmt.Sprintf("%s has %d members; run `vinculum man %s` for the list.",
+			path, len(declared), strings.ReplaceAll(path, ".", " "))
+	}
+	ck.report(traversal, fmt.Sprintf("%s has no member %q", path, name), detail)
+}
+
+// findSchemaMember returns the named member, or nil.
+func findSchemaMember(members []*SchemaMember, name string) *SchemaMember {
+	for _, m := range members {
+		if m.Name == name {
+			return m
+		}
+	}
+	return nil
 }
 
 // unknownRoot reports a reference whose leading name is in no namespace at all.
