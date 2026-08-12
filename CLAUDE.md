@@ -113,6 +113,9 @@ internal/       Internal-only helpers
                 config.HelpTopicResolver from init() (config cannot import it
                 back). Functions are a second corpus (funcs.go), searched
                 alongside the document rather than merged into it.
+                namespace.go resolves and renders the `namespace` topic kind
+                (`man sys pid`); only provider namespaces are addressable,
+                since a block root would collide with its own block.
   pager/        Terminal pager selection and exec (VINCULUM_PAGER, PAGER)
 types/          Rich object/capsule types (httprequest, httpresponse, metric, variable)
 transform/      Message transform pipeline types
@@ -596,6 +599,38 @@ When one shape is shared by sites that each carry a few fields of their own —
 A site may not add a name the shape or a universal field already has: at
 runtime the fixed field wins and the site's value is dropped, so the schema
 rejects it rather than describe a field that never appears.
+
+### Namespaces
+
+`vinculum schema` also describes the *evaluation* namespace — the top-level
+names a reference may start from — in `config/namespace.go`. Two kinds, told
+apart by where the member names come from:
+
+- **Provider.** An ambient provider passes `cfg.WithNamespaceSchema(...)` to
+  `RegisterAmbientProvider`. Members are reflected from the `cty.Value` the
+  provider returns, so the prose beside them is validated against it in both
+  directions exactly as a block's attributes are — adding a key to `GetSysObject`
+  without describing it fails `go test ./...`.
+- **Block.** A root the config author fills in (`bus.<name>`), curated in
+  `blockNamespaceSchemas` and validated against `blockSchema`. This is also what
+  `vinculum check` reads to tell `bus.mian` from a bad const attribute; there is
+  no second list.
+
+Three flags exist because reflecting naively would describe the machine that
+generated the document rather than the language. Reach for them only for that
+reason:
+
+- `FreeMembers` — the listed members are a floor. `env` is the environment of
+  whichever process is running, `sys.signals` carries whichever signals the host
+  OS defines. Nothing undescribed is emitted, and `vinculum check` stops here.
+- `Constant` — the values are identical in every process, so the value is
+  emitted. True of `http_status`, false of `sys`.
+- `UniformMemberSummary` — the summary every member without one takes, for a
+  namespace whose members are one uniform family. Legal only with `Constant`,
+  since the value is then what distinguishes them.
+
+An object-valued member must describe its own members or mark them free, so a
+new field cannot appear undocumented.
 
 ### Error reporting
 

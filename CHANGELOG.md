@@ -86,14 +86,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   else's config, a term out of an error message — `vinculum man -k keep_alive` lists
   every topic whose name or summary matches, each with the command that reads it.
   It searches block types, variants, sub-blocks, attributes, `ctx` shapes and their
-  fields, and the function library, so it does not matter which of those the answer
-  turns out to live in. Matching is case-insensitive substring and every keyword must
+  fields, namespaces and their members, and the function library, so it does not
+  matter which of those the answer turns out to live in. Matching is case-insensitive substring and every keyword must
   match, so a second word narrows (`-k baggage keys`). This is what makes a bare
   attribute name findable at all: `action` appears in dozens of blocks, so it is
   deliberately not resolvable as a path, and search is the other half of that bargain.
   Every command it prints resolves to the page it was printed for. The REPL spells it
   `:apropos`, and searches that session's own functions — including any that your
   `.cty` files and plugins declare.
+- **The evaluation namespace is described too, not just the blocks.** `vinculum
+  schema` said what the parser accepts but not what an expression may *name*, so
+  completion died at the `=`: `sys.`, `env.`, `bus.` offered nothing. A top-level
+  `namespaces` map now covers all twelve roots an expression can start from, in two
+  kinds told apart by where the member names come from — which is what decides
+  whether a tool may flag one as unknown. An ambient provider's members (`sys`, `env`,
+  `http_status`) are **reflected from the value the provider returns**, so the prose
+  beside them is checked against it in both directions exactly as a block's attributes
+  are; the roots your own configuration fills in (`bus.<name>`, `var.<name>`, and the
+  rest) name the block that declares them.
+
+  Three things it deliberately does not enumerate, because doing so would describe the
+  machine that built the document rather than the language: `env`, which is the
+  environment of whichever process is running; `sys.signals`, whose contents are
+  whichever signals the host OS defines; and `http_status`'s sixty codes in the
+  guide, which are one fact said sixty times — those carry their literal values
+  (`http_status.NotFound` is `404`) and live in `vinculum man http_status`.
+
+  It arrives everywhere the block schema already had a reader. `vinculum man sys`,
+  `vinculum man sys signals bynumber`, `help("namespace:sys")`, and `-k hostname` all
+  work; `doc/config.md`'s hand-written list of built-in variables is now generated and
+  guarded by CI, which is how four real roots that it never mentioned turned up; and
+  `vinculum check` gained the member checking described below. See
+  [`doc/schema.md`](doc/schema.md#namespaces).
 - **`vinculum test` — run a configuration's `.cty` test blocks against the running
   system.** Boots the full server exactly as `vinculum serve` would — buses, servers,
   subscriptions, triggers — runs the functy `test "..." { ... }` blocks embedded in the
@@ -145,17 +169,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   field the expression's context does not provide (the shape differs per attribute,
   so `on_connect` does not see the `ctx.msg` an `action` on the same block does); and
   a name read out of something that has names in it — a namespace whose members come
-  from blocks, so `bus.mian` when the bus is called `main`, or an object-valued
+  from blocks, so `bus.mian` when the bus is called `main`; a member of `sys` or
+  `http_status`, so `sys.hostnam` and `sys.functy.versionx`; or an object-valued
   `const`, so `routing.gamma` when the const holds `alpha` and `beta`. Each message
-  names what *is* available.
+  names what *is* available, or points at the `vinculum man` page that lists it when
+  there are too many names to print.
 
   There is no second model of the language behind this. Which attributes are
   event-time, and what `ctx` each one gets, is read from the same schema
   `vinculum schema` emits and CI already checks for drift; the namespace is read from
   the finished evaluation context rather than described anywhere. `try()` and `can()`
   arguments are exempt — referring to something that may be absent is what they are
-  for — as are `env`, `sys`, and `http_status` below their leading name, and disabled
-  blocks entirely. See "Reference Checking" in `doc/config.md`.
+  for — as is anything whose names the language does not choose: all of `env`, since
+  it is the environment of whichever process is running, and `sys.signals`, since
+  which signals exist is the host OS's business. Disabled blocks are skipped
+  entirely. See "Reference Checking" in `doc/config.md`.
 - **`condition` blocks accept `disabled`.** Every other block that creates a runtime
   component already did; a condition rejected it outright. A disabled condition
   registers nothing, so `condition.<name>` is undefined and any expression referring to
