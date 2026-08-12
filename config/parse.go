@@ -13,14 +13,20 @@ import (
 	"github.com/tsarna/functy"
 )
 
+// GetBlocks collects the top-level blocks of each body. The schema is closed:
+// the bodies passed here have already had the function-definition blocks
+// (function, jq, editor, procedure) taken out of them, so anything still
+// unaccounted for is a typo or a stray attribute and is reported rather than
+// silently ignored. HCL supplies the "Did you mean" suggestion against the
+// known block types.
 func (cb *ConfigBuilder) GetBlocks(bodies []hcl.Body) (hcl.Blocks, hcl.Diagnostics) {
 	diags := hcl.Diagnostics{}
 
 	var blocks hcl.Blocks
 
 	for _, body := range bodies {
-		content, _, partialDiags := body.PartialContent(configSchema)
-		diags = diags.Extend(partialDiags)
+		content, contentDiags := body.Content(configSchema)
+		diags = diags.Extend(contentDiags)
 
 		blocks = append(blocks, content.Blocks...)
 	}

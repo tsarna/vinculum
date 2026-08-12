@@ -216,6 +216,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A mistyped top-level block or a stray top-level attribute is now an error.** The
+  configuration's top-level schema was consumed with `PartialContent` and the remainder
+  thrown away, so anything that did not match a known block header simply vanished:
+  `serverr "http" "web" { listen = ":8080" }` and a bare `whatever = 42` both reported
+  "Configuration is valid", and the mistyped block was a config that did nothing,
+  forever, with no signal. The remainder is now consumed and reported, with the same
+  "Did you mean" suggestion a *nested* typo already got — which is also what `.vinit`
+  has always done with an unknown block type. The blocks extracted before the general
+  block pass (`function`, `jq`, `editor`, `procedure`) are unaffected: their own
+  extraction hides them from the closed schema.
 - **A computed metric whose `value` keeps failing says so once, not every interval.**
   Each failed poll logged at Error level, so one broken expression restated one fact
   every `computed_interval` for as long as the process ran, burying whatever else the
