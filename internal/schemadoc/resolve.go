@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/internal/suggest"
 )
 
 // Resolve returns every topic that path could name, in kind order.
@@ -311,11 +312,6 @@ func distinctKinds(candidates []Node) int {
 	return len(seen)
 }
 
-// suggestMaxDistance is how far a typo may stray and still be guessed at. Two
-// covers a transposition plus a dropped character; three starts suggesting
-// words that merely rhyme.
-const suggestMaxDistance = 2
-
 // suggestMax caps how many near misses are offered. A list long enough to
 // scan is not a suggestion.
 const suggestMax = 5
@@ -324,84 +320,22 @@ const suggestMax = 5
 // element, for the "did you mean" after a failed resolution.
 //
 // It searches exactly the name set Resolve searches, so it can never suggest
-// something that would not itself resolve. Comparison is case-insensitive,
-// which makes a capitalization mistake a suggestion rather than a distance
-// large enough to miss.
+// something that would not itself resolve. How near a miss has to be is the
+// suggest package's to say, so that a topic and a function name are judged on
+// the same terms.
 func Suggest(doc *config.SchemaDocument, kind Kind, path []string) []Node {
 	if doc == nil || len(path) == 0 {
 		return nil
 	}
-	query := strings.ToLower(path[0])
-
-	type scored struct {
-		name string
-		dist int
-	}
-	var near []scored
-	for _, name := range LeadingNames(doc, kind) {
-		d := editDistance(query, strings.ToLower(name))
-		if d <= suggestMaxDistance {
-			near = append(near, scored{name, d})
-		}
-	}
-	sort.SliceStable(near, func(i, j int) bool {
-		if near[i].dist != near[j].dist {
-			return near[i].dist < near[j].dist
-		}
-		return near[i].name < near[j].name
-	})
 
 	var out []Node
-	for _, s := range near {
-		out = append(out, Resolve(doc, kind, []string{s.name})...)
+	for _, name := range suggest.Near(path[0], LeadingNames(doc, kind)) {
+		out = append(out, Resolve(doc, kind, []string{name})...)
 		if len(out) >= suggestMax {
 			return out[:suggestMax]
 		}
 	}
 	return out
-}
-
-// editDistance is Levenshtein distance, over runes so a multi-byte character
-// counts as one edit rather than several.
-func editDistance(a, b string) int {
-	ar, br := []rune(a), []rune(b)
-	if len(ar) == 0 {
-		return len(br)
-	}
-	if len(br) == 0 {
-		return len(ar)
-	}
-
-	// One row of the matrix at a time: the full table is never needed, only
-	// the previous row.
-	prev := make([]int, len(br)+1)
-	curr := make([]int, len(br)+1)
-	for j := range prev {
-		prev[j] = j
-	}
-	for i := 1; i <= len(ar); i++ {
-		curr[0] = i
-		for j := 1; j <= len(br); j++ {
-			cost := 1
-			if ar[i-1] == br[j-1] {
-				cost = 0
-			}
-			curr[j] = min3(curr[j-1]+1, prev[j]+1, prev[j-1]+cost)
-		}
-		prev, curr = curr, prev
-	}
-	return prev[len(br)]
-}
-
-func min3(a, b, c int) int {
-	m := a
-	if b < m {
-		m = b
-	}
-	if c < m {
-		m = c
-	}
-	return m
 }
 
 func sortedContextKeys(m map[string]*config.SchemaContext) []string {

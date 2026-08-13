@@ -187,22 +187,3 @@ func TestTopicsAreTheIndexPage(t *testing.T) {
 	// page that repeats what the block's page says.
 	assert.NotContains(t, got, "namespace:subscription")
 }
-
-func TestEditDistance(t *testing.T) {
-	for _, tc := range []struct {
-		a, b string
-		want int
-	}{
-		{"", "", 0},
-		{"abc", "abc", 0},
-		{"abc", "", 3},
-		{"", "abc", 3},
-		{"mqqt", "mqtt", 1},
-		{"cleint", "client", 2},
-		{"subscriptions", "subscription", 1},
-		// Runes, not bytes: one accented character is one edit.
-		{"café", "cafe", 1},
-	} {
-		assert.Equal(t, tc.want, editDistance(tc.a, tc.b), "%q vs %q", tc.a, tc.b)
-	}
-}

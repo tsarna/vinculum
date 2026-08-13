@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/internal/suggest"
 )
 
 // Functions as a second corpus.
@@ -110,28 +111,11 @@ func SuggestFuncs(cat FuncCatalog, kind Kind, path []string) []Node {
 	if cat == nil || len(path) == 0 {
 		return nil
 	}
-	query := strings.ToLower(path[0])
-
-	type scored struct {
-		name string
-		dist int
-	}
-	var near []scored
-	for _, name := range FuncLeadingNames(cat, kind) {
-		if d := editDistance(query, strings.ToLower(name)); d <= suggestMaxDistance {
-			near = append(near, scored{name, d})
-		}
-	}
-	sort.SliceStable(near, func(i, j int) bool {
-		if near[i].dist != near[j].dist {
-			return near[i].dist < near[j].dist
-		}
-		return near[i].name < near[j].name
-	})
+	near := suggest.Near(path[0], FuncLeadingNames(cat, kind))
 
 	out := make([]Node, 0, len(near))
-	for _, s := range near {
-		out = append(out, FuncNode(cat, s.name))
+	for _, name := range near {
+		out = append(out, FuncNode(cat, name))
 		if len(out) >= suggestMax {
 			break
 		}

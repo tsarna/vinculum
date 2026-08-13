@@ -7,6 +7,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/tsarna/vinculum/internal/suggest"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/convert"
 )
@@ -35,10 +36,16 @@ import (
 // hclutil fails the build if anything else assembles one. So once the Process
 // phase is over, the whole namespace is config.evalCtx.Variables plus `ctx`.
 //
-// Function names are out of scope. Unlike variables, a site may add functions of
-// its own to its child context (the http server's request functions, the MCP
-// handlers'), and nothing describes those additions, so an unknown-function
-// check would report working configs.
+// Function names come from the same place, and are checkable for the same
+// reason: BuildEvalContext sets its child's Functions to whatever the site
+// added, and no site adds any, so every call resolves against
+// config.evalCtx.Functions. A site that wanted to add one would have to copy
+// the whole namespace in first — hcl uses the first non-nil Functions map it
+// finds walking up from the call rather than merging them — and its additions
+// would then have to be described, the way a `ctx` shape's per-site fields are,
+// for this to stop reporting them. The one part of the map that is not a
+// property of the configuration is which feature flags the process was given,
+// which is what possibleFunctionNames is about.
 
 // exprCheckSkipBlockTypes names block types this check does not visit.
 //
@@ -97,6 +104,9 @@ type refChecker struct {
 	config *Config
 	doc    *SchemaDocument
 	diags  hcl.Diagnostics
+	// functions is the callable name set, built on first use because a config
+	// with no deferred expressions never needs it.
+	functions map[string]bool
 }
 
 // block checks one top-level block against the schema body that describes it.
@@ -177,7 +187,13 @@ func (ck *refChecker) disabled(body *hclsyntax.Body) bool {
 
 // expression checks every reference one deferred expression makes.
 func (ck *refChecker) expression(attr *SchemaAttr, expr hclsyntax.Expression) {
-	for _, traversal := range checkableTraversals(expr) {
+	refs := checkableRefs(expr)
+
+	for _, call := range refs.calls {
+		ck.functionCall(call)
+	}
+
+	for _, traversal := range refs.traversals {
 		root := traversal.RootName()
 		if root == "ctx" {
 			ck.ctxField(attr, traversal)
@@ -190,6 +206,59 @@ func (ck *refChecker) expression(attr *SchemaAttr, expr hclsyntax.Expression) {
 		}
 		ck.member(root, val, traversal)
 	}
+}
+
+// functionCall checks the name of a call made by a deferred expression.
+//
+// The wording is hclsyntax's own, deliberately: the check exists to say at load
+// time what the first event would otherwise have said, and saying it in
+// different words would leave the author matching up two reports of one
+// mistake. The suggestion is better than the runtime's for a namespaced call —
+// hcl compares the bare name against fully-qualified candidates, which almost
+// never matches — so `log::inf` is offered `log::info` here and nothing there.
+func (ck *refChecker) functionCall(call *hclsyntax.FunctionCallExpr) {
+	if ck.functions == nil {
+		ck.functions = ck.config.possibleFunctionNames()
+	}
+	if ck.functions[call.Name] {
+		return
+	}
+
+	const summary = "Call to unknown function"
+
+	if sep := strings.LastIndex(call.Name, "::"); sep != -1 {
+		namespace, name := call.Name[:sep+2], call.Name[sep+2:]
+
+		var inNamespace []string
+		for known := range ck.functions {
+			if strings.HasPrefix(known, namespace) {
+				inNamespace = append(inNamespace, known)
+			}
+		}
+		if len(inNamespace) == 0 {
+			ck.reportRange(call.NameRange, summary,
+				fmt.Sprintf("There are no functions in namespace %q.", namespace))
+			return
+		}
+
+		detail := fmt.Sprintf("There is no function named %q in namespace %s.", name, namespace)
+		if s := suggest.Nearest(call.Name, inNamespace); s != "" {
+			detail += fmt.Sprintf(" Did you mean %s?", s)
+		}
+		ck.reportRange(call.NameRange, summary, detail)
+		return
+	}
+
+	available := make([]string, 0, len(ck.functions))
+	for known := range ck.functions {
+		available = append(available, known)
+	}
+
+	detail := fmt.Sprintf("There is no function named %q.", call.Name)
+	if s := suggest.Nearest(call.Name, available); s != "" {
+		detail += fmt.Sprintf(" Did you mean %q?", s)
+	}
+	ck.reportRange(call.NameRange, summary, detail)
 }
 
 // ctxField checks `ctx.<name>` against the fields the attribute's context
@@ -378,7 +447,10 @@ func (ck *refChecker) unknownRoot(traversal hcl.Traversal) {
 }
 
 func (ck *refChecker) report(traversal hcl.Traversal, summary, detail string) {
-	rng := traversal.SourceRange()
+	ck.reportRange(traversal.SourceRange(), summary, detail)
+}
+
+func (ck *refChecker) reportRange(rng hcl.Range, summary, detail string) {
 	ck.diags = ck.diags.Append(&hcl.Diagnostic{
 		Severity: hcl.DiagError,
 		Summary:  summary,
@@ -416,25 +488,37 @@ func joinNames(names []string) string {
 	return strings.Join(names, ", ")
 }
 
-// checkableTraversals returns the root-scope references an expression makes,
-// less the ones that are not this check's business.
-//
-// It is hclsyntax.Variables plus one rule: a traversal beneath a try() or can()
-// is expected to be allowed to fail. The local-scope handling is the same, so a
-// `for` expression's iterator is not reported as an unknown name.
-func checkableTraversals(expr hclsyntax.Expression) []hcl.Traversal {
-	w := &traversalWalker{}
-	hclsyntax.Walk(expr, w) //nolint:errcheck // the walker returns no diagnostics
-	return w.traversals
+// deferredRefs is what one deferred expression refers to: the root-scope names
+// it reads and the functions it calls.
+type deferredRefs struct {
+	traversals []hcl.Traversal
+	calls      []*hclsyntax.FunctionCallExpr
 }
 
-type traversalWalker struct {
+// checkableRefs returns the references an expression makes, less the ones that
+// are not this check's business.
+//
+// The traversals are hclsyntax.Variables plus one rule: a traversal beneath a
+// try() or can() is expected to be allowed to fail. The local-scope handling is
+// the same, so a `for` expression's iterator is not reported as an unknown
+// name. Calls follow the same rule for the same reason — try() catches the
+// diagnostic an unknown function raises, so a call under one is not a mistake
+// either. The try() or can() itself is recorded before its arguments are
+// hidden, since misspelling *it* is an ordinary mistake.
+func checkableRefs(expr hclsyntax.Expression) deferredRefs {
+	w := &refWalker{}
+	hclsyntax.Walk(expr, w) //nolint:errcheck // the walker returns no diagnostics
+	return deferredRefs{traversals: w.traversals, calls: w.calls}
+}
+
+type refWalker struct {
 	traversals []hcl.Traversal
+	calls      []*hclsyntax.FunctionCallExpr
 	locals     []map[string]struct{}
 	opaque     int
 }
 
-func (w *traversalWalker) Enter(node hclsyntax.Node) hcl.Diagnostics {
+func (w *refWalker) Enter(node hclsyntax.Node) hcl.Diagnostics {
 	switch n := node.(type) {
 	case *hclsyntax.ScopeTraversalExpr:
 		if w.opaque > 0 {
@@ -450,6 +534,9 @@ func (w *traversalWalker) Enter(node hclsyntax.Node) hcl.Diagnostics {
 	case hclsyntax.ChildScope:
 		w.locals = append(w.locals, n.LocalNames)
 	case *hclsyntax.FunctionCallExpr:
+		if w.opaque == 0 {
+			w.calls = append(w.calls, n)
+		}
 		if exprCheckOpaqueFuncs[n.Name] {
 			w.opaque++
 		}
@@ -457,7 +544,7 @@ func (w *traversalWalker) Enter(node hclsyntax.Node) hcl.Diagnostics {
 	return nil
 }
 
-func (w *traversalWalker) Exit(node hclsyntax.Node) hcl.Diagnostics {
+func (w *refWalker) Exit(node hclsyntax.Node) hcl.Diagnostics {
 	switch n := node.(type) {
 	case hclsyntax.ChildScope:
 		w.locals = w.locals[:len(w.locals)-1]

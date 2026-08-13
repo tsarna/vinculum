@@ -165,15 +165,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   against the namespace they will actually see, once every block has been processed,
   and an unresolvable reference is an error with a source range like any other.
 
-  It catches three things: a leading name that is in no namespace at all; a `ctx`
+  It catches four things: a leading name that is in no namespace at all; a `ctx`
   field the expression's context does not provide (the shape differs per attribute,
-  so `on_connect` does not see the `ctx.msg` an `action` on the same block does); and
+  so `on_connect` does not see the `ctx.msg` an `action` on the same block does);
   a name read out of something that has names in it — a namespace whose members come
   from blocks, so `bus.mian` when the bus is called `main`; a member of `sys` or
   `http_status`, so `sys.hostnam` and `sys.functy.versionx`; or an object-valued
-  `const`, so `routing.gamma` when the const holds `alpha` and `beta`. Each message
-  names what *is* available, or points at the `vinculum man` page that lists it when
-  there are too many names to print.
+  `const`, so `routing.gamma` when the const holds `alpha` and `beta`; and a call to
+  a function that does not exist, so `log::inf("hi")` — which a `const` has always
+  reported and an `action` never did. Each message names what *is* available, or
+  points at the `vinculum man` page that lists it when there are too many names to
+  print. An unknown function is reported in hcl's own words, so the load-time report
+  and the one the first event would have produced are the same sentence — with a
+  better suggestion for a namespaced name, since hcl's runtime one compares the bare
+  name against qualified candidates and so rarely offers anything.
 
   There is no second model of the language behind this. Which attributes are
   event-time, and what `ctx` each one gets, is read from the same schema
@@ -182,8 +187,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arguments are exempt — referring to something that may be absent is what they are
   for — as is anything whose names the language does not choose: all of `env`, since
   it is the environment of whichever process is running, and `sys.signals`, since
-  which signals exist is the host OS's business. Disabled blocks are skipped
-  entirely. See "Reference Checking" in `doc/config.md`.
+  which signals exist is the host OS's business. Functions a feature flag provides
+  are exempt for the same reason — `file()` needs `--file-path` and `kill()` needs
+  `--allow-kill`, so whether they exist is a property of how the process was launched
+  rather than of the config in front of it. Disabled blocks are skipped entirely.
+  See "Reference Checking" in `doc/config.md`.
 - **`condition` blocks accept `disabled`.** Every other block that creates a runtime
   component already did; a condition rejected it outright. A disabled condition
   registers nothing, so `condition.<name>` is undefined and any expression referring to

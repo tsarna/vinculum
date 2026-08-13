@@ -277,7 +277,7 @@ happens, and would otherwise carry a bad reference until the first event arrived
 
 They are checked at load time instead. Once every block has been processed, the
 references each event-time expression makes are resolved against the namespace
-it will see when it runs. Three cases are errors, reported with a source range
+it will see when it runs. Five cases are errors, reported with a source range
 like any other:
 
 - a leading name that is in no namespace at all;
@@ -291,13 +291,16 @@ like any other:
 - a member of `sys` or `http_status` that does not exist, following the dots as
   far as the schema describes them: `sys.hostnam` and `sys.functy.versionx` are
   both errors.
+- a call to a function that does not exist. `log::inf("hi")` is reported at load
+  time, in the same words the first event would have used, with the same
+  suggestion of `log::info` — where a call in a const has always been reported.
 
 A const is read only where it can be: an attribute of an object, as
 `routing.alpha`. A const reached into dynamically, as `routing[ctx.kind]`, names
 nothing to check, and one holding a map rather than an object has no fixed set of
 attributes to check against.
 
-Three things are outside the check:
+Four things are outside the check:
 
 - **Names the language does not choose.** All of `env` is one: it is the
   environment of whichever process is running, so a `vinculum check` on a build
@@ -308,7 +311,12 @@ Three things are outside the check:
   free members, and that mark is what this reads.
 - **`try()` and `can()` arguments**, which exist to refer to something that may
   not be there. Reach for them where an optional field, or a name that depends on
-  the environment, is the point.
+  the environment, is the point. A call beneath one is not checked either, since
+  `try()` catches the failure an unknown function raises.
+- **Functions a feature flag provides.** `file()` needs `--file-path` and
+  `kill()` needs `--allow-kill`, so whether they exist is a property of how the
+  process was launched rather than of the configuration. They are accepted
+  whether or not this invocation was given the flag.
 - **Disabled blocks.** Nothing is created from a `disabled = true` block and its
   expressions are never evaluated, so its references are not checked. Disabling
   a block is therefore also how to park one that refers to names the rest of the

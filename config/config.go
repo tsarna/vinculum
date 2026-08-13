@@ -71,6 +71,11 @@ type Config struct {
 	// projected to VCL as the `sys.testing` ambient bool, so a config can gate
 	// real external I/O off under test (e.g. `disabled = sys.testing`).
 	Testing bool
+	// probeAllFeatures makes GetFeature answer every feature, enabled or not.
+	// It is set only on the throwaway copy possibleFunctionNames builds to ask
+	// the function plugins for their names; nothing in a running config reads
+	// it.
+	probeAllFeatures bool
 
 	SigActions       *SignalActionHandler
 	Startables       []Startable

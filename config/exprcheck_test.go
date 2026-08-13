@@ -285,3 +285,92 @@ subscription "s" {
 `
 	assert.Empty(t, buildRefCheckVCL(t, src))
 }
+
+// A misspelled function in an action used to be found by the first message to
+// arrive, and then by every message after it: `const { x = nosuchfunc() }`
+// failed the load, but `action = nosuchfunc()` did not.
+func TestDeferredReferenceUnknownFunction(t *testing.T) {
+	err := buildRefCheckVCL(t, subscriptionVCL(`totally_bogus_function(ctx.msg)`))
+
+	require.NotEmpty(t, err, "a call to a function that does not exist must fail the load")
+	assert.Contains(t, err, "Call to unknown function")
+	assert.Contains(t, err, `There is no function named "totally_bogus_function".`)
+}
+
+// The wording is hcl's own, so the load-time report and the one the first event
+// would have produced are the same sentence.
+func TestDeferredReferenceUnknownFunctionSuggests(t *testing.T) {
+	err := buildRefCheckVCL(t, subscriptionVCL(`lenght(ctx.msg)`))
+
+	assert.Contains(t, err, `There is no function named "lenght". Did you mean "length"?`)
+}
+
+// A namespaced name is reported against its own namespace, and the suggestion
+// is qualified — hcl's runtime one compares the bare name against qualified
+// candidates and so almost never offers anything.
+func TestDeferredReferenceUnknownFunctionInNamespace(t *testing.T) {
+	err := buildRefCheckVCL(t, subscriptionVCL(`log::inf("hi")`))
+
+	assert.Contains(t, err, `There is no function named "inf" in namespace log::.`)
+	assert.Contains(t, err, `Did you mean log::info?`)
+}
+
+// A misspelled namespace is a different mistake, and listing the names in a
+// namespace that does not exist would be nonsense.
+func TestDeferredReferenceUnknownFunctionNamespace(t *testing.T) {
+	err := buildRefCheckVCL(t, subscriptionVCL(`lgo::info("hi")`))
+
+	assert.Contains(t, err, `There are no functions in namespace "lgo::".`)
+}
+
+// try() catches the diagnostic an unknown function raises just as it catches an
+// unresolvable reference, so a call beneath one is not a mistake — but the
+// try() itself is an ordinary name that can be misspelled.
+func TestDeferredReferenceAllowsUnknownFunctionUnderTry(t *testing.T) {
+	assert.Empty(t, buildRefCheckVCL(t, subscriptionVCL(`try(who_knows(ctx.msg), "absent")`)))
+
+	err := buildRefCheckVCL(t, subscriptionVCL(`tyr(ctx.msg, "absent")`))
+	assert.Contains(t, err, `There is no function named "tyr". Did you mean "try"?`)
+}
+
+// Which functions this process has is partly a property of how it was launched:
+// file() needs --file-path, kill() needs --allow-kill, and `vinculum check` has
+// no --allow-kill to be given. Reporting those would fail a config that runs.
+func TestDeferredReferenceAcceptsFeatureGatedFunctions(t *testing.T) {
+	src := subscriptionVCL(`[
+    log::info(file("greeting.txt")),
+    log::info(templatefile("t.tmpl", {})),
+    filewrite("out.txt", ctx.msg),
+    kill(1, 15),
+  ]`)
+
+	assert.Empty(t, buildRefCheckVCL(t, src))
+}
+
+// A user-defined function is callable by the same name as any other, including
+// from a namespace declared in a .cty file.
+func TestDeferredReferenceAcceptsUserFunctions(t *testing.T) {
+	src := `
+bus "main" {}
+function "shout" {
+  params = [s]
+  result = upper(s)
+}
+jq "field" {
+  query = ".field"
+}
+subscription "s" {
+  target = bus.main
+  topics = ["in/#"]
+  action = log::info(shout(ctx.topic), field(ctx.msg))
+}
+`
+	assert.Empty(t, buildRefCheckVCL(t, src))
+}
+
+// A call inside a string template is a call like any other.
+func TestDeferredReferenceChecksFunctionsInTemplates(t *testing.T) {
+	err := buildRefCheckVCL(t, subscriptionVCL(`"out/${uppercase(ctx.topic)}"`))
+
+	assert.Contains(t, err, `There is no function named "uppercase".`)
+}
