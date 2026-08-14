@@ -45,7 +45,7 @@ require (
 	github.com/tsarna/rich-cty-types v0.5.1
 	github.com/tsarna/sqid-cty-funcs v0.2.0
 	github.com/tsarna/time-cty-funcs v0.4.0
-	github.com/tsarna/vinculum-bus v0.15.1
+	github.com/tsarna/vinculum-bus v0.16.0
 	github.com/tsarna/vinculum-kafka v0.12.0
 	github.com/tsarna/vinculum-mqtt v0.11.0
 	github.com/tsarna/vinculum-rabbitmq v0.4.0

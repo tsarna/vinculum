@@ -111,6 +111,12 @@ type Config struct {
 	// declarations (Consts/Vars) are folded into Vinculum's own const/var pools
 	// during block preprocessing. Nil when no .cty sources were provided.
 	functyState *functyState
+
+	// files is every source file Build() parsed — .vinit, .vcl, and .cty —
+	// keyed by filename, so a failure at event time can be shown against the
+	// line that caused it. It is the builder's map, filled as each pass parses
+	// and immutable once Build returns.
+	files map[string]*hcl.File
 }
 
 func NewConfig() *ConfigBuilder {
@@ -193,6 +199,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	config := &Config{
 		Logger:           cb.logger,
 		UserLogger:       userLogger,
+		files:            cb.files,
 		Features:         cb.features,
 		BaseDir:          cb.features["readfiles"],
 		WriteDir:         cb.features["writefiles"],
@@ -316,14 +323,14 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	functyFuncs, addDiags := config.functyState.compile(functySources, evalCtxFn)
 	// compile records its file map before parsing, so a .cty parse or compile
 	// error renders with source context too.
-	cb.addFiles(config.functyFileMap())
+	cb.addFiles(config.functyState.files)
 	diags = diags.Extend(addDiags)
 	if diags.HasErrors() {
 		return nil, diags
 	}
-	// Share the .cty file map with the signal handler so a functy throw from a
-	// signal action renders with source context (it has no *Config reference).
-	config.SigActions.FunctyFiles = config.functyFileMap()
+	// Share the source file map with the signal handler so a failing signal
+	// action renders against its own line (it has no *Config reference).
+	config.SigActions.Files = config.files
 
 	for name, fn := range functyFuncs {
 		functions[name] = fn

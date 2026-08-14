@@ -184,7 +184,7 @@ func reportTestOutcomes(cmd *cobra.Command, cfg *config.Config, outcomes []funct
 	}
 
 	out := cmd.OutOrStdout()
-	files := cfg.FunctyFiles()
+	files := cfg.SourceFiles()
 	passed, failed, skipped := 0, 0, 0
 	for _, o := range outcomes {
 		switch {

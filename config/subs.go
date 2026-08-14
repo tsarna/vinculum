@@ -352,11 +352,14 @@ func (a *ActionSubscriber) OnEvent(ctx context.Context, topic string, message an
 
 	_, diags := a.ActionExpr.Value(evalCtx)
 	if diags.HasErrors() {
-		// A functy throw carries .cty source context the bus's generic error
-		// handling cannot render; surface it here through UserLogger. Ordinary
-		// errors are left to the caller (the bus) to avoid double-logging.
-		if _, ok := functyThrownError(diags); ok {
+		// A failure that can be shown against its source — the failing line of
+		// the action, or the `assert` a functy throw came from — is reported
+		// here, because the bus renders only the text. Saying so on the way out
+		// is what keeps the bus from repeating it, less well; the error itself
+		// is unchanged, so anything reading the outcome is unaffected.
+		if a.Config.ActionErrorShowsSource(diags) {
 			a.Config.UserLogger.Error("subscription action error", a.Config.ActionError(diags))
+			return reportedError{diags}
 		}
 		return diags
 	}

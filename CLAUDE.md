@@ -654,6 +654,19 @@ log level:
 
 `SignalActionHandler` mirrors this with its own `Logger` / `UserLogger` fields.
 
+Log an evaluation failure with **`config.ActionError(diags)`** rather than
+`zap.Error(diags)`. It renders the failure against the line that caused it —
+quoted from the source `Build()` retained (`Config.files`, every `.vinit`,
+`.vcl`, and `.cty` it parsed) — and unwraps a functy throw so the line shown is
+the `assert` that raised rather than the call that surfaced it. With no source to
+quote it falls back to the plain text, so it is always safe to use. A site that
+*also* returns the failure to a generic handler asks
+`config.ActionErrorShowsSource(diags)` first and logs only when the answer is
+yes, then returns the error wrapped in `config.Reported(err)` — which implements
+`bus.ReportedError`, so the bus skips its own log line rather than repeating in
+plain text what was just rendered. The wrapper delegates `Error` and `Unwrap`,
+so a dead-letter header and an `errors.As` both see what they saw before.
+
 The VCL `log_*` functions already derive their own caller/stack-suppressed logger
 inside `functions/log.go` — callers of `GetLogFunctions` pass the normal logger.
 

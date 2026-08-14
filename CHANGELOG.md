@@ -287,6 +287,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An action that fails at event time says which line failed.** A functy throw was
+  rendered against its `.cty` source — the failing line and the operand that tripped
+  an assert — while a VCL expression got one line of diagnostic text and a `file:4,12-19`
+  range for the reader to go and look up. The sources are now retained on the built
+  `Config`, so every runtime evaluation failure is reported the way `check` reports a
+  load-time one:
+
+  ```text
+  Error: Error in function call
+
+    on config.vcl line 4, in trigger "start" "boom":
+     4:   action = length(42)
+
+  Call to function "length" failed: collection must be a list, a map or a tuple.
+  ```
+
+  This covers every site that logs through `ActionError` — triggers, subscriptions,
+  HTTP and MCP handlers, client lifecycle hooks, decode-error hooks, signal actions —
+  and where hcl can say what the expression's variables held at the point of failure
+  (`with ctx.msg as "hello"`), it does. A failure whose range points at something
+  synthesized rather than read from a file still gets the one-line form, since there
+  is nothing to quote. `vinculum test` renders its failures against the same map, so a
+  test that fails inside a `.vcl` expression is no longer reported against nothing.
+
+  A subscription failure is now logged **once**, not twice. The bus logged every
+  delivery error itself, so the rendered report arrived alongside the one-line version
+  it was meant to replace; a subscriber that has already reported a failure now says so
+  when it returns it (`bus.ReportedError`, new in vinculum-bus v0.16.0) and the bus
+  skips only its own log line. The error is unchanged in every other respect — still
+  returned, still on the delivery span, still counted — so dead-lettering and ack
+  decisions behave exactly as before. Failures Vinculum *cannot* render are left
+  unmarked, and the bus reports those as it always has.
 - **`check`, `serve`, and `test` report every configuration error, each quoting its
   own source line.** All three handed their diagnostics back as an `error` for `main`
   to render with `%v`, and `hcl.Diagnostics.Error()` is *the first diagnostic plus a
