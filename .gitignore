@@ -62,3 +62,6 @@ tasks/
 
 # spec documents
 specs/
+
+# Local agent state. .claude/skills/ is versioned — it belongs to the repo.
+.claude/worktrees/

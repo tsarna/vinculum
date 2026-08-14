@@ -9,7 +9,16 @@ permissions:
   contents: write
 
 jobs:
+  # Nothing is published until this passes: the build and test suite the tag
+  # was never re-run against, plus the checks that the tree describes *this*
+  # release rather than some other one.
+  preflight:
+    uses: ./.github/workflows/checks.yml
+    with:
+      release_version: ${{ github.ref_name }}
+
   release:
+    needs: preflight
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

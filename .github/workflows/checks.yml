@@ -1,0 +1,66 @@
+name: Checks
+
+# The one definition of "is this tree good", called by CI on every push and by
+# each tag-triggered workflow before it publishes anything. Kept reusable so a
+# tag cannot be held to a weaker standard than a pull request: pushing a tag
+# does not run CI, so before this existed nothing re-ran the tests on the commit
+# a release was cut from.
+
+on:
+  workflow_call:
+    inputs:
+      release_version:
+        description: >-
+          The tag being released (vX.Y.Z). Turns on the checks that the tree
+          describes *that* release — the changelog section, its date, and the
+          version doc/ promises. Empty for an ordinary build.
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # Checked rather than applied: a failure here is a one-command fix
+      # locally (gofmt -w .), and CI rewriting source is worse than saying so.
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd. Run: gofmt -w ." >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+
+      - name: Build
+        run: go build ./...
+
+      # VINCULUM_RELEASE_VERSION is read by TestReleaseConsistency
+      # (internal/release), which checks the version-bearing files against the
+      # release being built. Empty on an ordinary build, where it checks only
+      # what must hold at every commit.
+      - name: Test
+        run: go test ./...
+        env:
+          VINCULUM_RELEASE_VERSION: ${{ inputs.release_version }}
+
+      # The same invariant TestSchemaIsCompleteAndConsistent asserts, checked
+      # through the command itself so the CLI's own exit code is covered too.
+      - name: Check config-language schema
+        run: go run . schema --strict --require-docs -o /dev/null
+
+      # The generated regions of doc/ must match what the schema says. When
+      # this fails, the fix is to run the same command with --update.
+      - name: Check generated documentation
+        run: go run . schema --format markdown --check doc/
