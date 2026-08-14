@@ -200,6 +200,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A sub-block that must appear at least once now says so.** Cardinality is read
+  from the decode struct, and a slice field cannot tell "any number, including none"
+  apart from "one or more" — so four sub-blocks whose parser demands one were
+  described, and rendered, as optional: `git`'s `fetch`, `subscription` under a kafka
+  or mqtt `receiver`, and `channel_subscription` under a redis_pubsub `subscriber`.
+  Each said so in prose next to a generated line that said otherwise. They now render
+  as `1..n` / "Required; one or more.", from the two booleans the document already
+  carried: `required` to appear, `repeatable` to appear again. The curation rule was
+  relaxed rather than extended — `required` is curatable on a sub-block *only* where
+  the field is a slice, which is exactly where the field type cannot speak for itself.
 - **`vinculum check --format json`.** The text form spends its effort on being read
   by a person — quoting the offending line, wrapping the prose — which is the wrong
   shape for an editor extension drawing squiggles, and scraping it is the only

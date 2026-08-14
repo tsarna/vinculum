@@ -110,8 +110,16 @@ type TypeSchema struct {
 	Blocks map[string]TypeSchema
 
 	// Repeatable and Required describe the header of a sub-block declared via
-	// its own Sample. They are ignored for reflected sub-blocks, whose field
-	// type already says whether the block is a slice, a pointer, or a value.
+	// its own Sample. For a reflected sub-block the field type already says
+	// whether the block is a slice, a pointer, or a value, so curating either
+	// is a reported problem — with one exception.
+	//
+	// Required is curatable on a *repeatable* sub-block, where it raises `0..n`
+	// to `1..n`. A slice cannot tell "any number, including none" apart from
+	// "one or more", so a parser that demands one (a `git` block with no
+	// `fetch` clones nothing) has no other way to say so. Together the two
+	// booleans read as they always have: required to appear, repeatable to
+	// appear again.
 	Repeatable bool
 	Required   bool
 
@@ -1277,9 +1285,22 @@ func (b *schemaBuilder) mergeBody(path string, rb *reflectedBody, ts TypeSchema)
 		// The parent struct already says how this sub-block may appear, so
 		// curation restating it is either redundant or a disagreement the
 		// reflected structure would silently win. Say so either way.
-		if nestedTS.Repeatable || nestedTS.Required {
-			b.problemf("%s.%s: repeatable/required come from the parent struct and cannot be curated", path, rblk.Name)
+		//
+		// The exception is a floor under a repeatable block. A slice field
+		// cannot distinguish "any number, including none" from "one or more",
+		// so Required is reflected as false for both and a parser that demands
+		// one — a `git` with no `fetch` clones nothing — has no way to say so.
+		// Curating Required alongside a reflected Repeatable is that statement,
+		// and it needs no new vocabulary: required means it must appear,
+		// repeatable that it may appear again.
+		switch {
+		case nestedTS.Repeatable:
+			b.problemf("%s.%s: repeatable comes from the parent struct and cannot be curated", path, rblk.Name)
+		case nestedTS.Required && !rblk.Repeatable:
+			b.problemf("%s.%s: required comes from the parent struct and cannot be curated; "+
+				"it is curatable only on a repeatable block, where it means one or more", path, rblk.Name)
 		}
+		required := rblk.Required || (nestedTS.Required && rblk.Repeatable)
 		b.reportUnnamedLabels(path+"."+rblk.Name, rblk.Unnamed)
 		if shared, ok := sharedBlockSchemas[rblk.GoType]; ok {
 			// A sub-block struct shared by many parents (tls, auth, ...) is
@@ -1290,7 +1311,7 @@ func (b *schemaBuilder) mergeBody(path string, rb *reflectedBody, ts TypeSchema)
 		body.Blocks[rblk.Name] = &SchemaNestedBlock{
 			Labels:     labelsOrEmpty(rblk.Labels),
 			Repeatable: rblk.Repeatable,
-			Required:   rblk.Required,
+			Required:   required,
 			SchemaBody: *nestedBody,
 		}
 	}

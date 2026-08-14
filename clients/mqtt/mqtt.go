@@ -136,8 +136,9 @@ subscribe to MQTT topics and deliver what arrives to the bus or an action.`,
 			Constraints: cfg.SubscriberSourceConstraints,
 			Blocks: map[string]cfg.TypeSchema{
 				"subscription": {
-					Summary: "One MQTT topic filter to subscribe to.",
-					Doc:     "The label is the MQTT topic filter.",
+					Required: true,
+					Summary:  "One MQTT topic filter to subscribe to.",
+					Doc:      "The label is the MQTT topic filter.",
 					Attrs: map[string]cfg.AttrMeta{
 						"vinculum_topic": {
 							Summary: "Bus topic to publish arriving messages to.",

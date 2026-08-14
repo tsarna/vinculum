@@ -505,7 +505,7 @@ A list of transform functions applied in order to each message. Only transform f
 #### Blocks
 
 - `baggage` (optional) — Which inbound baggage keys to trust.
-- `subscription "<mqtt_topic>"` (0..n) — One MQTT topic filter to subscribe to.
+- `subscription "<mqtt_topic>"` (1..n) — One MQTT topic filter to subscribe to.
 
 <!-- vinculum:end block-attrs client mqtt receiver -->
 

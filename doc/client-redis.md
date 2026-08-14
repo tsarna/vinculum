@@ -334,7 +334,7 @@ A list of transform functions applied in order to each message. Only transform f
 
 ##### Blocks
 
-- `channel_subscription` (0..n) — One Redis channel or channel pattern to subscribe to.
+- `channel_subscription` (1..n) — One Redis channel or channel pattern to subscribe to.
 
 <!-- vinculum:end block-attrs client redis_pubsub subscriber -->
 

@@ -72,9 +72,7 @@ implementation is pure Go, so it works in the scratch-based minimal image, which
 has no git binary and no shell.
 
 The label names the block in logs and diagnostics and has no filesystem meaning,
-but must be unique across all ` + "`.vinit`" + ` files. **At least one ` + "`fetch`" + ` sub-block is
-required** — a clone with nowhere to put anything is an error rather than a
-no-op.
+but must be unique across all ` + "`.vinit`" + ` files.
 
 	git "shared_config" {
 	    repo   = "https://github.com/example/vinculum-shared.git"
@@ -178,13 +176,12 @@ Vinculum never logs a credential value.`,
 			},
 		},
 		"fetch": {
-			Summary: "One subtree of the repository, and where to put it. At least one is required.",
+			Required: true,
+			Summary:  "One subtree of the repository, and where to put it.",
 			Doc: "All fetches of a block share a single clone — the repository is cloned once, " +
 				"however many destinations it feeds — so declaring several is cheap. The " +
 				"repository's `.git` directory is never copied into a destination, and symlinks " +
-				"are skipped. The label names the fetch in diagnostics and logs.\n\n" +
-				"The schema says `0..n` because the decode struct is a slice; the parser requires " +
-				"one.",
+				"are skipped. The label names the fetch in diagnostics and logs.",
 			Attrs: map[string]AttrMeta{
 				"from": {
 					Summary: "Path within the repository to copy.",

@@ -199,8 +199,9 @@ consume from Kafka topics as part of a consumer group.`,
 			Constraints: cfg.SubscriberSourceConstraints,
 			Blocks: map[string]cfg.TypeSchema{
 				"subscription": {
-					Summary: "One Kafka topic to consume.",
-					Doc:     "The label is the Kafka topic.",
+					Required: true,
+					Summary:  "One Kafka topic to consume.",
+					Doc:      "The label is the Kafka topic.",
 					Attrs: map[string]cfg.AttrMeta{
 						"vinculum_topic": {
 							Summary: "Bus topic to publish arriving records to.",

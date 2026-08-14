@@ -165,6 +165,8 @@ func variantHeader(blockType, variant string, labels []string) string {
 // cardinality renders how many times a sub-block may appear.
 func cardinality(b *config.SchemaNestedBlock) string {
 	switch {
+	case b.Repeatable && b.Required:
+		return "1..n"
 	case b.Repeatable:
 		return "0..n"
 	case b.Required:
@@ -178,6 +180,8 @@ func cardinality(b *config.SchemaNestedBlock) string {
 // sentence for a Note rather than the terse form a synopsis comment wants.
 func cardinalitySentence(b *config.SchemaNestedBlock) string {
 	switch {
+	case b.Repeatable && b.Required:
+		return "Required; one or more."
 	case b.Repeatable:
 		return "May appear any number of times."
 	case b.Required:

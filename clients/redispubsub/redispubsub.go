@@ -90,7 +90,8 @@ delivery has to survive a restart.`,
 			Constraints: cfg.SubscriberSourceConstraints,
 			Blocks: map[string]cfg.TypeSchema{
 				"channel_subscription": {
-					Summary: "One Redis channel or channel pattern to subscribe to.",
+					Required: true,
+					Summary:  "One Redis channel or channel pattern to subscribe to.",
 					Attrs: map[string]cfg.AttrMeta{
 						"channel": {Summary: "Redis channel or glob pattern to subscribe to."},
 						"vinculum_topic": {

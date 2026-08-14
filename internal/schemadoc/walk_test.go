@@ -140,6 +140,23 @@ func TestWalkVinitBlockSaysWhereItGoes(t *testing.T) {
 	assert.NotContains(t, renderNode(BlockNode(doc, "subscription", doc.Blocks["subscription"]), WalkOptions{}), note)
 }
 
+// Four cardinalities, because "one or more" is the one a Go field type cannot
+// express and so the one most likely to be rendered as something else.
+func TestCardinalityOfASubBlock(t *testing.T) {
+	doc := testDoc()
+
+	git := renderNode(BlockNode(doc, "git", doc.Blocks["git"]), WalkOptions{})
+	assert.Contains(t, git, `fetch "<name>" { … }  # 1..n`, "required and repeatable")
+	assert.Contains(t, git, "auth { … }  # optional")
+
+	fetch := doc.Blocks["git"].Body.Blocks["fetch"]
+	assert.Contains(t, renderNode(NestedNode(doc, []string{"git", "fetch"}, fetch), WalkOptions{}),
+		"Required; one or more.")
+
+	server := renderNode(BlockNode(doc, "server", doc.Blocks["server"]), WalkOptions{})
+	assert.NotContains(t, server, "1..n", "a repeatable block with no floor is still 0..n")
+}
+
 // A breadcrumb spells its parent path the way the config writes it, which
 // differs by block shape: a typed block's second element is the type label and
 // belongs in the quotes, while a plain block's is a sub-block and does not —

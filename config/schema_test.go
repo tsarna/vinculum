@@ -431,6 +431,49 @@ func TestMergeBodyDeclaredBlocks(t *testing.T) {
 	assert.ErrorContains(t, b.problems[0], `documented block "nope" does not exist`)
 }
 
+// A slice field cannot distinguish "any number, including none" from "one or
+// more", so Required is curatable on a repeatable sub-block and means the
+// second. Everything else about a reflected block's header still comes from the
+// struct, where curation would only be a disagreement reflection wins.
+func TestMergeBodyRequiredOnARepeatableBlock(t *testing.T) {
+	// `handle` is a slice field on the fixture, so it reflects as repeatable.
+	ts := fixtureSchema()
+	ts.Blocks["handle"] = withCuratedHeader(ts.Blocks["handle"], false, true)
+
+	b := &schemaBuilder{}
+	body := b.bodyFromSample("fixture", ts)
+
+	assert.Empty(t, problemStrings(b.problems), "a floor under a repeatable block is curatable")
+	handle := body.Blocks["handle"]
+	require.NotNil(t, handle)
+	assert.True(t, handle.Repeatable)
+	assert.True(t, handle.Required, "one or more")
+
+	// Curated Repeatable is still a disagreement with the field type...
+	ts = fixtureSchema()
+	ts.Blocks["handle"] = withCuratedHeader(ts.Blocks["handle"], true, false)
+	b = &schemaBuilder{}
+	b.bodyFromSample("fixture", ts)
+	assert.Contains(t, problemStrings(b.problems),
+		"fixture.handle: repeatable comes from the parent struct and cannot be curated")
+
+	// ...and so is Required on a block that is not repeatable, where the field
+	// type does say whether it must appear.
+	ts = fixtureSchema()
+	ts.Blocks["tls"] = withCuratedHeader(ts.Blocks["tls"], false, true)
+	b = &schemaBuilder{}
+	b.bodyFromSample("fixture", ts)
+	assert.Contains(t, problemStrings(b.problems),
+		"fixture.tls: required comes from the parent struct and cannot be curated; "+
+			"it is curatable only on a repeatable block, where it means one or more")
+}
+
+func withCuratedHeader(ts TypeSchema, repeatable, required bool) TypeSchema {
+	ts.Repeatable = repeatable
+	ts.Required = required
+	return ts
+}
+
 func TestMergeBodyFreeAttributes(t *testing.T) {
 	b := &schemaBuilder{opts: SchemaGenOptions{RequireDocs: true}}
 	body := b.bodyFromSample("freeform", TypeSchema{

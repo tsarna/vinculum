@@ -108,17 +108,16 @@ Fetched directly at the configured `depth`. Pinning a tag is what makes a boot r
 #### Blocks
 
 - `auth` (optional) — Credentials for the clone.
-- `fetch "<name>"` (0..n) — One subtree of the repository, and where to put it. At least one is required.
+- `fetch "<name>"` (1..n) — One subtree of the repository, and where to put it.
 
 <!-- vinculum:end block-attrs git -->
 
 ### `fetch` sub-blocks
 
-A git block has **one or more** `fetch` sub-blocks — the schema says `0..n`
-because the decode struct is a slice, but a clone with nowhere to put anything is
-an error. Each copies one subtree of the cloned repository to one local
-destination. All fetches share a single clone (the repository is cloned once per
-git block), so declaring several destinations is cheap.
+A git block has **one or more** `fetch` sub-blocks; a clone with nowhere to put
+anything is an error. Each copies one subtree of the cloned repository to one
+local destination. All fetches share a single clone (the repository is cloned
+once per git block), so declaring several destinations is cheap.
 
 The block label names the fetch in diagnostics and logs.
 

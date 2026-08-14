@@ -119,6 +119,20 @@ func testDoc() *config.SchemaDocument {
 					Blocks: map[string]*config.SchemaNestedBlock{},
 				},
 			},
+			// Repeatable and required together: one or more, the cardinality a
+			// field type cannot express and only curation can.
+			"fetch": {
+				Labels:     []string{"name"},
+				Repeatable: true,
+				Required:   true,
+				SchemaBody: config.SchemaBody{
+					Summary: "One subtree of the repository, and where to put it.",
+					Attributes: []*config.SchemaAttr{
+						{Name: "into", Type: "string", Required: true, Summary: "Local destination directory."},
+					},
+					Blocks: map[string]*config.SchemaNestedBlock{},
+				},
+			},
 		},
 	}
 

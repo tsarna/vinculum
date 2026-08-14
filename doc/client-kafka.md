@@ -440,7 +440,7 @@ A list of transform functions applied in order to each message. Only transform f
 #### Blocks
 
 - `baggage` (optional) — Which inbound baggage keys to trust.
-- `subscription "<kafka_topic>"` (0..n) — One Kafka topic to consume.
+- `subscription "<kafka_topic>"` (1..n) — One Kafka topic to consume.
 
 <!-- vinculum:end block-attrs client kafka receiver -->
 

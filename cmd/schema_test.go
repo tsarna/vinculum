@@ -112,6 +112,7 @@ func TestSchemaVinitBlocks(t *testing.T) {
 	fetch := git.Body.Blocks["fetch"]
 	require.NotNil(t, fetch)
 	assert.True(t, fetch.Repeatable)
+	assert.True(t, fetch.Required, "one or more: a clone with nowhere to put anything is an error")
 	assert.Equal(t, ".", findAttr(&fetch.SchemaBody, "from").Default)
 	assert.True(t, findAttr(&fetch.SchemaBody, "into").Required)
 
@@ -147,6 +148,38 @@ func TestSchemaVinitBlocksNameNoContext(t *testing.T) {
 		}
 		walk(name, block.Body)
 	}
+}
+
+// The receivers whose parser demands a subscription say so in the schema. A
+// slice field reflects as 0..n, so this is the one cardinality that is only
+// true because someone curated it — and the one that silently reverts.
+func TestSchemaRepeatableBlocksWithAFloor(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+
+	for _, tc := range []struct{ path, parent, block string }{
+		{"client kafka", "receiver", "subscription"},
+		{"client mqtt", "receiver", "subscription"},
+		{"client redis_pubsub", "subscriber", "channel_subscription"},
+	} {
+		t.Run(tc.path+" "+tc.parent, func(t *testing.T) {
+			blockType, variant, _ := strings.Cut(tc.path, " ")
+			body := doc.Blocks[blockType].Variants[variant]
+			require.NotNil(t, body, tc.path)
+			parent := body.Blocks[tc.parent]
+			require.NotNil(t, parent, tc.parent)
+
+			nested := parent.Blocks[tc.block]
+			require.NotNil(t, nested, tc.block)
+			assert.True(t, nested.Repeatable, "more than one is allowed")
+			assert.True(t, nested.Required, "and one is required")
+		})
+	}
+
+	// The senders alongside them take no floor: none is legal there.
+	sender := doc.Blocks["client"].Variants["kafka"].Blocks["sender"]
+	require.NotNil(t, sender)
+	assert.True(t, sender.Repeatable)
+	assert.False(t, sender.Required)
 }
 
 func attrNames(body *config.SchemaBody) []string {
