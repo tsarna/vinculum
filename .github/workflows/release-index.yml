@@ -1,7 +1,6 @@
 name: Build and publish VCL index
 
-# Runs when a GitHub release is published, attaching a pre-built FAISS index
-# as a release asset (vinculum-index.tar.gz).
+# Attaches a pre-built FAISS index to a release as vinculum-index.tar.gz.
 #
 # vinculum-ai auto-downloads this file from the latest release:
 #   https://github.com/tsarna/vinculum/releases/latest/download/vinculum-index.tar.gz
@@ -9,10 +8,30 @@ name: Build and publish VCL index
 # The index is built with fastembed BAAI/bge-small-en-v1.5 (384-dim vectors).
 # vinculum-ai users must use the same embedding model when querying — this is
 # the default, so no configuration is needed on the user side.
+#
+# Two triggers, because a release reaches this from two directions:
+#
+#   workflow_call — Release invokes it after GoReleaser has created the
+#     release. This is the path that matters. A release GoReleaser creates
+#     with the default GITHUB_TOKEN does *not* raise a `release: published`
+#     event that can start a workflow — GitHub suppresses those to prevent
+#     recursion — so relying on the trigger below silently stopped attaching
+#     the index the moment releases became automated. Found by rehearsing a
+#     release with a prerelease tag, which produced every other asset and no
+#     index.
+#
+#   release: published — a release created by hand, from the UI or `gh
+#     release create`, which does raise the event. Kept so that path still
+#     gets an index.
+#
+# Both reach the same tag through github.ref_name: a release event runs
+# against the release's tag ref, and a called workflow inherits the caller's
+# context, which is the tag that triggered Release.
 
 on:
   release:
     types: [published]
+  workflow_call:
 
 jobs:
   build-index:

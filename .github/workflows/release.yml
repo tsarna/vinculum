@@ -74,3 +74,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md"
+
+  # Chained rather than triggered: the release GoReleaser just created with the
+  # default GITHUB_TOKEN cannot start a workflow of its own, so the index has to
+  # be asked for here. See the comment at the top of release-index.yml.
+  index:
+    needs: release
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-index.yml
