@@ -10,309 +10,152 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`vinculum schema` — a machine-readable description of the configuration language.**
-  Emits one JSON document covering every block type, every type-specific variant
-  (`client "http"` versus `client "mqtt"`), every attribute and nested sub-block, plus
-  prose documentation, value hints, and semantic constraints — for editor tooling
-  (completion, hover, linting) and generated reference docs. The structure is
-  **reflected from the same decode structs the parser uses**, so the document describes
-  exactly what that binary can parse rather than what someone believed it parsed. The
-  prose beside it is validated against that structure — documenting an attribute that
-  does not exist is an error, and so is adding one without documenting it — and CI
-  enforces both, so the two cannot drift apart. Hints distinguish the kinds of
-  expression that differ in when they run and what is in scope: config-time,
-  action (per event, with a named `ctx` shape), predicate, reactive, and the transform
-  DSL. Flags: `-o`, `--pretty`, `--strict`, `--require-docs`. Each release also attaches
-  a `schema.json` for consumers that would rather fetch one file than run the binary.
-  By default the output describes a stock binary; pass `--plugin-path` together with
-  config paths to load the plugins their `.vinit` files declare and describe their
-  block types too, listing what they contributed under `plugins`. A top-level
-  `contexts` map enumerates the shape of `ctx` at each kind of evaluation site, so a
-  consumer can complete inside an `action =` and not just up to it — `ctx` is
-  assembled per site, so a receiver's `action` sees the message while `on_connect` on
-  the same client sees none of it. See [`doc/schema.md`](doc/schema.md).
+  One JSON document covering every block type, every type-specific variant (`client "http"`
+  versus `client "mqtt"`), every attribute and nested sub-block, plus prose documentation,
+  value hints, and semantic constraints — for editor tooling (completion, hover, linting)
+  and generated reference docs. The structure is **reflected from the same decode structs
+  the parser uses**, so it describes exactly what that binary can parse rather than what
+  someone believed it parsed, and the prose beside it is validated against that structure:
+  documenting an attribute that does not exist is an error, and so is adding one without
+  documenting it. CI enforces both, so the two cannot drift apart. It describes what an
+  expression may *name* as well as what the parser accepts — the shape of `ctx` at each
+  kind of evaluation site, and the twelve namespace roots a reference can start from — and
+  covers both languages, `.vcl` and the `.vinit` bootstrap format, each block tagged with
+  which file it belongs in. Plugin-contributed block types are included when
+  `--plugin-path` is given with config paths. Every release attaches a `schema.json`, for
+  consumers that would rather fetch one file than run the binary. See
+  [`doc/schema.md`](doc/schema.md).
+- **Generated reference documentation.** `vinculum schema --format markdown` renders that
+  same document as prose instead of JSON: a single-page reference on stdout, or — with
+  `--update` — the *marked regions* of the hand-written pages in `doc/`. `doc/` is not
+  generated and should not become generated; it carries worked examples, syntax, and the
+  reasoning behind a design, none of which the schema knows, so a page marks only the parts
+  that are mechanically derivable and keeps the rest. `--check` reports any region that is
+  out of date and is what CI runs, so the loop closes in both directions: an undocumented
+  attribute fails `--strict --require-docs`, and a documented one whose prose was never
+  regenerated fails `--check`. 161 regions across 26 pages are generated today, and
+  adopting them is what turned up the drift: the shared `wire_format` prose had been wrong
+  for all nine clients that share it — it said payloads pass through unchanged when the
+  attribute is omitted, where the default `auto` passes through only strings and bytes and
+  JSON-encodes everything else — mqtt's `client_id` was documented as a random identifier
+  when it is `vinculum-<name>-<hostname>`, and mqtt's `sender` and `receiver` had no
+  attribute table on either side.
+- **`vinculum man` — read the configuration-language reference from the binary.** Renders
+  what `vinculum schema` emits as documentation for a person, so the reference and the
+  parser cannot disagree: it describes exactly what *that* binary parses, including the
+  block types a plugin adds. A topic is a path through the language — `vinculum man client
+  mqtt` for a type, `client mqtt tls` for a sub-block, `subscription action` for one
+  attribute together with the shape of the `ctx` it sees, `sys` for a namespace, `send` for
+  a function — and an ambiguous or misspelled one is answered with the commands that
+  resolve it rather than an error. Output to a terminal is styled, wrapped, and paged;
+  anywhere else it is Markdown, so `vinculum man client mqtt > mqtt.md` and `| glow` both
+  work as they stand.
 
-  **It describes the `.vinit` bootstrap format too.** `git` and `plugin` are top-level
-  block types like any other, but they live in a different file with its own closed
-  schema — so they had been outside the document, and outside the invariant that guards
-  it: `vinculum man git` answered "no topic named git", `help()` could not reach them,
-  and nothing would have noticed one of the 19 attributes being renamed, among them
-  `private_key`, `known_hosts`, and `insecure_ignore_host_key`. They are now generated
-  from their decode structs like everything else, with every attribute documented, the
-  revision and credential conflicts the parser enforces stated as constraints, and the
-  defaults the code applies (`depth = 1`, `from = "."`) written down. Each block carries
-  a `file` of `vcl` or `vinit`, always emitted: a consumer that read `blocks` as "what a
-  `.vcl` may contain" should filter on it. `vinculum man` says which file a block belongs
-  in — on the block, its sub-blocks, and its attributes alike, since `man git auth
-  private_key` is exactly where someone is about to write an expression — and lists the
-  bootstrap blocks under their own index heading. Both facts a reader needs come off the
-  file kind rather than the prose, including that a `.vinit` expression sees `env.<NAME>`
-  and the standard library and nothing else: there is no `ctx` there.
-
-  **`--file-kind vcl|vinit` narrows the document to one language**, for a consumer that
-  reads only one kind of file. It filters more than `blocks`: the output carries the
-  blocks of that kind, the `ctx` shapes those blocks name, and the namespaces an
-  expression in such a file may start from — so `--file-kind vinit` is `git` and
-  `plugin`, no `contexts` at all, and `env` as the only namespace, read from the eval
-  context `.vinit` is actually evaluated against rather than from a list that could
-  drift. Validation is unaffected: `--strict --require-docs` always checks the whole
-  language, and the filter applies to what is emitted afterwards.
-- **A sub-block of a plain block is spelled as one.** `vinculum man` wrote the parent
-  of a nested topic as though the block were typed, so `fsm`'s `state` sub-block read
-  `fsm "state"` — a type label that does not exist — in every breadcrumb and in the
-  "Evaluated by" list of the `ctx` shapes those hooks use. A typed block still reads
-  `client "mqtt"` › `tls`; a plain one now reads `fsm` › `state`, which is also how the
-  topic is typed on the command line.
-- **`try()` and `can()` work in a `.vinit` file.** The bootstrap context was assembled
-  from the cty standard library alone, and `try`/`can` are functy builtins, so they were
-  missing from the one place they are needed most: `env` is the only namespace a `.vinit`
-  has, and a variable that is not set is not an attribute of it — so
-  `disabled = env.SKIP_THIS == "true"` aborts startup rather than evaluating to false
-  when `SKIP_THIS` is unset. `try(env.SKIP_THIS, "") == "true"` is what that should have
-  been, and now is. The rest of functy's host-agnostic builtins (`cond`, `switch`,
-  `typeof`, `error`, `assert`) come with them; all are pure, which is what makes them
-  safe to evaluate before anything else exists. The examples in
-  [`doc/vinit.md`](doc/vinit.md) and [`doc/plugins.md`](doc/plugins.md) were showing the
-  form that fails, and now show the one that works.
-
-  **`--format markdown` writes the reference into `doc/`.** The same document,
-  rendered as prose instead of JSON: to stdout for a single-page reference, or —
-  with `--update` — into the *marked regions* of the hand-written pages. `doc/` is
-  not generated and should not become generated; it carries worked examples, syntax,
-  and the reasoning behind a design, none of which the schema knows. So a page marks
-  only the parts that are mechanically derivable and keeps the rest:
-
-  ```md
-  <!-- vinculum:begin block-attrs client mqtt -->
-  … rewritten by `vinculum schema --format markdown --update doc/` …
-  <!-- vinculum:end block-attrs client mqtt -->
-  ```
-
-  The author picks the granularity per section, because it is genuinely mixed:
-  `block-index` for a list of types linking out to their pages, `block-body` for a
-  type in full, or `block-synopsis` / `block-attrs` / `block-ctx` / `context` for one
-  part of it under a hand-written heading, with `level=` placing its headings under
-  whichever one precedes it. `--check` reports any region that is out of date and is
-  what CI runs, so the loop closes in both directions: an undocumented attribute fails
-  `--strict --require-docs`, and a documented attribute whose prose was never
-  regenerated fails `--check`. `DocPage` names each type's hand-written page and is
-  validated to name a file that exists — and, for a `#fragment`, a real heading in it —
-  so the generated index links cannot rot into dead ones. 156 regions across 25 pages
-  are generated today. Adopting them is what turned up the drift: the shared
-  `wire_format` prose had been wrong for all nine clients that share it — it said
-  payloads pass through unchanged when the attribute is omitted, where the default
-  `auto` passes through only strings and bytes and JSON-encodes everything else —
-  mqtt's `client_id` was documented as a random identifier when it is
-  `vinculum-<name>-<hostname>`, and mqtt's `sender` and `receiver` had no attribute
-  table on either side.
-- **`vinculum man` — read the configuration-language reference from the binary.**
-  Renders the document `vinculum schema` emits as documentation for a person, so the
-  reference and the parser cannot disagree: it describes exactly what *that* binary
-  parses, including the block types a plugin adds when `--config` and `--plugin-path`
-  are given. A topic is a path through the language — `vinculum man client mqtt` for a
-  type, `client mqtt tls` for one of its sub-blocks, `subscription action` for one
-  attribute together with the shape of the `ctx` it sees, `message` for that shape on
-  its own, and `send` for a function. A type label resolves alone where it is
-  unambiguous, so `vinculum man mqtt` is the same page; where it is not — `http` and
-  `vws` are each both a client type and a server type — the ambiguity is answered with
-  the exact commands that resolve it rather than with an error, and a name that matches
-  nothing gets near-miss suggestions. Output to a terminal is styled, wrapped, and
-  paged; output anywhere else is Markdown, so `vinculum man client mqtt > mqtt.md` and
-  `| glow` both work as they stand. `vinculum man <Tab>` completes topics, offering at
-  each position exactly what would resolve there. Flags: `--type`, `--format`,
-  `--color`, `--width`, `--no-pager`. The same reference is reachable from the two
-  other places you might be standing: `:man` in the REPL, and `help("client", "mqtt")`
-  from inside any expression, which now answers questions about the block language and
-  not only about functions. See [`doc/man.md`](doc/man.md).
-
-  **`--apropos` (`-k`) searches it.** A path is the way in when you know where
-  something lives; when you have a *word* instead — an attribute name from someone
-  else's config, a term out of an error message — `vinculum man -k keep_alive` lists
-  every topic whose name or summary matches, each with the command that reads it.
-  It searches block types, variants, sub-blocks, attributes, `ctx` shapes and their
-  fields, namespaces and their members, and the function library, so it does not
-  matter which of those the answer turns out to live in. Matching is case-insensitive substring and every keyword must
-  match, so a second word narrows (`-k baggage keys`). This is what makes a bare
-  attribute name findable at all: `action` appears in dozens of blocks, so it is
-  deliberately not resolvable as a path, and search is the other half of that bargain.
-  Every command it prints resolves to the page it was printed for. The REPL spells it
-  `:apropos`, and searches that session's own functions — including any that your
-  `.cty` files and plugins declare.
-- **The evaluation namespace is described too, not just the blocks.** `vinculum
-  schema` said what the parser accepts but not what an expression may *name*, so
-  completion died at the `=`: `sys.`, `env.`, `bus.` offered nothing. A top-level
-  `namespaces` map now covers all twelve roots an expression can start from, in two
-  kinds told apart by where the member names come from — which is what decides
-  whether a tool may flag one as unknown. An ambient provider's members (`sys`, `env`,
-  `http_status`) are **reflected from the value the provider returns**, so the prose
-  beside them is checked against it in both directions exactly as a block's attributes
-  are; the roots your own configuration fills in (`bus.<name>`, `var.<name>`, and the
-  rest) name the block that declares them.
-
-  Three things it deliberately does not enumerate, because doing so would describe the
-  machine that built the document rather than the language: `env`, which is the
-  environment of whichever process is running; `sys.signals`, whose contents are
-  whichever signals the host OS defines; and `http_status`'s sixty codes in the
-  guide, which are one fact said sixty times — those carry their literal values
-  (`http_status.NotFound` is `404`) and live in `vinculum man http_status`.
-
-  It arrives everywhere the block schema already had a reader. `vinculum man sys`,
-  `vinculum man sys signals bynumber`, `help("namespace:sys")`, and `-k hostname` all
-  work; `doc/config.md`'s hand-written list of built-in variables is now generated and
-  guarded by CI, which is how four real roots that it never mentioned turned up; and
-  `vinculum check` gained the member checking described below. See
-  [`doc/schema.md`](doc/schema.md#namespaces).
+  **`--apropos` (`-k`) searches it**, for when you have a word rather than a path — an
+  attribute name from someone else's config, a term out of an error message. It searches
+  block types, variants, sub-blocks, attributes, `ctx` shapes and their fields, namespaces
+  and their members, and the function library, printing each hit with the command that
+  reads it. This is what makes a bare attribute name findable at all: `action` appears in
+  dozens of blocks, so it is deliberately not resolvable as a path, and search is the other
+  half of that bargain. The same reference is reachable from the two other places you might
+  be standing: `:man` and `:apropos` in the REPL, which also search that session's own
+  functions, and `help("client", "mqtt")` from inside any expression, which now answers
+  questions about the block language and not only about functions. See
+  [`doc/man.md`](doc/man.md).
 - **`vinculum test` — run a configuration's `.cty` test blocks against the running
   system.** Boots the full server exactly as `vinculum serve` would — buses, servers,
   subscriptions, triggers — runs the functy `test "..." { ... }` blocks embedded in the
   configuration's `.cty` files, then shuts down, exiting non-zero if any test failed.
   Because the tests execute inside a live Vinculum they are integration tests, not just
   unit tests: they can reference `bus.*`/`client.*`/`server.*`, `send()` messages, and
-  assert on the resulting state. A new **`sys.testing`** ambient bool is true only under
-  this command, so a configuration can switch real external I/O off while under test
-  (`disabled = sys.testing`) and gate recording sinks on (`disabled = !sys.testing`).
-  Test bodies get an injected `ctx` so they can call the context-taking runtime
-  functions (`send`, `http`, `log::*`, …). Asynchronous effects are asserted with
-  functy's `eventually(cond, timeout)` / `never(cond, timeout)` polling assertions,
-  which observe live `var` state through the capsule — read it with `get(var.x)`, since
-  a bare `var.x` compares the capsule and never converges. Flags: `--run PATTERN`
-  (regex over test descriptions), `-v`, `--json` (machine-readable report on stdout),
-  `--timeout`, `--fail-if-no-tests`, and `--no-serve` to skip starting the runtime for
-  pure function unit tests. Requires functy v0.12.0. See
-  [`doc/testing.md`](doc/testing.md).
-- **`vinculum fmt` — canonically format config and functy source.** Formats files by
-  extension: `.vcl`/`.vinit` as HCL (2-space, matching `terraform fmt`) and `.cty` as
-  functy source. With no paths (or `-`) it formats stdin to stdout (`--lang` picks the
-  language, default `vcl`); given files or directories (walked recursively for
-  `.vcl`/`.vinit`/`.cty`, skipping dot-directories) it prints the result, rewrites in
-  place with `-w`, or lists files that differ with `-l`. A file that does not parse is
-  reported and left byte-for-byte unchanged — formatting never drops or reorders code.
-  Pass `--plugin-path` so `.cty` files annotated with plugin-registered functy types
-  resolve (only the plugin bootstrap runs — no `git` blocks are materialized). This
-  applies to file/directory mode only, not stdin. See [`doc/overview.md`](doc/overview.md).
-- **Prebuilt binaries and Homebrew install.** Every release now publishes
-  statically-linked `vinculum` binaries for Linux and macOS (amd64 and arm64) as
-  downloadable archives with checksums, plus a Homebrew cask:
-  `brew install tsarna/tap/vinculum`. These are an alternative to the container for
-  local use and development — the container image remains the recommended way to
-  deploy. Like the minimal image, the prebuilt binaries are statically linked and
-  do **not** support Go plugins or the cgo-based SQLite driver (PostgreSQL and
-  MySQL, which are pure-Go, still work).
+  assert on the resulting state, with functy's `eventually` / `never` for asynchronous
+  effects. A new **`sys.testing`** ambient bool is true only under this command, so a
+  configuration can switch real external I/O off while under test (`disabled =
+  sys.testing`) and gate recording sinks on (`disabled = !sys.testing`). Requires functy
+  v0.12.0. See [`doc/testing.md`](doc/testing.md).
+- **`vinculum fmt` — canonically format config and functy source.** Formats by extension:
+  `.vcl`/`.vinit` as HCL (2-space, matching `terraform fmt`) and `.cty` as functy source,
+  reading stdin or walking the files and directories it is given, printing the result,
+  rewriting in place with `-w`, or listing what differs with `-l`. A file that does not
+  parse is reported and left byte-for-byte unchanged — formatting never drops or reorders
+  code. See [`doc/overview.md`](doc/overview.md).
+- **Prebuilt binaries and Homebrew install.** Every release now publishes statically-linked
+  `vinculum` binaries for Linux and macOS (amd64 and arm64) as downloadable archives with
+  checksums, plus a Homebrew cask: `brew install tsarna/tap/vinculum`. These are an
+  alternative to the container for local use and development — the container image remains
+  the recommended way to deploy. Like the minimal image, they do **not** support Go plugins
+  or the cgo-based SQLite driver (PostgreSQL and MySQL, which are pure-Go, still work).
 
 ### Changed
 
-- **A sub-block that must appear at least once now says so.** Cardinality is read
-  from the decode struct, and a slice field cannot tell "any number, including none"
-  apart from "one or more" — so four sub-blocks whose parser demands one were
-  described, and rendered, as optional: `git`'s `fetch`, `subscription` under a kafka
-  or mqtt `receiver`, and `channel_subscription` under a redis_pubsub `subscriber`.
-  Each said so in prose next to a generated line that said otherwise. They now render
-  as `1..n` / "Required; one or more.", from the two booleans the document already
-  carried: `required` to appear, `repeatable` to appear again. The curation rule was
-  relaxed rather than extended — `required` is curatable on a sub-block *only* where
-  the field is a slice, which is exactly where the field type cannot speak for itself.
-- **`vinculum check --format json`.** The text form spends its effort on being read
-  by a person — quoting the offending line, wrapping the prose — which is the wrong
-  shape for an editor extension drawing squiggles, and scraping it is the only
-  alternative on offer. `--format json` writes the same diagnostics to **stdout** as a
-  report: `valid`, a `diagnostics` list with a severity, summary, detail, and 1-based
-  `location` (plus `context`, the enclosing construct, when the diagnostic names one),
-  and a `summary` counting errors and warnings. `valid` is false only for errors, so a
-  warning is reported without failing the check — the reason the counts are separate.
-  The report is emitted whatever the answer, so a consumer parses one shape rather
-  than reading silence as success, and the range shape is the one `test --json`
-  already uses. Exit codes are unchanged: `0` valid, `1` invalid, `2` usage.
-  `vinculum check` also has a section of its own in
+- **`vinculum check --format json`.** The text form spends its effort on being read by a
+  person — quoting the offending line, wrapping the prose — which is the wrong shape for an
+  editor extension drawing squiggles, and scraping it was the only alternative on offer.
+  `--format json` writes the same diagnostics to **stdout** as a report: `valid`, a
+  `diagnostics` list with severity, summary, detail, and 1-based `location`, and a `summary`
+  counting errors and warnings. `valid` is false only for errors, so a warning is reported
+  without failing the check. The report is emitted whatever the answer, so a consumer parses
+  one shape rather than reading silence as success. Exit codes are unchanged: `0` valid,
+  `1` invalid, `2` usage. `vinculum check` also has a section of its own in
   [`doc/overview.md`](doc/overview.md) now, which it never did.
-- **A mistyped block type says what you probably meant.** `server "htp"` reported
-  `Invalid server type: htp` — repeating back the label the author could already see —
-  though the registry it just failed to find it in is the list of answers. Every typed
-  block now offers the nearest name: `There is no server type "htp". Did you mean
-  "http"?`, and likewise for `client`, `trigger`, `condition`, `metric`, `wire_format`,
-  and `editor`. With nothing close enough to be a correction it names the types that
-  are available instead, up to twelve of them, and points at `vinculum man client` past
-  that — eighteen client types read as a wall rather than a list. The measure is
-  `internal/suggest`, the same one behind `vinculum man`'s near misses and the
-  unknown-function check, so the whole tool agrees about what counts as a near miss.
-
-  A **conditional** type is told apart from a wrong one. `trigger "file"` in a process
-  started without `--file-path` reported `Invalid trigger type: "file"`, sending the
-  author to look for a typo that was not there; it now says the type exists but is not
-  available in this configuration, and points at the page that says what it needs —
-  which now says it, on both `vinculum man trigger file` and
-  [`doc/trigger.md`](doc/trigger.md).
-
-  Mistyped *attributes* already suggested, and still do: that comes from hcl's own
-  `Content()`, which is also what makes a nested block type suggest.
-- **`vinculum check` catches a bad reference in an expression that has not run yet.**
-  An `action`, an `on_connect`, a computed metric's `value` are stored at load and
-  evaluated when something happens, so a name that resolves to nothing used to pass
-  `check` cleanly and then fail at the first event — and at every event after it,
-  identically, forever, with nothing escalating. Those expressions are now resolved
-  against the namespace they will actually see, once every block has been processed,
-  and an unresolvable reference is an error with a source range like any other.
-
-  It catches four things: a leading name that is in no namespace at all; a `ctx`
-  field the expression's context does not provide (the shape differs per attribute,
-  so `on_connect` does not see the `ctx.msg` an `action` on the same block does);
-  a name read out of something that has names in it — a namespace whose members come
-  from blocks, so `bus.mian` when the bus is called `main`; a member of `sys` or
-  `http_status`, so `sys.hostnam` and `sys.functy.versionx`; or an object-valued
-  `const`, so `routing.gamma` when the const holds `alpha` and `beta`; and a call to
-  a function that does not exist, so `log::inf("hi")` — which a `const` has always
-  reported and an `action` never did. Each message names what *is* available, or
-  points at the `vinculum man` page that lists it when there are too many names to
-  print. An unknown function is reported in hcl's own words, so the load-time report
-  and the one the first event would have produced are the same sentence — with a
-  better suggestion for a namespaced name, since hcl's runtime one compares the bare
-  name against qualified candidates and so rarely offers anything.
-
-  There is no second model of the language behind this. Which attributes are
-  event-time, and what `ctx` each one gets, is read from the same schema
-  `vinculum schema` emits and CI already checks for drift; the namespace is read from
-  the finished evaluation context rather than described anywhere. `try()` and `can()`
-  arguments are exempt — referring to something that may be absent is what they are
-  for — as is anything whose names the language does not choose: all of `env`, since
-  it is the environment of whichever process is running, and `sys.signals`, since
-  which signals exist is the host OS's business. Functions a feature flag provides
-  are exempt for the same reason — `file()` needs `--file-path` and `kill()` needs
-  `--allow-kill`, so whether they exist is a property of how the process was launched
-  rather than of the config in front of it. Disabled blocks are skipped entirely.
-  See "Reference Checking" in `doc/config.md`.
+- **A mistyped block type says what you probably meant.** `server "htp"` reported `Invalid
+  server type: htp` — repeating back the label the author could already see — though the
+  registry it just failed to find it in is the list of answers. Every typed block now
+  offers the nearest name: `There is no server type "htp". Did you mean "http"?`, and
+  likewise for `client`, `trigger`, `condition`, `metric`, `wire_format`, and `editor`.
+  With nothing close enough to be a correction it names the types that are available
+  instead, up to twelve of them, and points at `vinculum man client` past that — eighteen
+  client types read as a wall rather than a list. A **conditional** type is told apart from
+  a wrong one: `trigger "file"` in a process started without `--file-path` reported
+  `Invalid trigger type: "file"`, sending the author to look for a typo that was not there,
+  and now says the type exists but is not available in this configuration and points at the
+  page that says what it needs — which now says it.
+- **`vinculum check` catches a bad reference in an expression that has not run yet.** An
+  `action`, an `on_connect`, a computed metric's `value` are stored at load and evaluated
+  when something happens, so a name that resolves to nothing used to pass `check` cleanly
+  and then fail at the first event — and at every event after it, identically, forever,
+  with nothing escalating. Those expressions are now resolved against the namespace they
+  will actually see, once every block has been processed, and an unresolvable reference is
+  an error with a source range like any other: a leading name that is in no namespace at
+  all, a `ctx` field this attribute's context does not provide, a name read out of
+  something that has names in it (`bus.mian` when the bus is called `main`, `sys.hostnam`),
+  or a call to a function that does not exist. Each message names what *is* available, or
+  points at the `vinculum man` page that lists it. `try()`/`can()` arguments are exempt, as
+  is anything whose names the language does not choose — `env`, `sys.signals`, and the
+  functions a feature flag provides. See "Reference Checking" in
+  [`doc/config.md`](doc/config.md).
 - **`condition` blocks accept `disabled`.** Every other block that creates a runtime
-  component already did; a condition rejected it outright. A disabled condition
-  registers nothing, so `condition.<name>` is undefined and any expression referring to
-  it fails to resolve — the same as a disabled `fsm`.
+  component already did; a condition rejected it outright. A disabled condition registers
+  nothing, so `condition.<name>` is undefined and any expression referring to it fails to
+  resolve — the same as a disabled `fsm`.
 - **Config that was silently ignored is now rejected.** Four cases, all of which used to
   report "Configuration is valid" while doing something other than what they said:
-  - A `condition "flipflop"` edge attribute without its wire — `set_edge` with no
-    `set_on` — was parsed and dropped, so a typo, or a wire deleted without its edge,
-    looked configured. It is now an error.
-  - A `var` block ignored any attribute other than `type`, `nullable`, and `value`, so
-    a misspelled attribute parsed cleanly and had no effect. Unknown attributes are now
-    rejected like everywhere else.
+  - A `condition "flipflop"` edge attribute without its wire — `set_edge` with no `set_on`
+    — was parsed and dropped, so a typo, or a wire deleted without its edge, looked
+    configured.
+  - A `var` block ignored any attribute other than `type`, `nullable`, and `value`, so a
+    misspelled attribute parsed cleanly and had no effect.
   - A `bus` block accepted *anything*: it carried a catch-all body that nothing read, so
     `bus "main" { queue_sizee = 500 }` validated cleanly and the bus quietly took its
-    default queue size. It now produces the same "Unsupported argument. Did you mean
-    queue_size?" every other block already did.
+    default queue size.
   - A `reconnect` block that cannot back off — `backoff_factor` below 1, or an
-    `initial_delay` of zero — is now an error. Both describe a retry schedule whose wait
-    *shrinks* toward zero rather than growing, which at runtime is a client reconnecting
-    continuously against a service that is already down, and neither says anything on
-    the way there. `backoff_factor = 1` remains the way to ask for a constant delay.
+    `initial_delay` of zero — describes a retry schedule whose wait *shrinks* toward zero
+    rather than growing, which at runtime is a client reconnecting continuously against a
+    service that is already down. `backoff_factor = 1` remains the way to ask for a
+    constant delay.
 - **A `reconnect` block means the same schedule wherever it appears.** With `max_delay`
-  omitted it capped backoff at 30s on `client "vws"` and 60s on the protocol clients —
-  the same block, two schedules, for no reason a reader of it could have predicted and
-  with nothing anywhere saying so. Both paths now resolve through one place and settle
-  on **60s**, which is what two of the three clients already did and what
-  vinculum-rabbitmq's own default backoff uses. A `client "vws"` that writes a
-  `reconnect` block and omits `max_delay` will back off further apart than before; one
-  that sets `max_delay`, or omits the block entirely, is unaffected.
+  omitted it capped backoff at 30s on `client "vws"` and 60s on the protocol clients — the
+  same block, two schedules, for no reason a reader of it could have predicted. Both paths
+  now resolve through one place and settle on **60s**, which is what two of the three
+  clients already did. A `client "vws"` that writes a `reconnect` block and omits
+  `max_delay` will back off further apart than before; one that sets `max_delay`, or omits
+  the block entirely, is unaffected.
 
 ### Fixed
 
 - **An action that fails at event time says which line failed.** A functy throw was
-  rendered against its `.cty` source — the failing line and the operand that tripped
-  an assert — while a VCL expression got one line of diagnostic text and a `file:4,12-19`
+  rendered against its `.cty` source — the failing line and the operand that tripped an
+  assert — while a VCL expression got one line of diagnostic text and a `file:4,12-19`
   range for the reader to go and look up. The sources are now retained on the built
   `Config`, so every runtime evaluation failure is reported the way `check` reports a
   load-time one:
@@ -326,206 +169,162 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Call to function "length" failed: collection must be a list, a map or a tuple.
   ```
 
-  This covers every site that logs through `ActionError` — triggers, subscriptions,
-  HTTP and MCP handlers, client lifecycle hooks, decode-error hooks, signal actions —
-  and where hcl can say what the expression's variables held at the point of failure
-  (`with ctx.msg as "hello"`), it does. A failure whose range points at something
-  synthesized rather than read from a file still gets the one-line form, since there
-  is nothing to quote. `vinculum test` renders its failures against the same map, so a
-  test that fails inside a `.vcl` expression is no longer reported against nothing.
+  This covers every site that logs through `ActionError` — triggers, subscriptions, HTTP
+  and MCP handlers, client lifecycle hooks, decode-error hooks, signal actions — and where
+  hcl can say what the expression's variables held at the point of failure (`with ctx.msg
+  as "hello"`), it does. A failure whose range points at something synthesized rather than
+  read from a file still gets the one-line form, since there is nothing to quote.
 
-  A subscription failure is now logged **once**, not twice. The bus logged every
-  delivery error itself, so the rendered report arrived alongside the one-line version
-  it was meant to replace; a subscriber that has already reported a failure now says so
-  when it returns it (`bus.ReportedError`, new in vinculum-bus v0.16.0) and the bus
-  skips only its own log line. The error is unchanged in every other respect — still
-  returned, still on the delivery span, still counted — so dead-lettering and ack
-  decisions behave exactly as before. Failures Vinculum *cannot* render are left
-  unmarked, and the bus reports those as it always has.
-- **`check`, `serve`, and `test` report every configuration error, each quoting its
-  own source line.** All three handed their diagnostics back as an `error` for `main`
-  to render with `%v`, and `hcl.Diagnostics.Error()` is *the first diagnostic plus a
-  count* — so a file with three errors printed one of them, no quoted line, and "and 2
-  other diagnostic(s)". They now render the full set through the same diagnostic writer
-  `fmt`, `test`, and `schema` already used for their own output:
-
-  ```text
-  Error: Unsupported block type
-
-    on config.vcl line 1, in serverr "http" "web":
-     1: serverr "http" "web" {
-
-  Blocks of type "serverr" are not expected here. Did you mean "server"?
-  ```
-
-  The source of every file each pass parses — `.vinit`, `.vcl`, and `.cty` — is
-  retained for the purpose, so a bootstrap error and a functy parse error read the same
-  way as a VCL one; a `.vinit` diagnostic had no source context at all before. Warnings
-  are rendered the same way, and still do not fail the run. A config path that does not
-  exist is now one of those diagnostics rather than a nil-pointer panic.
+  A subscription failure is now logged **once**, not twice. The bus logged every delivery
+  error itself, so the rendered report arrived alongside the one-line version it was meant
+  to replace; a subscriber that has already reported a failure now says so when it returns
+  it (`bus.ReportedError`, new in vinculum-bus v0.16.0) and the bus skips only its own log
+  line. The error is unchanged in every other respect — still returned, still on the
+  delivery span, still counted — so dead-lettering and ack decisions behave exactly as
+  before.
+- **`check`, `serve`, and `test` report every configuration error, each quoting its own
+  source line.** All three handed their diagnostics back as an `error` for `main` to render
+  with `%v`, and `hcl.Diagnostics.Error()` is *the first diagnostic plus a count* — so a
+  file with three errors printed one of them, no quoted line, and "and 2 other
+  diagnostic(s)". They now render the full set through the same diagnostic writer `fmt`,
+  `test`, and `schema` already used. The source of every file each pass parses — `.vinit`,
+  `.vcl`, and `.cty` — is retained for the purpose, so a bootstrap error and a functy parse
+  error read the same way as a VCL one; a `.vinit` diagnostic had no source context at all
+  before. Warnings are rendered the same way, and still do not fail the run. A config path
+  that does not exist is now one of those diagnostics rather than a nil-pointer panic.
 - **A mistyped top-level block or a stray top-level attribute is now an error.** The
   configuration's top-level schema was consumed with `PartialContent` and the remainder
   thrown away, so anything that did not match a known block header simply vanished:
   `serverr "http" "web" { listen = ":8080" }` and a bare `whatever = 42` both reported
-  "Configuration is valid", and the mistyped block was a config that did nothing,
-  forever, with no signal. The remainder is now consumed and reported, with the same
-  "Did you mean" suggestion a *nested* typo already got — which is also what `.vinit`
-  has always done with an unknown block type. The blocks extracted before the general
-  block pass (`function`, `jq`, `editor`, `procedure`) are unaffected: their own
-  extraction hides them from the closed schema.
-- **A computed metric whose `value` keeps failing says so once, not every interval.**
-  Each failed poll logged at Error level, so one broken expression restated one fact
-  every `computed_interval` for as long as the process ran, burying whatever else the
-  log had to say — including a *different* failure. The first failure is still loud;
-  identical repeats drop to Debug and carry a `repeats` count, a failure that changes
-  is loud again, and a poll that succeeds after failures logs a recovery with how many
-  it took. Only the log line is dampened: the poll's span is still marked and the
-  duration histogram still records it, so nothing a monitor watches goes quiet.
+  "Configuration is valid", and the mistyped block was a config that did nothing, forever,
+  with no signal. The remainder is now consumed and reported, with the same "Did you mean"
+  suggestion a *nested* typo already got. The blocks extracted before the general block
+  pass (`function`, `jq`, `editor`, `procedure`) are unaffected: their own extraction hides
+  them from the closed schema.
+- **`try()` and `can()` work in a `.vinit` file.** The bootstrap context was assembled from
+  the cty standard library alone, and `try`/`can` are functy builtins, so they were missing
+  from the one place they are needed most: `env` is the only namespace a `.vinit` has, and
+  a variable that is not set is not an attribute of it — so `disabled = env.SKIP_THIS ==
+  "true"` aborted startup rather than evaluating to false when `SKIP_THIS` is unset.
+  `try(env.SKIP_THIS, "") == "true"` is what that should have been, and now is. The rest of
+  functy's host-agnostic builtins (`cond`, `switch`, `typeof`, `error`, `assert`) come with
+  them; all are pure, which is what makes them safe to evaluate before anything else
+  exists. The examples in [`doc/vinit.md`](doc/vinit.md) and
+  [`doc/plugins.md`](doc/plugins.md) were showing the form that fails.
+- **A computed `metric`'s `value` is evaluated with a `ctx`, and a failing one stops
+  shouting.** It used to be evaluated against the bare global namespace, so no function
+  taking a context could be called from it — no `http::get()` to poll an upstream, no
+  `sql::query()`, not even `log::warn()` when something went wrong — leaving a computed
+  metric able only to project state already in memory, which is not what "polled" suggests.
+  Each poll now runs in a `metric.poll <name>` span, so an HTTP call inside the expression
+  is traced beneath it rather than emitting an orphan; the block accepts `tracing` to
+  select the backend, and `ctx.metric` names the metric being polled.
+
+  The old failure was quiet in the worst way: nothing evaluates `value` at config time, so
+  `vinculum check` reported a configuration valid and it then failed at *every* poll,
+  forever, with `There is no variable named "ctx"` — logged at Error level with a Go
+  stacktrace into the polling plumbing, restating one fact every `computed_interval` and
+  burying whatever else the log had to say, including a *different* failure. Those errors
+  are the user's expression failing and now go to `UserLogger`; the first is still loud,
+  identical repeats drop to Debug with a `repeats` count, a failure that changes is loud
+  again, and a poll that succeeds after failures logs a recovery. Only the log line is
+  dampened — the span is still marked and the duration histogram still records it.
+- **An `editor` expression can read `ctx.auth`, `ctx.baggage`, `ctx.trace_id`, and
+  `ctx.span_id`.** Every other evaluation site builds its `ctx` through the one helper that
+  supplies those four; the editor blocks assembled their context object themselves and so
+  carried none of them. An editor called from an HTTP handler sat inside a live trace it
+  had no way to read — `ctx.trace_id` was an "unsupported attribute" error — and could not
+  see who was asking. The Go context was threaded through correctly the whole time; only
+  the projection into VCL was missing.
+- **An `on_decode_error` hook on an mqtt or kafka receiver can read the transport's
+  topic.** Both clients offered it under the key `topic`, which collides with the hook's own
+  `ctx.topic`; the collision is resolved in favour of the fixed field, so the key was
+  dropped and `ctx` never carried it. They are now `ctx.mqtt_topic` and `ctx.kafka_topic`
+  (requiring `vinculum-mqtt` v0.10.0 and `vinculum-kafka` v0.12.0), matching how every
+  other receiver names its transport identifier — `routing_key`, `stream`, `channel`. The
+  reserved set now has one definition, `wire.IsReservedAttr` in `vinculum-wire` v0.5.0,
+  shared with the receivers that choose these keys, and a key that still collides is logged
+  rather than dropped in silence. Both [`doc/client-mqtt.md`](doc/client-mqtt.md) and
+  [`doc/client-kafka.md`](doc/client-kafka.md) had listed `ctx.topic` twice, the second row
+  describing a field that never existed at runtime.
 - **`client "redis_pubsub"` no longer hangs at startup on a short channel name.**
   Subscribing to a channel of six characters or fewer (or a pattern of four or fewer)
   blocked forever inside `Start()`, so the whole runtime failed to come up on a
-  configuration that parsed and validated cleanly, with no error and no timeout.
-
-  The cause was `github.com/redis/go-redis/v9` v9.21.0, which changed
-  `PeekPushNotificationName` from a peek clamped to what was already buffered into an
-  unconditional `bufio` `Peek(36)`. A subscribe confirmation is 29 bytes plus the
-  channel name, so a short one has no 36th byte to read; nothing more arrives until
-  someone publishes, and the read carries no deadline. Fixed upstream in v9.22.0
-  ([redis/go-redis#3935](https://github.com/redis/go-redis/issues/3935)), which
-  Vinculum now requires. A regression test subscribes to a single short channel, so
-  the defect would have failed CI rather than shipping. (The existing subscriber test
-  missed it: it declares an exact channel *and* a pattern, which pipelines two
-  confirmations into the buffer and clears 36 bytes between them.)
+  configuration that parsed and validated cleanly, with no error and no timeout. The cause
+  was `github.com/redis/go-redis/v9` v9.21.0, which changed `PeekPushNotificationName` from
+  a peek clamped to what was already buffered into an unconditional `bufio` `Peek(36)`. A
+  subscribe confirmation is 29 bytes plus the channel name, so a short one has no 36th byte
+  to read; nothing more arrives until someone publishes, and the read carries no deadline.
+  Fixed upstream in v9.22.0
+  ([redis/go-redis#3935](https://github.com/redis/go-redis/issues/3935)), which Vinculum
+  now requires, with a regression test that subscribes to a single short channel.
 - **`client "mqtt"` and `client "rabbitmq"` no longer stop backing off after a long
-  outage.** Given a `reconnect` block, the wait before attempt *n* is
-  `initial_delay × backoff_factor^n`, clamped to `max_delay` — but the clamp was applied
-  *after* converting that product to a duration, and on the default schedule the product
-  passes the largest representable duration at attempt 34. Since every attempt past the
-  sixth is one clamped minute, that is around half an hour into an outage. Go leaves an
-  out-of-range float-to-integer conversion implementation-defined, and on **amd64** —
-  what the published Linux images run — it yields the most *negative* duration there is.
-  A negative wait is no wait: the client stopped backing off altogether and reconnected
-  as fast as the loop would turn, against a broker that was already down.
-
-  Present since v0.19.0, and invisible on arm64, where the same conversion saturates the
-  other way and the clamp happens to hold. `client "vws"` was never affected — it backs
-  off through the bus reconnector, which multiplies and clamps once per attempt and so
-  never leaves the range. The clamp now happens before the conversion, and a regression
-  test pins the ceiling past a million attempts as well as at the boundary.
-- **`max_retries` in a `reconnect` block is honoured on the mqtt and rabbitmq clients.**
-  It has been decoded and validated since it was introduced, and read by exactly one of
-  the three client types that accept the block. On the other two it parsed cleanly and
-  did nothing: a configuration asking to give up after three attempts got a client that
-  retried forever, with no diagnostic to say otherwise. Giving up is a property of a
-  retry loop and neither loop lives in this repository, so the fix was upstream first —
-  vinculum-mqtt v0.11.0 and vinculum-rabbitmq v0.4.0 each gained the capability, with
-  semantics copied from the bus reconnector rather than invented. All three clients now
+  outage.** Given a `reconnect` block, the wait before attempt *n* is `initial_delay ×
+  backoff_factor^n`, clamped to `max_delay` — but the clamp was applied *after* converting
+  that product to a duration, and on the default schedule the product passes the largest
+  representable duration at attempt 34, around half an hour into an outage. Go leaves an
+  out-of-range float-to-integer conversion implementation-defined, and on **amd64** — what
+  the published Linux images run — it yields the most *negative* duration there is. A
+  negative wait is no wait: the client stopped backing off altogether and reconnected as
+  fast as the loop would turn, against a broker that was already down. Present since
+  v0.19.0, and invisible on arm64, where the same conversion saturates the other way and
+  the clamp happens to hold. `client "vws"` was never affected — it backs off through the
+  bus reconnector, which multiplies and clamps once per attempt.
+- **`max_retries` in a `reconnect` block is honoured on the mqtt and rabbitmq clients.** It
+  has been decoded and validated since it was introduced, and read by exactly one of the
+  three client types that accept the block. On the other two it parsed cleanly and did
+  nothing: a configuration asking to give up after three attempts got a client that retried
+  forever, with no diagnostic to say otherwise. Giving up is a property of a retry loop and
+  neither loop lives in this repository, so the fix was upstream first — vinculum-mqtt
+  v0.11.0 and vinculum-rabbitmq v0.4.0 each gained the capability. All three clients now
   behave identically: zero or negative retries forever, the limit bounds *reconnection*
   only and never the initial connection, and giving up is quiet and final.
 
   **Check any config that sets `max_retries = 0` expecting it to disable retrying.**
-  `doc/server-vws.md` documented that spelling as "no retries", which was never true on
-  any path — zero has always meant unlimited — so a configuration written against that
-  sentence got the opposite of what it asked for. The documentation now says what the
-  number does.
-- **`server "websocket"` honours `ping_interval` and `write_timeout`.** Both were
-  parsed, described in the schema, and then discarded — the code that applied them sat
-  commented out behind a TODO and the connection builder had no way to receive them —
-  so writing either attribute did nothing at all. They now default to 30s and 10s
-  respectively, and either can be disabled with `0`. `write_timeout` also bounds
-  ordinary writes, so a client that stops reading can no longer pin the connection's
-  writer while its queue fills with messages that will never be delivered. A ping that
-  goes unanswered closes the connection immediately rather than opening a close
-  handshake, since a peer that did not answer a ping is precisely the peer that will
-  never send a close frame back. Pings ride the outbound queue's existing ticker rather
-  than a goroutine of their own, matching `server "vws"` — two goroutines may not write
-  to one WebSocket concurrently.
-- **An MCP tool `param`'s `default` and `enum` do something.** Both are decoded from
-  HCL, and both were then dropped on the floor: the default was never assigned or read
-  anywhere, and the branch that would have published an enum could not fire because the
-  field was always empty. Writing either attribute was silently inert. Both are now
-  evaluated at config time and checked against the param's declared type — so
-  `type = "number"` with `default = "ten"` is a configuration error rather than a
-  published input schema that contradicts itself — and both reach the model through the
-  tool's JSON Schema. A default is also substituted server-side when the argument is
-  absent, since a client is free to ignore the default it was shown.
-
-  A `prompt`'s params differ, because the protocol does: an MCP prompt argument carries
-  only a name, a description, and whether it is required, so `type` and `enum` constrain
-  nothing at runtime there and every argument arrives as a string — a default is
-  stringified to match rather than being the one differently-typed argument an action
-  sees. Two schema descriptions were corrected alongside: a resource or tool action does
-  not JSON-encode a non-string result, it fails with "unsupported type" (`jsonencode()`
-  is the caller's job, as the examples already did), and `server_version` defaults to
-  `0.0.0`.
-- **Documentation corrections found by building the schema.** `trigger "start"`
-  runs after every startable component is ready, not "during the configuration build
-  phase before any server or client starts", and an error in it is logged rather than
-  aborting startup. `trigger "signals"` has no `ctx.trigger`. A subscription action's
-  `ctx.fields` is always present, empty rather than absent when a message carries no
-  metadata. (Writing down that a computed `metric`'s `value` had no `ctx` at all is
-  what made it obvious that it should — see above.)
-- **A computed `metric`'s `value` is evaluated with a `ctx`.** It used to be
-  evaluated against the bare global namespace, so no function taking a context could
-  be called from it — no `http::get()` to poll an upstream, no `sql::query()`, not
-  even `log::warn()` when something went wrong. A computed metric could only be a
-  projection of state already in memory, which is not what "polled" suggests. Each
-  poll now runs in a `metric.poll <name>` span, so an HTTP call inside the expression
-  is traced beneath it rather than emitting an orphan, and the block accepts
-  `tracing` to select the backend. `ctx.metric` names the metric being polled.
-
-  The old failure was quiet: nothing evaluates `value` at config time, so
-  `vinculum check` reported a configuration valid and it then failed at *every*
-  poll, forever, with `There is no variable named "ctx"`. Those errors also went to
-  the operational logger, printing a Go stacktrace into the polling plumbing; they
-  are the user's expression failing and now go to `UserLogger` like every other
-  expression error.
-- **An `editor` expression can read `ctx.auth`, `ctx.baggage`, `ctx.trace_id`, and
-  `ctx.span_id`.** Every other evaluation site builds its `ctx` through the one
-  helper that supplies those four; the editor blocks assembled their context object
-  themselves and so carried none of them. An editor called from an HTTP handler sat
-  inside a live trace it had no way to read — `ctx.trace_id` was an "unsupported
-  attribute" error — and could not see who was asking. The Go context was threaded
-  through correctly the whole time; only the projection into VCL was missing.
-  A test now fails the build if anything but that helper assembles a context object,
-  and the schema no longer has a way to describe a shape without the four.
-- **`vinculum schema` describes the fields a receiver adds to `on_decode_error`.**
-  The `decode-error` shape is the one whose field list is not closed: five fields
-  describe the failure the same way everywhere, and then the receiver adds the
-  identity of its transport. The shape now says so with `"openFields": true`, and
-  each site lists its own additions under the attribute's `contextFields` — so a
-  consumer completing inside an `on_decode_error` offers `ctx.routing_key` on
-  rabbitmq and `ctx.mqtt_topic` on mqtt, and neither on the other. A site may not
-  declare a field the shape already has: the runtime resolves that collision by
-  dropping the site's value, so documenting it would describe something that never
-  appears — which both of the fixes below had been doing.
-- **An `on_decode_error` hook on an mqtt or kafka receiver can read the transport's
-  topic.** Both clients offered it under the key `topic`, which collides with the
-  hook's own `ctx.topic`; the collision is resolved in favour of the fixed field, so
-  the key was dropped and `ctx` never carried it. They are now `ctx.mqtt_topic` and
-  `ctx.kafka_topic` (requiring `vinculum-mqtt` v0.10.0 and `vinculum-kafka` v0.12.0),
-  matching how every other receiver names its transport identifier — `routing_key`,
-  `stream`, `channel`. The reserved set now has one definition, `wire.IsReservedAttr`
-  in `vinculum-wire` v0.5.0, shared with the receivers that choose these keys, so a
-  receiver author reads the constraint before picking one. A key that still collides
-  is logged rather than dropped in silence. Both
-  [`doc/client-mqtt.md`](doc/client-mqtt.md) and
-  [`doc/client-kafka.md`](doc/client-kafka.md) had listed `ctx.topic` twice, the
-  second row describing a field that never existed at runtime.
-- **Nested block labels are named in HCL diagnostics.** A missing label on a nested
-  block reported `Missing  for match; All match blocks must have 1 labels ().` — the
-  label name was blank because nearly every nested block's decode struct left it unset.
-  Affected `sender`/`receiver` sub-blocks across mqtt, kafka, rabbitmq, and redis, plus
-  `query`, `auth`, `match`, `fetch`, and the MCP `resource`/`tool`/`prompt` blocks.
-- **`client "vws"` accepts a `reconnect` block.** It was tagged as an attribute, so the
-  form shown in [`doc/server-vws.md`](doc/server-vws.md) — and used by the mqtt and
-  rabbitmq clients — did not parse at all.
-- **An explicitly named `.cty` or `.vinit` file is no longer parsed as VCL.** The
-  `.vcl` pass parsed any file given by path regardless of extension, so naming a
-  functy or bootstrap file directly (e.g. `vinculum test config.vcl tests.cty`)
-  failed with HCL syntax errors. Those extensions have their own passes and are now
-  skipped by the VCL pass; a directory argument was already filtered by extension
-  and is unaffected.
+  `doc/server-vws.md` documented that spelling as "no retries", which was never true on any
+  path — zero has always meant unlimited — so a configuration written against that sentence
+  got the opposite of what it asked for.
+- **`server "websocket"` honours `ping_interval` and `write_timeout`.** Both were parsed,
+  described in the schema, and then discarded — the code that applied them sat commented
+  out behind a TODO — so writing either attribute did nothing at all. They now default to
+  30s and 10s respectively, and either can be disabled with `0`. `write_timeout` also
+  bounds ordinary writes, so a client that stops reading can no longer pin the connection's
+  writer while its queue fills with messages that will never be delivered. A ping that goes
+  unanswered closes the connection immediately rather than opening a close handshake, since
+  a peer that did not answer a ping is precisely the peer that will never send a close
+  frame back.
+- **An MCP tool `param`'s `default` and `enum` do something.** Both are decoded from HCL,
+  and both were then dropped on the floor: the default was never assigned or read anywhere,
+  and the branch that would have published an enum could not fire because the field was
+  always empty. Writing either attribute was silently inert. Both are now evaluated at
+  config time and checked against the param's declared type — so `type = "number"` with
+  `default = "ten"` is a configuration error rather than a published input schema that
+  contradicts itself — and both reach the model through the tool's JSON Schema. A default
+  is also substituted server-side when the argument is absent, since a client is free to
+  ignore the default it was shown. A `prompt`'s params differ, because the protocol does:
+  an MCP prompt argument carries only a name, a description, and whether it is required, so
+  `type` and `enum` constrain nothing at runtime there and every argument arrives as a
+  string. See [`doc/server-mcp.md`](doc/server-mcp.md).
+- **Nested block labels are named in HCL diagnostics.** A missing label on a nested block
+  reported `Missing  for match; All match blocks must have 1 labels ().` — the label name
+  was blank because nearly every nested block's decode struct left it unset. Affected
+  `sender`/`receiver` sub-blocks across mqtt, kafka, rabbitmq, and redis, plus `query`,
+  `auth`, `match`, `fetch`, and the MCP `resource`/`tool`/`prompt` blocks.
+- **`client "vws"` accepts a `reconnect` block.** It was tagged as an attribute, so the form
+  shown in [`doc/server-vws.md`](doc/server-vws.md) — and used by the mqtt and rabbitmq
+  clients — did not parse at all.
+- **An explicitly named `.cty` or `.vinit` file is no longer parsed as VCL.** The `.vcl`
+  pass parsed any file given by path regardless of extension, so naming a functy or
+  bootstrap file directly (e.g. `vinculum test config.vcl tests.cty`) failed with HCL syntax
+  errors. Those extensions have their own passes and are now skipped by the VCL pass; a
+  directory argument was already filtered by extension and is unaffected.
+- **Documentation corrections found by building the schema.** `trigger "start"` runs after
+  every startable component is ready, not "during the configuration build phase before any
+  server or client starts", and an error in it is logged rather than aborting startup.
+  `trigger "signals"` has no `ctx.trigger`. A subscription action's `ctx.fields` is always
+  present, empty rather than absent when a message carries no metadata. An MCP resource or
+  tool action does not JSON-encode a non-string result, it fails with "unsupported type"
+  (`jsonencode()` is the caller's job), and `server_version` defaults to `0.0.0`.
 
 ## [0.44.0] - 2026-07-22
 
