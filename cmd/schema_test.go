@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -33,13 +34,23 @@ func TestSchemaTopLevelBlocks(t *testing.T) {
 	assert.Equal(t, config.SchemaFormatVersion, doc.SchemaVersion)
 	assert.NotEmpty(t, doc.VinculumVersion)
 
-	// Every block the parser accepts, and nothing else.
-	expected := []string{
+	// Every block either parser accepts, and nothing else. The two languages
+	// share the map, so the file kind is part of the inventory rather than a
+	// separate assertion: a block that moved between them would be a silent
+	// change to what each file may contain.
+	expectedVCL := []string{
 		"assert", "bus", "client", "condition", "const", "editor", "fsm",
 		"function", "jq", "metric", "server", "subscription", "trigger",
 		"var", "wire_format",
 	}
-	assert.ElementsMatch(t, expected, keysOf(doc.Blocks))
+	expectedVinit := []string{"git", "plugin"}
+	assert.ElementsMatch(t, append(append([]string{}, expectedVCL...), expectedVinit...), keysOf(doc.Blocks))
+	for _, name := range expectedVCL {
+		assert.Equal(t, config.FileVCL, doc.Blocks[name].File, "%s is a .vcl block", name)
+	}
+	for _, name := range expectedVinit {
+		assert.Equal(t, config.FileVinit, doc.Blocks[name].File, "%s is a .vinit block", name)
+	}
 
 	// The drift this feature exists to prevent: cron and signals are trigger
 	// types, not top-level blocks, however the hand-written editor tooling
@@ -55,13 +66,95 @@ func TestSchemaTopLevelBlocks(t *testing.T) {
 		assert.Equal(t, []string{"type", "name"}, block.Labels, "%s labels", name)
 		assert.Nil(t, block.Body, "%s should have no body of its own", name)
 	}
-	for _, name := range []string{"subscription", "bus", "var", "fsm", "assert", "const", "function", "jq"} {
+	for _, name := range []string{"subscription", "bus", "var", "fsm", "assert", "const", "function", "jq", "git", "plugin"} {
 		block := doc.Blocks[name]
 		require.NotNil(t, block, name)
 		assert.Empty(t, block.VariantLabel, "%s should be plain", name)
 		assert.NotNil(t, block.Body, "%s should have a body", name)
 	}
 	assert.Empty(t, doc.Blocks["const"].Labels, "const takes no labels")
+}
+
+// The .vinit blocks come from a second source loop, over the same closed schema
+// the .vinit parser is handed. This pins what their description has to carry
+// for a reader to act on it: the file kind, the defaults the code applies, and
+// the conflicts the parser refuses.
+func TestSchemaVinitBlocks(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+
+	git := doc.Blocks["git"]
+	require.NotNil(t, git)
+	require.NotNil(t, git.Body)
+	assert.Equal(t, config.FileVinit, git.File)
+	assert.Equal(t, "git.md", git.DocPage)
+
+	assert.True(t, findAttr(git.Body, "repo").Required, "repo is required")
+	assert.Equal(t, "1", findAttr(git.Body, "depth").Default, "the shallow-clone default the code applies")
+	assert.Equal(t, []string{"branch", "tag", "commit"},
+		git.Body.Constraints[0].Attributes, "the revision rule validateGitBlock enforces")
+
+	auth := git.Body.Blocks["auth"]
+	require.NotNil(t, auth)
+	assert.False(t, auth.Repeatable, "one auth block")
+	assert.False(t, auth.Required, "auth is optional — an anonymous clone is legal")
+	var exclusive [][]string
+	for _, c := range auth.Constraints {
+		assert.Equal(t, config.ConstraintMutuallyExclusive, c.Kind)
+		exclusive = append(exclusive, c.Attributes)
+	}
+	assert.ElementsMatch(t, [][]string{
+		{"token", "username"},
+		{"token", "password"},
+		{"private_key", "private_key_file"},
+		{"known_hosts", "insecure_ignore_host_key"},
+	}, exclusive, "the conflicts validateGitAuth enforces")
+
+	fetch := git.Body.Blocks["fetch"]
+	require.NotNil(t, fetch)
+	assert.True(t, fetch.Repeatable)
+	assert.Equal(t, ".", findAttr(&fetch.SchemaBody, "from").Default)
+	assert.True(t, findAttr(&fetch.SchemaBody, "into").Required)
+
+	// The plugin body belongs to the plugin: `disabled` is the only attribute
+	// Vinculum decodes, and the only one it can describe.
+	plugin := doc.Blocks["plugin"]
+	require.NotNil(t, plugin)
+	require.NotNil(t, plugin.Body)
+	assert.Equal(t, config.FileVinit, plugin.File)
+	assert.Equal(t, []string{"disabled"}, attrNames(plugin.Body))
+}
+
+// A .vinit expression sees `env.*` and the cty standard library and nothing
+// else, so no attribute of a .vinit block may name a `ctx` shape. An AttrMeta
+// with a Context would otherwise list `git` among the blocks that evaluate
+// against that shape, in a file where `ctx` does not exist.
+func TestSchemaVinitBlocksNameNoContext(t *testing.T) {
+	doc := generateTestSchema(t, config.SchemaGenOptions{})
+
+	for name, block := range doc.Blocks {
+		if block.File != config.FileVinit {
+			continue
+		}
+		require.NotNil(t, block.Body, name)
+		var walk func(path string, body *config.SchemaBody)
+		walk = func(path string, body *config.SchemaBody) {
+			for _, attr := range body.Attributes {
+				assert.Empty(t, attr.Context, "%s.%s names a ctx shape, but .vinit has no ctx", path, attr.Name)
+			}
+			for sub, nested := range body.Blocks {
+				walk(path+"."+sub, &nested.SchemaBody)
+			}
+		}
+		walk(name, block.Body)
+	}
+}
+
+func attrNames(body *config.SchemaBody) []string {
+	names := make([]string, 0, len(body.Attributes))
+	for _, attr := range body.Attributes {
+		names = append(names, attr.Name)
+	}
+	return names
 }
 
 // TestSchemaCoversRegisteredTypes cross-checks the emitted variants against the
@@ -973,6 +1066,64 @@ func TestSchemaCommandWritesFile(t *testing.T) {
 	assert.Contains(t, doc, "blocks")
 }
 
+// A consumer that reads one kind of file wants the document for that language:
+// its blocks, the `ctx` shapes those blocks name, and the namespaces their
+// expressions may start from. Carrying the rest would describe the generator
+// rather than the language being validated.
+func TestSchemaCommandFileKind(t *testing.T) {
+	out, err := runSchemaCommand(t, "--file-kind", "vinit")
+	require.NoError(t, err)
+
+	var vinit struct {
+		Blocks     map[string]struct{ File string } `json:"blocks"`
+		Contexts   map[string]any                   `json:"contexts"`
+		Namespaces map[string]any                   `json:"namespaces"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &vinit))
+	assert.Equal(t, []string{"git", "plugin"}, sortedKeysOf(vinit.Blocks))
+	assert.Empty(t, vinit.Contexts, "a .vinit attribute may not name a ctx shape")
+	// `env` is the whole of the .vinit namespace, read from the eval context
+	// that file kind is evaluated against.
+	assert.Equal(t, []string{"env"}, sortedKeysOf(vinit.Namespaces))
+
+	out, err = runSchemaCommand(t, "--file-kind", "vcl")
+	require.NoError(t, err)
+
+	var vcl struct {
+		Blocks     map[string]struct{ File string } `json:"blocks"`
+		Contexts   map[string]any                   `json:"contexts"`
+		Namespaces map[string]any                   `json:"namespaces"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &vcl))
+	assert.NotContains(t, vcl.Blocks, "git")
+	assert.Contains(t, vcl.Blocks, "subscription")
+	for name, block := range vcl.Blocks {
+		assert.Equal(t, string(config.FileVCL), block.File, name)
+	}
+	assert.NotEmpty(t, vcl.Contexts, "the .vcl blocks name shapes")
+	assert.Contains(t, vcl.Namespaces, "bus")
+
+	// Unfiltered is both, which is the default a consumer of the released
+	// schema.json gets.
+	out, err = runSchemaCommand(t)
+	require.NoError(t, err)
+	var both struct {
+		Blocks map[string]any `json:"blocks"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &both))
+	assert.Contains(t, both.Blocks, "git")
+	assert.Contains(t, both.Blocks, "subscription")
+}
+
+func sortedKeysOf[V any](m map[string]V) []string {
+	names := make([]string, 0, len(m))
+	for name := range m {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 func TestSchemaCommandStrict(t *testing.T) {
 	// The in-tree curation must always satisfy --strict.
 	_, err := runSchemaCommand(t, "--strict")
@@ -999,6 +1150,16 @@ func TestSchemaCommandUsageErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 2, ExitCode(err), "config paths without --plugin-path is a usage error")
 	assert.Contains(t, err.Error(), "--plugin-path")
+
+	_, err = runSchemaCommand(t, "--file-kind", "vinculum")
+	require.Error(t, err)
+	assert.Equal(t, 2, ExitCode(err), "--file-kind takes vcl or vinit")
+
+	// A region names a topic in the whole language, so rendering doc/ from half
+	// a document would blank every region describing the other half.
+	_, err = runSchemaCommand(t, "--file-kind", "vcl", "--format", "markdown", "--check", t.TempDir())
+	require.Error(t, err)
+	assert.Equal(t, 2, ExitCode(err), "--file-kind with --check is a usage error")
 }
 
 // TestSchemaCommandOmitsPluginsWhenNoneLoaded pins the signal a consumer reads
@@ -1030,6 +1191,7 @@ func runSchemaCommand(t *testing.T, args ...string) (string, error) {
 	// flags matter most: cobra appends to whatever is already there, so a
 	// leftover value would silently join the next run's.
 	schemaFormat, schemaPretty, schemaOutput = "json", true, ""
+	schemaFileKind = ""
 	schemaStrict, schemaRequireDocs = false, false
 	schemaUpdate, schemaCheck = nil, nil
 	pluginPath = ""

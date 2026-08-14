@@ -100,25 +100,55 @@ func testDoc() *config.SchemaDocument {
 		},
 	}
 
+	// A .vinit block, because the file kind changes how a block is presented:
+	// its page carries a note the .vcl blocks do not, and the index lists it
+	// apart from them.
+	git := &config.SchemaBody{
+		Summary: "Clones a repository at startup.",
+		Attributes: []*config.SchemaAttr{
+			{Name: "repo", Type: "string", Required: true, Summary: "Repository URL to clone."},
+		},
+		Blocks: map[string]*config.SchemaNestedBlock{
+			"auth": {
+				Labels: []string{},
+				SchemaBody: config.SchemaBody{
+					Summary: "Credentials for the clone.",
+					Attributes: []*config.SchemaAttr{
+						{Name: "token", Type: "string", Summary: "Personal-access-token shorthand."},
+					},
+					Blocks: map[string]*config.SchemaNestedBlock{},
+				},
+			},
+		},
+	}
+
 	return &config.SchemaDocument{
 		SchemaVersion:   "1",
 		VinculumVersion: "0.0.0-test",
 		Blocks: map[string]*config.SchemaBlock{
 			"client": {
+				File:         config.FileVCL,
 				Labels:       []string{"type", "name"},
 				VariantLabel: "type",
 				Summary:      "A connection to an external service.",
 				Variants:     map[string]*config.SchemaBody{"mqtt": mqtt, "http": http},
 			},
 			"server": {
+				File:         config.FileVCL,
 				Labels:       []string{"type", "name"},
 				VariantLabel: "type",
 				Summary:      "A network server.",
 				Variants:     map[string]*config.SchemaBody{"http": serverHTTP},
 			},
 			"subscription": {
+				File:   config.FileVCL,
 				Labels: []string{"name"},
 				Body:   subscription,
+			},
+			"git": {
+				File:   config.FileVinit,
+				Labels: []string{"label"},
+				Body:   git,
 			},
 		},
 		Contexts: map[string]*config.SchemaContext{

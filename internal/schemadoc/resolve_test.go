@@ -175,8 +175,10 @@ func TestTopicsAreTheIndexPage(t *testing.T) {
 	doc := testDoc()
 	got := paths(Topics(doc, ""))
 
+	// Both file kinds are topics — `man git` resolves like any other block.
+	// Which of them the index groups apart is Index's business, not Topics'.
 	assert.Equal(t, []string{
-		"block:client", "block:server", "block:subscription",
+		"block:client", "block:git", "block:server", "block:subscription",
 		"context:connection", "context:decode-error", "context:message",
 		"namespace:env", "namespace:http_status", "namespace:sys",
 	}, got)

@@ -26,10 +26,23 @@ func Index(doc *config.SchemaDocument, opts WalkOptions) []Event {
 			"structs the parser uses — it describes exactly what this binary can parse.",
 	})
 
-	blocks := Topics(doc, KindBlock)
+	// The two languages are listed apart. Resolution, completion, and search
+	// treat them alike — a topic is a topic — but a reader scanning the index
+	// for what may go in a config file is asking a question the `.vinit` blocks
+	// are not an answer to, and one table cannot say so.
+	blocks, bootstrap := partitionByFile(Topics(doc, KindBlock))
 	if len(blocks) > 0 {
 		events = append(events, Heading{Level: level + 1, Text: "Blocks"})
 		events = append(events, BlockTable{Rows: topicRows(blocks)})
+	}
+	if len(bootstrap) > 0 {
+		events = append(events, Heading{Level: level + 1, Text: "Bootstrap blocks (`.vinit`)"})
+		events = append(events, Prose{
+			Markdown: "Blocks of the `.vinit` bootstrap format, processed before any `.vcl` file " +
+				"is parsed. They are written in a separate file, in a much smaller expression " +
+				"language — see [vinit.md](vinit.md).",
+		})
+		events = append(events, BlockTable{Rows: topicRows(bootstrap)})
 	}
 
 	shapes := Topics(doc, KindContext)
@@ -44,16 +57,44 @@ func Index(doc *config.SchemaDocument, opts WalkOptions) []Event {
 
 	namespaces := Topics(doc, KindNamespace)
 	if len(namespaces) > 0 {
+		prose := "The names an expression may start from, wherever it appears."
+		// The second sentence exists to explain an absence — the roots a block
+		// publishes are not listed here — so it is worth saying only where
+		// there are any. A document of `.vinit` alone has none.
+		if hasBlockNamespace(doc) {
+			prose += " The blocks above publish names of their own — `bus.<name>`, " +
+				"`var.<name>` — which are documented with the block that declares them."
+		}
 		events = append(events, Heading{Level: level + 1, Text: "Namespaces"})
-		events = append(events, Prose{
-			Markdown: "The names an expression may start from, wherever it appears. " +
-				"The blocks above publish names of their own — `bus.<name>`, `var.<name>` — " +
-				"which are documented with the block that declares them.",
-		})
+		events = append(events, Prose{Markdown: prose})
 		events = append(events, BlockTable{Rows: topicRows(namespaces)})
 	}
 
 	return events
+}
+
+// hasBlockNamespace reports whether any namespace's members come from blocks
+// the config declares, as `bus.<name>` does.
+func hasBlockNamespace(doc *config.SchemaDocument) bool {
+	for _, ns := range doc.Namespaces {
+		if ns.Kind == config.NamespaceBlock {
+			return true
+		}
+	}
+	return false
+}
+
+// partitionByFile splits block topics into the .vcl blocks and the .vinit ones,
+// each keeping the order it arrived in.
+func partitionByFile(nodes []Node) (vcl, vinit []Node) {
+	for _, n := range nodes {
+		if n.fileKind() == config.FileVinit {
+			vinit = append(vinit, n)
+			continue
+		}
+		vcl = append(vcl, n)
+	}
+	return vcl, vinit
 }
 
 func topicRows(nodes []Node) []BlockRow {

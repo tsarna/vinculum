@@ -797,3 +797,23 @@ func TestContextFieldsDropRejected(t *testing.T) {
 	require.Len(t, attr.ContextFields, 1)
 	assert.Equal(t, "mqtt_topic", attr.ContextFields[0].Name)
 }
+
+// The .vcl and .vinit block types share one `blocks` map, so a name declared in
+// both would leave one of them unreachable: a topic path is one word, and the
+// map has one entry per name. The clash is a curation problem rather than a
+// panic, and the .vcl block — the one a reader is far more likely to be asking
+// about — is the one that survives it.
+func TestVinitBlockNameCollidesWithVCL(t *testing.T) {
+	original := vinitSchema.Blocks
+	vinitSchema.Blocks = append(append([]hcl.BlockHeaderSchema{}, original...),
+		hcl.BlockHeaderSchema{Type: "bus", LabelNames: []string{"label"}})
+	t.Cleanup(func() { vinitSchema.Blocks = original })
+
+	doc, problems := GenerateSchema(SchemaGenOptions{})
+
+	require.NotNil(t, doc.Blocks["bus"])
+	assert.Equal(t, FileVCL, doc.Blocks["bus"].File, "the .vcl block survives the clash")
+	assert.Contains(t, problemStrings(problems),
+		"bus: declared as both a .vcl and a .vinit top-level block; "+
+			"block type names share one namespace, so one of them would be unreachable")
+}

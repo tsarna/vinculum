@@ -55,6 +55,164 @@ type GitFetch struct {
 	DefRange  hcl.Range `hcl:",def_range"`
 }
 
+func init() {
+	RegisterBlockSchema("git", gitSchema)
+}
+
+// gitSchema describes the `git` block. It is registered rather than provided by
+// a BlockHandler because `.vinit` blocks are processed by their own pass, ahead
+// of the handler pipeline — the same route `function` and `jq` take.
+var gitSchema = TypeSchema{
+	Sample:  &GitDefinition{},
+	Summary: "Clones a git repository at startup and copies subtrees of it onto the local filesystem.",
+	DocPage: "git.md",
+	Doc: `The clone completes before any ` + "`.vcl`" + ` is parsed, so fetched configuration is
+discovered by the normal pipeline exactly as if it had shipped in the image. The
+implementation is pure Go, so it works in the scratch-based minimal image, which
+has no git binary and no shell.
+
+The label names the block in logs and diagnostics and has no filesystem meaning,
+but must be unique across all ` + "`.vinit`" + ` files. **At least one ` + "`fetch`" + ` sub-block is
+required** — a clone with nowhere to put anything is an error rather than a
+no-op.
+
+	git "shared_config" {
+	    repo   = "https://github.com/example/vinculum-shared.git"
+	    tag    = "v1.4.0"
+
+	    auth { token = env.GIT_TOKEN }
+
+	    fetch "config" {
+	        from = "config"
+	        into = "/conf/git/shared"
+	    }
+	}`,
+	Attrs: map[string]AttrMeta{
+		"disabled": VinitDisabledAttr,
+		"repo": {
+			Summary: "Repository URL to clone.",
+			Doc: "The transport is inferred from the form of the URL, and decides which `auth` " +
+				"attributes are legal: `https://` and `http://` take `token`, or `username` and " +
+				"`password`; `ssh://` and the scp-style `git@host:path` take a private key. " +
+				"Anything else — `file://`, a bare path — is a local clone that takes no " +
+				"credentials at all.",
+		},
+		"branch": {
+			Summary: "Branch to clone.",
+			Doc: "Fetched directly at the configured `depth`, which is the efficient common case. " +
+				"With no `branch`, `tag`, or `commit`, the remote's default branch is used.",
+		},
+		"tag": {
+			Summary: "Tag to clone.",
+			Doc:     "Fetched directly at the configured `depth`. Pinning a tag is what makes a boot reproducible.",
+		},
+		"commit": {
+			Summary: "Commit SHA to check out.",
+			Doc: "The repository is cloned and the SHA checked out afterwards, so an arbitrary " +
+				"historical commit may not be in a shallow clone — pair it with `depth = 0`. " +
+				"A checkout that fails for that reason says so.",
+		},
+		"depth": {
+			Summary: "Shallow-clone depth.",
+			Doc: "`0` clones the full history, which is what pinning an arbitrary `commit` usually " +
+				"needs: a commit older than the shallow window is not in the clone and checkout fails.",
+			Default: "1",
+		},
+		"submodules": {
+			Summary: "Recurse into submodules after checkout.",
+			Hint:    HintBool,
+		},
+	},
+	Blocks: map[string]TypeSchema{
+		"auth": {
+			Summary: "Credentials for the clone.",
+			Doc: `Omitted, the clone is anonymous — valid only for a public HTTP(S) repository.
+
+Which attributes are legal depends on the transport inferred from ` + "`repo`" + `, and
+setting one that does not match it is an error rather than an ignored value:
+
+| URL form | Transport | Legal here |
+|---|---|---|
+| ` + "`https://…`" + ` / ` + "`http://…`" + ` | HTTP(S) | ` + "`token`" + `, or ` + "`username`" + ` + ` + "`password`" + ` |
+| ` + "`ssh://…`" + ` or ` + "`git@host:path`" + ` | SSH | ` + "`private_key`" + ` / ` + "`private_key_file`" + `, ` + "`passphrase`" + `, ` + "`known_hosts`" + ` / ` + "`insecure_ignore_host_key`" + ` |
+
+Credentials almost always come from the environment — ` + "`token = env.GIT_TOKEN`" + `,
+` + "`private_key = env.GIT_SSH_KEY`" + ` — so they are not committed to the ` + "`.vinit`" + ` file.
+Vinculum never logs a credential value.`,
+			Attrs: map[string]AttrMeta{
+				"token": {
+					Summary: "HTTP(S) only. Personal-access-token shorthand.",
+					Doc: "Sent as HTTP basic auth with the token as the password and a placeholder " +
+						"username, which is what GitHub, GitLab, and Gitea PATs expect — so it needs " +
+						"no `username` of its own, and setting one is an error.",
+				},
+				"username": {Summary: "HTTP(S) only. Username for basic auth."},
+				"password": {Summary: "HTTP(S) only. Password for basic auth."},
+				"private_key": {
+					Summary: "SSH only. PEM-encoded private key material, inline.",
+					Doc:     "The SSH login user comes from the repo URL, defaulting to `git`.",
+				},
+				"private_key_file": {Summary: "SSH only. Path to a PEM private key on disk."},
+				"passphrase":       {Summary: "SSH only. Passphrase for an encrypted private key."},
+				"known_hosts": {
+					Summary: "SSH only. Path to a known_hosts file to verify the server host key against.",
+					Doc: "Host-key verification is on by default. With neither `known_hosts` nor " +
+						"`insecure_ignore_host_key`, `$HOME/.ssh/known_hosts` is used if it exists; " +
+						"if it does not, the fetch fails rather than trusting an unverified host. " +
+						"In a container, mount a known_hosts file and point this at it.",
+				},
+				"insecure_ignore_host_key": {
+					Summary: "SSH only. Accept any server host key without verifying it.",
+					Doc: "Turns off the verification `known_hosts` performs, and logs a warning when " +
+						"it does. For a trusted private network; anywhere else, provide `known_hosts`.",
+					Hint: HintBool,
+				},
+			},
+			Constraints: []Constraint{
+				MutuallyExclusive("token", "username").WithMessage(
+					"Specify at most one of token or username; token carries its own placeholder username."),
+				MutuallyExclusive("token", "password").WithMessage(
+					"Specify at most one of token or password; token is sent as the password itself."),
+				MutuallyExclusive("private_key", "private_key_file"),
+				MutuallyExclusive("known_hosts", "insecure_ignore_host_key"),
+			},
+		},
+		"fetch": {
+			Summary: "One subtree of the repository, and where to put it. At least one is required.",
+			Doc: "All fetches of a block share a single clone — the repository is cloned once, " +
+				"however many destinations it feeds — so declaring several is cheap. The " +
+				"repository's `.git` directory is never copied into a destination, and symlinks " +
+				"are skipped. The label names the fetch in diagnostics and logs.\n\n" +
+				"The schema says `0..n` because the decode struct is a slice; the parser requires " +
+				"one.",
+			Attrs: map[string]AttrMeta{
+				"from": {
+					Summary: "Path within the repository to copy.",
+					Doc: "Must be repo-relative: a leading `/` or a `..` that escapes the repository " +
+						"root is an error. Naming a directory copies the whole subtree; naming a " +
+						"single file copies it into `into`. A path that does not exist is an error.",
+					Default: ".",
+				},
+				"into": {
+					Summary: "Local destination directory.",
+					Doc: "Absolute, or relative to the process working directory. Created if absent, " +
+						"and used as-is if it exists and is empty; a non-empty destination is an " +
+						"error unless `overwrite` is set. Each fetch owns its destination.",
+				},
+				"overwrite": {
+					Summary: "Replace the contents of a non-empty destination.",
+					Doc:     "The destination is cleared before the copy, so it holds the fetched tree and nothing else.",
+					Hint:    HintBool,
+				},
+			},
+		},
+	},
+	Constraints: []Constraint{
+		MutuallyExclusive("branch", "tag", "commit").WithMessage(
+			"Specify at most one of branch, tag, or commit; with none of them the remote's default branch is used."),
+	},
+}
+
 // git transport classes inferred from the repo URL scheme.
 const (
 	gitTransportHTTP  = "http"

@@ -104,6 +104,41 @@ func TestManIndexListsBlocksAndShapes(t *testing.T) {
 
 	// Type variants belong under their block, not in the index.
 	assert.NotContains(t, out, "- `mqtt`")
+
+	// The bootstrap blocks are listed, but apart: the index answers "what may I
+	// write here?", and for a `.vcl` file `git` is not an answer.
+	assert.Contains(t, out, "## Bootstrap blocks (`.vinit`)")
+	assert.Contains(t, out, "- `git`")
+	assert.Contains(t, out, "- `plugin`")
+	assert.Less(t, strings.Index(out, "- `subscription`"), strings.Index(out, "## Bootstrap blocks"))
+}
+
+// A `git` block in a `.vcl` file is an error, and the expression language a
+// `.vinit` gives it is a much smaller one, so the page has to say both — on the
+// block itself and on anything reached through it.
+func TestManVinitBlockSaysWhereItGoes(t *testing.T) {
+	const note = "belongs in a `.vinit` bootstrap file"
+
+	for _, args := range [][]string{
+		{"git"},
+		{"plugin"},
+		{"git", "auth", "private_key"},
+	} {
+		out, _, err := runManCmd(t, args...)
+		require.NoError(t, err, args)
+		assert.Contains(t, out, note, args)
+		assert.Contains(t, out, "there is no `ctx`", args)
+	}
+
+	// The hand-written page is where the rest lives.
+	out, _, err := runManCmd(t, "git")
+	require.NoError(t, err)
+	assert.Contains(t, out, "- [git.md](git.md)")
+
+	// And a `.vcl` block says none of it.
+	out, _, err = runManCmd(t, "subscription")
+	require.NoError(t, err)
+	assert.NotContains(t, out, note)
 }
 
 func TestManAmbiguousTopicOffersTheCommandsThatResolveIt(t *testing.T) {
@@ -204,7 +239,7 @@ func TestManEveryTopicRenders(t *testing.T) {
 	for _, name := range schemadoc.LeadingNames(doc, "") {
 		walk([]string{name})
 	}
-	// The real schema is 15 blocks, 43 variants, 74 nested blocks and 807
+	// The real schema is 17 blocks, 43 variants, 76 nested blocks and 826
 	// attributes; a walk that visited a handful of them would pass every
 	// assertion above and prove nothing.
 	assert.Greater(t, walked, 800, "the walk should reach the whole document")

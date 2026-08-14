@@ -30,6 +30,24 @@ import (
 // version that produced it. Bumped on any breaking structural change.
 const SchemaFormatVersion = "1"
 
+// FileKind says which kind of configuration file a top-level block belongs in.
+//
+// Vinculum reads two languages: `.vcl`, the configuration language proper, and
+// `.vinit`, the bootstrap format processed before any `.vcl` is parsed. They
+// have separate closed schemas, so a block of one is an error in the other.
+// The document describes both in one `blocks` map — a block type name means one
+// thing whatever file it is written in, and a topic path has one namespace to
+// resolve in — and this is what tells them apart.
+type FileKind string
+
+const (
+	// FileVCL is a block of the .vcl configuration language.
+	FileVCL FileKind = "vcl"
+	// FileVinit is a block of the .vinit bootstrap format. Expressions in one
+	// see `env.<NAME>` and the standard library and nothing else.
+	FileVinit FileKind = "vinit"
+)
+
 // ---------------------------------------------------------------------------
 // Curated authoring types
 // ---------------------------------------------------------------------------
@@ -860,11 +878,88 @@ type SchemaDocument struct {
 	Blocks map[string]*SchemaBlock `json:"blocks"`
 }
 
+// FilterByFile returns a copy of the document describing one of the two
+// languages: the blocks of that file kind, the `ctx` shapes those blocks
+// actually name, and the namespaces an expression in such a file may start
+// from. A consumer that reads one kind of file wants exactly that, and a
+// document carrying shapes nothing in it can name describes the generator
+// rather than the language.
+//
+// The receiver is not modified, and neither are the bodies: the copy shares
+// them, since nothing downstream of generation mutates a described body.
+// Filtering is deliberately not part of generation — validation walks the whole
+// document, and a partial one would report every context of the language that
+// was filtered out as described-but-unnamed.
+func (d *SchemaDocument) FilterByFile(kind FileKind) *SchemaDocument {
+	if d == nil || kind == "" {
+		return d
+	}
+
+	out := &SchemaDocument{
+		SchemaVersion:   d.SchemaVersion,
+		VinculumVersion: d.VinculumVersion,
+		Plugins:         d.Plugins,
+		Blocks:          make(map[string]*SchemaBlock, len(d.Blocks)),
+		Contexts:        map[string]*SchemaContext{},
+		Namespaces:      map[string]*SchemaNamespace{},
+	}
+
+	named := map[string][]contextRef{}
+	for blockType, block := range d.Blocks {
+		if block.File != kind {
+			continue
+		}
+		out.Blocks[blockType] = block
+		if block.Body != nil {
+			collectContextNames(blockType, block.Body, named)
+		}
+		for variant, body := range block.Variants {
+			collectContextNames(blockType+" "+variant, body, named)
+		}
+	}
+	for name := range named {
+		if shape, ok := d.Contexts[name]; ok {
+			out.Contexts[name] = shape
+		}
+	}
+	inScope := namespaceNamesIn(kind)
+	for name, ns := range d.Namespaces {
+		if inScope != nil && !inScope[name] {
+			continue
+		}
+		out.Namespaces[name] = ns
+	}
+
+	return out
+}
+
+// namespaceNamesIn returns the top-level names an expression in the given kind
+// of file may start a reference from, or nil for "all of them".
+//
+// The .vinit answer is read from the eval context that file kind is actually
+// evaluated against, rather than listed here, so the two cannot disagree. Every
+// registered namespace is a .vcl one, so .vcl keeps them all.
+func namespaceNamesIn(kind FileKind) map[string]bool {
+	if kind != FileVinit {
+		return nil
+	}
+
+	names := map[string]bool{}
+	for name := range vinitEvalContext().Variables {
+		names[name] = true
+	}
+	return names
+}
+
 // SchemaBlock describes one top-level block type. It has two shapes: a plain
 // block inlines a single Body, while a typed block (one whose first label
 // selects a variant, e.g. `client "http"`) carries a map of variant bodies
 // instead.
 type SchemaBlock struct {
+	// File is the kind of configuration file this block belongs in. Always
+	// emitted, so a consumer validating one language cannot mistake a block of
+	// the other for one of its own.
+	File FileKind
 	// Labels are the block's label names, from blockSchema.
 	Labels []string
 	// VariantLabel names the label that selects the variant; empty for plain
@@ -977,6 +1072,7 @@ func newSchemaBody() *SchemaBody {
 
 // plainBlockJSON is the emitted shape of a block with a single body.
 type plainBlockJSON struct {
+	File         FileKind `json:"file"`
 	Labels       []string `json:"labels"`
 	Summary      string   `json:"summary,omitempty"`
 	Doc          string   `json:"doc,omitempty"`
@@ -988,6 +1084,7 @@ type plainBlockJSON struct {
 // typedBlockJSON is the emitted shape of a block whose first label selects a
 // variant.
 type typedBlockJSON struct {
+	File         FileKind               `json:"file"`
 	Labels       []string               `json:"labels"`
 	VariantLabel string                 `json:"variantLabel"`
 	Summary      string                 `json:"summary,omitempty"`
@@ -1006,6 +1103,7 @@ func (b SchemaBlock) MarshalJSON() ([]byte, error) {
 			variants = map[string]*SchemaBody{}
 		}
 		return json.Marshal(typedBlockJSON{
+			File:         b.File,
 			Labels:       b.labels(),
 			VariantLabel: b.VariantLabel,
 			Summary:      b.Summary,
@@ -1024,6 +1122,7 @@ func (b SchemaBlock) MarshalJSON() ([]byte, error) {
 	// carries it, or the single body it inlines does. The block-level fields
 	// shadow the embedded body's in the emitted JSON, so fold them together.
 	return json.Marshal(plainBlockJSON{
+		File:         b.File,
 		Labels:       b.labels(),
 		Summary:      firstNonEmptyString(b.Summary, body.Summary),
 		Doc:          firstNonEmptyString(b.Doc, body.Doc),
@@ -1274,9 +1373,10 @@ func (ts TypeSchema) withDefaultsFrom(base TypeSchema) TypeSchema {
 // Generating the whole document
 // ---------------------------------------------------------------------------
 
-// GenerateSchema describes the entire VCL block language: every top-level
-// block from blockSchema, every variant of a typed block from the registry
-// that drives its parsing, and the curated metadata registered alongside them.
+// GenerateSchema describes the entire block language: every top-level block
+// from blockSchema and from vinitSchema, every variant of a typed block from
+// the registry that drives its parsing, and the curated metadata registered
+// alongside them.
 //
 // It reflects the in-tree registries as populated by init(), so it describes a
 // stock binary; plugins are not loaded. Curation problems are always returned;
@@ -1286,12 +1386,28 @@ func GenerateSchema(opts SchemaGenOptions) (*SchemaDocument, []error) {
 	doc := &SchemaDocument{
 		SchemaVersion:   SchemaFormatVersion,
 		VinculumVersion: version.Version,
-		Blocks:          make(map[string]*SchemaBlock, len(blockSchema)),
+		Blocks:          make(map[string]*SchemaBlock, len(blockSchema)+len(vinitSchema.Blocks)),
 	}
 
 	handlers := GetBlockHandlers()
 	for _, header := range blockSchema {
-		doc.Blocks[header.Type] = b.topLevelBlock(header, handlers)
+		doc.Blocks[header.Type] = b.topLevelBlock(header, FileVCL, handlers)
+	}
+
+	// The .vinit bootstrap blocks are described in the same map, from the same
+	// value the .vinit parser itself is handed — which is what makes them drift
+	// from their decode structs no more easily than a .vcl block does. They
+	// share the map because a block type name means one thing whatever file it
+	// is written in, and a topic path has one namespace to resolve in; the file
+	// kind is what tells them apart.
+	for _, header := range vinitSchema.Blocks {
+		if _, dup := doc.Blocks[header.Type]; dup {
+			b.problemf("%s: declared as both a .vcl and a .vinit top-level block; "+
+				"block type names share one namespace, so one of them would be unreachable",
+				header.Type)
+			continue
+		}
+		doc.Blocks[header.Type] = b.topLevelBlock(header, FileVinit, handlers)
 	}
 	doc.Contexts = b.contexts(doc)
 	doc.Namespaces = b.namespaces()
@@ -1454,13 +1570,15 @@ func schemaContextFields(fields []ContextField) []*SchemaContextField {
 	return out
 }
 
-// topLevelBlock describes one entry of blockSchema. A block is typed — its
-// first label selects a variant — exactly when that label is named "type".
-func (b *schemaBuilder) topLevelBlock(header hcl.BlockHeaderSchema, handlers map[string]BlockHandler) *SchemaBlock {
+// topLevelBlock describes one entry of blockSchema or vinitSchema, file saying
+// which. A block is typed — its first label selects a variant — exactly when
+// that label is named "type".
+func (b *schemaBuilder) topLevelBlock(header hcl.BlockHeaderSchema, file FileKind, handlers map[string]BlockHandler) *SchemaBlock {
 	blockType := header.Type
 	ts, documented := topLevelSchema(blockType, handlers)
 
 	blk := &SchemaBlock{
+		File:    file,
 		Labels:  header.LabelNames,
 		Summary: ts.Summary,
 		Doc:     ts.Doc,

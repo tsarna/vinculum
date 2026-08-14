@@ -30,6 +30,21 @@ func (o WalkOptions) baseLevel() int {
 	return o.BaseLevel
 }
 
+// vinitNote is what a reader of a .vinit block has to know before writing one,
+// and the only thing on the page that is false of every other block: which file
+// it goes in, and that the expression language there is a much smaller one.
+//
+// It is derived from the file kind rather than written into each block's own
+// documentation so that it cannot drift between them, and so the next .vinit
+// block type carries it without being told to. It is emitted for a sub-block
+// and an attribute too — `git auth private_key` is exactly the page someone
+// reads just before writing an expression that has no `ctx` to read.
+const vinitNote = "This block belongs in a `.vinit` bootstrap file, not a `.vcl` config file. " +
+	"Expressions in it see `env.<NAME>` and the standard library — `try()` included, which " +
+	"is how an optional environment variable is read — and nothing else: there is no `ctx`, " +
+	"and no `const`, `var`, `bus`, `client`, or user function, because none of them exist " +
+	"yet when `.vinit` is processed."
+
 // Walk renders one node as a flat sequence of events.
 func Walk(n Node, opts WalkOptions) []Event {
 	w := &walker{doc: n.Doc, opts: opts}
@@ -40,6 +55,9 @@ func Walk(n Node, opts WalkOptions) []Event {
 	}
 	if bc := n.Breadcrumb(); bc != "" {
 		w.emit(Prose{Markdown: bc})
+	}
+	if n.fileKind() == config.FileVinit {
+		w.emit(Note{Text: vinitNote})
 	}
 
 	switch n.shape {
@@ -326,26 +344,26 @@ func (w *walker) contextUsers(name string) SeeAlso {
 	for _, blockType := range sortedBlockKeys(w.doc.Blocks) {
 		block := w.doc.Blocks[blockType]
 		if block.Body != nil {
-			items = append(items, contextUsersIn([]string{blockType}, block.Body, name)...)
+			items = append(items, contextUsersIn(w.doc, []string{blockType}, block.Body, name)...)
 		}
 		for _, variant := range sortedBodyNames(block.Variants) {
-			items = append(items, contextUsersIn([]string{blockType, variant}, block.Variants[variant], name)...)
+			items = append(items, contextUsersIn(w.doc, []string{blockType, variant}, block.Variants[variant], name)...)
 		}
 	}
 	return SeeAlso{Items: items}
 }
 
-func contextUsersIn(path []string, body *config.SchemaBody, name string) []Link {
+func contextUsersIn(doc *config.SchemaDocument, path []string, body *config.SchemaBody, name string) []Link {
 	var items []Link
 	for _, a := range body.Attributes {
 		if a.Context != name {
 			continue
 		}
 		argv := append(append([]string{}, path...), a.Name)
-		items = append(items, Link{Text: pathSpelling(path) + " › `" + a.Name + "`", Argv: argv})
+		items = append(items, Link{Text: pathSpelling(doc, path) + " › `" + a.Name + "`", Argv: argv})
 	}
 	for _, sub := range sortedBlockNames(body.Blocks) {
-		items = append(items, contextUsersIn(append(append([]string{}, path...), sub), &body.Blocks[sub].SchemaBody, name)...)
+		items = append(items, contextUsersIn(doc, append(append([]string{}, path...), sub), &body.Blocks[sub].SchemaBody, name)...)
 	}
 	return items
 }

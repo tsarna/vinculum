@@ -31,6 +31,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   assembled per site, so a receiver's `action` sees the message while `on_connect` on
   the same client sees none of it. See [`doc/schema.md`](doc/schema.md).
 
+  **It describes the `.vinit` bootstrap format too.** `git` and `plugin` are top-level
+  block types like any other, but they live in a different file with its own closed
+  schema — so they had been outside the document, and outside the invariant that guards
+  it: `vinculum man git` answered "no topic named git", `help()` could not reach them,
+  and nothing would have noticed one of the 19 attributes being renamed, among them
+  `private_key`, `known_hosts`, and `insecure_ignore_host_key`. They are now generated
+  from their decode structs like everything else, with every attribute documented, the
+  revision and credential conflicts the parser enforces stated as constraints, and the
+  defaults the code applies (`depth = 1`, `from = "."`) written down. Each block carries
+  a `file` of `vcl` or `vinit`, always emitted: a consumer that read `blocks` as "what a
+  `.vcl` may contain" should filter on it. `vinculum man` says which file a block belongs
+  in — on the block, its sub-blocks, and its attributes alike, since `man git auth
+  private_key` is exactly where someone is about to write an expression — and lists the
+  bootstrap blocks under their own index heading. Both facts a reader needs come off the
+  file kind rather than the prose, including that a `.vinit` expression sees `env.<NAME>`
+  and the standard library and nothing else: there is no `ctx` there.
+
+  **`--file-kind vcl|vinit` narrows the document to one language**, for a consumer that
+  reads only one kind of file. It filters more than `blocks`: the output carries the
+  blocks of that kind, the `ctx` shapes those blocks name, and the namespaces an
+  expression in such a file may start from — so `--file-kind vinit` is `git` and
+  `plugin`, no `contexts` at all, and `env` as the only namespace, read from the eval
+  context `.vinit` is actually evaluated against rather than from a list that could
+  drift. Validation is unaffected: `--strict --require-docs` always checks the whole
+  language, and the filter applies to what is emitted afterwards.
+- **A sub-block of a plain block is spelled as one.** `vinculum man` wrote the parent
+  of a nested topic as though the block were typed, so `fsm`'s `state` sub-block read
+  `fsm "state"` — a type label that does not exist — in every breadcrumb and in the
+  "Evaluated by" list of the `ctx` shapes those hooks use. A typed block still reads
+  `client "mqtt"` › `tls`; a plain one now reads `fsm` › `state`, which is also how the
+  topic is typed on the command line.
+- **`try()` and `can()` work in a `.vinit` file.** The bootstrap context was assembled
+  from the cty standard library alone, and `try`/`can` are functy builtins, so they were
+  missing from the one place they are needed most: `env` is the only namespace a `.vinit`
+  has, and a variable that is not set is not an attribute of it — so
+  `disabled = env.SKIP_THIS == "true"` aborts startup rather than evaluating to false
+  when `SKIP_THIS` is unset. `try(env.SKIP_THIS, "") == "true"` is what that should have
+  been, and now is. The rest of functy's host-agnostic builtins (`cond`, `switch`,
+  `typeof`, `error`, `assert`) come with them; all are pure, which is what makes them
+  safe to evaluate before anything else exists. The examples in
+  [`doc/vinit.md`](doc/vinit.md) and [`doc/plugins.md`](doc/plugins.md) were showing the
+  form that fails, and now show the one that works.
+
   **`--format markdown` writes the reference into `doc/`.** The same document,
   rendered as prose instead of JSON: to stdout for a single-page reference, or —
   with `--update` — into the *marked regions* of the hand-written pages. `doc/` is

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"regexp"
+	"slices"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
@@ -38,15 +39,56 @@ type PluginDefinition struct {
 	Body     hcl.Body `hcl:",remain"`
 }
 
+func init() {
+	RegisterBlockSchema("plugin", pluginSchema)
+}
+
+// VinitDisabledAttr documents `disabled` on a .vinit block. DisabledAttr is
+// written in .vcl terms — a disabled block publishing no name for expressions
+// to read — and none of that is true here: nothing in a .vinit file publishes a
+// name, and what a disabled block skips is a side effect at startup.
+var VinitDisabledAttr = AttrMeta{
+	Summary: "Skip this block entirely.",
+	Doc: "Nothing the block would do at startup happens. It is evaluated against the `.vinit` " +
+		"context, where an environment variable that is not set is not an attribute of `env` " +
+		"at all — so gate on an optional one through `try`, as " +
+		"`disabled = try(env.SKIP_BOOTSTRAP, \"\") != \"\"`, rather than reading it directly " +
+		"and failing when it is absent.",
+	Hint: HintBool,
+}
+
+// pluginSchema describes the `plugin` block. Only `disabled` is Vinculum's; the
+// rest of the body belongs to the plugin, which is why there is nothing else to
+// describe here.
+var pluginSchema = TypeSchema{
+	Sample:  &PluginDefinition{},
+	Summary: "Loads a Go shared-object plugin before any configuration is parsed.",
+	DocPage: "plugins.md#the-plugin-block",
+	Doc: `The label names the ` + "`.so`" + ` file to load, relative to ` + "`--plugin-path`" + `: label
+` + "`weather`" + ` loads ` + "`<plugin-path>/weather.so`" + `. That is why it is restricted to letters,
+digits, underscores, and hyphens — a label cannot name a path — and why it must be
+unique across all ` + "`.vinit`" + ` files. Without ` + "`--plugin-path`" + `, a ` + "`plugin`" + ` block is a fatal
+error rather than a silently skipped one.
+
+Plugin blocks are processed before ` + "`git`" + ` blocks, so a plugin's registrations are in
+place for everything that follows.
+
+**Every attribute other than ` + "`disabled`" + ` belongs to the plugin**, which decodes the
+rest of the body itself against a schema Vinculum does not know. An unrecognized
+name here is reported by the plugin, not by Vinculum.
+
+	plugin "weather" {
+	    api_key = env.WEATHER_API_KEY
+	}`,
+	Attrs: map[string]AttrMeta{
+		"disabled": VinitDisabledAttr,
+	},
+}
+
 // vinitEvalContext builds the minimal eval context used for .vinit
-// expressions: `env.<NAME>` plus the cty standard library. No const, no
+// expressions: `env.<NAME>` plus the standard library. No const, no
 // user functions, no plugin-contributed values, no bus/server/client/ctx —
 // none of those things exist yet when .vinit is evaluated.
-//
-// The stdlib functions are obtained by looking up the in-tree "stdlib"
-// FunctionPlugin (registered from functions/stdlib.go). If that package
-// is not blank-imported (e.g. in a config-only test binary), the result
-// is an empty function map.
 func vinitEvalContext() *hcl.EvalContext {
 	return &hcl.EvalContext{
 		Variables: map[string]cty.Value{
@@ -56,16 +98,33 @@ func vinitEvalContext() *hcl.EvalContext {
 	}
 }
 
-// vinitStdlibFunctions returns the cty standard library functions
-// registered as the "stdlib" FunctionPlugin. The getter ignores its
-// config argument; nil is safe.
+// vinitStdlibGroups names the function plugins whose functions a .vinit
+// expression may call: the cty standard library, and functy's host-agnostic
+// builtins.
+//
+// The second group is what puts `try()` and `can()` here, and they belong here
+// more than anywhere else — `env` is the only namespace a .vinit has, and an
+// environment variable that is not set is not an attribute of it, so `try(env.X,
+// "")` is how a bootstrap block reads an optional one. The rest of the group
+// (typeof, cond, switch, error, assert) is pure and host-agnostic, which is what
+// makes it safe to evaluate before anything else exists.
+var vinitStdlibGroups = []string{"stdlib", "functy_stdlib"}
+
+// vinitStdlibFunctions returns the functions of the vinitStdlibGroups plugins.
+// Their getters ignore the *Config argument, so nil is safe. A group whose
+// package is not blank-imported (as in a config-only test binary) contributes
+// nothing, rather than failing.
 func vinitStdlibFunctions() map[string]function.Function {
+	funcs := make(map[string]function.Function)
 	for _, p := range functionPlugins {
-		if p.name == "stdlib" {
-			return p.getter(nil)
+		if !slices.Contains(vinitStdlibGroups, p.name) {
+			continue
+		}
+		for name, fn := range p.getter(nil) {
+			funcs[name] = fn
 		}
 	}
-	return map[string]function.Function{}
+	return funcs
 }
 
 // processVinit runs the .vinit bootstrap pass. It enumerates .vinit files

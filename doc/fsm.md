@@ -432,12 +432,12 @@ Falls back to the trace ID extracted from inbound headers, so it is populated ev
 #### Evaluated by
 
 - `fsm` › `on_change`
-- `fsm "event"` › `transition` › `guard`
-- `fsm "event"` › `transition` › `action`
-- `fsm "state"` › `on_init`
-- `fsm "state"` › `on_entry`
-- `fsm "state"` › `on_exit`
-- `fsm "state"` › `on_event`
+- `fsm` › `event` › `transition` › `guard`
+- `fsm` › `event` › `transition` › `action`
+- `fsm` › `state` › `on_init`
+- `fsm` › `state` › `on_entry`
+- `fsm` › `state` › `on_exit`
+- `fsm` › `state` › `on_event`
 
 <!-- vinculum:end context fsm-hook -->
 

@@ -17,7 +17,7 @@ intentionally minimal.
 plugin "custom_client" {}
 
 plugin "internal_tools" {
-    disabled    = env.DISABLE_INTERNAL == "true"
+    disabled    = try(env.DISABLE_INTERNAL, "") == "true"
     license_key = env.INTERNAL_LICENSE  # decoded by the plugin
 }
 ```
@@ -77,7 +77,7 @@ expressions, nested attribute values) are evaluated against a
 |---|---|
 | `env.<NAME>` — environment variables | `const` values (const is a VCL block) |
 | Standard library functions (`upper`, `lower`, `jsonencode`, etc.) | User `function` / `jq` definitions |
-|   | Plugin-contributed functions |
+| `try`, `can`, and the other host-agnostic builtins (`cond`, `switch`, `typeof`, `error`, `assert`) | Plugin-contributed functions |
 |   | Values from other `.vinit` blocks |
 |   | `bus.*`, `server.*`, `client.*`, `ctx` |
 
@@ -87,9 +87,14 @@ cover the realistic use cases:
 
 ```hcl
 plugin "experimental" {
-    disabled = env.ENABLE_EXPERIMENTAL != "true"
+    disabled = try(env.ENABLE_EXPERIMENTAL, "") != "true"
 }
 ```
+
+Read an optional variable through `try`, as above. A variable that is not set is
+not an attribute of `env` at all, so reading it directly is a fatal error rather
+than an empty string — which is what you want for a variable the deployment must
+supply, and not what you want for one that gates a block.
 
 Plugins **do not** extend the `.vinit` evaluation context. A plugin's
 contributions become visible only in `.vcl` evaluation.
@@ -102,7 +107,7 @@ no plugin is loaded, no side effects occur.
 
 ```hcl
 plugin "internal_tools" {
-    disabled    = env.ENVIRONMENT != "production"
+    disabled    = try(env.ENVIRONMENT, "") != "production"
     license_key = env.INTERNAL_LICENSE
 }
 ```

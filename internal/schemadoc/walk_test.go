@@ -117,6 +117,60 @@ func TestWalkPlainBlock(t *testing.T) {
 	assert.Contains(t, out, "| `ctx.topic` | string | Topic of the message. |")
 }
 
+// A .vinit block is written in a different file, in a different and much
+// smaller expression language, and both facts are the reader's first problem —
+// so the note comes off the file kind and appears on every page reached through
+// such a block, not only its own.
+func TestWalkVinitBlockSaysWhereItGoes(t *testing.T) {
+	doc := testDoc()
+
+	const note = "This block belongs in a `.vinit` bootstrap file"
+
+	block := renderNode(BlockNode(doc, "git", doc.Blocks["git"]), WalkOptions{})
+	assert.Contains(t, block, note)
+	assert.Contains(t, block, "there is no `ctx`")
+	assert.Contains(t, block, "```hcl\ngit \"<label>\" {")
+
+	nested := doc.Blocks["git"].Body.Blocks["auth"]
+	assert.Contains(t, renderNode(NestedNode(doc, []string{"git", "auth"}, nested), WalkOptions{}), note)
+	assert.Contains(t,
+		renderNode(AttrNode(doc, []string{"git", "auth", "token"}, nested.Attributes[0]), WalkOptions{}), note)
+
+	// And not on a .vcl block, where every one of those names does exist.
+	assert.NotContains(t, renderNode(BlockNode(doc, "subscription", doc.Blocks["subscription"]), WalkOptions{}), note)
+}
+
+// A breadcrumb spells its parent path the way the config writes it, which
+// differs by block shape: a typed block's second element is the type label and
+// belongs in the quotes, while a plain block's is a sub-block and does not —
+// `git "auth"` would name a type that does not exist.
+func TestBreadcrumbSpellsAPlainBlocksSubBlock(t *testing.T) {
+	doc := testDoc()
+
+	auth := doc.Blocks["git"].Body.Blocks["auth"]
+	out := renderNode(AttrNode(doc, []string{"git", "auth", "token"}, auth.Attributes[0]), WalkOptions{})
+	assert.Contains(t, out, "In `git` › `auth`.")
+
+	tls := doc.Blocks["client"].Variants["mqtt"].Blocks["tls"]
+	out = renderNode(AttrNode(doc, []string{"client", "mqtt", "tls", "cert_file"}, tls.Attributes[0]), WalkOptions{})
+	assert.Contains(t, out, "In `client \"mqtt\"` › `tls`.")
+}
+
+// The index answers "what may I write?", which the two languages answer
+// differently — so they are listed apart, though both remain resolvable topics.
+func TestIndexListsBootstrapBlocksApart(t *testing.T) {
+	out := RenderMarkdown(Index(testDoc(), WalkOptions{}), MarkdownOptions{})
+
+	assert.Contains(t, out, "## Bootstrap blocks (`.vinit`)")
+	assert.Contains(t, out, "- `git` — Clones a repository at startup.")
+
+	blocks := strings.Index(out, "## Blocks")
+	bootstrap := strings.Index(out, "## Bootstrap blocks")
+	git := strings.Index(out, "- `git`")
+	assert.Less(t, blocks, bootstrap, "the .vcl blocks come first")
+	assert.Less(t, bootstrap, git, "and git is under the bootstrap heading, not among them")
+}
+
 func TestWalkAttribute(t *testing.T) {
 	doc := testDoc()
 	body := doc.Blocks["client"].Variants["mqtt"]

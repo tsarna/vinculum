@@ -5,6 +5,10 @@ configuration language: every block type, every type-specific variant
 (`client "http"` versus `client "mqtt"`), every attribute and nested
 sub-block, plus prose documentation, value hints, and semantic constraints.
 
+It covers both languages Vinculum reads — `.vcl` and the [`.vinit`](vinit.md)
+bootstrap format — in one `blocks` map, with a [`file`](#blocks) on each entry
+saying which.
+
 ```
 vinculum schema                                    # pretty JSON to stdout
 vinculum schema -o schema.json                     # write to a file
@@ -62,7 +66,8 @@ those two versions, which is worth reading.
 
 | Flag | Default | Effect |
 |---|---|---|
-| `--format` | `json` | Output format. Only `json` today. |
+| `--format` | `json` | Output format: `json`, or `markdown` — see [Generated regions](#generated-regions). |
+| `--file-kind` | both | Describe one language only: `vcl` or `vinit`. |
 | `--pretty` | `true` | Indent the JSON. `--pretty=false` for one line. |
 | `-o`, `--output` | — | Write to a file instead of stdout. |
 | `--strict` | `false` | Exit non-zero if curated metadata does not match the reflected structure. |
@@ -71,6 +76,21 @@ those two versions, which is worth reading.
 
 Problems are always printed to stderr; `--strict` decides whether they stop
 the command. `--require-docs` without `--strict` is a usage error.
+
+`--file-kind` narrows the whole document, not only `blocks`: it emits the blocks
+of that kind, the `ctx` shapes those blocks name, and the namespaces an
+expression in such a file may start from. So `--file-kind vinit` is `git` and
+`plugin`, no `contexts` at all, and `env` as the only namespace, while
+`--file-kind vcl` is the other fifteen blocks with every shape and namespace —
+`.vinit` contributes none. A consumer that validates one kind of file wants
+exactly one of those; the unfiltered document, which is what a release's
+`schema.json` carries, describes both.
+
+Validation is unaffected by it: `--strict --require-docs` always checks the
+whole language, and the filter is applied to what is emitted afterwards.
+`--file-kind` with `--update` or `--check` is a usage error, since a region
+names a topic in the whole language and half a document would blank the regions
+describing the other half.
 
 **Exit codes:** `0` success, `1` validation failure under `--strict`, `2`
 usage or I/O error.
@@ -131,10 +151,22 @@ when plugins were loaded — see [Plugins](#plugins).
 `blocks` maps a top-level block type name to its description. A block comes in
 one of two shapes, told apart by the presence of `variantLabel`.
 
+`file` says which kind of configuration file the block belongs in: `vcl` for the
+configuration language proper, `vinit` for the [bootstrap format](vinit.md)
+processed before any `.vcl` is parsed. The two have separate closed schemas, so
+a block of one is an error in the other — a consumer validating a file must
+filter on this rather than treat every entry as its own. It is always present.
+
+Two further things are true of a `vinit` block, and cannot be read off its
+attributes: expressions in it see `env.<NAME>` and the standard library and
+nothing else — no `ctx`, no `const`, no user function, since none of them exist
+yet — and it is therefore the one place no attribute carries a `context`.
+
 A **plain** block has a single body:
 
 ```json
 "subscription": {
+  "file": "vcl",
   "labels": ["name"],
   "summary": "Subscribes to messages from a bus or client.",
   "doc": "...",
@@ -149,6 +181,7 @@ its own, and carries a map of variants instead:
 
 ```json
 "client": {
+  "file": "vcl",
   "labels": ["type", "name"],
   "variantLabel": "type",
   "summary": "A connection to an external service.",

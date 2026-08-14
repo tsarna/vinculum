@@ -67,34 +67,82 @@ filesystem meaning. Labels must be unique across all `.vinit` files.
 
 ### Top-level attributes
 
-| Attribute | Type | Required | Notes |
-|---|---|---|---|
-| `disabled` | bool expr | no | Skip the entire block — no clone, no fetch. Evaluated against the minimal `.vinit` context (`env.*` + stdlib). |
-| `repo` | string | **yes** | Repository URL. Transport is inferred from the scheme (see [Authentication](#authentication)). |
-| `branch` | string | no | Branch to clone. Mutually exclusive with `tag` and `commit`. |
-| `tag` | string | no | Tag to clone. Mutually exclusive with `branch` and `commit`. |
-| `commit` | string | no | Full commit SHA to check out. Mutually exclusive with `branch` and `tag`. |
-| `depth` | number | no | Shallow-clone depth. Default `1` (tip only); `0` means a full clone. |
-| `submodules` | bool | no | Recurse into submodules after checkout. Default `false`. |
+<!-- vinculum:begin block-attrs git level=4 -->
 
-If none of `branch` / `tag` / `commit` is given, the remote's default branch is
-used. Specifying more than one is a fatal error.
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `repo` | string | yes |  | Repository URL to clone. |
+| `branch` | string |  |  | Branch to clone. |
+| `commit` | string |  |  | Commit SHA to check out. |
+| `depth` | number |  | `1` | Shallow-clone depth. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `submodules` | bool |  |  | Recurse into submodules after checkout. |
+| `tag` | string |  |  | Tag to clone. |
+
+- Specify at most one of branch, tag, or commit; with none of them the remote's default branch is used.
+
+**`repo`**
+
+The transport is inferred from the form of the URL, and decides which `auth` attributes are legal: `https://` and `http://` take `token`, or `username` and `password`; `ssh://` and the scp-style `git@host:path` take a private key. Anything else — `file://`, a bare path — is a local clone that takes no credentials at all.
+
+**`branch`**
+
+Fetched directly at the configured `depth`, which is the efficient common case. With no `branch`, `tag`, or `commit`, the remote's default branch is used.
+
+**`commit`**
+
+The repository is cloned and the SHA checked out afterwards, so an arbitrary historical commit may not be in a shallow clone — pair it with `depth = 0`. A checkout that fails for that reason says so.
+
+**`depth`**
+
+`0` clones the full history, which is what pinning an arbitrary `commit` usually needs: a commit older than the shallow window is not in the clone and checkout fails.
+
+**`disabled`**
+
+Nothing the block would do at startup happens. It is evaluated against the `.vinit` context, where an environment variable that is not set is not an attribute of `env` at all — so gate on an optional one through `try`, as `disabled = try(env.SKIP_BOOTSTRAP, "") != ""`, rather than reading it directly and failing when it is absent.
+
+**`tag`**
+
+Fetched directly at the configured `depth`. Pinning a tag is what makes a boot reproducible.
+
+#### Blocks
+
+- `auth` (optional) — Credentials for the clone.
+- `fetch "<name>"` (0..n) — One subtree of the repository, and where to put it. At least one is required.
+
+<!-- vinculum:end block-attrs git -->
 
 ### `fetch` sub-blocks
 
-A git block has **one or more** `fetch` sub-blocks. Each copies one subtree of
-the cloned repository to one local destination. All fetches share a single clone
-(the repository is cloned once per git block), so declaring several destinations
-is cheap.
+A git block has **one or more** `fetch` sub-blocks — the schema says `0..n`
+because the decode struct is a slice, but a clone with nowhere to put anything is
+an error. Each copies one subtree of the cloned repository to one local
+destination. All fetches share a single clone (the repository is cloned once per
+git block), so declaring several destinations is cheap.
 
-| Attribute | Type | Required | Notes |
-|---|---|---|---|
-| label | string | yes | A name for the fetch, used in diagnostics/logging. |
-| `from` | string | no | Path **within the repository** to copy. Default `"."` (whole repo). Must be repo-relative (no leading `/`, no `..`). A `from` that does not exist is fatal. May name a directory (whole subtree copied) or a single file (copied into `into`). |
-| `into` | string | **yes** | Local destination directory. Absolute or relative to the process working directory. Created if absent. See [Destinations](#destinations). |
-| `overwrite` | bool | no | Permit replacing a non-empty destination. Default `false`. |
+The block label names the fetch in diagnostics and logs.
 
-The repository's `.git` directory is never copied into a destination.
+<!-- vinculum:begin block-attrs git fetch level=4 -->
+
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `into` | string | yes |  | Local destination directory. |
+| `from` | string |  | `.` | Path within the repository to copy. |
+| `overwrite` | bool |  |  | Replace the contents of a non-empty destination. |
+
+**`into`**
+
+Absolute, or relative to the process working directory. Created if absent, and used as-is if it exists and is empty; a non-empty destination is an error unless `overwrite` is set. Each fetch owns its destination.
+
+**`from`**
+
+Must be repo-relative: a leading `/` or a `..` that escapes the repository root is an error. Naming a directory copies the whole subtree; naming a single file copies it into `into`. A path that does not exist is an error.
+
+**`overwrite`**
+
+The destination is cleared before the copy, so it holds the fetched tree and nothing else.
+
+<!-- vinculum:end block-attrs git fetch -->
 
 ## Revision Selection
 
@@ -125,30 +173,49 @@ The transport is inferred from the `repo` URL scheme, which determines the valid
 | `ssh://…` or `git@host:path` | SSH | `private_key` / `private_key_file`, `passphrase`, `known_hosts` / `insecure_ignore_host_key` |
 
 The `auth` block is optional; omitting it means anonymous access (valid only for
-a public HTTP(S) repo).
+a public HTTP(S) repo). Each attribute names the transport it belongs to, since
+setting one that does not match `repo` is an error rather than an ignored value.
 
-| Attribute | Transport | Notes |
-|---|---|---|
-| `token` | HTTP(S) | Personal-access-token shorthand. Sent as HTTP Basic auth with the token as the password and a placeholder username — what GitHub/GitLab/Gitea PATs expect. Mutually exclusive with `username`/`password`. |
-| `username` / `password` | HTTP(S) | Basic-auth credentials. |
-| `private_key` | SSH | PEM-encoded private key material (inline). Mutually exclusive with `private_key_file`. |
-| `private_key_file` | SSH | Path to a PEM private key on disk. |
-| `passphrase` | SSH | Passphrase for an encrypted private key. |
-| `known_hosts` | SSH | Path to a `known_hosts` file used to verify the server host key. |
-| `insecure_ignore_host_key` | SSH | Disable host-key verification entirely. Default `false`. Logs a warning when true. Mutually exclusive with `known_hosts`. |
+<!-- vinculum:begin block-attrs git auth level=3 -->
+
+| Attribute | Type | Required | Description |
+|---|---|---|:---|
+| `insecure_ignore_host_key` | bool |  | SSH only. Accept any server host key without verifying it. |
+| `known_hosts` | string |  | SSH only. Path to a known_hosts file to verify the server host key against. |
+| `passphrase` | string |  | SSH only. Passphrase for an encrypted private key. |
+| `password` | string |  | HTTP(S) only. Password for basic auth. |
+| `private_key` | string |  | SSH only. PEM-encoded private key material, inline. |
+| `private_key_file` | string |  | SSH only. Path to a PEM private key on disk. |
+| `token` | string |  | HTTP(S) only. Personal-access-token shorthand. |
+| `username` | string |  | HTTP(S) only. Username for basic auth. |
+
+- Specify at most one of token or username; token carries its own placeholder username.
+- Specify at most one of token or password; token is sent as the password itself.
+- Specify at most one of private_key or private_key_file.
+- Specify at most one of known_hosts or insecure_ignore_host_key.
+
+**`insecure_ignore_host_key`**
+
+Turns off the verification `known_hosts` performs, and logs a warning when it does. For a trusted private network; anywhere else, provide `known_hosts`.
+
+**`known_hosts`**
+
+Host-key verification is on by default. With neither `known_hosts` nor `insecure_ignore_host_key`, `$HOME/.ssh/known_hosts` is used if it exists; if it does not, the fetch fails rather than trusting an unverified host. In a container, mount a known_hosts file and point this at it.
+
+**`private_key`**
+
+The SSH login user comes from the repo URL, defaulting to `git`.
+
+**`token`**
+
+Sent as HTTP basic auth with the token as the password and a placeholder username, which is what GitHub, GitLab, and Gitea PATs expect — so it needs no `username` of its own, and setting one is an error.
+
+<!-- vinculum:end block-attrs git auth -->
 
 Credentials almost always come from the environment (`token = env.GIT_TOKEN`,
 `private_key = env.GIT_SSH_KEY`), so they are not committed to the `.vinit` file.
 This composes naturally with Kubernetes secrets surfaced as environment
 variables. Vinculum never logs credential values.
-
-**Host-key verification (SSH).** Verification defaults to **on**: if neither
-`known_hosts` nor `insecure_ignore_host_key` is set, the default user
-`known_hosts` (`$HOME/.ssh/known_hosts`) is used if present, otherwise the fetch
-fails asking you to provide `known_hosts` or to set
-`insecure_ignore_host_key = true`. In containers, mount a `known_hosts` file and
-point `known_hosts` at it, or — for a trusted private network — set
-`insecure_ignore_host_key = true`.
 
 ## Destinations
 

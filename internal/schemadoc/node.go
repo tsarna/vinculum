@@ -133,6 +133,34 @@ func MemberNode(doc *config.SchemaDocument, path []string, ns *config.SchemaName
 	return Node{Kind: KindNamespace, Path: path, Doc: doc, shape: shapeMember, ns: ns, member: m}
 }
 
+// isTypedBlock reports whether the named top-level block selects a variant with
+// its first label. An unknown name is treated as plain: a path that resolved
+// against some other document is not a reason to invent a type label.
+func isTypedBlock(doc *config.SchemaDocument, blockType string) bool {
+	if doc == nil {
+		return false
+	}
+	block := doc.Blocks[blockType]
+	return block != nil && block.VariantLabel != ""
+}
+
+// fileKind is the kind of configuration file the node's block is written in.
+//
+// It is read from the document rather than carried on the node because
+// Path[0] is the top-level block type for every block-shaped node — a
+// sub-block and an attribute are reached through the block that contains them —
+// so the answer is always one lookup away. Empty for anything that is not part
+// of a block.
+func (n Node) fileKind() config.FileKind {
+	if n.Kind != KindBlock || n.Doc == nil || len(n.Path) == 0 {
+		return ""
+	}
+	if block := n.Doc.Blocks[n.Path[0]]; block != nil {
+		return block.File
+	}
+	return ""
+}
+
 // body returns the node's body, or nil for a node that has none (an attribute,
 // a context shape, or a typed block whose bodies are its variants).
 func (n Node) bodyOf() *config.SchemaBody {
@@ -179,20 +207,22 @@ func (n Node) Breadcrumb() string {
 	if len(parent) == 0 {
 		return ""
 	}
-	return "In " + pathSpelling(parent) + "."
+	return "In " + pathSpelling(n.Doc, parent) + "."
 }
 
 // pathSpelling renders a block path the way it is written in VCL:
-// ["client","mqtt","tls"] becomes `client "mqtt"` › `tls`.
-func pathSpelling(path []string) string {
+// ["client","mqtt","tls"] becomes `client "mqtt"` › `tls`, while
+// ["git","auth"] — a sub-block of a plain block — becomes `git` › `auth`.
+func pathSpelling(doc *config.SchemaDocument, path []string) string {
 	if len(path) == 0 {
 		return ""
 	}
 	head := "`" + path[0] + "`"
 	rest := path[1:]
 	// A typed block's second element is its variant label, which belongs
-	// inside the same backticks as the block type.
-	if len(rest) > 0 {
+	// inside the same backticks as the block type. A plain block's is a
+	// sub-block, which does not: `git "auth"` names a type that does not exist.
+	if len(rest) > 0 && isTypedBlock(doc, path[0]) {
 		head = "`" + path[0] + ` "` + rest[0] + `"` + "`"
 		rest = rest[1:]
 	}

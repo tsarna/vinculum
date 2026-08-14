@@ -87,6 +87,23 @@ plugin "nonexistent" {
 	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
 }
 
+// `env` is the only namespace a .vinit expression has, and a variable that is
+// not set is not an attribute of it — so reading an optional one is what try()
+// is for, and it has to be in the .vinit function set for that to be possible.
+func TestVinit_TryReadsAnUnsetEnvVar(t *testing.T) {
+	dir := writeVinit(t, "boot", `
+plugin "nonexistent" {
+    disabled = try(env.DEFINITELY_NOT_SET_ANYWHERE, "") == ""
+}
+`)
+
+	_, diags := config.NewConfig().
+		WithSources(dir).
+		WithLogger(zap.NewNop()).
+		Build()
+	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
+}
+
 func TestVinit_InvalidLabelRejected(t *testing.T) {
 	cases := []struct {
 		name  string

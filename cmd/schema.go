@@ -14,6 +14,7 @@ import (
 
 var (
 	schemaFormat      string
+	schemaFileKind    string
 	schemaPretty      bool
 	schemaOutput      string
 	schemaStrict      bool
@@ -34,6 +35,12 @@ plus curated documentation, value hints, and semantic constraints.
 The structure is reflected from the same decode structs the parser uses, so it
 describes exactly what this binary can parse.
 
+Both languages are described: .vcl configuration and the .vinit bootstrap
+format, told apart by each block's "file". --file-kind narrows the document to
+one of them, for a consumer that reads only that kind of file — the blocks of
+that kind, the ctx shapes they name, and the namespaces their expressions may
+start from.
+
 By default no plugins are loaded and the output describes a stock binary. Give
 config paths together with --plugin-path to load the plugins their .vinit files
 declare first, so plugin-contributed block types are described too; the types
@@ -51,6 +58,8 @@ current without writing anything, which is what CI runs.
 Examples:
   vinculum schema
   vinculum schema -o schema.json
+  vinculum schema --file-kind vcl -o vcl.schema.json
+  vinculum schema --file-kind vinit
   vinculum schema --pretty=false
   vinculum schema --strict --require-docs -o /dev/null
   vinculum schema --plugin-path /plugins ./configs/
@@ -64,6 +73,7 @@ func init() {
 	rootCmd.AddCommand(schemaCmd)
 
 	schemaCmd.Flags().StringVar(&schemaFormat, "format", "json", "output format (json, markdown)")
+	schemaCmd.Flags().StringVar(&schemaFileKind, "file-kind", "", "describe only one language: vcl or vinit (default both)")
 	schemaCmd.Flags().StringArrayVar(&schemaUpdate, "update", nil, "with --format markdown, rewrite the generated regions of these files or directories")
 	schemaCmd.Flags().StringArrayVar(&schemaCheck, "check", nil, "with --format markdown, report whether these files' generated regions are current")
 	schemaCmd.Flags().BoolVar(&schemaPretty, "pretty", true, "indent the JSON output")
@@ -83,6 +93,16 @@ func runSchema(cmd *cobra.Command, args []string) error {
 	}
 	if schemaRequireDocs && !schemaStrict {
 		return &ExitCodeError{Code: 2, Err: fmt.Errorf("--require-docs has no effect without --strict")}
+	}
+	switch config.FileKind(schemaFileKind) {
+	case "", config.FileVCL, config.FileVinit:
+	default:
+		return &ExitCodeError{Code: 2, Err: fmt.Errorf("unsupported --file-kind %q (want vcl or vinit)", schemaFileKind)}
+	}
+	// A region names a topic in the whole language; rendering doc/ from half a
+	// document would blank every region describing the other half.
+	if schemaFileKind != "" && (len(schemaUpdate) > 0 || len(schemaCheck) > 0) {
+		return &ExitCodeError{Code: 2, Err: fmt.Errorf("--file-kind describes one language; --update and --check write the pages of both")}
 	}
 	if (len(schemaUpdate) > 0 || len(schemaCheck) > 0) && schemaFormat != "markdown" {
 		return &ExitCodeError{Code: 2, Err: fmt.Errorf("--update and --check need --format markdown")}
@@ -119,6 +139,10 @@ func runSchema(cmd *cobra.Command, args []string) error {
 	if len(problems) > 0 && schemaStrict {
 		return &ExitCodeError{Code: 1, Err: fmt.Errorf("%d schema problem(s)", len(problems))}
 	}
+
+	// After validation, which walks the whole language: a filtered document
+	// would report every context of the other half as described-but-unnamed.
+	doc = doc.FilterByFile(config.FileKind(schemaFileKind))
 
 	if schemaFormat == "markdown" {
 		return runSchemaMarkdown(cmd, doc)

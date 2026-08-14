@@ -154,7 +154,7 @@ COPY internal_tools.so /plugins/
 plugin "custom_client" {}
 
 plugin "internal_tools" {
-    disabled    = env.DISABLE_INTERNAL == "true"
+    disabled    = try(env.DISABLE_INTERNAL, "") == "true"
     license_key = env.INTERNAL_LICENSE
 }
 ```
