@@ -13,25 +13,26 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # ── Release gate ─────────────────────────────────────────────────────────────
-  # A tag build publishes :X.Y.Z, :X.Y, and :X, and this workflow is triggered
-  # by the tag independently of Release — so without this, a release that fails
-  # its own checks still ships images under the version it failed to release.
-  # Branch builds skip it: they have already run it as CI.
+  # ── Gate ─────────────────────────────────────────────────────────────────────
+  # Every push here publishes something — a tag publishes :X.Y.Z, :X.Y and :X,
+  # and main publishes :latest — and this workflow is triggered independently of
+  # CI and Release, so nothing else stands between a bad tree and a public
+  # image. It runs on branch builds too, duplicating CI's few minutes, because
+  # "CI will catch it" is not true of a workflow that does not wait for CI.
+  #
+  # Deliberately not conditional: a skipped job makes every downstream job's
+  # default `if: success()` false, which silently skipped the whole build the
+  # one time this was `if: github.ref_type == 'tag'`.
   preflight:
-    if: github.ref_type == 'tag'
     uses: ./.github/workflows/checks.yml
     with:
-      release_version: ${{ github.ref_name }}
+      release_version: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
 
   # ── Shared metadata ──────────────────────────────────────────────────────────
   # Computed once and consumed by every matrix leg below, so the tag-vs-SHA
   # logic lives in exactly one place.
   prep:
     needs: preflight
-    # A skipped dependency skips its dependents by default, which would stop
-    # every branch build. Run unless preflight actually failed.
-    if: always() && needs.preflight.result != 'failure' && needs.preflight.result != 'cancelled'
     runs-on: ubuntu-latest
     outputs:
       # The go-installable ref of github.com/tsarna/vinculum (tag for tag
