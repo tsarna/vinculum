@@ -62,7 +62,7 @@ var HTTPRequestObjectType = cty.Object(map[string]cty.Type{
 	"user":         cty.String,
 	"password":     cty.String,
 	"password_set": cty.Bool,
-	"path":  cty.Map(cty.String),
+	"path":         cty.Map(cty.String),
 	"form":         cty.Map(cty.List(cty.String)),
 	"_capsule":     HTTPRequestCapsuleType,
 })
@@ -166,7 +166,7 @@ func BuildHTTPRequestObject(r *http.Request, pathParamNames []string) cty.Value 
 		"user":         cty.StringVal(user),
 		"password":     cty.StringVal(password),
 		"password_set": cty.BoolVal(passwordSet),
-		"path":  pathParamsVal,
+		"path":         pathParamsVal,
 		"form":         formVal,
 		"_capsule":     NewHTTPRequestCapsule(r),
 	})

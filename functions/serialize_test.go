@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	bytescty "github.com/tsarna/bytes-cty-type"
-	cfg "github.com/tsarna/vinculum/config"
 	wire "github.com/tsarna/vinculum-wire"
+	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 )
 

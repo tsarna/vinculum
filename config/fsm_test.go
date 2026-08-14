@@ -7,9 +7,9 @@ import (
 
 	_ "embed"
 
-	fsm "github.com/tsarna/vinculum-fsm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	fsm "github.com/tsarna/vinculum-fsm"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/otel"

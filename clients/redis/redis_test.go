@@ -17,7 +17,6 @@ var basicVCL []byte
 //go:embed testdata/full.vcl
 var fullVCL []byte
 
-
 func TestRedisClientRegistered(t *testing.T) {
 	c, diags := cfg.NewConfig().WithSources(basicVCL).WithLogger(zap.NewNop()).Build()
 	require.False(t, diags.HasErrors(), diags.Error())

@@ -21,6 +21,17 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # Checked rather than applied: a failure here is a one-command fix
+      # locally (gofmt -w .), and CI rewriting source is worse than saying so.
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd. Run: gofmt -w ." >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+
       - name: Build
         run: go build ./...
 

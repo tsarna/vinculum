@@ -74,8 +74,12 @@ func (m *kvMetrics) RecordDuration(ctx context.Context, op string, seconds float
 	))
 }
 
-func (m *kvMetrics) RecordHit(ctx context.Context)  { m.cacheHit.Add(ctx, 1, metric.WithAttributes(m.clientTag)) }
-func (m *kvMetrics) RecordMiss(ctx context.Context) { m.cacheMiss.Add(ctx, 1, metric.WithAttributes(m.clientTag)) }
+func (m *kvMetrics) RecordHit(ctx context.Context) {
+	m.cacheHit.Add(ctx, 1, metric.WithAttributes(m.clientTag))
+}
+func (m *kvMetrics) RecordMiss(ctx context.Context) {
+	m.cacheMiss.Add(ctx, 1, metric.WithAttributes(m.clientTag))
+}
 
 func (m *kvMetrics) RecordError(ctx context.Context, op, errType string) {
 	m.errors.Add(ctx, 1, metric.WithAttributes(

@@ -21,7 +21,12 @@ func buildConfig(t *testing.T, src []byte) (*cfg.Config, hclErrors) {
 	return c, hclErrors{diags}
 }
 
-type hclErrors struct{ diags interface{ HasErrors() bool; Error() string } }
+type hclErrors struct {
+	diags interface {
+		HasErrors() bool
+		Error() string
+	}
+}
 
 func TestCompleteExampleParses(t *testing.T) {
 	c, errs := buildConfig(t, completeVCL)
