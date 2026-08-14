@@ -257,33 +257,15 @@ type jsonTestEntry struct {
 	Name       string           `json:"name"`
 	Status     string           `json:"status"` // "passed", "failed", or "skipped"
 	DurationMs float64          `json:"duration_ms"`
-	Location   *jsonTestRange   `json:"location,omitempty"`
+	Location   *jsonRange       `json:"location,omitempty"`
 	SkipReason string           `json:"skip_reason,omitempty"`
 	Failures   []jsonTestFailed `json:"failures,omitempty"` // one per failure (soft expect() failures, then the hard failure)
 }
 
 type jsonTestFailed struct {
-	Message  string         `json:"message"`
-	Detail   string         `json:"detail,omitempty"`
-	Location *jsonTestRange `json:"location,omitempty"`
-}
-
-type jsonTestRange struct {
-	File      string `json:"file"`
-	Line      int    `json:"line"`
-	Column    int    `json:"column"`
-	EndLine   int    `json:"end_line"`
-	EndColumn int    `json:"end_column"`
-}
-
-func testRangeToJSON(r hcl.Range) *jsonTestRange {
-	return &jsonTestRange{
-		File:      r.Filename,
-		Line:      r.Start.Line,
-		Column:    r.Start.Column,
-		EndLine:   r.End.Line,
-		EndColumn: r.End.Column,
-	}
+	Message  string     `json:"message"`
+	Detail   string     `json:"detail,omitempty"`
+	Location *jsonRange `json:"location,omitempty"`
 }
 
 // writeTestJSON emits the --json report and returns the number of failed tests.
@@ -297,7 +279,7 @@ func writeTestJSON(w io.Writer, outcomes []functy.TestOutcome, deselected int) (
 		jt := jsonTestEntry{
 			Name:       o.Name,
 			DurationMs: float64(o.Duration.Nanoseconds()) / 1e6,
-			Location:   testRangeToJSON(o.DefRange),
+			Location:   rangeToJSON(o.DefRange),
 		}
 		switch {
 		case o.Skipped:
@@ -333,7 +315,7 @@ func testFailuresToJSON(o functy.TestOutcome) []jsonTestFailed {
 		}
 		f := jsonTestFailed{Message: d.Summary, Detail: d.Detail}
 		if d.Subject != nil {
-			f.Location = testRangeToJSON(*d.Subject)
+			f.Location = rangeToJSON(*d.Subject)
 		}
 		out = append(out, f)
 	}
@@ -344,7 +326,7 @@ func testFailuresToJSON(o functy.TestOutcome) []jsonTestFailed {
 		if o.Err != nil {
 			msg = o.Err.Error()
 		}
-		out = append(out, jsonTestFailed{Message: msg, Location: testRangeToJSON(o.DefRange)})
+		out = append(out, jsonTestFailed{Message: msg, Location: rangeToJSON(o.DefRange)})
 	}
 	return out
 }

@@ -15,6 +15,11 @@ var checkCmd = &cobra.Command{
 Loads and validates HCL configuration files without starting any services.
 Exits with a non-zero status if the configuration has errors.
 
+Diagnostics are written to stderr with the offending line quoted. With
+--format json, a machine-readable report goes to stdout instead — every
+diagnostic with its severity, message, and source range — for an editor or CI
+that would otherwise have to scrape the human-readable form.
+
 If any *.vinit bootstrap file under the configured paths declares a "plugin"
 block, --plugin-path must be set so the plugins can be loaded for validation.
 See doc/vinit.md and doc/plugins.md for details.
@@ -23,6 +28,7 @@ Examples:
   vinculum check config.vcl
   vinculum check ./configs/
   vinculum check config1.vcl config2.vcl ./more-configs/
+  vinculum check --format json ./configs/
   vinculum check --plugin-path /plugins ./configs/`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runCheck,
@@ -35,10 +41,20 @@ func init() {
 	checkCmd.Flags().StringVarP(&filePath, "file-path", "f", "", "base directory for file functions (enables file, fileexists, fileset functions)")
 	checkCmd.Flags().StringVarP(&writePath, "write-path", "w", "", "base directory for file write functions; must be under --file-path")
 	checkCmd.Flags().StringVar(&pluginPath, "plugin-path", "", "directory containing Go plugin .so files; required if any .vinit plugin block is present")
+	checkCmd.Flags().StringVar(&checkFormat, "format", "text", "diagnostic format: text (stderr, with source context) or json (stdout)")
 }
+
+var checkFormat string
 
 func runCheck(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
+
+	switch checkFormat {
+	case "text", "json":
+	default:
+		return &ExitCodeError{Code: 2, Err: fmt.Errorf("unsupported --format %q (want text or json)", checkFormat)}
+	}
+
 	logger, err := setupLogger()
 	if err != nil {
 		return fmt.Errorf("failed to setup logger: %w", err)
@@ -66,6 +82,10 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		for _, b := range cfg.Buses {
 			b.Stop() //nolint:errcheck
 		}
+	}
+
+	if checkFormat == "json" {
+		return writeCheckJSON(cmd.OutOrStdout(), diags)
 	}
 
 	if err := reportBuildDiags(cmd.ErrOrStderr(), configBuilder, diags); err != nil {

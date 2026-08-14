@@ -17,12 +17,13 @@
 13. [Examples](#examples)
 14. [Observability](#observability)
 15. [Interactive REPL](#interactive-repl)
-16. [Formatting](#formatting)
-17. [Config Language Schema](#config-language-schema)
-18. [Reading the Reference](#reading-the-reference)
-19. [Container Images](#container-images)
-20. [Bootstrap and Plugins](#bootstrap-and-plugins)
-21. [Block Type Reference](#block-type-reference)
+16. [Validating](#validating)
+17. [Formatting](#formatting)
+18. [Config Language Schema](#config-language-schema)
+19. [Reading the Reference](#reading-the-reference)
+20. [Container Images](#container-images)
+21. [Bootstrap and Plugins](#bootstrap-and-plugins)
+22. [Block Type Reference](#block-type-reference)
 
 ## Introduction
 
@@ -307,6 +308,66 @@ vinculum serve -i config.vcl
 See [repl.md](repl.md) for the full reference: result history (`_` / `_N`),
 session bindings, multi-line input, meta-commands, log control, and history /
 completion.
+
+## Validating
+
+`vinculum check` loads a configuration and reports what is wrong with it,
+without starting anything. It is the whole of startup short of running: the
+`.vinit` bootstrap, every block processed in dependency order, and the
+[reference check](config.md#reference-checking) over the expressions that only
+run at event time — so what it accepts is what `vinculum serve` will accept.
+
+```
+vinculum check config.vcl
+vinculum check ./configs/                  # every .vcl/.vinit/.cty under here
+vinculum check -f /srv/data ./configs/     # as it will be served
+```
+
+Give it the same flags the deployment uses. `--file-path` and `--write-path`
+decide whether the file functions exist at all, and `--plugin-path` loads the
+plugins a `.vinit` declares, so a config that uses either is only meaningfully
+checked with them.
+
+Diagnostics go to stderr, each quoting the line it is about:
+
+```text
+Error: Unknown server type
+
+  on config.vcl line 1, in server "htp" "web":
+   1: server "htp" "web" {
+
+There is no server type "htp". Did you mean "http"?
+```
+
+**`--format json`** writes a machine-readable report to **stdout** instead, for
+an editor or a CI job that would otherwise scrape the text:
+
+```json
+{
+  "valid": false,
+  "diagnostics": [
+    {
+      "severity": "error",
+      "summary": "Call to unknown function",
+      "detail": "There is no function named \"nosuchfn\".",
+      "location": { "file": "config.vcl", "line": 6, "column": 12,
+                    "end_line": 6, "end_column": 20 }
+    }
+  ],
+  "summary": { "errors": 1, "warnings": 0 }
+}
+```
+
+`valid` is false only when something is an error: a warning is reported like
+anything else and leaves the configuration valid, which is why the counts are
+separate. `location` is the range to underline, 1-based as an editor expects,
+and `context` — the enclosing construct, when the diagnostic names one — is
+included beside it. Either may be absent, since not every problem is about a
+line of a file. The report is emitted whatever the answer, so a consumer parses
+one shape rather than treating silence as success.
+
+Exit codes are the same in both formats: `0` valid (with or without warnings),
+`1` invalid, `2` a usage error.
 
 ## Formatting
 

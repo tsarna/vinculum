@@ -200,6 +200,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`vinculum check --format json`.** The text form spends its effort on being read
+  by a person — quoting the offending line, wrapping the prose — which is the wrong
+  shape for an editor extension drawing squiggles, and scraping it is the only
+  alternative on offer. `--format json` writes the same diagnostics to **stdout** as a
+  report: `valid`, a `diagnostics` list with a severity, summary, detail, and 1-based
+  `location` (plus `context`, the enclosing construct, when the diagnostic names one),
+  and a `summary` counting errors and warnings. `valid` is false only for errors, so a
+  warning is reported without failing the check — the reason the counts are separate.
+  The report is emitted whatever the answer, so a consumer parses one shape rather
+  than reading silence as success, and the range shape is the one `test --json`
+  already uses. Exit codes are unchanged: `0` valid, `1` invalid, `2` usage.
+  `vinculum check` also has a section of its own in
+  [`doc/overview.md`](doc/overview.md) now, which it never did.
 - **A mistyped block type says what you probably meant.** `server "htp"` reported
   `Invalid server type: htp` — repeating back the label the author could already see —
   though the registry it just failed to find it in is the list of answers. Every typed
