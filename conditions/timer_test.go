@@ -72,7 +72,8 @@ func TestTimerUnknownSubtypeRejected(t *testing.T) {
 	_, diags := cfg.NewConfig().WithSources(timerUnknownSubtypeVCL).
 		WithLogger(testLogger(t)).Build()
 	require.True(t, diags.HasErrors())
-	assert.Contains(t, diags.Error(), "Unknown condition subtype")
+	assert.Contains(t, diags.Error(), "Unknown condition type")
+	assert.Contains(t, diags.Error(), "Available types: counter, flipflop, threshold, timer.")
 }
 
 func TestTimerBlockComposed(t *testing.T) {

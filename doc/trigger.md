@@ -440,6 +440,10 @@ notification mechanisms (`inotify` on Linux, `kqueue`/`FSEvents` on macOS,
 `ReadDirectoryChangesW` on Windows) via the
 [`fsnotify`](https://github.com/fsnotify/fsnotify) library.
 
+**Available only with `--file-path`.** Filesystem access is opt-in, so this
+trigger type is registered only in a process started with that flag; declaring
+one without it is an error rather than a watcher that never fires.
+
 `path` must exist when vinculum starts; a missing path is a runtime startup
 error. To watch multiple paths, declare multiple `trigger "file"` blocks.
 

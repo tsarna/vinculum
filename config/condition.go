@@ -1,8 +1,6 @@
 package config
 
 import (
-	"fmt"
-
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 )
@@ -89,12 +87,9 @@ func (h *ConditionBlockHandler) Process(config *Config, block *hcl.Block) hcl.Di
 	subtype := block.Labels[0]
 	reg, ok := conditionRegistry[subtype]
 	if !ok {
-		return hcl.Diagnostics{&hcl.Diagnostic{
-			Severity: hcl.DiagError,
-			Summary:  "Unknown condition subtype",
-			Detail:   fmt.Sprintf("Unknown condition subtype: %q (expected timer, threshold, counter, or flipflop)", subtype),
-			Subject:  &block.DefRange,
-		}}
+		return hcl.Diagnostics{
+			unknownTypeDiag("condition", subtype, sortedKeys(conditionRegistry), block.DefRange),
+		}
 	}
 
 	// Decode the attributes every condition accepts, whatever its subtype,

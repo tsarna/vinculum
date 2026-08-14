@@ -459,6 +459,10 @@ var fileTriggerSchema = cfg.TypeSchema{
 permission changes, using OS-native notification (inotify, kqueue/FSEvents,
 ReadDirectoryChangesW) via fsnotify.
 
+**Available only with ` + "`--file-path`" + `.** Filesystem access is opt-in, so a
+configuration declaring this trigger in a process started without that flag is an
+error rather than a watcher that never fires.
+
 ` + "`path`" + ` must exist at startup; a missing path is a startup error. Watch several
 paths by declaring several blocks. ` + "`get(trigger.<name>)`" + ` returns the most
 recently completed action's result.

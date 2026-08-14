@@ -134,7 +134,10 @@ func TestTriggerDuplicateSignal(t *testing.T) {
 func TestTriggerInvalidType(t *testing.T) {
 	_, diags := config.NewConfig().WithSources(triggerInvalidTypeVCL).WithLogger(testLogger(t)).Build()
 	assert.True(t, diags.HasErrors(), "expected error for invalid trigger type")
-	assert.Contains(t, diags.Error(), "Invalid trigger type")
+	assert.Contains(t, diags.Error(), "Unknown trigger type")
+	// The types this binary registered, so the author sees what they may write.
+	// (Only the in-config ones here: this test binary does not import triggers/.)
+	assert.Contains(t, diags.Error(), "Available types: cron, shutdown, signals, start.")
 }
 
 func TestSetValueOptional(t *testing.T) {

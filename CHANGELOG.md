@@ -200,6 +200,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A mistyped block type says what you probably meant.** `server "htp"` reported
+  `Invalid server type: htp` — repeating back the label the author could already see —
+  though the registry it just failed to find it in is the list of answers. Every typed
+  block now offers the nearest name: `There is no server type "htp". Did you mean
+  "http"?`, and likewise for `client`, `trigger`, `condition`, `metric`, `wire_format`,
+  and `editor`. With nothing close enough to be a correction it names the types that
+  are available instead, up to twelve of them, and points at `vinculum man client` past
+  that — eighteen client types read as a wall rather than a list. The measure is
+  `internal/suggest`, the same one behind `vinculum man`'s near misses and the
+  unknown-function check, so the whole tool agrees about what counts as a near miss.
+
+  A **conditional** type is told apart from a wrong one. `trigger "file"` in a process
+  started without `--file-path` reported `Invalid trigger type: "file"`, sending the
+  author to look for a typo that was not there; it now says the type exists but is not
+  available in this configuration, and points at the page that says what it needs —
+  which now says it, on both `vinculum man trigger file` and
+  [`doc/trigger.md`](doc/trigger.md).
+
+  Mistyped *attributes* already suggested, and still do: that comes from hcl's own
+  `Content()`, which is also what makes a nested block type suggest.
 - **`vinculum check` catches a bad reference in an expression that has not run yet.**
   An `action`, an `on_connect`, a computed metric's `value` are stored at load and
   evaluated when something happens, so a name that resolves to nothing used to pass

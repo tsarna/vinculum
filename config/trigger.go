@@ -168,12 +168,12 @@ func (h *TriggerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diag
 
 	reg, ok := h.registry[block.Labels[0]]
 	if !ok {
-		return hcl.Diagnostics{&hcl.Diagnostic{
-			Severity: hcl.DiagError,
-			Summary:  "Invalid trigger type",
-			Detail:   fmt.Sprintf("Invalid trigger type: %q", block.Labels[0]),
-			Subject:  &block.DefRange,
-		}}
+		// h.registry, not triggerRegistry: it is the per-build set, so a
+		// conditional type this configuration does not enable is absent from
+		// it — which is what unknownTypeDiag tells apart from a typo.
+		return hcl.Diagnostics{
+			unknownTypeDiag("trigger", block.Labels[0], sortedKeys(h.registry), block.DefRange),
+		}
 	}
 	return reg.Process(config, block, &triggerDef)
 }

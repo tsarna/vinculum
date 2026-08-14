@@ -95,12 +95,8 @@ func extractEditorFunctions(bodies []hcl.Body, config *Config, evalCtxFn func() 
 
 			processor, ok := editorRegistry[editorType]
 			if !ok {
-				diags = diags.Append(&hcl.Diagnostic{
-					Severity: hcl.DiagError,
-					Summary:  "Unknown editor type",
-					Detail:   fmt.Sprintf("Unknown editor type %q", editorType),
-					Subject:  block.DefRange.Ptr(),
-				})
+				diags = diags.Append(
+					unknownTypeDiag("editor", editorType, sortedKeys(editorRegistry), block.DefRange))
 				continue
 			}
 

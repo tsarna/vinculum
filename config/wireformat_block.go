@@ -85,12 +85,9 @@ func (h *WireFormatBlockHandler) Process(config *Config, block *hcl.Block) hcl.D
 
 	processor, ok := wireFormatRegistry[def.Type]
 	if !ok {
-		return hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  "Unknown wire_format type",
-			Detail:   fmt.Sprintf("wire_format type %q is not registered", def.Type),
-			Subject:  &block.DefRange,
-		}}
+		return hcl.Diagnostics{
+			unknownTypeDiag("wire_format", def.Type, sortedKeys(wireFormatRegistry), block.DefRange),
+		}
 	}
 
 	val, diags := processor(config, block, def.RemainingBody)

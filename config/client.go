@@ -108,12 +108,7 @@ func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	processor, ok := clientRegistry[block.Labels[0]]
 	if !ok {
 		return hcl.Diagnostics{
-			&hcl.Diagnostic{
-				Severity: hcl.DiagError,
-				Summary:  "Invalid client type",
-				Detail:   fmt.Sprintf("Invalid client type: %s", block.Labels[0]),
-				Subject:  &block.DefRange,
-			},
+			unknownTypeDiag("client", block.Labels[0], sortedKeys(clientRegistry), block.DefRange),
 		}
 	}
 	client, diags = processor(config, block, clientDef.RemainingBody)

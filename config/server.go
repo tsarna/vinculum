@@ -80,12 +80,7 @@ func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	processor, ok := serverRegistry[block.Labels[0]]
 	if !ok {
 		return hcl.Diagnostics{
-			&hcl.Diagnostic{
-				Severity: hcl.DiagError,
-				Summary:  "Invalid server type",
-				Detail:   fmt.Sprintf("Invalid server type: %s", block.Labels[0]),
-				Subject:  &block.DefRange,
-			},
+			unknownTypeDiag("server", block.Labels[0], sortedKeys(serverRegistry), block.DefRange),
 		}
 	}
 	server, diags = processor(config, block, serverDef.RemainingBody)

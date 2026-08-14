@@ -360,12 +360,11 @@ func (h *MetricBlockHandler) Preprocess(block *hcl.Block) hcl.Diagnostics {
 	case "gauge", "counter", "histogram":
 		// valid
 	default:
-		return hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  "Invalid metric type",
-			Detail:   fmt.Sprintf("Metric type must be \"gauge\", \"counter\", or \"histogram\", got %q", kind),
-			Subject:  block.DefRange.Ptr(),
-		}}
+		// The one typed block with no registry: its types are the three the
+		// switch above names, so they are also the list to report.
+		return hcl.Diagnostics{
+			unknownTypeDiag("metric", kind, []string{"counter", "gauge", "histogram"}, block.DefRange),
+		}
 	}
 
 	name := block.Labels[1]
