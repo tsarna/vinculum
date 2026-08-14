@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-08-14
+
 ### Added
 
 - **`vinculum schema` — a machine-readable description of the configuration language.**
@@ -270,11 +272,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   v0.19.0, and invisible on arm64, where the same conversion saturates the other way and
   the clamp happens to hold. `client "vws"` was never affected — it backs off through the
   bus reconnector, which multiplies and clamps once per attempt.
-- **`max_retries` in a `reconnect` block is honoured on the mqtt and rabbitmq clients.** It
-  has been decoded and validated since it was introduced, and read by exactly one of the
-  three client types that accept the block. On the other two it parsed cleanly and did
-  nothing: a configuration asking to give up after three attempts got a client that retried
-  forever, with no diagnostic to say otherwise. Giving up is a property of a retry loop and
+- **BREAKING: `max_retries` in a `reconnect` block is honoured on the mqtt and rabbitmq
+  clients.** A client that sets it now *stops reconnecting* once the limit is reached,
+  where on these two it previously retried forever — so a configuration asking to give up
+  after three attempts gets exactly that, and a client which used to come back eventually
+  may now stay down. The attribute has been decoded and validated since it was introduced,
+  and read by exactly one of the three client types that accept the block; on the other two
+  it parsed cleanly and did nothing, with no diagnostic to say otherwise. Giving up is a
+  property of a retry loop and
   neither loop lives in this repository, so the fix was upstream first — vinculum-mqtt
   v0.11.0 and vinculum-rabbitmq v0.4.0 each gained the capability. All three clients now
   behave identically: zero or negative retries forever, the limit bounds *reconnection*
@@ -1340,7 +1345,8 @@ vinculum-ai tool (see github.com/tsarna/vscode-vinculum)
 
 - Switched back to upstream `github.com/amir-yaghoubi/mqttpattern` after our changes were accepted
 
-[Unreleased]: https://github.com/tsarna/vinculum/compare/v0.44.0...HEAD
+[Unreleased]: https://github.com/tsarna/vinculum/compare/v0.45.0...HEAD
+[0.45.0]: https://github.com/tsarna/vinculum/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/tsarna/vinculum/compare/v0.43.0...v0.44.0
 [0.43.0]: https://github.com/tsarna/vinculum/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/tsarna/vinculum/compare/v0.41.0...v0.42.0
