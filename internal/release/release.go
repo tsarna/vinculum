@@ -330,20 +330,32 @@ func checkPinnedVersions(root, latest string) []Problem {
 func checkReleaseVersion(version string, cl changelog, pending string) []Problem {
 	var problems []Problem
 
-	if parseVersion(version) == nil {
-		return []Problem{{Detail: fmt.Sprintf("release version %q is not X.Y.Z", version)}}
+	core, pre := splitPrerelease(version)
+	if parseVersion(core) == nil {
+		return []Problem{{Detail: fmt.Sprintf("release version %q is not X.Y.Z, optionally with a -prerelease suffix", version)}}
 	}
 
 	latest := cl.released[0]
-	if latest != version {
+	switch {
+	case pre != "":
+		// A prerelease is a rehearsal of the pipeline, and is cut either
+		// before or after the tree is prepared — so accept both. What it may
+		// not be is a rehearsal of a version nothing describes, which would
+		// rehearse the wrong release notes.
+		if latest != core && pending != core {
+			problems = append(problems, Problem{
+				Detail: fmt.Sprintf("%s is a prerelease of %s, which neither the newest changelog section (%s) nor doc/ describes", version, core, latest),
+			})
+		}
+	case latest != core:
 		problems = append(problems, Problem{
 			File:   "CHANGELOG.md",
-			Detail: fmt.Sprintf("newest section is [%s], but the release being built is %s — rename the [Unreleased] section before tagging", latest, version),
+			Detail: fmt.Sprintf("newest section is [%s], but the release being built is %s — rename the [Unreleased] section before tagging", latest, core),
 		})
-	} else if !cl.dated[version] {
+	case !cl.dated[core]:
 		problems = append(problems, Problem{
 			File:   "CHANGELOG.md",
-			Detail: fmt.Sprintf("section [%s] carries no date; the heading should read \"## [%s] - YYYY-MM-DD\"", version, version),
+			Detail: fmt.Sprintf("section [%s] carries no date; the heading should read \"## [%s] - YYYY-MM-DD\"", core, core),
 		})
 	}
 
@@ -351,10 +363,10 @@ func checkReleaseVersion(version string, cl changelog, pending string) []Problem
 	// renames the old one and leaves a fresh empty heading behind, which is
 	// what v0.44.0 and every tag before it look like.
 
-	if pending != "" && pending != version {
+	if pending != "" && pending != core {
 		problems = append(problems, Problem{
 			File:   "doc",
-			Detail: fmt.Sprintf("pages promise changes in %s, but the release being built is %s", pending, version),
+			Detail: fmt.Sprintf("pages promise changes in %s, but the release being built is %s", pending, core),
 		})
 	}
 	return problems
@@ -363,6 +375,15 @@ func checkReleaseVersion(version string, cl changelog, pending string) []Problem
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// splitPrerelease separates a tag's core version from any -rc1 / +build
+// suffix, so a rehearsal tag is measured against the release it rehearses.
+func splitPrerelease(v string) (core, pre string) {
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		return v[:i], v[i+1:]
+	}
+	return v, ""
+}
 
 // parseVersion returns the three components of an X.Y.Z version, or nil.
 func parseVersion(v string) []int {

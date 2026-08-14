@@ -34,14 +34,25 @@ jobs:
       # changelog entry can't ship a blank GitHub Release.
       - name: Extract changelog section
         run: |
+          notes="$RUNNER_TEMP/release-notes.md"
           version="${GITHUB_REF_NAME#v}"
-          awk -v ver="$version" '
-            $0 ~ "^## \\[" ver "\\]" { flag=1; next }
-            flag && /^## / { exit }
-            flag { print }
-          ' CHANGELOG.md | sed '/./,$!d' > "$RUNNER_TEMP/release-notes.md"
-          if [ ! -s "$RUNNER_TEMP/release-notes.md" ]; then
-            echo "::error::No CHANGELOG.md section found for $version" >&2
+          core="${version%%-*}"
+          extract() {
+            awk -v ver="$1" '
+              $0 ~ "^## \\[" ver "\\]" { flag=1; next }
+              flag && /^## / { exit }
+              flag { print }
+            ' CHANGELOG.md | sed '/./,$!d' > "$notes"
+          }
+          extract "$core"
+          # A prerelease rehearses this pipeline and may be cut before the
+          # section is renamed, so fall back to what is still Unreleased.
+          # A real release has no such excuse.
+          if [ ! -s "$notes" ] && [ "$core" != "$version" ]; then
+            extract "Unreleased"
+          fi
+          if [ ! -s "$notes" ]; then
+            echo "::error::No CHANGELOG.md section found for $core" >&2
             exit 1
           fi
           echo "----- release notes -----"

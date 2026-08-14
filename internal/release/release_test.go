@@ -143,6 +143,16 @@ func TestReleaseVersionChecks(t *testing.T) {
 		requireProblem(t, checkReleaseVersion("0.45.0", cl, "0.46.0"), "pages promise changes in 0.46.0")
 	})
 
+	t.Run("a prerelease rehearses the version doc/ promises", func(t *testing.T) {
+		unprepared := changelog{released: []string{"0.44.0"}, dated: map[string]bool{"0.44.0": true}}
+		assert.Empty(t, checkReleaseVersion("0.45.0-rc1", unprepared, "0.45.0"),
+			"an rc may be cut before the changelog section is renamed")
+		assert.Empty(t, checkReleaseVersion("0.45.0-rc1", cl, ""),
+			"or after")
+		requireProblem(t, checkReleaseVersion("0.99.0-rc1", unprepared, "0.45.0"),
+			"which neither the newest changelog section")
+	})
+
 	t.Run("undated section", func(t *testing.T) {
 		undated := cl
 		undated.dated = map[string]bool{"0.45.0": false}
