@@ -486,15 +486,20 @@ func TestFSM_ReactiveEventPreservesCtx(t *testing.T) {
 		"FSM transition is a linked root; trace_id should differ from parent")
 
 	// Verify the FSM transition span in the exporter has a Link back to
-	// the parent span — the OTel async-messaging correlation.
+	// the parent span — the OTel async-messaging correlation. The done flag
+	// is written from inside the on_entry hook, but the transition span is
+	// only ended (and thus exported) once the whole hook sequence returns,
+	// so poll rather than reading the exporter once.
 	var fsmSpan sdktrace.ReadOnlySpan
-	for _, s := range exporter.GetSpans().Snapshots() {
-		if s.Name() == "fsm.hvac/overheat" {
-			fsmSpan = s
-			break
+	require.Eventually(t, func() bool {
+		for _, s := range exporter.GetSpans().Snapshots() {
+			if s.Name() == "fsm.hvac/overheat" {
+				fsmSpan = s
+				return true
+			}
 		}
-	}
-	require.NotNil(t, fsmSpan, "expected 'fsm.hvac/overheat' span in exporter")
+		return false
+	}, time.Second, 5*time.Millisecond, "expected 'fsm.hvac/overheat' span in exporter")
 	assert.Equal(t, gotTrace, fsmSpan.SpanContext().TraceID().String(),
 		"hook ran under the FSM transition span")
 	require.Len(t, fsmSpan.Links(), 1, "FSM span should have exactly one link")
