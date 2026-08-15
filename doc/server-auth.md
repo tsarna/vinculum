@@ -111,7 +111,7 @@ Evaluated against the `http-request` context.
 
 **`algorithms`**
 
-`oidc` only.
+`oidc` only. A JWKS key is used to verify a token only if the algorithm it advertises is listed here, so narrowing the list narrows what the issuer can present. The algorithm always comes from the key rather than the token header, which is attacker-controlled. Unrecognized names, an empty list, and `"none"` are rejected at config load.
 
 **`audience`**
 

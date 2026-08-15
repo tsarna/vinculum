@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`auth "oidc"` now enforces `algorithms`.** The attribute was parsed, validated as a
+  list of strings, and stored — and then never consulted, so `algorithms = ["RS256"]`
+  restricted nothing and an operator who narrowed the list got none of the narrowing they
+  asked for. It is now applied: a key from the issuer's JWKS is offered to the verifier
+  only if the algorithm it advertises is on the list.
+
+  The exposure this closes is narrower than the attribute's name suggests, and worth
+  stating precisely. jwx takes the verification algorithm from the JWKS key's own `alg`
+  and never from the token header, so the classic header-substitution attacks —
+  `alg: none`, RS256 downgraded to HS256 with the public key as the HMAC
+  secret — were not reachable before this change and are not what it fixes.
+  What was reachable: if the issuer published a key whose algorithm the operator had
+  deliberately excluded, a token genuinely signed with that key was accepted anyway.
+  
+### Changed
+
+- **`auth "oidc"` rejects a bad `algorithms` list at config load** instead of ignoring it.
+  Unrecognized algorithm names, an empty list, and `"none"` are now errors. This can fail a
+  config that loaded before: a misspelled name such as `["RSA256"]` was previously accepted
+  and — like the rest of the list — discarded, so the typo was invisible. It now names the
+  offending value at startup.
+- **JWT handling moved from `github.com/lestrrat-go/jwx` v2 to v3.** The v2 line is no
+  longer maintained. Nothing about `auth "oidc"` changes for a config author beyond the two
+  entries above; the JWKS cache still refreshes in the background on the same interval and
+  still re-fetches once on an unknown `kid` to ride out a key rotation.
+
+  This stops at v3 rather than going on to v4. jwx v4
+  requires `encoding/json/v2`, still gated behind `GOEXPERIMENT=jsonv2` as of Go 1.26 — so
+  adopting it would mean setting that flag for every build of vinculum, including CI,
+  GoReleaser, all three images, the plugin-build image, and every plugin author's own
+  build.
+
+  The `auth "oidc"` code path had no test coverage of its own before this port. It now has
+  tests covering the claim mapping onto `ctx.auth`, algorithm enforcement, expiry and clock
+  skew, audience mismatch, unknown signing keys, malformed and absent bearer tokens, the
+  explicit `jwks_url` path that skips discovery, and the config errors above.
+
 ## [0.45.0] - 2026-08-14
 
 ### Added

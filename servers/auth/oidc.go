@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/lestrrat-go/jwx/v2/jwk"
-	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/lestrrat-go/httprc/v3"
+	"github.com/lestrrat-go/jwx/v3/jwa"
+	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v3/jwt"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -31,10 +33,14 @@ type OIDCMetadata struct {
 }
 
 type oidcAuthenticator struct {
-	jwksURL    string
-	audience   []string
-	clockSkew  time.Duration
-	algorithms []string
+	jwksURL   string
+	audience  []string
+	clockSkew time.Duration
+	// algorithms is the set of signing algorithms a JWKS key may advertise to be
+	// considered for verification. jwx selects the algorithm from the key's own
+	// `alg`, never from the token header, so filtering the key set is what makes
+	// the configured list actually restrictive.
+	algorithms map[jwa.SignatureAlgorithm]struct{}
 	cache      *jwk.Cache
 	// cachedMeta holds the OIDC discovery document for re-serving.
 	cachedMeta *OIDCMetadata
@@ -47,8 +53,11 @@ type oidcAuthenticator struct {
 
 func newOIDCAuthenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext) (Authenticator, error) {
 	a := &oidcAuthenticator{
-		algorithms: []string{"RS256", "ES256"},
-		clockSkew:  30 * time.Second,
+		algorithms: map[jwa.SignatureAlgorithm]struct{}{
+			jwa.RS256(): {},
+			jwa.ES256(): {},
+		},
+		clockSkew: 30 * time.Second,
 	}
 
 	// Parse clock_skew (string, number, or duration capsule).
@@ -74,7 +83,21 @@ func newOIDCAuthenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext) (Authent
 		if err != nil {
 			return nil, fmt.Errorf("auth oidc: %w", err)
 		}
-		a.algorithms = algs
+		if len(algs) == 0 {
+			return nil, fmt.Errorf("auth oidc: algorithms must not be empty")
+		}
+		set := make(map[jwa.SignatureAlgorithm]struct{}, len(algs))
+		for _, name := range algs {
+			alg, ok := jwa.LookupSignatureAlgorithm(name)
+			if !ok {
+				return nil, fmt.Errorf("auth oidc: unknown signing algorithm %q", name)
+			}
+			if alg == jwa.NoSignature() {
+				return nil, fmt.Errorf("auth oidc: signing algorithm %q is not permitted", name)
+			}
+			set[alg] = struct{}{}
+		}
+		a.algorithms = set
 	}
 
 	// Parse audience.
@@ -111,12 +134,16 @@ func newOIDCAuthenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext) (Authent
 		a.jwksURL = jwksURL
 
 		// Set up JWKS cache with background refresh.
-		cache := jwk.NewCache(context.Background())
-		if err := cache.Register(jwksURL, jwk.WithMinRefreshInterval(15*time.Minute)); err != nil {
+		ctx := context.Background()
+		cache, err := jwk.NewCache(ctx, httprc.NewClient())
+		if err != nil {
+			return nil, fmt.Errorf("auth oidc: creating JWKS cache: %w", err)
+		}
+		if err := cache.Register(ctx, jwksURL, jwk.WithMinInterval(15*time.Minute)); err != nil {
 			return nil, fmt.Errorf("auth oidc: registering JWKS cache: %w", err)
 		}
 		// Perform an initial fetch to catch config errors at startup.
-		if _, err := cache.Refresh(context.Background(), jwksURL); err != nil {
+		if _, err := cache.Refresh(ctx, jwksURL); err != nil {
 			return nil, fmt.Errorf("auth oidc: initial JWKS fetch from %s: %w", jwksURL, err)
 		}
 		a.cache = cache
@@ -144,26 +171,17 @@ func (a *oidcAuthenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalConte
 		return introspectToken(token, a.introspectURL, a.introspectClientID, a.introspectSecret, a.audience)
 	}
 
-	keySet, err := a.cache.Get(r.Context(), a.jwksURL)
+	keySet, err := a.cache.Lookup(r.Context(), a.jwksURL)
 	if err != nil {
 		return cty.NilVal, nil, fmt.Errorf("auth oidc: getting JWKS: %w", err)
 	}
 
-	parsed, err := jwt.Parse([]byte(token),
-		jwt.WithKeySet(keySet),
-		jwt.WithValidate(true),
-		jwt.WithAcceptableSkew(a.clockSkew),
-	)
+	parsed, err := a.parseToken(token, keySet)
 	if err != nil {
 		// Try refreshing the cache once (handles key rotation / unknown kid).
-		if _, refreshErr := a.cache.Refresh(r.Context(), a.jwksURL); refreshErr == nil {
-			keySet, _ = a.cache.Get(r.Context(), a.jwksURL)
+		if refreshed, refreshErr := a.cache.Refresh(r.Context(), a.jwksURL); refreshErr == nil {
+			parsed, err = a.parseToken(token, refreshed)
 		}
-		parsed, err = jwt.Parse([]byte(token),
-			jwt.WithKeySet(keySet),
-			jwt.WithValidate(true),
-			jwt.WithAcceptableSkew(a.clockSkew),
-		)
 		if err != nil {
 			return cty.NilVal, &AuthFailure{
 				Status:          http.StatusUnauthorized,
@@ -181,6 +199,56 @@ func (a *oidcAuthenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalConte
 
 	authVal := jwtTokenToCty(parsed)
 	return authVal, nil, nil
+}
+
+// parseToken verifies and validates the token against the permitted subset of
+// the key set.
+func (a *oidcAuthenticator) parseToken(token string, keySet jwk.Set) (jwt.Token, error) {
+	return jwt.Parse([]byte(token),
+		jwt.WithKeySet(a.permittedKeys(keySet)),
+		jwt.WithValidate(true),
+		jwt.WithAcceptableSkew(a.clockSkew),
+	)
+}
+
+// permittedKeys returns the subset of keySet whose advertised `alg` is in the
+// configured algorithms list.
+//
+// jwx chooses the verification algorithm from the key's own `alg` rather than
+// from the (attacker-controlled) token header, and skips keys that advertise
+// none. Restricting which keys are offered is therefore exactly equivalent to
+// restricting which algorithms may verify a token.
+//
+// Anything unusable is skipped rather than reported: this runs per request, and
+// a JWKS the issuer serves is not something an operator can fix from here, so
+// one odd entry must not fail every request. A key excluded for any reason
+// simply cannot verify a token, which is the intended outcome.
+//
+// Skipping is the whole error strategy — this cannot fail. AddKey rejects only
+// a nil key or one already in the set by interface identity, and neither is
+// reachable from iterating a parsed set into an empty one.
+func (a *oidcAuthenticator) permittedKeys(keySet jwk.Set) jwk.Set {
+	permitted := jwk.NewSet()
+	for i := range keySet.Len() {
+		key, ok := keySet.Key(i)
+		if !ok {
+			continue
+		}
+		keyAlg, ok := key.Algorithm()
+		if !ok {
+			// No `alg`; jwx would refuse to use it anyway.
+			continue
+		}
+		alg, ok := jwa.LookupSignatureAlgorithm(keyAlg.String())
+		if !ok {
+			continue
+		}
+		if _, ok := a.algorithms[alg]; !ok {
+			continue
+		}
+		_ = permitted.AddKey(key) // unreachable failure; see above
+	}
+	return permitted
 }
 
 // fetchOIDCMetadata retrieves the OIDC discovery document from the issuer.
@@ -223,7 +291,10 @@ func extractBearerToken(r *http.Request) (string, error) {
 
 // tokenHasAudience checks whether any element of required appears in the token's aud claim.
 func tokenHasAudience(token jwt.Token, required []string) bool {
-	tokenAud := token.Audience()
+	tokenAud, ok := token.Audience()
+	if !ok {
+		return false
+	}
 	for _, req := range required {
 		for _, aud := range tokenAud {
 			if aud == req {
@@ -239,47 +310,42 @@ func jwtTokenToCty(token jwt.Token) cty.Value {
 	claims := map[string]cty.Value{}
 
 	// Standard claims.
-	claims["sub"] = cty.StringVal(token.Subject())
-	if token.Issuer() != "" {
-		claims["iss"] = cty.StringVal(token.Issuer())
+	subject, _ := token.Subject()
+	claims["sub"] = cty.StringVal(subject)
+	if iss, ok := token.Issuer(); ok && iss != "" {
+		claims["iss"] = cty.StringVal(iss)
 	}
-	for _, aud := range token.Audience() {
-		_ = aud // aud is a []string; add as list below
-	}
-	if auds := token.Audience(); len(auds) > 0 {
+	if auds, ok := token.Audience(); ok && len(auds) > 0 {
 		audVals := make([]cty.Value, len(auds))
 		for i, a := range auds {
 			audVals[i] = cty.StringVal(a)
 		}
 		claims["aud"] = cty.ListVal(audVals)
 	}
-	if !token.IssuedAt().IsZero() {
-		claims["iat"] = cty.NumberIntVal(token.IssuedAt().Unix())
+	if iat, ok := token.IssuedAt(); ok && !iat.IsZero() {
+		claims["iat"] = cty.NumberIntVal(iat.Unix())
 	}
-	if !token.Expiration().IsZero() {
-		claims["exp"] = cty.NumberIntVal(token.Expiration().Unix())
+	if exp, ok := token.Expiration(); ok && !exp.IsZero() {
+		claims["exp"] = cty.NumberIntVal(exp.Unix())
 	}
 
 	// Private claims.
-	for pair := token.Iterate(context.Background()); pair.Next(context.Background()); {
-		p := pair.Pair()
-		key, ok := p.Key.(string)
-		if !ok {
-			continue
-		}
+	for _, key := range token.Keys() {
 		// Skip standard claims already handled.
 		switch key {
 		case "sub", "iss", "aud", "iat", "exp", "nbf", "jti":
 			continue
 		}
-		if v := anyToCty(p.Value); v != cty.NilVal {
+		var raw any
+		if err := token.Get(key, &raw); err != nil {
+			continue
+		}
+		if v := anyToCty(raw); v != cty.NilVal {
 			claims[key] = v
 		}
 	}
 
 	claimsVal := cty.ObjectVal(claims)
-
-	subject := token.Subject()
 
 	var usernameVal cty.Value
 	if pu, ok := claims["preferred_username"]; ok && pu.Type() == cty.String {
