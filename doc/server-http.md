@@ -34,12 +34,13 @@ block is covered under [Authentication](#authentication), and in full on the
 
 <!-- vinculum:begin block-attrs server http level=3 -->
 
-| Attribute | Type | Required | Description |
-|---|---|---|:---|
-| `listen` | string (listen-addr) | yes | Address and port to listen on. |
-| `disabled` | bool |  | Skip this block entirely. |
-| `metrics` | expression (metrics-ref) |  | Where to report metrics. |
-| `tracing` | expression (tracing-ref) |  | Where to report traces. |
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `listen` | string (listen-addr) | yes |  | Address and port to listen on. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
+| `shutdown_timeout` | expression (duration) |  | `10s` | How long to let in-flight work finish while shutting down. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
 
 **`listen`**
 
@@ -52,6 +53,10 @@ The block is parsed and validated, but nothing is created from it. A block that 
 **`metrics`**
 
 A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
+
+**`shutdown_timeout`**
+
+On shutdown the block stops accepting new work before anything else is torn down, then waits this long for what is already in flight. Whatever is still running when the time is up is closed out from under it. `0` waits indefinitely, which hands a stuck request the power to block shutdown forever.
 
 **`tracing`**
 

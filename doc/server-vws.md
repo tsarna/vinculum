@@ -36,6 +36,7 @@ server "vws" "name" {
 | `outbound_transforms` | expression (transform-pipeline) |  |  | Transform pipeline applied to messages going from the bus to clients. |
 | `ping_interval` | expression (duration) |  |  | How often to send WebSocket pings, to detect dead connections. |
 | `queue_size` | number |  | `256` | Per-connection outbound queue depth. |
+| `shutdown_timeout` | expression (duration) |  | `10s` | How long to let in-flight work finish while shutting down. |
 | `write_timeout` | expression (duration) |  |  | How long to wait writing to a client before closing the connection. |
 
 **`allow_send`**
@@ -55,6 +56,10 @@ A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics
 **`queue_size`**
 
 How far one slow client may fall behind before its messages start being dropped.
+
+**`shutdown_timeout`**
+
+On shutdown, connected clients are closed before the buses and clients they depend on are stopped, and this bounds the wait for them to go away. Applies whether or not the hosting `server "http"` block sets its own — an upgraded WebSocket is invisible to that block's drain. `0` waits indefinitely.
 
 <!-- vinculum:end block-attrs server vws -->
 

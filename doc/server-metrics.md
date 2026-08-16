@@ -76,6 +76,7 @@ but the metrics will not be scraped. This may be useful during development.
 | `include_go_metrics` | bool |  | `true` | Register Go runtime metrics. |
 | `listen` | string (listen-addr) |  |  | Address to serve metrics on, as a standalone server. |
 | `path` | string |  | `/metrics` | Path the metrics are served at. |
+| `shutdown_timeout` | expression (duration) |  | `10s` | How long to let in-flight work finish while shutting down. |
 | `tracing` | expression (tracing-ref) |  |  | Where to report traces for scrape requests. |
 
 **`default_metrics`**
@@ -99,6 +100,10 @@ Omit to mount this server into a `server "http"` route instead.
 **`path`**
 
 Standalone mode only. A mounted server is reached at the route its `handle` block declares, and setting this alongside a mount warns.
+
+**`shutdown_timeout`**
+
+On shutdown the server stops accepting new scrapes before anything else is torn down, then waits this long for those already in flight. Whatever is still running when the time is up is closed out from under it. `0` waits indefinitely. Standalone mode only — a mounted server drains with the `server "http"` block hosting it.
 
 **`tracing`**
 

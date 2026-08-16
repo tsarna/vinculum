@@ -1,9 +1,11 @@
 package mcp
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -27,7 +29,10 @@ type ServerConfig struct {
 	ServerVersion string
 	TLSConfig     *tls.Config
 	Auth          *cfg.AuthConfig
-	OtlpClient    cfg.OtlpClient
+	// ShutdownTimeout bounds how long Drain waits for in-flight requests
+	// before forcing connections closed. Zero waits indefinitely.
+	ShutdownTimeout time.Duration
+	OtlpClient      cfg.OtlpClient
 	// TracerProvider, when set, overrides the tracer provider used for
 	// MCP-method spans. When nil, it is derived from OtlpClient (else the
 	// global provider). Primarily a test injection point.
@@ -56,6 +61,12 @@ type Server struct {
 	tracer        oteltrace.Tracer
 	metrics       *mcpMetrics
 	baggageFilter *hclutil.BaggageFilterConfig
+
+	// shutdownTimeout bounds how long Drain waits for in-flight requests.
+	shutdownTimeout time.Duration
+	// httpSrv is the standalone listener, set by Start and read by Drain.
+	// Nil when mounted under a server "http" block, which owns the listener.
+	httpSrv *http.Server
 }
 
 // New creates a new MCP server from the given configuration.
@@ -101,6 +112,8 @@ func New(scfg ServerConfig) (*Server, error) {
 		tracer:        tp.Tracer(instrumentationScope),
 		metrics:       newMCPMetrics(scfg.MeterProvider),
 		baggageFilter: scfg.BaggageFilter,
+
+		shutdownTimeout: scfg.ShutdownTimeout,
 	}
 
 	// Instrument every inbound MCP request/notification with a span and the
@@ -206,6 +219,8 @@ func (s *Server) Start() error {
 		Addr:    s.listen,
 		Handler: s.httpHandler,
 	}
+	// Retained so Drain can close it on shutdown.
+	s.httpSrv = httpSrv
 	go func() {
 		s.logger.Info("Starting MCP server",
 			zap.String("name", s.name),
@@ -224,6 +239,13 @@ func (s *Server) Start() error {
 		}
 	}()
 	return nil
+}
+
+// Drain stops accepting new connections and waits for in-flight requests, up
+// to the configured shutdown_timeout. A mounted server has no listener of its
+// own, so this is a no-op there and the hosting server "http" block drains.
+func (s *Server) Drain(ctx context.Context) error {
+	return cfg.DrainHTTPServer(ctx, s.httpSrv, s.shutdownTimeout, s.logger, "mcp", s.name)
 }
 
 // HTTPHandler returns the http.Handler for this server.

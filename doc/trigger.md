@@ -1015,6 +1015,13 @@ Evaluates `action` once during graceful shutdown (after SIGINT or SIGTERM is
 received), in the reverse order that stoppable components were registered. Errors
 are logged but do not abort the shutdown sequence.
 
+The action runs with the front door already closed and the runtime behind it
+still up: servers have stopped accepting and drained their in-flight work
+(see each server's `shutdown_timeout`), while buses, clients, and subscriptions
+are stopped only after every shutdown action has returned. So an action may
+still `send()` to a bus or call out through a client, but it will not see new
+inbound requests arriving alongside it.
+
 <!-- vinculum:begin block-attrs trigger shutdown level=3 -->
 
 | Attribute | Type | Required | Description |

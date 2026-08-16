@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -40,19 +41,24 @@ type HttpServer struct {
 
 	// baggageFilter strips/limits inbound baggage when set; may be nil.
 	baggageFilter *hclutil.BaggageFilterConfig
+
+	// shutdownTimeout bounds how long Drain waits for in-flight requests
+	// before forcing the remaining connections closed. Zero waits forever.
+	shutdownTimeout time.Duration
 }
 
 type HttpServerDefinition struct {
-	Listen      string                       `hcl:"listen"`
-	TLS         *cfg.TLSConfig               `hcl:"tls,block"`
-	Auth        *cfg.AuthConfig              `hcl:"auth,block"`
-	RealIP      *realIPConfig                `hcl:"real_ip,block"`
-	Tracing     hcl.Expression               `hcl:"tracing,optional"`
-	Metrics     hcl.Expression               `hcl:"metrics,optional"`
-	Baggage     *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
-	DefRange    hcl.Range                    `hcl:",def_range"`
-	StaticFiles []staticFilesDefinition      `hcl:"files,block"`
-	Handlers    []handlerDefinition          `hcl:"handle,block"`
+	Listen          string                       `hcl:"listen"`
+	ShutdownTimeout hcl.Expression               `hcl:"shutdown_timeout,optional"`
+	TLS             *cfg.TLSConfig               `hcl:"tls,block"`
+	Auth            *cfg.AuthConfig              `hcl:"auth,block"`
+	RealIP          *realIPConfig                `hcl:"real_ip,block"`
+	Tracing         hcl.Expression               `hcl:"tracing,optional"`
+	Metrics         hcl.Expression               `hcl:"metrics,optional"`
+	Baggage         *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
+	DefRange        hcl.Range                    `hcl:",def_range"`
+	StaticFiles     []staticFilesDefinition      `hcl:"files,block"`
+	Handlers        []handlerDefinition          `hcl:"handle,block"`
 }
 
 type staticFilesDefinition struct {
@@ -89,8 +95,9 @@ metrics — can be mounted into a route with ` + "`handler = server.<name>`" + `
 			Doc:     "For example `\":8080\"` or `\"127.0.0.1:9090\"`.",
 			Hint:    cfg.HintListenAddr,
 		},
-		"tracing": cfg.TracingAttr,
-		"metrics": cfg.MetricsAttr,
+		"tracing":          cfg.TracingAttr,
+		"metrics":          cfg.MetricsAttr,
+		"shutdown_timeout": cfg.ShutdownTimeoutAttr,
 	},
 	Blocks: map[string]cfg.TypeSchema{
 		"real_ip": {
@@ -235,16 +242,22 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 		}
 	}
 
+	shutdownTimeout, diags := config.ParseDurationOrDefault(serverDef.ShutdownTimeout, cfg.DefaultShutdownTimeout)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
 	server := &HttpServer{
 		Logger: config.Logger,
 		BaseServer: cfg.BaseServer{
 			Name:     serverName,
 			DefRange: serverDef.DefRange,
 		},
-		otlpClient:    otlpClient,
-		meterProvider: mp,
-		realIP:        realIP,
-		baggageFilter: serverDef.Baggage,
+		otlpClient:      otlpClient,
+		meterProvider:   mp,
+		realIP:          realIP,
+		baggageFilter:   serverDef.Baggage,
+		shutdownTimeout: shutdownTimeout,
 	}
 
 	mux := http.NewServeMux()
@@ -396,6 +409,7 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 	}
 
 	config.Startables = append(config.Startables, server)
+	config.Drainables = append(config.Drainables, server)
 
 	return server, nil
 }
@@ -488,6 +502,17 @@ func (h *HttpServer) Start() error {
 	}()
 
 	return nil
+}
+
+// Drain stops accepting new connections and waits for in-flight requests to
+// finish, up to the configured shutdown_timeout. It runs before any client or
+// bus is stopped, so a request still being served keeps the runtime it needs.
+//
+// Hijacked connections (WebSocket upgrades) are not covered — Shutdown leaves
+// them alone by design. The vws and websocket servers drain their own
+// connections, after this, as their own Drainables.
+func (h *HttpServer) Drain(ctx context.Context) error {
+	return cfg.DrainHTTPServer(ctx, h.Server, h.shutdownTimeout, h.Logger, "http", h.Name)
 }
 
 // ─── loggingMiddleware ────────────────────────────────────────────────────────

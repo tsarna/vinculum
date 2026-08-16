@@ -1,9 +1,11 @@
 package metricsserver
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
@@ -17,6 +19,7 @@ import (
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.uber.org/zap"
 )
 
 // MetricsServer implements a Prometheus/OpenMetrics exposition server.
@@ -32,6 +35,13 @@ type MetricsServer struct {
 	tlsConfig     *tls.Config // nil = plain HTTP
 	isDefault     bool
 	otlpClient    cfg.OtlpClient // nil = no explicit tracing
+	logger        *zap.Logger
+
+	// shutdownTimeout bounds how long Drain waits for in-flight scrapes.
+	shutdownTimeout time.Duration
+	// httpSrv is the standalone listener, set by Start and read by Drain.
+	// Nil in mounted mode, where the server "http" block owns the listener.
+	httpSrv *http.Server
 }
 
 // GetHandler returns the HTTP handler for the metrics endpoint.
@@ -100,6 +110,8 @@ func (s *MetricsServer) Start() error {
 		Addr:    s.listen,
 		Handler: tracedMux,
 	}
+	// Retained so Drain can close it on shutdown.
+	s.httpSrv = srv
 
 	go func() {
 		var err error
@@ -117,9 +129,16 @@ func (s *MetricsServer) Start() error {
 	return nil
 }
 
+// Drain stops accepting new scrapes and waits for those in flight, up to the
+// configured shutdown_timeout. A mounted server has no listener of its own, so
+// this is a no-op there and the hosting server "http" block drains.
+func (s *MetricsServer) Drain(ctx context.Context) error {
+	return cfg.DrainHTTPServer(ctx, s.httpSrv, s.shutdownTimeout, s.logger, "metrics", s.GetName())
+}
+
 // newMetricsServer constructs a MetricsServer with a private registry and an
 // OTel MeterProvider bridged to it via the OTel→Prometheus exporter.
-func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDefault, includeGoMetrics bool, tlsCfg *tls.Config, otlpClient cfg.OtlpClient) (*MetricsServer, error) {
+func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDefault, includeGoMetrics bool, tlsCfg *tls.Config, otlpClient cfg.OtlpClient, shutdownTimeout time.Duration, logger *zap.Logger) (*MetricsServer, error) {
 	reg := prometheus.NewRegistry()
 
 	exporter, err := otelprom.New(otelprom.WithRegisterer(reg))
@@ -147,6 +166,9 @@ func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDe
 		tlsConfig:     tlsCfg,
 		isDefault:     isDefault,
 		otlpClient:    otlpClient,
+		logger:        logger,
+
+		shutdownTimeout: shutdownTimeout,
 	}, nil
 }
 
@@ -157,6 +179,7 @@ type MetricsServerDefinition struct {
 	DefaultMetrics   *bool           `hcl:"default_metrics,optional"`
 	IncludeGoMetrics *bool           `hcl:"include_go_metrics,optional"`
 	Tracing          hcl.Expression  `hcl:"tracing,optional"`
+	ShutdownTimeout  hcl.Expression  `hcl:"shutdown_timeout,optional"`
 	TLS              *cfg.TLSConfig  `hcl:"tls,block"`
 	Auth             *cfg.AuthConfig `hcl:"auth,block"`
 	DefRange         hcl.Range       `hcl:",def_range"`
@@ -204,6 +227,11 @@ automatically; with several, exactly one may set this.`,
 			Doc:     "A `client \"otlp\"` block. Auto-wires to the default when omitted.",
 			Hint:    cfg.HintTracingRef,
 		},
+		"shutdown_timeout": cfg.ShutdownTimeoutAttr.WithDoc(
+			"On shutdown the server stops accepting new scrapes before anything else is torn down, " +
+				"then waits this long for those already in flight. Whatever is still running when the " +
+				"time is up is closed out from under it. `0` waits indefinitely. " +
+				"Standalone mode only — a mounted server drains with the `server \"http\"` block hosting it."),
 	},
 }
 
@@ -277,7 +305,12 @@ func ProcessMetricsServerBlock(config *cfg.Config, block *hcl.Block, remainingBo
 		return nil, tracingDiags
 	}
 
-	srv, err := newMetricsServer(name, def.DefRange, listen, path, isDefault, includeGoMetrics, tlsCfg, otlpClient)
+	shutdownTimeout, timeoutDiags := config.ParseDurationOrDefault(def.ShutdownTimeout, cfg.DefaultShutdownTimeout)
+	if timeoutDiags.HasErrors() {
+		return nil, timeoutDiags
+	}
+
+	srv, err := newMetricsServer(name, def.DefRange, listen, path, isDefault, includeGoMetrics, tlsCfg, otlpClient, shutdownTimeout, config.Logger)
 	if err != nil {
 		return nil, hcl.Diagnostics{
 			&hcl.Diagnostic{
@@ -312,8 +345,11 @@ func ProcessMetricsServerBlock(config *cfg.Config, block *hcl.Block, remainingBo
 	}
 	config.MetricsServers[name] = srv
 
+	// Only a standalone server owns a listener; a mounted one is drained by the
+	// server "http" block that hosts it.
 	if listen != "" {
 		config.Startables = append(config.Startables, srv)
+		config.Drainables = append(config.Drainables, srv)
 	}
 
 	return srv, nil

@@ -1,13 +1,17 @@
 package config
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
+	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/zclconf/go-cty/cty"
+	"go.uber.org/zap"
 )
 
 type ServerDefinition struct {
@@ -106,6 +110,50 @@ type Listener interface {
 type HandlerServer interface {
 	Listener
 	GetHandler() http.Handler
+}
+
+// DrainHTTPServer is the Drainable implementation shared by every server type
+// that owns an *http.Server: stop accepting, wait out the requests already in
+// flight, and force the rest closed when timeout expires. A zero timeout waits
+// indefinitely.
+//
+// srv may be nil — a server that was never started has nothing to drain, and a
+// mounted one does not own a listener at all.
+//
+// Note that Shutdown does not touch hijacked connections, so a server that
+// hands connections off (WebSocket upgrades) needs those closed separately by
+// whatever owns them.
+func DrainHTTPServer(ctx context.Context, srv *http.Server, timeout time.Duration, logger *zap.Logger, kind, name string) error {
+	if srv == nil {
+		return nil
+	}
+
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	err := srv.Shutdown(ctx)
+	if err == nil {
+		return nil
+	}
+
+	// A deadline here is the expected outcome of a handler that outlasts the
+	// grace period, not an operational failure: say what is being cut off and
+	// cut it off, rather than letting a stuck request hold shutdown open.
+	if errors.Is(err, context.DeadlineExceeded) {
+		if logger != nil {
+			logger.Warn("Timed out draining in-flight requests, closing connections",
+				zap.String("server", kind),
+				zap.String("name", name),
+				zap.Duration("shutdown_timeout", timeout),
+			)
+		}
+		return srv.Close()
+	}
+
+	return err
 }
 
 // ServerProcessor is a function that processes a server block and returns a Listener.

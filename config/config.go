@@ -1,9 +1,11 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	bus "github.com/tsarna/vinculum-bus"
@@ -54,6 +56,32 @@ type PreStoppable interface {
 	PreStop() error
 }
 
+// Drainable is implemented by components that accept inbound work from the
+// outside world — listeners and the connections they hold. Drain() is called
+// in reverse registration order as the *first* phase of teardown, before any
+// PreStop() or Stop(), so that nothing new arrives while the runtime the
+// handlers depend on (clients, buses, subscriptions) is being torn down.
+//
+// Draining before PreStop rather than during it is what makes the ordering
+// deterministic: PreStoppables also carry the user's `trigger "shutdown"`
+// actions, and those run with the full runtime available but the front door
+// already closed.
+//
+// A Drainable stops accepting, waits for work already in flight, and returns.
+// ctx is the phase's parent context; a component applies its own configured
+// grace period beneath it, so the phase is bounded by the config rather than
+// by the caller. Returning a context error is normal — it means in-flight work
+// outlasted the grace period — and an implementation must force-close rather
+// than keep blocking once its deadline passes.
+type Drainable interface {
+	Drain(ctx context.Context) error
+}
+
+// DefaultShutdownTimeout is how long a listener waits for in-flight work
+// before forcing its remaining connections closed, when the block does not
+// set `shutdown_timeout`.
+const DefaultShutdownTimeout = 10 * time.Second
+
 type Config struct {
 	Logger *zap.Logger
 	// UserLogger is Logger with Go caller and stacktrace suppressed. Use it
@@ -80,6 +108,7 @@ type Config struct {
 	SigActions       *SignalActionHandler
 	Startables       []Startable
 	PostStartables   []PostStartable
+	Drainables       []Drainable
 	PreStoppables    []PreStoppable
 	Stoppables       []Stoppable
 	BusCapsuleType   cty.Type

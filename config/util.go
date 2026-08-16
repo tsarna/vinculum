@@ -24,6 +24,16 @@ func IsExpressionProvided(expr hcl.Expression) bool {
 	return hclutil.IsExpressionProvided(expr)
 }
 
+// ParseDurationOrDefault parses a duration from an optional HCL expression,
+// returning def when the attribute was not provided. Diagnostics from a
+// provided-but-invalid expression are returned as-is.
+func (c *Config) ParseDurationOrDefault(expr hcl.Expression, def time.Duration) (time.Duration, hcl.Diagnostics) {
+	if !IsExpressionProvided(expr) {
+		return def, nil
+	}
+	return c.ParseDuration(expr)
+}
+
 // ParseDuration parses a duration from an HCL expression.
 // It supports three formats:
 // 1. Numbers (interpreted as seconds)

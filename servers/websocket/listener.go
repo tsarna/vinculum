@@ -151,9 +151,13 @@ func (s *Listener) Shutdown(ctx context.Context) error {
 			zap.Int("connection_count", connCount),
 		)
 
-		// Close all connections
+		// Close all connections concurrently. Close performs the WebSocket
+		// closing handshake and waits for the peer to echo the close frame, so
+		// a client that has stopped reading blocks it for seconds. Closing
+		// sequentially would multiply that by the number of such clients and
+		// leave the caller's deadline governing nothing.
 		for _, conn := range connections {
-			conn.Close()
+			go conn.Close()
 		}
 	})
 

@@ -42,6 +42,7 @@ way they do on [`server "http"`](server-http.md); see
 | `path` | string |  | `/` | Path the MCP endpoint is served at. |
 | `server_name` | string |  | `<name>` | Name reported to clients during initialization. |
 | `server_version` | string |  | `0.0.0` | Version reported to clients during initialization. |
+| `shutdown_timeout` | expression (duration) |  | `10s` | How long to let in-flight work finish while shutting down. |
 | `tracing` | expression (tracing-ref) |  |  | Where to report request traces. |
 
 **`disabled`**
@@ -59,6 +60,10 @@ A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics
 **`path`**
 
 Standalone mode only. A mounted server is reached at the route its `handle` block declares.
+
+**`shutdown_timeout`**
+
+On shutdown the server stops accepting new requests before anything else is torn down, then waits this long for what is already in flight. Whatever is still running when the time is up is closed out from under it. `0` waits indefinitely. Standalone mode only — a mounted server drains with the `server "http"` block hosting it.
 
 **`tracing`**
 

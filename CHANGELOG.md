@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`shutdown_timeout` on every block that accepts inbound connections** — `server "http"`,
+  `"mcp"`, `"metrics"`, `"vws"`, and `"websocket"`. It bounds how long that server waits
+  for in-flight work while shutting down, defaulting to `10s`; whatever is still running
+  when the time is up is closed out from under it, so one stuck request or one client that
+  has stopped reading cannot hold shutdown open. `0` waits indefinitely. On the two
+  WebSocket servers what it bounds is connections closing rather than requests finishing,
+  since that is what those blocks own.
+
+### Fixed
+
+- **Servers now stop accepting before the runtime behind them is torn down.** No listening
+  server in the tree implemented shutdown at all: `server "http"` registered only a
+  `Startable`, `"mcp"` and `"metrics"` built their `http.Server` as a local inside `Start()`
+  and dropped the reference, and the graceful `Shutdown` the two WebSocket servers already
+  had was never called by anything. Listeners therefore stayed up for the whole teardown
+  sequence and died only with the process.
+
+  The visible symptom was not the missing drain but the ordering. Shutdown stopped clients,
+  buses, and subscriptions while requests were still arriving, so a request that landed
+  during teardown ran its handler against a closed SQL pool, a stopped bus, or a
+  disconnected MQTT client — sporadic errors on every deploy rollover, hard to attribute to
+  the rollover itself. Teardown now runs in three phases: listeners drain, then
+  `trigger "shutdown"` actions, then clients and buses. A shutdown action consequently runs
+  with the front door closed and the runtime it needs still up, which is the guarantee it
+  always should have had.
+
+  In-flight requests are also now allowed to finish, and WebSocket clients get a close
+  frame instead of a severed socket — `http.Server.Shutdown` deliberately ignores hijacked
+  connections, so the `vws` and `websocket` blocks drain their own.
+
+- **A WebSocket client that had stopped reading could stall shutdown by seconds per
+  connection.** `server "websocket"` closed its connections one after another, and closing
+  a WebSocket performs a closing handshake that waits for the peer to answer — about five
+  seconds for a peer that never will. Ten such clients meant the better part of a minute,
+  independent of any configured grace period. The closes now overlap, so
+  `shutdown_timeout` governs the total.
+
 ### Security
 
 - **`auth "oidc"` now enforces `algorithms`.** The attribute was parsed, validated as a

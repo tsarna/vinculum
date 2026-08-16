@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/http"
@@ -28,23 +29,28 @@ func (s *McpServer) Start() error {
 	return s.server.Start()
 }
 
+func (s *McpServer) Drain(ctx context.Context) error {
+	return s.server.Drain(ctx)
+}
+
 // HCL struct definitions for the "server mcp" block
 
 type McpServerDefinition struct {
-	Listen        string                       `hcl:"listen,optional"`
-	Path          string                       `hcl:"path,optional"`
-	ServerName    string                       `hcl:"server_name,optional"`
-	ServerVersion string                       `hcl:"server_version,optional"`
-	Disabled      bool                         `hcl:"disabled,optional"`
-	Tracing       hcl.Expression               `hcl:"tracing,optional"`
-	Metrics       hcl.Expression               `hcl:"metrics,optional"`
-	TLS           *cfg.TLSConfig               `hcl:"tls,block"`
-	Auth          *cfg.AuthConfig              `hcl:"auth,block"`
-	Baggage       *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
-	DefRange      hcl.Range                    `hcl:",def_range"`
-	Resources     []mcpResourceDefinition      `hcl:"resource,block"`
-	Tools         []mcpToolDefinition          `hcl:"tool,block"`
-	Prompts       []mcpPromptDefinition        `hcl:"prompt,block"`
+	Listen          string                       `hcl:"listen,optional"`
+	ShutdownTimeout hcl.Expression               `hcl:"shutdown_timeout,optional"`
+	Path            string                       `hcl:"path,optional"`
+	ServerName      string                       `hcl:"server_name,optional"`
+	ServerVersion   string                       `hcl:"server_version,optional"`
+	Disabled        bool                         `hcl:"disabled,optional"`
+	Tracing         hcl.Expression               `hcl:"tracing,optional"`
+	Metrics         hcl.Expression               `hcl:"metrics,optional"`
+	TLS             *cfg.TLSConfig               `hcl:"tls,block"`
+	Auth            *cfg.AuthConfig              `hcl:"auth,block"`
+	Baggage         *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
+	DefRange        hcl.Range                    `hcl:",def_range"`
+	Resources       []mcpResourceDefinition      `hcl:"resource,block"`
+	Tools           []mcpToolDefinition          `hcl:"tool,block"`
+	Prompts         []mcpPromptDefinition        `hcl:"prompt,block"`
 }
 
 type mcpResourceDefinition struct {
@@ -163,6 +169,11 @@ With ` + "`listen`" + ` it runs its own HTTP server; without one, mount it on a 
 			Hint:    cfg.HintTracingRef,
 		},
 		"metrics": cfg.MetricsAttr,
+		"shutdown_timeout": cfg.ShutdownTimeoutAttr.WithDoc(
+			"On shutdown the server stops accepting new requests before anything else is torn down, " +
+				"then waits this long for what is already in flight. Whatever is still running when the " +
+				"time is up is closed out from under it. `0` waits indefinitely. " +
+				"Standalone mode only — a mounted server drains with the `server \"http\"` block hosting it."),
 	},
 	Blocks: map[string]cfg.TypeSchema{
 		"resource": {
@@ -322,22 +333,28 @@ func ProcessMcpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody h
 		return nil, metricsDiags
 	}
 
+	shutdownTimeout, timeoutDiags := config.ParseDurationOrDefault(def.ShutdownTimeout, cfg.DefaultShutdownTimeout)
+	if timeoutDiags.HasErrors() {
+		return nil, timeoutDiags
+	}
+
 	srv, err := New(ServerConfig{
-		Name:          name,
-		Listen:        def.Listen,
-		Path:          def.Path,
-		ServerName:    def.ServerName,
-		ServerVersion: def.ServerVersion,
-		TLSConfig:     tlsCfg,
-		Auth:          def.Auth,
-		OtlpClient:    otlpClient,
-		MeterProvider: mp,
-		BaggageFilter: def.Baggage,
-		ParentEvalCtx: config.EvalCtx(),
-		Logger:        config.Logger,
-		Resources:     resources,
-		Tools:         tools,
-		Prompts:       prompts,
+		Name:            name,
+		Listen:          def.Listen,
+		Path:            def.Path,
+		ServerName:      def.ServerName,
+		ServerVersion:   def.ServerVersion,
+		TLSConfig:       tlsCfg,
+		Auth:            def.Auth,
+		ShutdownTimeout: shutdownTimeout,
+		OtlpClient:      otlpClient,
+		MeterProvider:   mp,
+		BaggageFilter:   def.Baggage,
+		ParentEvalCtx:   config.EvalCtx(),
+		Logger:          config.Logger,
+		Resources:       resources,
+		Tools:           tools,
+		Prompts:         prompts,
 	})
 	if err != nil {
 		defRange := def.DefRange
@@ -354,8 +371,11 @@ func ProcessMcpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody h
 		server:     srv,
 	}
 
+	// Only a standalone server owns a listener; a mounted one is drained by the
+	// server "http" block that hosts it.
 	if def.Listen != "" {
 		config.Startables = append(config.Startables, mcpSrv)
+		config.Drainables = append(config.Drainables, mcpSrv)
 	}
 
 	return mcpSrv, nil

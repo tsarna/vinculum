@@ -210,10 +210,30 @@ type HandlerServer interface {
     Listener
     GetHandler() http.Handler   // allows mounting under server "http"
 }
+
+type Drainable interface {
+    Drain(ctx context.Context) error   // stop accepting, finish in-flight work
+}
 ```
 
 `BaseServer` provides `GetName()` and `GetDefRange()`. Embed it in every server
 struct.
+
+**Anything that accepts inbound work must implement `Drainable`** and append
+itself to `config.Drainables`. Teardown runs `Drainables` → `PreStoppables` →
+`Stoppables`, each in reverse registration order, so draining first is what
+keeps a request from running its handler against a client or bus that a later
+phase has already stopped. Reverse order is dependency-correct for free: a
+`server "http"` block is processed after the server it mounts, so the front
+door closes before the connections behind it.
+
+Register only what you actually own. A server that listens registers when
+`listen != ""` and drains with `cfg.DrainHTTPServer`; a server that is always
+mounted but owns *connections* (`vws`, `websocket`) registers unconditionally,
+because `http.Server.Shutdown` leaves hijacked connections alone. Bound the
+wait with a `shutdown_timeout` attribute (`cfg.ShutdownTimeoutAttr`,
+`cfg.DefaultShutdownTimeout`) and force-close when it expires — a Drainable
+that can block forever hands one stuck peer the power to hang shutdown.
 
 ### Adding a new server type
 

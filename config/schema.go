@@ -221,6 +221,20 @@ func (meta AttrMeta) WithDefault(value string) AttrMeta {
 	return meta
 }
 
+// WithDoc returns a copy of meta with its detail prose replaced. Use it where a
+// shared AttrMeta means the same thing at every host but one host has something
+// extra to say about it — the way `shutdown_timeout` applies only to a server
+// that owns its own listener:
+//
+//	"shutdown_timeout": cfg.ShutdownTimeoutAttr.WithDoc("… Standalone mode only."),
+//
+// The same caution as WithDefault applies: rewriting the Summary's meaning
+// rather than adding to it means this was never the shared attribute.
+func (meta AttrMeta) WithDoc(doc string) AttrMeta {
+	meta.Doc = doc
+	return meta
+}
+
 // ContextSchema describes one shape of `ctx`: what an expression evaluated at
 // that kind of site can read. Shapes are named by AttrMeta.Context and
 // registered with RegisterContextSchema.
@@ -1781,6 +1795,18 @@ var (
 		Summary: "Where to report traces.",
 		Doc:     "A `client \"otlp\"` block. Auto-wires to the default tracing backend when omitted.",
 		Hint:    HintTracingRef,
+	}
+
+	// ShutdownTimeoutAttr documents `shutdown_timeout` on a block that accepts
+	// inbound connections.
+	ShutdownTimeoutAttr = AttrMeta{
+		Summary: "How long to let in-flight work finish while shutting down.",
+		Doc: "On shutdown the block stops accepting new work before anything else is torn down, " +
+			"then waits this long for what is already in flight. Whatever is still running when the " +
+			"time is up is closed out from under it. `0` waits indefinitely, which hands a stuck " +
+			"request the power to block shutdown forever.",
+		Hint:    HintDuration,
+		Default: "10s",
 	}
 
 	// MetricsAttr documents `metrics`, which selects a metrics backend.

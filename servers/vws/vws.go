@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
@@ -20,10 +21,30 @@ import (
 type VinculumWebsocketServer struct {
 	cfg.BaseServer
 	Listener *server.Listener
+
+	// shutdownTimeout bounds how long Drain waits for connections to close.
+	shutdownTimeout time.Duration
 }
 
 func (s *VinculumWebsocketServer) GetHandler() http.Handler {
 	return s.Listener
+}
+
+// Drain closes the open WebSocket connections and waits for them to go away,
+// up to the configured shutdown_timeout.
+//
+// This server never owns a listener — it is always mounted — but it does own
+// connections, and http.Server.Shutdown deliberately leaves hijacked
+// connections alone. Without this they would simply be severed at exit, with
+// no close frame and no chance for a client to distinguish a clean shutdown
+// from a crash.
+func (s *VinculumWebsocketServer) Drain(ctx context.Context) error {
+	if s.shutdownTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.shutdownTimeout)
+		defer cancel()
+	}
+	return s.Listener.Shutdown(ctx)
 }
 
 type VinculumWebsocketsServerDefinition struct {
@@ -36,6 +57,7 @@ type VinculumWebsocketsServerDefinition struct {
 	OutboundTransforms   hcl.Expression `hcl:"outbound_transforms,optional"`
 	InboundTransforms    hcl.Expression `hcl:"inbound_transforms,optional"`
 	Metrics              hcl.Expression `hcl:"metrics,optional"`
+	ShutdownTimeout      hcl.Expression `hcl:"shutdown_timeout,optional"`
 	DefRange             hcl.Range      `hcl:",def_range"`
 }
 
@@ -91,6 +113,11 @@ of a ` + "`server \"http\"`" + ` block with ` + "`handler = server.<name>`" + `.
 			Hint:    cfg.HintTransformPipeline,
 		},
 		"metrics": cfg.MetricsAttr,
+		"shutdown_timeout": cfg.ShutdownTimeoutAttr.WithDoc(
+			"On shutdown, connected clients are closed before the buses and clients they " +
+				"depend on are stopped, and this bounds the wait for them to go away. " +
+				"Applies whether or not the hosting `server \"http\"` block sets its own — " +
+				"an upgraded WebSocket is invisible to that block's drain. `0` waits indefinitely."),
 	},
 }
 
@@ -210,13 +237,23 @@ func ProcessVinculumWebsocketsServerBlock(config *cfg.Config, block *hcl.Block, 
 		}
 	}
 
+	shutdownTimeout, diags := config.ParseDurationOrDefault(serverDef.ShutdownTimeout, cfg.DefaultShutdownTimeout)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
 	srv := &VinculumWebsocketServer{
 		BaseServer: cfg.BaseServer{
 			Name:     block.Labels[1],
 			DefRange: serverDef.DefRange,
 		},
-		Listener: listener,
+		Listener:        listener,
+		shutdownTimeout: shutdownTimeout,
 	}
+
+	// Registered even though this server is always mounted: what it drains is
+	// its connections, which the hosting http.Server will not close.
+	config.Drainables = append(config.Drainables, srv)
 
 	return srv, nil
 }

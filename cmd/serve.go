@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -156,10 +157,15 @@ func runServer(cmd *cobra.Command, args []string) error {
 }
 
 // shutdown runs the graceful teardown sequence shared by the signal path and
-// the REPL-exit path: PreStoppables then Stoppables, each in reverse
-// registration order so dependents stop before their dependencies.
+// the REPL-exit path: Drainables, then PreStoppables, then Stoppables, each in
+// reverse registration order so dependents stop before their dependencies.
+//
+// Draining first closes the listeners and waits out the requests already in
+// flight, so no handler can start running against a client or bus that a later
+// phase has already stopped.
 func shutdown(cfg *config.Config, logger *zap.Logger) {
 	logger.Info("Shutting down")
+	drain(cfg, logger)
 	for i := len(cfg.PreStoppables) - 1; i >= 0; i-- {
 		if err := cfg.PreStoppables[i].PreStop(); err != nil {
 			logger.Error("Failed to pre-stop component", zap.Error(err))
@@ -168,6 +174,23 @@ func shutdown(cfg *config.Config, logger *zap.Logger) {
 	for i := len(cfg.Stoppables) - 1; i >= 0; i-- {
 		if err := cfg.Stoppables[i].Stop(); err != nil {
 			logger.Error("Failed to stop component", zap.Error(err))
+		}
+	}
+}
+
+// drain closes the listeners and waits for in-flight work, in reverse
+// registration order. Because a server "http" block is processed after the
+// server it mounts, that order closes the front door first and only then the
+// connections held behind it.
+//
+// Each Drainable enforces its own configured grace period beneath this
+// context, so the phase is bounded by the config rather than by a number
+// chosen here.
+func drain(cfg *config.Config, logger *zap.Logger) {
+	ctx := context.Background()
+	for i := len(cfg.Drainables) - 1; i >= 0; i-- {
+		if err := cfg.Drainables[i].Drain(ctx); err != nil {
+			logger.Warn("Component did not drain cleanly", zap.Error(err))
 		}
 	}
 }
