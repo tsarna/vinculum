@@ -89,6 +89,10 @@ block.
 | `sampling_ratio` | number |  | `1.0` | Fraction of traces to sample, from 0 to 1. |
 | `service_version` | string |  |  | Value of the `service.version` resource attribute. |
 
+**`endpoint`**
+
+Give the collector's base URL — `http://collector:4318` — and each signal's default OTLP path is appended to it: `/v1/traces` here, `/v1/metrics` for `metric_endpoint`. That is what lets one value serve both signals. An endpoint written with a path of its own is used exactly as given, for a collector behind a prefix or a vendor endpoint that is not spec-shaped.
+
 **`service_name`**
 
 This is how the exported telemetry identifies this process.
@@ -115,7 +119,7 @@ Set false to omit goroutine, memory, and GC metrics.
 
 **`metric_endpoint`**
 
-`endpoint` is used when omitted. Setting either this or `metric_interval` is what enables metric export at all.
+`endpoint` is used when omitted. Setting either this or `metric_interval` is what enables metric export at all. Paths work as they do for `endpoint`, except that the default appended to a path-less value is `/v1/metrics`.
 
 **`record_baggage`**
 

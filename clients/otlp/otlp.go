@@ -5,6 +5,7 @@ package otlp
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
@@ -43,7 +44,12 @@ backend of its kind.`,
 	Attrs: map[string]cfg.AttrMeta{
 		"endpoint": {
 			Summary: "OTLP collector endpoint to export traces to.",
-			Hint:    cfg.HintURL,
+			Doc: "Give the collector's base URL — `http://collector:4318` — and each signal's " +
+				"default OTLP path is appended to it: `/v1/traces` here, `/v1/metrics` for " +
+				"`metric_endpoint`. That is what lets one value serve both signals. An endpoint " +
+				"written with a path of its own is used exactly as given, for a collector behind " +
+				"a prefix or a vendor endpoint that is not spec-shaped.",
+			Hint: cfg.HintURL,
 		},
 		"service_name": {
 			Summary: "Value of the `service.name` resource attribute.",
@@ -75,7 +81,8 @@ backend of its kind.`,
 		"metric_endpoint": {
 			Summary: "Separate endpoint for metrics.",
 			Doc: "`endpoint` is used when omitted. Setting either this or `metric_interval` " +
-				"is what enables metric export at all.",
+				"is what enables metric export at all. Paths work as they do for `endpoint`, " +
+				"except that the default appended to a path-less value is `/v1/metrics`.",
 			Hint: cfg.HintURL,
 		},
 		"metric_interval": {
@@ -156,6 +163,35 @@ func (c *OtlpClientImpl) IsDefaultMetricsBackend() bool {
 	return c.isDefaultMetrics
 }
 
+// Default OTLP/HTTP paths per signal, from the OTLP specification. Add one
+// here for any further HTTP exporter (logs, profiles) wired up later.
+const (
+	defaultTracesPath  = "/v1/traces"
+	defaultMetricsPath = "/v1/metrics"
+)
+
+// withSignalPath appends the signal's default OTLP path when the configured
+// endpoint carries none, matching the spec convention that a generic endpoint
+// gets the signal path appended while an explicit one is used verbatim.
+//
+// The exporters used to do this themselves. Since v1.45.0 WithEndpointURL
+// pins a path-less URL to "/" instead, so `endpoint = "http://collector:4318"`
+// POSTed to the collector's root and got a 404 for every export. Doing it here
+// rather than telling users to spell the path out keeps a single `endpoint`
+// usable for both signals: it feeds traces and metrics alike, so no one literal
+// value could satisfy both.
+//
+// Only an empty path counts as "no path" — an explicit trailing "/" targeted
+// the root before v1.45.0 too, so it is left alone.
+func withSignalPath(endpoint, defaultPath string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Path != "" || u.Opaque != "" {
+		return endpoint
+	}
+	u.Path = defaultPath
+	return u.String()
+}
+
 // buildProviders constructs the trace and meter providers. It is called during
 // the config Process phase so that metric blocks (which run after this client
 // in dependency order) can obtain a non-nil MeterProvider.
@@ -164,7 +200,7 @@ func (c *OtlpClientImpl) buildProviders() error {
 
 	// --- Build exporter options ---
 	traceOptions := []otlptracehttp.Option{
-		otlptracehttp.WithEndpointURL(c.endpoint),
+		otlptracehttp.WithEndpointURL(withSignalPath(c.endpoint, defaultTracesPath)),
 	}
 
 	if c.tlsConfig != nil {
@@ -232,7 +268,7 @@ func (c *OtlpClientImpl) buildProviders() error {
 	}
 
 	metricOptions := []otlpmetrichttp.Option{
-		otlpmetrichttp.WithEndpointURL(metricEndpoint),
+		otlpmetrichttp.WithEndpointURL(withSignalPath(metricEndpoint, defaultMetricsPath)),
 	}
 
 	if c.tlsConfig != nil {
