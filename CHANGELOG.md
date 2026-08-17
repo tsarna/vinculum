@@ -19,6 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`vinculum serve` logs at `info` again.** It had been running at `warn`, so the startup
+  banner, the bus and server start-up lines, HTTP request logs, and the shutdown line were
+  all silently dropped — a deployment looked like it was producing no logs at all. Three
+  commands bound `--log-level` to the same package-level variable, and pflag writes a
+  flag's default into the bound variable at registration time, so `vinculum test`'s
+  deliberately quieter `warn` default (added in 0.45.0) overwrote `serve`'s `info` at
+  process start. `--help` still printed `info`, since that reads the declared default
+  rather than the variable. Each command now owns its own variable, and a test asserts that
+  every flag in the tree reads back the default it declared.
+
 - **Servers now stop accepting before the runtime behind them is torn down.** No listening
   server in the tree implemented shutdown at all: `server "http"` registered only a
   `Startable`, `"mcp"` and `"metrics"` built their `http.Server` as a local inside `Start()`

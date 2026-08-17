@@ -23,7 +23,7 @@ func runCheckCmd(t *testing.T, files map[string]string, args ...string) (stdout,
 	}
 
 	// Flags bind to package-level variables that cobra does not reset between runs.
-	logLevel, filePath, writePath, pluginPath = "error", "", "", ""
+	checkLogLevel, filePath, writePath, pluginPath = "error", "", "", ""
 	checkFormat = "text"
 
 	var out, errOut bytes.Buffer
@@ -226,7 +226,7 @@ func TestCheckUnknownFormatIsAUsageError(t *testing.T) {
 // A path that does not exist is a diagnostic, not a nil-pointer panic: the
 // failed os.Stat left info nil and the code read info.IsDir() anyway.
 func TestCheckMissingPathIsReported(t *testing.T) {
-	logLevel, filePath, writePath, pluginPath = "error", "", "", ""
+	checkLogLevel, filePath, writePath, pluginPath = "error", "", "", ""
 	checkFormat = "text"
 
 	var out, errOut bytes.Buffer

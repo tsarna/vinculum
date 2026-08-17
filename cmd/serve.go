@@ -51,18 +51,23 @@ Examples:
 }
 
 var (
-	logLevel    string
-	filePath    string
-	writePath   string
-	allowKill   bool
-	pluginPath  string
-	interactive bool
+	// Each command that offers --log-level owns its own variable: the flag
+	// defaults differ (serve/check info, test warn) and pflag writes the
+	// default into the bound variable at registration time, so a shared
+	// variable would leave whichever init() ran last deciding the level for
+	// all of them.
+	serveLogLevel string
+	filePath      string
+	writePath     string
+	allowKill     bool
+	pluginPath    string
+	interactive   bool
 )
 
 func init() {
 	rootCmd.AddCommand(serverCmd)
 
-	serverCmd.Flags().StringVarP(&logLevel, "log-level", "l", "info", "log level (debug, info, warn, error)")
+	serverCmd.Flags().StringVarP(&serveLogLevel, "log-level", "l", "info", "log level (debug, info, warn, error)")
 	serverCmd.Flags().StringVarP(&filePath, "file-path", "f", "", "base directory for file functions (enables file, fileexists, fileset functions)")
 	serverCmd.Flags().StringVarP(&writePath, "write-path", "w", "", "base directory for file write functions; must be under --file-path")
 	serverCmd.Flags().BoolVar(&allowKill, "allow-kill", false, "enable the kill function (feature \"allowkill\")")
@@ -83,11 +88,11 @@ func runServer(cmd *cobra.Command, args []string) error {
 	var logger *zap.Logger
 	var logging *repl.Logging
 	if interactive {
-		logging = repl.NewInteractiveLogging(resolveLogLevel())
+		logging = repl.NewInteractiveLogging(resolveLogLevel(serveLogLevel))
 		logger = logging.Logger
 	} else {
 		var err error
-		logger, err = setupLogger()
+		logger, err = setupLogger(serveLogLevel)
 		if err != nil {
 			return fmt.Errorf("failed to setup logger: %w", err)
 		}
@@ -97,7 +102,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 	logger.Info("Starting vinculum server",
 		zap.String("version", version.String()),
 		zap.Strings("config-paths", args),
-		zap.String("log-level", logLevel),
+		zap.String("log-level", serveLogLevel),
 		zap.String("file-path", filePath),
 	)
 
@@ -195,11 +200,10 @@ func drain(cfg *config.Config, logger *zap.Logger) {
 	}
 }
 
-// resolveLogLevel applies the -d/-v overrides to the --log-level flag and
-// returns the effective zap level. Shared by the production and interactive
-// logger builders.
-func resolveLogLevel() zapcore.Level {
-	level := logLevel
+// resolveLogLevel applies the -d/-v overrides to the given --log-level value
+// and returns the effective zap level. Shared by the production and interactive
+// logger builders; the caller passes its own command's flag variable.
+func resolveLogLevel(level string) zapcore.Level {
 	if GetDebug() {
 		level = "debug"
 	} else if GetVerbose() && level == "info" {
@@ -218,9 +222,9 @@ func resolveLogLevel() zapcore.Level {
 	}
 }
 
-func setupLogger() (*zap.Logger, error) {
+func setupLogger(level string) (*zap.Logger, error) {
 	config := zap.NewProductionConfig()
-	config.Level = zap.NewAtomicLevelAt(resolveLogLevel())
+	config.Level = zap.NewAtomicLevelAt(resolveLogLevel(level))
 	config.Development = GetDebug()
 
 	// Pin stacktrace to error level regardless of Development mode.

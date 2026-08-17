@@ -23,6 +23,7 @@ var (
 	testTimeout    time.Duration
 	testNoServe    bool
 	testFailNoTest bool
+	testLogLevel   string
 )
 
 var testCmd = &cobra.Command{
@@ -67,7 +68,7 @@ func init() {
 
 	// Default quieter than serve: a test run wants clean pass/fail output, not
 	// routine startup/shutdown info logs interleaved with it. Overridable with -l.
-	testCmd.Flags().StringVarP(&logLevel, "log-level", "l", "warn", "log level (debug, info, warn, error)")
+	testCmd.Flags().StringVarP(&testLogLevel, "log-level", "l", "warn", "log level (debug, info, warn, error)")
 	testCmd.Flags().StringVarP(&filePath, "file-path", "f", "", "base directory for file functions (enables file, fileexists, fileset functions)")
 	testCmd.Flags().StringVarP(&writePath, "write-path", "w", "", "base directory for file write functions; must be under --file-path")
 	testCmd.Flags().BoolVar(&allowKill, "allow-kill", false, "enable the kill function (feature \"allowkill\")")
@@ -77,7 +78,7 @@ func init() {
 func runTest(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
 
-	logger, err := setupLogger()
+	logger, err := setupLogger(testLogLevel)
 	if err != nil {
 		return fmt.Errorf("failed to setup logger: %w", err)
 	}

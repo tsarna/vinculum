@@ -44,8 +44,8 @@ func init() {
 }
 
 func runSubscribe(cmd *cobra.Command, args []string) error {
-	// Setup logger
-	logger, err := setupLogger()
+	// Setup logger. This command has no --log-level flag; -d/-v still apply.
+	logger, err := setupLogger("info")
 	if err != nil {
 		return fmt.Errorf("failed to setup logger: %w", err)
 	}
