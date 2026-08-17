@@ -37,14 +37,17 @@ Examples:
 func init() {
 	rootCmd.AddCommand(checkCmd)
 
-	checkCmd.Flags().StringVarP(&logLevel, "log-level", "l", "info", "log level (debug, info, warn, error)")
+	checkCmd.Flags().StringVarP(&checkLogLevel, "log-level", "l", "info", "log level (debug, info, warn, error)")
 	checkCmd.Flags().StringVarP(&filePath, "file-path", "f", "", "base directory for file functions (enables file, fileexists, fileset functions)")
 	checkCmd.Flags().StringVarP(&writePath, "write-path", "w", "", "base directory for file write functions; must be under --file-path")
 	checkCmd.Flags().StringVar(&pluginPath, "plugin-path", "", "directory containing Go plugin .so files; required if any .vinit plugin block is present")
 	checkCmd.Flags().StringVar(&checkFormat, "format", "text", "diagnostic format: text (stderr, with source context) or json (stdout)")
 }
 
-var checkFormat string
+var (
+	checkFormat   string
+	checkLogLevel string
+)
 
 func runCheck(cmd *cobra.Command, args []string) error {
 	cmd.SilenceUsage = true
@@ -55,7 +58,7 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		return &ExitCodeError{Code: 2, Err: fmt.Errorf("unsupported --format %q (want text or json)", checkFormat)}
 	}
 
-	logger, err := setupLogger()
+	logger, err := setupLogger(checkLogLevel)
 	if err != nil {
 		return fmt.Errorf("failed to setup logger: %w", err)
 	}
