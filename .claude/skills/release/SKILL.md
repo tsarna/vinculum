@@ -39,7 +39,8 @@ first — the preflight will fail on the mismatch, which is the point.
 
 ## 2. Prepare the tree
 
-One commit, on `main`:
+One commit, on `main` — or on a release branch, if the release is a patch and
+`main` has moved on; see [Patch releases from a release branch](#patch-releases-from-a-release-branch):
 
 - **CHANGELOG.md** — rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`
   (today's date), leave a fresh empty `## [Unreleased]` above it, and update the
@@ -94,6 +95,55 @@ vX.Y.Z-rc1 --yes --cleanup-tag`, the local tag, and the container versions —
 which need `gh auth refresh -s delete:packages,read:packages` first, then a
 `DELETE` per version id from
 `gh api user/packages/container/<pkg>/versions`.
+
+## Patch releases from a release branch
+
+A patch fixing a regression usually cannot come from `main`, because `main`
+already carries work for the next minor. Cut it from the release tag instead.
+The tag-triggered workflows do not care which branch a tag points at, so the
+pipeline is unchanged; what differs is the tree you tag and the cleanup after.
+
+```
+git switch -c release/X.Y.x vX.Y.0     # the branch name future patches reuse
+git cherry-pick <fix> [<fix>...]
+```
+
+**Expect the cherry-picks to conflict, and resolve them by subtraction.** A fix
+written against `main` sits in a tree the branch does not have, so the conflict
+is usually `main`'s newer neighbouring code offered alongside the fix — take the
+fix, drop the neighbour. CHANGELOG.md conflicts every time and worst: git
+offers the *whole* `[Unreleased]` section, so keeping "theirs" silently imports
+every entry bound for the next minor. Take the tag's version of the file and
+re-add only this fix's entry.
+
+Then `git diff vX.Y.0..HEAD` before going further. It should be the fixes and
+nothing else — that diff is the release.
+
+From there the normal steps apply, with three differences:
+
+- **CI runs on `release/**`** (`ci.yml` lists it). If a branch ever falls
+  outside that pattern, run every step of `checks.yml` locally against the
+  commit before tagging — including `VINCULUM_RELEASE_VERSION=vX.Y.Z go test
+  ./...`, which is the one a plain `go test ./...` does not cover.
+- **`main` needs the release recorded afterwards.** The entries are still under
+  `[Unreleased]` there, and would be re-announced in the next minor's notes.
+  Move them into their own `## [X.Y.Z]` section, rechain the link definitions
+  through it, and bump the pinned sample versions — `doc/schema.md` and
+  `testdata/plugin-smoke/go.mod` are checked against the newest *released*
+  section, so leaving them behind fails `TestReleaseConsistency` on every
+  commit, not just at release time.
+- **The release branch keeps living.** Push it; `X.Y.2` starts from there rather
+  than from the tag.
+
+### `:latest` follows the tag, not the version order
+
+`docker.yml` passes no `flavor:`, so `docker/metadata-action` applies its
+default `latest=auto`: **any** non-prerelease semver tag takes `:latest` (and
+`:latest-minimal`, via `onlatest=true`). It compares against nothing already
+published. Patching the newest line is therefore fine, but a patch to an older
+line — `0.45.2` once `0.46.0` is out — would drag `:latest`, `:X.Y`, and `:X`
+backwards onto it. Fix the tag rules before cutting such a release rather than
+cleaning up published tags afterwards.
 
 ## 4. Watch it land
 
