@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **OTLP export over HTTP reaches the collector again.** `client "otlp"` given a collector's
+  base URL — `endpoint = "http://collector:4318"`, the common configuration — POSTed every
+  export to `/` instead of `/v1/traces` and `/v1/metrics`, so a stock OpenTelemetry
+  Collector answered `404` and no telemetry arrived. The failure was near-silent: a stdlib
+  log line on stderr, and spans and metrics simply stopping.
+
+  The exporters used to append each signal's default path themselves; OTel Go v1.45.0
+  changed `WithEndpointURL` to pin a path-less URL to `/` instead, and 0.45.0 picked that up
+  through two dependency bumps. Vinculum now appends the default path when the configured
+  endpoint carries none, which is also the OTLP spec's convention. An endpoint written with
+  a path of its own is still used verbatim.
+
+  There was no workaround: `metric_endpoint` defaults to `endpoint`, so spelling out
+  `/v1/traces` fixed traces and broke metrics, and `client "otlp"` offers no gRPC transport
+  to fall back to.
+
 - **`vinculum serve` logs at `info` again.** It had been running at `warn`, so the startup
   banner, the bus and server start-up lines, HTTP request logs, and the shutdown line were
   all silently dropped — a deployment looked like it was producing no logs at all. Three
