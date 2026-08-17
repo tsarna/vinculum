@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.1] - 2026-08-17
+
 ### Fixed
 
 - **OTLP export over HTTP reaches the collector again.** `client "otlp"` given a collector's
@@ -1373,7 +1375,8 @@ vinculum-ai tool (see github.com/tsarna/vscode-vinculum)
 
 - Switched back to upstream `github.com/amir-yaghoubi/mqttpattern` after our changes were accepted
 
-[Unreleased]: https://github.com/tsarna/vinculum/compare/v0.45.0...HEAD
+[Unreleased]: https://github.com/tsarna/vinculum/compare/v0.45.1...HEAD
+[0.45.1]: https://github.com/tsarna/vinculum/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/tsarna/vinculum/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/tsarna/vinculum/compare/v0.43.0...v0.44.0
 [0.43.0]: https://github.com/tsarna/vinculum/compare/v0.42.0...v0.43.0

@@ -132,7 +132,7 @@ its structure is reflected from a decode struct the plugin never supplied. See
 ```json
 {
   "schemaVersion": "1",
-  "vinculumVersion": "0.45.0",
+  "vinculumVersion": "0.45.1",
   "blocks": {
     "subscription": { ... },
     "client": { ... }
