@@ -19,32 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **OTLP export over HTTP reaches the collector again.** `client "otlp"` given a collector's
-  base URL — `endpoint = "http://collector:4318"`, the common configuration — POSTed every
-  export to `/` instead of `/v1/traces` and `/v1/metrics`, so a stock OpenTelemetry
-  Collector answered `404` and no telemetry arrived. The failure was near-silent: a stdlib
-  log line on stderr, and spans and metrics simply stopping.
-
-  The exporters used to append each signal's default path themselves; OTel Go v1.45.0
-  changed `WithEndpointURL` to pin a path-less URL to `/` instead, and 0.45.0 picked that up
-  through two dependency bumps. Vinculum now appends the default path when the configured
-  endpoint carries none, which is also the OTLP spec's convention. An endpoint written with
-  a path of its own is still used verbatim.
-
-  There was no workaround: `metric_endpoint` defaults to `endpoint`, so spelling out
-  `/v1/traces` fixed traces and broke metrics, and `client "otlp"` offers no gRPC transport
-  to fall back to.
-
-- **`vinculum serve` logs at `info` again.** It had been running at `warn`, so the startup
-  banner, the bus and server start-up lines, HTTP request logs, and the shutdown line were
-  all silently dropped — a deployment looked like it was producing no logs at all. Three
-  commands bound `--log-level` to the same package-level variable, and pflag writes a
-  flag's default into the bound variable at registration time, so `vinculum test`'s
-  deliberately quieter `warn` default (added in 0.45.0) overwrote `serve`'s `info` at
-  process start. `--help` still printed `info`, since that reads the declared default
-  rather than the variable. Each command now owns its own variable, and a test asserts that
-  every flag in the tree reads back the default it declared.
-
 - **Servers now stop accepting before the runtime behind them is torn down.** No listening
   server in the tree implemented shutdown at all: `server "http"` registered only a
   `Startable`, `"mcp"` and `"metrics"` built their `http.Server` as a local inside `Start()`
@@ -110,6 +84,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tests covering the claim mapping onto `ctx.auth`, algorithm enforcement, expiry and clock
   skew, audience mismatch, unknown signing keys, malformed and absent bearer tokens, the
   explicit `jwks_url` path that skips discovery, and the config errors above.
+
+## [0.45.1] - 2026-08-17
+
+### Fixed
+
+- **OTLP export over HTTP reaches the collector again.** `client "otlp"` given a collector's
+  base URL — `endpoint = "http://collector:4318"`, the common configuration — POSTed every
+  export to `/` instead of `/v1/traces` and `/v1/metrics`, so a stock OpenTelemetry
+  Collector answered `404` and no telemetry arrived. The failure was near-silent: a stdlib
+  log line on stderr, and spans and metrics simply stopping.
+
+  The exporters used to append each signal's default path themselves; OTel Go v1.45.0
+  changed `WithEndpointURL` to pin a path-less URL to `/` instead, and 0.45.0 picked that up
+  through two dependency bumps. Vinculum now appends the default path when the configured
+  endpoint carries none, which is also the OTLP spec's convention. An endpoint written with
+  a path of its own is still used verbatim.
+
+  There was no workaround: `metric_endpoint` defaults to `endpoint`, so spelling out
+  `/v1/traces` fixed traces and broke metrics, and `client "otlp"` offers no gRPC transport
+  to fall back to.
+
+- **`vinculum serve` logs at `info` again.** It had been running at `warn`, so the startup
+  banner, the bus and server start-up lines, HTTP request logs, and the shutdown line were
+  all silently dropped — a deployment looked like it was producing no logs at all. Three
+  commands bound `--log-level` to the same package-level variable, and pflag writes a
+  flag's default into the bound variable at registration time, so `vinculum test`'s
+  deliberately quieter `warn` default (added in 0.45.0) overwrote `serve`'s `info` at
+  process start. `--help` still printed `info`, since that reads the declared default
+  rather than the variable. Each command now owns its own variable, and a test asserts that
+  every flag in the tree reads back the default it declared.
 
 ## [0.45.0] - 2026-08-14
 
@@ -1449,7 +1453,8 @@ vinculum-ai tool (see github.com/tsarna/vscode-vinculum)
 
 - Switched back to upstream `github.com/amir-yaghoubi/mqttpattern` after our changes were accepted
 
-[Unreleased]: https://github.com/tsarna/vinculum/compare/v0.45.0...HEAD
+[Unreleased]: https://github.com/tsarna/vinculum/compare/v0.45.1...HEAD
+[0.45.1]: https://github.com/tsarna/vinculum/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/tsarna/vinculum/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/tsarna/vinculum/compare/v0.43.0...v0.44.0
 [0.43.0]: https://github.com/tsarna/vinculum/compare/v0.42.0...v0.43.0
