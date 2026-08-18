@@ -26,7 +26,7 @@ require (
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lestrrat-go/httprc/v3 v3.0.6
 	github.com/lestrrat-go/jwx/v3 v3.2.0
-	github.com/mattn/go-sqlite3 v1.14.49
+	github.com/mattn/go-sqlite3 v1.14.50
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/rabbitmq/amqp091-go v1.13.0
@@ -35,6 +35,7 @@ require (
 	github.com/sashabaranov/go-openai v1.42.0
 	github.com/sosodev/duration v1.4.0
 	github.com/spf13/cobra v1.10.2
+	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.11.1
 	github.com/tsarna/barcode-cty-func v0.2.0
 	github.com/tsarna/functy v0.15.0
@@ -147,7 +148,6 @@ require (
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/sqids/sqids-go v0.4.1 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.13.1 // indirect
 	github.com/valyala/fastjson v1.6.10 // indirect
