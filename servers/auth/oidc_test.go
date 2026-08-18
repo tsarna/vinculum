@@ -391,19 +391,19 @@ func TestOIDCAuthenticatorJWKSUrlSkipsDiscovery(t *testing.T) {
 		JWKSUrl: issuer.URL + "/jwks.json",
 	})
 
-	oidcAuth, ok := a.(*oidcAuthenticator)
-	if !ok {
-		t.Fatalf("got %T, want *oidcAuthenticator", a)
-	}
-	if oidcAuth.DiscoveryMetadata() != nil {
-		t.Error("DiscoveryMetadata is non-nil, but jwks_url was explicit — nothing to discover")
-	}
-
 	token := key.sign(t, func(b *jwt.Builder) *jwt.Builder {
 		return b.Subject("user-42").Expiration(time.Now().Add(time.Hour))
 	})
 	if _, failure, err := authenticate(t, a, token); err != nil || failure != nil {
 		t.Fatalf("valid token rejected: failure=%+v err=%v", failure, err)
+	}
+
+	oidcAuth := a.(*oidcAuthenticator)
+	oidcAuth.mu.Lock()
+	meta := oidcAuth.resolved.meta
+	oidcAuth.mu.Unlock()
+	if meta != nil {
+		t.Errorf("a discovery document was fetched (%+v) despite an explicit jwks_url", meta)
 	}
 }
 

@@ -566,9 +566,11 @@ func TestSchemaSharedBlocks(t *testing.T) {
 	doc := generateTestSchema(t, config.SchemaGenOptions{})
 	servers := doc.Blocks["server"].Variants
 
-	// tls is embedded by http, mcp, and metrics — same documentation in each.
+	// tls is embedded by every server that owns a listener — same documentation
+	// in each. A mounted-only server has no tls block, because it has no socket
+	// to terminate TLS on.
 	var tlsSummary string
-	for _, name := range []string{"http", "mcp", "metrics"} {
+	for _, name := range []string{"http", "metrics"} {
 		tlsBlock := servers[name].Blocks["tls"]
 		require.NotNil(t, tlsBlock, "server %q has no tls block", name)
 		assert.NotEmpty(t, tlsBlock.Summary)

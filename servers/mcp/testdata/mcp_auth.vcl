@@ -1,14 +1,24 @@
+// An MCP server owns no listener, so authentication belongs to the route of the
+// `server "http"` block that mounts it. The identity the route establishes
+// reaches the tool as ctx.auth.
 server "mcp" "auth_test" {
-    listen      = ":19009"
     server_name = "Auth Test Server"
-
-    auth "custom" {
-        # Accept any request with an "X-User" header; use its value as the subject.
-        action = ctx.request.user != "" ? { subject = ctx.request.user } : null
-    }
 
     tool "whoami" {
         description = "Return the authenticated subject"
         action      = ctx.auth.subject
+    }
+}
+
+server "http" "main" {
+    listen = "127.0.0.1:0"
+
+    handle "/mcp" {
+        handler = server.auth_test
+
+        auth "custom" {
+            # Accept any request with a username; use it as the subject.
+            action = ctx.request.user != "" ? { subject = ctx.request.user } : null
+        }
     }
 }

@@ -1,5 +1,4 @@
 server "mcp" "test" {
-    listen      = ":19001"
     server_name = "Test MCP Server"
 
     resource "status://current" {

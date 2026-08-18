@@ -1,20 +1,14 @@
 package mcp
 
 import (
-	"context"
-	"crypto/tls"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	cfg "github.com/tsarna/vinculum/config"
-	"github.com/tsarna/vinculum/hclutil"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	otelmetric "go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/propagation"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
@@ -23,31 +17,19 @@ import (
 type ServerConfig struct {
 	Name          string
 	DefRange      hcl.Range
-	Listen        string
-	Path          string
 	ServerName    string
 	ServerVersion string
-	TLSConfig     *tls.Config
-	Auth          *cfg.AuthConfig
-	// ShutdownTimeout bounds how long Drain waits for in-flight requests
-	// before forcing connections closed. Zero waits indefinitely.
-	ShutdownTimeout time.Duration
-	OtlpClient      cfg.OtlpClient
+	OtlpClient    cfg.OtlpClient
 	// TracerProvider, when set, overrides the tracer provider used for
 	// MCP-method spans. When nil, it is derived from OtlpClient (else the
 	// global provider). Primarily a test injection point.
 	TracerProvider oteltrace.TracerProvider
 	MeterProvider  otelmetric.MeterProvider
-	BaggageFilter  *hclutil.BaggageFilterConfig
 	ParentEvalCtx  *hcl.EvalContext
-	// Config is the enclosing configuration, needed so an authenticator with a
-	// background lifetime can register itself for startup and shutdown. Nil in
-	// tests that build a server without one.
-	Config    *cfg.Config
-	Logger    *zap.Logger
-	Resources []ResourceDef
-	Tools     []ToolDef
-	Prompts   []PromptDef
+	Logger         *zap.Logger
+	Resources      []ResourceDef
+	Tools          []ToolDef
+	Prompts        []PromptDef
 }
 
 // Server is a vinculum MCP server. It wraps the MCP SDK server and handles
@@ -55,22 +37,12 @@ type ServerConfig struct {
 // HCL expressions with per-request eval contexts.
 type Server struct {
 	name          string
-	listen        string
-	path          string
-	tlsConfig     *tls.Config
 	sdkServer     *sdkmcp.Server
 	httpHandler   http.Handler
 	logger        *zap.Logger
 	parentEvalCtx *hcl.EvalContext
 	tracer        oteltrace.Tracer
 	metrics       *mcpMetrics
-	baggageFilter *hclutil.BaggageFilterConfig
-
-	// shutdownTimeout bounds how long Drain waits for in-flight requests.
-	shutdownTimeout time.Duration
-	// httpSrv is the standalone listener, set by Start and read by Drain.
-	// Nil when mounted under a server "http" block, which owns the listener.
-	httpSrv *http.Server
 }
 
 // New creates a new MCP server from the given configuration.
@@ -82,11 +54,6 @@ func New(scfg ServerConfig) (*Server, error) {
 	serverVersion := scfg.ServerVersion
 	if serverVersion == "" {
 		serverVersion = "0.0.0"
-	}
-
-	path := scfg.Path
-	if path == "" {
-		path = "/"
 	}
 
 	sdkSrv := sdkmcp.NewServer(&sdkmcp.Implementation{
@@ -107,17 +74,11 @@ func New(scfg ServerConfig) (*Server, error) {
 
 	s := &Server{
 		name:          scfg.Name,
-		listen:        scfg.Listen,
-		path:          path,
-		tlsConfig:     scfg.TLSConfig,
 		sdkServer:     sdkSrv,
 		logger:        scfg.Logger,
 		parentEvalCtx: scfg.ParentEvalCtx,
 		tracer:        tp.Tracer(instrumentationScope),
 		metrics:       newMCPMetrics(scfg.MeterProvider),
-		baggageFilter: scfg.BaggageFilter,
-
-		shutdownTimeout: scfg.ShutdownTimeout,
 	}
 
 	// Instrument every inbound MCP request/notification with a span and the
@@ -132,130 +93,18 @@ func New(scfg ServerConfig) (*Server, error) {
 
 	registerPrompts(s, scfg.Prompts)
 
-	// Build the HTTP handler: StreamableHTTPHandler wrapped at the configured path.
-	// For standalone servers with auth configured, wrap with auth middleware and
-	// (for OIDC) serve the OAuth2 discovery document.
-	streamHandler := sdkmcp.NewStreamableHTTPHandler(func(r *http.Request) *sdkmcp.Server {
+	s.httpHandler = sdkmcp.NewStreamableHTTPHandler(func(r *http.Request) *sdkmcp.Server {
 		return s.sdkServer
 	}, nil)
-
-	if err := s.buildHTTPHandler(path, streamHandler, scfg.Auth, scfg.Config, scfg.ParentEvalCtx); err != nil {
-		return nil, err
-	}
-
-	// For standalone servers, wrap the assembled handler with otelhttp so that
-	// incoming W3C trace context is extracted and a server span is created.
-	// Mounted servers are left unwrapped — the parent server "http" handles it.
-	if scfg.Listen != "" {
-		var otelOpts []otelhttp.Option
-		if scfg.OtlpClient != nil {
-			if tp := scfg.OtlpClient.GetTracerProvider(); tp != nil {
-				otelOpts = append(otelOpts, otelhttp.WithTracerProvider(tp))
-			}
-		}
-		if scfg.MeterProvider != nil {
-			otelOpts = append(otelOpts, otelhttp.WithMeterProvider(scfg.MeterProvider))
-		}
-		otelOpts = append(otelOpts,
-			otelhttp.WithPropagators(propagation.NewCompositeTextMapPropagator(
-				propagation.TraceContext{},
-				propagation.Baggage{},
-			)),
-			otelhttp.WithServerName(scfg.Name),
-		)
-		// Filter inbound baggage INSIDE otelhttp, so it runs after the W3C
-		// propagator extracts baggage but before any handler.
-		inner := s.baggageFilter.Middleware(s.logger, s.httpHandler)
-		s.httpHandler = otelhttp.NewHandler(inner, "",
-			append(otelOpts, otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
-				return r.Method + " " + r.URL.Path
-			}))...,
-		)
-	}
 
 	return s, nil
 }
 
-// buildHTTPHandler assembles s.httpHandler from the stream handler, optional auth
-// middleware, and (for standalone OIDC servers) the OAuth2 discovery endpoint.
-func (s *Server) buildHTTPHandler(path string, streamHandler http.Handler, authCfg *cfg.AuthConfig, config *cfg.Config, evalCtx *hcl.EvalContext) error {
-	// If auth is configured, build an authenticator and wrap the stream handler.
-	var protected http.Handler = streamHandler
-	var oidcMeta *oidcMetadataHandler
-
-	if authCfg != nil && authCfg.Mode != "none" {
-		authenticator, resolveMeta, err := buildMCPAuthenticator(authCfg, s.name, config)
-		if err != nil {
-			return err
-		}
-		if authenticator != nil {
-			protected = newMCPAuthMiddleware(authenticator, evalCtx, s.logger, streamHandler)
-		}
-		// For standalone OIDC servers that use discovery, expose the metadata
-		// document. Whether the issuer has actually answered yet is the
-		// handler's problem, not this decision's.
-		if resolveMeta != nil && s.listen != "" {
-			oidcMeta = &oidcMetadataHandler{resolve: resolveMeta}
-		}
-	}
-
-	if oidcMeta == nil && path == "/" {
-		s.httpHandler = protected
-		return nil
-	}
-
-	mux := http.NewServeMux()
-	mux.Handle(path, protected)
-	if oidcMeta != nil {
-		mux.Handle("GET /.well-known/oauth-authorization-server", oidcMeta)
-	}
-	s.httpHandler = mux
-	return nil
-}
-
-// Start begins listening for connections on the configured address.
-func (s *Server) Start() error {
-	if s.listen == "" {
-		// Mounted under an HTTP server — nothing to start independently
-		return nil
-	}
-
-	// s.httpHandler was already wrapped with otelhttp in New() for standalone mode.
-	httpSrv := &http.Server{
-		Addr:    s.listen,
-		Handler: s.httpHandler,
-	}
-	// Retained so Drain can close it on shutdown.
-	s.httpSrv = httpSrv
-	go func() {
-		s.logger.Info("Starting MCP server",
-			zap.String("name", s.name),
-			zap.String("addr", s.listen),
-			zap.String("path", s.path),
-		)
-		var err error
-		if s.tlsConfig != nil {
-			httpSrv.TLSConfig = s.tlsConfig
-			err = httpSrv.ListenAndServeTLS("", "")
-		} else {
-			err = httpSrv.ListenAndServe()
-		}
-		if err != nil && err != http.ErrServerClosed {
-			s.logger.Error("MCP server stopped", zap.String("name", s.name), zap.Error(err))
-		}
-	}()
-	return nil
-}
-
-// Drain stops accepting new connections and waits for in-flight requests, up
-// to the configured shutdown_timeout. A mounted server has no listener of its
-// own, so this is a no-op there and the hosting server "http" block drains.
-func (s *Server) Drain(ctx context.Context) error {
-	return cfg.DrainHTTPServer(ctx, s.httpSrv, s.shutdownTimeout, s.logger, "mcp", s.name)
-}
-
-// HTTPHandler returns the http.Handler for this server.
-// Used when the MCP server is mounted under an HTTP server block.
+// HTTPHandler returns the http.Handler for this server, for the `server "http"`
+// route it is mounted on.
+//
+// The handler it returns is deliberately **unauthenticated**. The block that
+// mounts a handler is the one that authenticates it.
 func (s *Server) HTTPHandler() http.Handler {
 	return s.httpHandler
 }

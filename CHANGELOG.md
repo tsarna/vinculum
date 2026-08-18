@@ -7,10 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **Standalone `server "mcp"`.** An MCP server is now always mounted on a route of a
+  `server "http"` block, so the attributes belonging to a listener it no longer owns —
+  `listen`, `path`, `tls`, `shutdown_timeout` — are gone, along with its `auth` and
+  `baggage` sub-blocks. Authentication moves to the route that mounts it, which makes it
+  the single place a request is authenticated; baggage trust belongs to the block that
+  accepts the request from outside.
+
+  Standalone mode was a second, permanently incomplete HTTP server: it never grew the
+  request log, `real_ip`, host-scoped routing, or co-residency with `handle` and `files`
+  blocks, and TLS, tracing, HTTP metrics, and baggage each had to be back-filled into it
+  separately after landing on `server "http"`. Mounting is also what the MCP authorization
+  spec needs, since the `/.well-known` endpoint a client looks for lives at the host root.
+
+  The RFC 8414 document a standalone server published at
+  `/.well-known/oauth-authorization-server` is no longer served: it describes an
+  *authorization server*, which is the identity provider's to publish rather than a
+  resource server's, and MCP clients look for RFC 9728 protected-resource metadata.
+
+  See [doc/deprecations.md](doc/deprecations.md) for a before/after config.
+
 ### Added
 
 - **`shutdown_timeout` on every block that accepts inbound connections** — `server "http"`,
-  `"mcp"`, `"metrics"`, `"vws"`, and `"websocket"`. It bounds how long that server waits
+  `"metrics"`, `"vws"`, and `"websocket"`. It bounds how long that server waits
   for in-flight work while shutting down, defaulting to `10s`; whatever is still running
   when the time is up is closed out from under it, so one stuck request or one client that
   has stopped reading cannot hold shutdown open. `0` waits indefinitely. On the two

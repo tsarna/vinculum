@@ -44,7 +44,6 @@ func newTestServer(t *testing.T, resources []ResourceDef, tools []ToolDef, promp
 
 	srv, err := New(ServerConfig{
 		Name:          "test",
-		Listen:        "", // no HTTP listener needed for in-memory tests
 		ServerName:    "Test Server",
 		ParentEvalCtx: emptyEvalCtx(),
 		Logger:        logger,

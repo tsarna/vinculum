@@ -194,23 +194,6 @@ func (a *oidcAuthenticator) Stop() error {
 	return nil
 }
 
-// DiscoveryMetadata returns a function that yields the issuer's discovery
-// document, or nil when this authenticator performs no discovery (an explicit
-// jwks_url, or introspection). The document is fetched on demand rather than
-// held from startup, so a caller must be prepared for the issuer to be down.
-func (a *oidcAuthenticator) DiscoveryMetadata() func(context.Context) (*OIDCMetadata, error) {
-	if a.useIntrospect || a.configuredJWKSURL != "" {
-		return nil
-	}
-	return func(ctx context.Context) (*OIDCMetadata, error) {
-		res, err := a.resolve(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return res.meta, nil
-	}
-}
-
 // resolve returns the verification material, fetching it from the issuer on
 // first use and on any later attempt the backoff schedule allows.
 //

@@ -1,5 +1,4 @@
 server "mcp" "prompts_test" {
-    listen      = ":19003"
     server_name = "Prompts Test Server"
 
     prompt "summarize" {

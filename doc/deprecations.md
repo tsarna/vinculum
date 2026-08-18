@@ -20,6 +20,62 @@ Dates are the release in which the deprecation warning was introduced; see
 These are not deprecations — the old behavior is gone. They are recorded here
 because upgrading requires a config change.
 
+### Standalone `server "mcp"`
+
+**Removed in 0.46.0.**
+
+A `server "mcp"` block could either run its own HTTP listener or be mounted on a
+route of a `server "http"` block. It is now always mounted, and the attributes
+belonging to a listener it no longer owns — `listen`, `path`, `tls`,
+`shutdown_timeout` — are gone, along with its `auth` and `baggage` sub-blocks.
+
+Standalone mode was a second, permanently incomplete HTTP server: it never grew
+the request log, `real_ip`, host-scoped routing, or co-residency with `handle`
+and `files` blocks, and TLS, tracing, HTTP metrics, and baggage each had to be
+back-filled into it separately after landing on `server "http"`. Mounting is
+also what the MCP authorization spec needs, since the `/.well-known` endpoint a
+client looks for lives at the host root, which the HTTP server owns.
+
+Move the listener to a `server "http"` block and point a route at the MCP
+server. Authentication moves to that route, which is now the only place a
+request is authenticated:
+
+```hcl
+# Before
+server "mcp" "tools" {
+    listen = ":9000"
+    path   = "/mcp"
+
+    tls { enabled = true, cert = "…", key = "…" }
+    auth "oidc" { issuer = "https://accounts.example.com" }
+
+    tool "echo" { … }
+}
+
+# After
+server "mcp" "tools" {
+    tool "echo" { … }
+}
+
+server "http" "main" {
+    listen = ":9000"
+
+    tls { enabled = true, cert = "…", key = "…" }
+
+    handle "/mcp" {
+        handler = server.tools
+
+        auth "oidc" { issuer = "https://accounts.example.com" }
+    }
+}
+```
+
+The RFC 8414 authorization-server metadata document that a standalone server
+published at `/.well-known/oauth-authorization-server` is no longer served. It
+was the wrong document to publish — that one describes an *authorization
+server*, and belongs to the identity provider rather than to a resource server —
+and MCP clients look for the protected-resource metadata of RFC 9728 instead.
+
 ### Tolerant wire-format decoding
 
 **Removed in 0.44.0.**

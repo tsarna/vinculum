@@ -1,5 +1,4 @@
 server "mcp" "mounted" {
-    # no listen — mounted under HTTP server below
     server_name = "Mounted MCP Server"
 
     tool "echo" {

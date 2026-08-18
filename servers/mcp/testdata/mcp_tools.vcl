@@ -1,5 +1,4 @@
 server "mcp" "tools_test" {
-    listen      = ":19002"
     server_name = "Tools Test Server"
 
     tool "echo" {

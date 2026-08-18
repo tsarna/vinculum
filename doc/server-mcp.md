@@ -7,63 +7,50 @@ server, exposing resources, tools, and prompts to MCP clients such as AI assista
 
 ```hcl
 server "mcp" "name" {
-    listen         = ":8080"
-    server_name    = "My Server"
+    server_name = "My Server"
 
     resource ...
     tool ...
     prompt ...
+}
+
+server "http" "main" {
+    listen = ":8080"
+
+    handle "/mcp" {
+        handler = server.name
+    }
 }
 ```
 
 The server uses the [Streamable HTTP transport](https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/transports/#streamable-http)
 (MCP spec 2025-03-26).
 
-`listen` is what separates the two deployment modes: with it the block runs its
-own HTTP server, without it the block is mounted on a route of a
-`server "http"` block — see [Mounting under HTTP](#mounting-under-http). `tls`
-and `path` apply to standalone mode only; a mounted server takes both from its
-parent.
-
-The `baggage` sub-block controls which inbound [baggage](baggage.md) keys are
-trusted. Inbound baggage is **stripped by default** — see
-[Server-side trust filtering](baggage.md#server-side-trust-filtering). A mounted
-server inherits its parent's filter. `tracing` and `metrics` resolve the same
-way they do on [`server "http"`](server-http.md); see
-[Observability](#observability).
+An MCP block owns no socket: it is always mounted on a route of a
+`server "http"` block, with `handler = server.<name>` — see
+[Mounting under HTTP](#mounting-under-http). Everything about the connection
+belongs to that block rather than to this one: the listen address, TLS,
+[authentication](server-auth.md), the request log, `real_ip`, host-scoped
+routing, and draining on shutdown. One HTTP server can host an MCP endpoint
+alongside ordinary routes and static files.
 
 <!-- vinculum:begin block-attrs server mcp level=3 -->
 
 | Attribute | Type | Required | Default | Description |
 |---|---|---|---|:---|
 | `disabled` | bool |  |  | Skip this block entirely. |
-| `listen` | string (listen-addr) |  |  | Address to serve on, as a standalone server. |
 | `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
-| `path` | string |  | `/` | Path the MCP endpoint is served at. |
 | `server_name` | string |  | `<name>` | Name reported to clients during initialization. |
 | `server_version` | string |  | `0.0.0` | Version reported to clients during initialization. |
-| `shutdown_timeout` | expression (duration) |  | `10s` | How long to let in-flight work finish while shutting down. |
 | `tracing` | expression (tracing-ref) |  |  | Where to report request traces. |
 
 **`disabled`**
 
 The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
 
-**`listen`**
-
-Omit to mount this server into a `server "http"` route instead.
-
 **`metrics`**
 
 A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
-
-**`path`**
-
-Standalone mode only. A mounted server is reached at the route its `handle` block declares.
-
-**`shutdown_timeout`**
-
-On shutdown the server stops accepting new requests before anything else is torn down, then waits this long for what is already in flight. Whatever is still running when the time is up is closed out from under it. `0` waits indefinitely. Standalone mode only — a mounted server drains with the `server "http"` block hosting it.
 
 **`tracing`**
 
@@ -71,11 +58,8 @@ A `client "otlp"` block. Spans follow the GenAI/MCP semantic conventions. Auto-w
 
 ### Blocks
 
-- `auth "<mode>"` (optional) — Authentication required by this server or handler.
-- `baggage` (optional) — Which inbound baggage keys to trust.
 - `prompt "<name>"` (0..n) — A reusable prompt template clients can render.
 - `resource "<uri>"` (0..n) — Data the server exposes to clients.
-- `tls` (optional) — TLS settings for this connection.
 - `tool "<name>"` (0..n) — An operation the model can invoke.
 
 <!-- vinculum:end block-attrs server mcp -->
@@ -440,81 +424,51 @@ See [functions.md](functions.md#mcpimagedata--mime_type) for full details.
 
 ## Authentication
 
-Add an `auth` sub-block to require authentication on the MCP server. All tools,
-resources, and prompts are protected; `ctx.auth` is available in their action expressions.
+Authentication belongs to the route that mounts the MCP server, not to the MCP
+block. Protect that route and every tool, resource, and prompt behind it is
+protected; the identity reaches their action expressions as `ctx.auth`.
 
 ```hcl
 server "mcp" "tools" {
-    listen = ":9000"
-
-    auth "oidc" {
-        issuer   = "https://auth.example.com"
-        audience = ["my-api-client-id"]
-    }
-
     tool "whoami" {
         description = "Return the caller's identity"
         action      = jsonencode(ctx.auth)
     }
 }
+
+server "http" "main" {
+    listen = ":9000"
+
+    handle "/mcp" {
+        handler = server.tools
+
+        auth "oidc" {
+            issuer   = "https://auth.example.com"
+            audience = ["my-api-client-id"]
+        }
+    }
+}
 ```
 
-When `auth "oidc"` is configured on a standalone MCP server (one with `listen` set),
-vinculum automatically serves the OIDC discovery document at
-`GET /.well-known/oauth-authorization-server`. This allows MCP clients such as
-Claude Desktop to discover the authorization server and complete the OAuth2 login
-flow on behalf of the user.
-
-See [Authentication](server-auth.md) for the full reference including all modes
-(`basic`, `oidc`, `oauth2`, `custom`, `none`) and the `ctx.auth` object shape.
+See [Authentication](server-auth.md) for the full reference and the `ctx.auth`
+object shape.
 
 ---
 
 ## TLS
 
-Add a `tls {}` sub-block to serve the MCP endpoint over HTTPS. TLS is only available
-in standalone mode (when `listen` is set); mounted servers inherit TLS from the parent
-HTTP server. See [TLS configuration](config.md#tls) for the full attribute reference.
-
-```hcl
-server "mcp" "tools" {
-    listen      = ":9000"
-    server_name = "My Tools"
-
-    tls {
-        enabled = true
-        cert    = "/etc/certs/server.crt"
-        key     = "/etc/certs/server.key"
-    }
-
-    tool "echo" {
-        description = "Echo the input"
-        param "text" { type = "string"; required = true }
-        action = ctx.args.text
-    }
-}
-```
-
-For local development, use `self_signed = true`:
-
-```hcl
-tls {
-    enabled     = true
-    self_signed = true
-}
-```
+TLS is terminated by the [`server "http"`](server-http.md) block that hosts the
+MCP endpoint — see [TLS configuration](config.md#tls).
 
 ---
 
 ## Mounting under HTTP
 
-An MCP server can be mounted at a path of an existing HTTP server instead of
-listening on its own port. Omit `listen` from the MCP block and reference it
-from the HTTP server's `handle` block:
+An MCP server is reached through a route of an HTTP server, referenced from that
+server's `handle` block:
 
 ```hcl
 server "mcp" "mytools" {
-    # no listen — mounted under HTTP below
     server_name = "My Tools"
 
     tool "echo" {
@@ -551,7 +505,6 @@ client "otlp" "telemetry" {
 }
 
 server "mcp" "tools" {
-    listen  = ":9000"
     tracing = client.telemetry   # optional; auto-wired if it's the only OTLP client
     metrics = client.telemetry   # optional; auto-wired if it's the only metrics backend
     ...
@@ -566,13 +519,14 @@ no-op.
 ### Two layers of telemetry
 
 - **HTTP transport** — incoming W3C trace context is extracted and an HTTP
-  server span (`POST /…`) plus standard HTTP server metrics are produced by
-  `otelhttp`. This happens in **both** standalone mode and when mounted under a
-  `server "http"` block (in the mounted case the parent HTTP server provides it).
+  server span (`POST /…`) plus standard HTTP server metrics are produced by the
+  [`server "http"`](server-http.md) block hosting the endpoint, the same way it
+  does for any other route.
 - **MCP protocol** — every inbound MCP request/notification produces an
   `mcp.server` span (child of the HTTP span) and an
-  `mcp.server.operation.duration` metric. This works identically in standalone
-  and mounted mode.
+  `mcp.server.operation.duration` metric. These describe the protocol rather
+  than the transport, and are what the `tracing` and `metrics` attributes on
+  this block configure.
 
 ### `mcp.server` span
 
@@ -612,7 +566,6 @@ omitted to avoid metric-cardinality blowups.
 
 ```hcl
 server "mcp" "assistant_tools" {
-    listen      = ":9000"
     server_name = "Assistant Tools"
 
     resource "config://environment" {
@@ -673,6 +626,14 @@ server "mcp" "assistant_tools" {
         action = mcp::user_message(
             "Please review this ${ctx.args.language} code:\n\n```${ctx.args.language}\n${ctx.args.code}\n```"
         )
+    }
+}
+
+server "http" "main" {
+    listen = ":9000"
+
+    handle "/mcp" {
+        handler = server.assistant_tools
     }
 }
 ```

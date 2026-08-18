@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tsarna/vinculum/config"
 	httpserver "github.com/tsarna/vinculum/servers/http"
-	mcpsrv "github.com/tsarna/vinculum/servers/mcp"
 	"go.uber.org/zap"
 )
 
@@ -41,15 +40,8 @@ func TestMcpResourcesConfig(t *testing.T) {
 	// Server is accessible via the cty server map
 	assert.Contains(t, cfg.CtyServerMap, "test")
 
-	// Server is in the startables list
-	found := false
-	for _, s := range cfg.Startables {
-		if _, ok := s.(*mcpsrv.McpServer); ok {
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "expected McpServer in Startables")
+	// An MCP server owns no listener, so there is nothing for it to start.
+	assert.Empty(t, cfg.Startables, "an MCP server has nothing to start on its own")
 }
 
 func TestMcpToolsConfig(t *testing.T) {
@@ -85,13 +77,6 @@ func TestMcpMountedUnderHttp(t *testing.T) {
 	require.Contains(t, cfg.Servers, "mcp")
 	require.Contains(t, cfg.Servers["mcp"], "mounted")
 	require.Contains(t, cfg.CtyServerMap, "mounted")
-
-	// MCP server with no listen is NOT in Startables
-	for _, s := range cfg.Startables {
-		if mcp, ok := s.(*mcpsrv.McpServer); ok {
-			assert.NotEqual(t, "mounted", mcp.Name, "mount-only MCP server should not be in Startables")
-		}
-	}
 
 	// HTTP server IS in Startables
 	httpFound := false

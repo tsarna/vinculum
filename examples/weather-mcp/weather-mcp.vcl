@@ -221,12 +221,11 @@ function "forecast_report" {
 
 # ── MCP server ────────────────────────────────────────────────────────────────
 #
-# This MCP server has no `listen` of its own — it is mounted under the
-# `server "http"` block below, at /mcp. Mounting (rather than giving the MCP
-# block its own `listen`) means the HTTP server's request log records every
-# inbound MCP call (method, route, status, duration), which a standalone MCP
-# server does not emit. It also lets you serve other HTTP routes on the same
-# port.
+# An MCP server owns no socket: it is mounted under the `server "http"` block
+# below, at /mcp. That block is where everything about the connection is
+# configured — the listen address, TLS, authentication — and its request log
+# records every inbound MCP call (method, route, status, duration). Other HTTP
+# routes can be served on the same port.
 
 server "mcp" "weather" {
     server_name    = "Weather"
