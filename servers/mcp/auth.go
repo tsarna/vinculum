@@ -1,8 +1,10 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"sync"
 
 	"github.com/hashicorp/hcl/v2"
 	cfg "github.com/tsarna/vinculum/config"
@@ -13,23 +15,27 @@ import (
 )
 
 // buildMCPAuthenticator creates an Authenticator for a standalone MCP server.
-// Also returns cached OIDC metadata if the authenticator performed OIDC discovery.
-func buildMCPAuthenticator(authCfg *cfg.AuthConfig, serverName string, evalCtx *hcl.EvalContext) (serverauth.Authenticator, *serverauth.OIDCMetadata, error) {
-	authenticator, err := serverauth.BuildAuthenticator(authCfg, serverName, evalCtx)
+//
+// The second return value resolves the OIDC discovery document, and is nil
+// unless this authenticator discovers one. It is a function rather than the
+// document itself because discovery now happens on first use: at the moment the
+// server is being built, the issuer may not have been contacted yet — or may
+// not be reachable at all.
+func buildMCPAuthenticator(authCfg *cfg.AuthConfig, serverName string, config *cfg.Config) (serverauth.Authenticator, func(context.Context) (*serverauth.OIDCMetadata, error), error) {
+	authenticator, err := serverauth.BuildAuthenticator(authCfg, serverName, config)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Extract cached OIDC metadata if available (only present when issuer discovery was used).
 	type metaExposer interface {
-		CachedMetadata() *serverauth.OIDCMetadata
+		DiscoveryMetadata() func(context.Context) (*serverauth.OIDCMetadata, error)
 	}
-	var meta *serverauth.OIDCMetadata
+	var resolveMeta func(context.Context) (*serverauth.OIDCMetadata, error)
 	if me, ok := authenticator.(metaExposer); ok {
-		meta = me.CachedMetadata()
+		resolveMeta = me.DiscoveryMetadata()
 	}
 
-	return authenticator, meta, nil
+	return authenticator, resolveMeta, nil
 }
 
 // newMCPAuthMiddleware wraps next with authentication enforcement.
@@ -80,21 +86,39 @@ func writeMCPAuthResponse(w http.ResponseWriter, resp *types.HTTPResponseWrapper
 
 // oidcMetadataHandler serves the OAuth2 authorization server metadata document
 // at /.well-known/oauth-authorization-server (RFC 8414 / MCP spec requirement).
+//
+// The document is fetched from the issuer on demand and cached once it arrives.
+// While the issuer is unreachable the endpoint answers 503 rather than an empty
+// document, so a client can tell "not yet" from "no such metadata".
 type oidcMetadataHandler struct {
-	meta    *serverauth.OIDCMetadata
-	payload []byte // lazily marshalled
+	resolve func(context.Context) (*serverauth.OIDCMetadata, error)
+
+	mu      sync.Mutex
+	payload []byte
 }
 
 func (h *oidcMetadataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if h.payload == nil {
-		data, err := json.Marshal(h.meta)
+	h.mu.Lock()
+	payload := h.payload
+	h.mu.Unlock()
+
+	if payload == nil {
+		meta, err := h.resolve(r.Context())
+		if err != nil {
+			http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		payload, err = json.Marshal(meta)
 		if err != nil {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
-		h.payload = data
+		h.mu.Lock()
+		h.payload = payload
+		h.mu.Unlock()
 	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(h.payload) //nolint:errcheck
+	w.Write(payload) //nolint:errcheck
 }

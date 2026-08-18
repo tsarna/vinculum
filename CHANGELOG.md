@@ -19,6 +19,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An unreachable OIDC provider no longer stops vinculum from starting.** `auth "oidc"`
+  fetched the discovery document and the JWKS while the config was being processed, with
+  no timeout, so a provider that was down failed the entire config and one that hung
+  never returned at all. Both fetches now happen on first use, bounded by a 10s timeout
+  and retried on a backoff; until they succeed, protected routes answer `503` with a
+  `Retry-After` rather than ever opening up. Local configuration errors are still
+  reported immediately.
+
+- **RFC 7662 introspection had the same missing timeout**, on a path that runs per request
+  rather than once at startup. `auth "oauth2"` and `auth "oidc"` with an `introspect_url`
+  now share the same bounded client.
+
+- **Authenticators are shut down with the process.** The JWKS background refresher and the
+  `auth "oauth2"` token-cache sweep both ran on `context.Background()` for the life of the
+  process, one per authenticator built. Both are now cancelled during teardown.
+
 - **Servers now stop accepting before the runtime behind them is torn down.** No listening
   server in the tree implemented shutdown at all: `server "http"` registered only a
   `Startable`, `"mcp"` and `"metrics"` built their `http.Server` as a local inside `Start()`

@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
@@ -14,7 +17,9 @@ import (
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/lestrrat-go/jwx/v3/jwt"
 	cfg "github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
+	"go.uber.org/zap"
 )
 
 // OIDCMetadata holds the fields from an OpenID Connect discovery document that
@@ -33,32 +38,68 @@ type OIDCMetadata struct {
 }
 
 type oidcAuthenticator struct {
-	jwksURL   string
-	audience  []string
-	clockSkew time.Duration
+	issuer string
+	// configuredJWKSURL is the operator's explicit `jwks_url`, empty when the
+	// URL has to be discovered from the issuer.
+	configuredJWKSURL string
+	audience          []string
+	clockSkew         time.Duration
 	// algorithms is the set of signing algorithms a JWKS key may advertise to be
 	// considered for verification. jwx selects the algorithm from the key's own
 	// `alg`, never from the token header, so filtering the key set is what makes
 	// the configured list actually restrictive.
 	algorithms map[jwa.SignatureAlgorithm]struct{}
-	cache      *jwk.Cache
-	// cachedMeta holds the OIDC discovery document for re-serving.
-	cachedMeta *OIDCMetadata
 	// useIntrospect switches from local JWT validation to introspection.
 	useIntrospect      bool
 	introspectURL      string
 	introspectClientID string
 	introspectSecret   string
+
+	logger *zap.Logger
+
+	// ctx is cancelled by Stop. Everything with a lifetime — the JWKS cache's
+	// background refresher, any resolution attempt in flight — hangs off it, so
+	// shutdown does not leave goroutines fetching from an issuer.
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// The resolution state machine. Talking to the issuer is deferred out of
+	// config processing entirely (see resolve), so these guard an attempt that
+	// can happen at any time from any request.
+	mu       sync.Mutex
+	resolved *oidcResolution
+	inflight chan struct{}
+	lastErr  error
+	nextTry  time.Time
+	backoff  time.Duration
 }
 
-func newOIDCAuthenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext) (Authenticator, error) {
+// oidcResolution is everything that had to be fetched from the issuer before a
+// token can be verified. Built once, then read without further I/O.
+type oidcResolution struct {
+	jwksURL string
+	cache   *jwk.Cache
+	// meta is the discovery document, nil when jwks_url was explicit.
+	meta *OIDCMetadata
+	// cancel tears down the cache's background refresher. Also reached by
+	// cancelling the authenticator's ctx, which this descends from; held so a
+	// failed attempt can clean up after itself without waiting for shutdown.
+	cancel context.CancelFunc
+}
+
+func newOIDCAuthenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext, logger *zap.Logger) (Authenticator, error) {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	a := &oidcAuthenticator{
 		algorithms: map[jwa.SignatureAlgorithm]struct{}{
 			jwa.RS256(): {},
 			jwa.ES256(): {},
 		},
 		clockSkew: 30 * time.Second,
+		logger:    logger,
 	}
+	a.ctx, a.cancel = context.WithCancel(context.Background())
 
 	// Parse clock_skew (string, number, or duration capsule).
 	if cfg.IsExpressionProvided(ac.ClockSkew) {
@@ -113,7 +154,9 @@ func newOIDCAuthenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext) (Authent
 		a.audience = aud
 	}
 
-	// Determine JWKS URL (via discovery or explicit override).
+	// Record where verification material comes from. Nothing is fetched here:
+	// see resolve.
+	a.issuer = ac.Issuer
 	if ac.IntrospectUrl != "" {
 		// Use introspection instead of local JWKS validation.
 		a.useIntrospect = true
@@ -121,44 +164,204 @@ func newOIDCAuthenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext) (Authent
 		a.introspectClientID = ac.IntrospectClientID
 		a.introspectSecret = ac.IntrospectClientSecret
 	} else {
-		jwksURL := ac.JWKSUrl
-		if jwksURL == "" {
-			// Fetch OIDC discovery document to find JWKS URL.
-			meta, err := fetchOIDCMetadata(ac.Issuer)
-			if err != nil {
-				return nil, fmt.Errorf("auth oidc: fetching discovery document: %w", err)
-			}
-			jwksURL = meta.JWKSUri
-			a.cachedMeta = meta
-		}
-		a.jwksURL = jwksURL
-
-		// Set up JWKS cache with background refresh.
-		ctx := context.Background()
-		cache, err := jwk.NewCache(ctx, httprc.NewClient())
-		if err != nil {
-			return nil, fmt.Errorf("auth oidc: creating JWKS cache: %w", err)
-		}
-		if err := cache.Register(ctx, jwksURL, jwk.WithMinInterval(15*time.Minute)); err != nil {
-			return nil, fmt.Errorf("auth oidc: registering JWKS cache: %w", err)
-		}
-		// Perform an initial fetch to catch config errors at startup.
-		if _, err := cache.Refresh(ctx, jwksURL); err != nil {
-			return nil, fmt.Errorf("auth oidc: initial JWKS fetch from %s: %w", jwksURL, err)
-		}
-		a.cache = cache
+		a.configuredJWKSURL = ac.JWKSUrl
 	}
 
 	return a, nil
 }
 
-// CachedMetadata returns the OIDC discovery document fetched at startup.
-// Returns nil if jwks_url was provided directly (no discovery performed).
-func (a *oidcAuthenticator) CachedMetadata() *OIDCMetadata {
-	return a.cachedMeta
+// Start warms the authenticator so an unreachable issuer produces one log line
+// at boot rather than first appearing as a rejected request.
+//
+// It neither blocks nor fails. An identity provider is somebody else's process
+// on the other side of a network, and one being down at boot must not stop the
+// rest of this one from starting — an HTTP listener with nothing to do with
+// OIDC should still bind. Requests retry on their own schedule, so a provider
+// that comes up late is recovered from without a restart.
+func (a *oidcAuthenticator) Start() error {
+	if a.useIntrospect {
+		return nil
+	}
+	go func() {
+		_, _ = a.resolve(a.ctx) // failure is logged by resolve
+	}()
+	return nil
+}
+
+// Stop cancels the JWKS cache's background refresher and any fetch in flight.
+func (a *oidcAuthenticator) Stop() error {
+	a.cancel()
+	return nil
+}
+
+// DiscoveryMetadata returns a function that yields the issuer's discovery
+// document, or nil when this authenticator performs no discovery (an explicit
+// jwks_url, or introspection). The document is fetched on demand rather than
+// held from startup, so a caller must be prepared for the issuer to be down.
+func (a *oidcAuthenticator) DiscoveryMetadata() func(context.Context) (*OIDCMetadata, error) {
+	if a.useIntrospect || a.configuredJWKSURL != "" {
+		return nil
+	}
+	return func(ctx context.Context) (*OIDCMetadata, error) {
+		res, err := a.resolve(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return res.meta, nil
+	}
+}
+
+// resolve returns the verification material, fetching it from the issuer on
+// first use and on any later attempt the backoff schedule allows.
+//
+// Doing this lazily rather than during config processing is what keeps a
+// temporarily unreachable issuer from being fatal: `vinculum check` validates a
+// config without needing the provider up, and `vinculum serve` starts and then
+// heals when the provider appears.
+//
+// Three properties matter here:
+//
+//   - Single-flight. One attempt runs at a time; concurrent callers wait for it
+//     rather than each opening their own connection to the issuer.
+//   - Negative caching. A failure is remembered until nextTry, so a provider
+//     that is down costs one request per backoff interval, not one per inbound
+//     HTTP request.
+//   - The attempt outlives its caller. Fetching runs in its own goroutine on
+//     the authenticator's context, so the request that happened to trigger it
+//     going away — a client disconnect, a handler timeout — does not abort work
+//     every other waiter is depending on. Only the *waiting* is caller-scoped,
+//     and that is true even for the caller that started the attempt.
+func (a *oidcAuthenticator) resolve(ctx context.Context) (*oidcResolution, error) {
+	for {
+		a.mu.Lock()
+		if a.resolved != nil {
+			res := a.resolved
+			a.mu.Unlock()
+			return res, nil
+		}
+		if ch := a.inflight; ch != nil {
+			a.mu.Unlock()
+			select {
+			case <-ch:
+				continue // re-read the outcome under the lock
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-a.ctx.Done():
+				return nil, a.ctx.Err()
+			}
+		}
+		if time.Now().Before(a.nextTry) {
+			err := a.lastErr
+			a.mu.Unlock()
+			return nil, err
+		}
+		ch := make(chan struct{})
+		a.inflight = ch
+		a.mu.Unlock()
+
+		go a.runAttempt(ch)
+		// Round the loop to wait on ch like any other caller.
+	}
+}
+
+// runAttempt performs one resolution and records its outcome, closing done when
+// the result is readable.
+func (a *oidcAuthenticator) runAttempt(done chan struct{}) {
+	res, err := a.attemptResolve()
+
+	a.mu.Lock()
+	a.inflight = nil
+	var retryIn time.Duration
+	if err == nil {
+		a.resolved = res
+		a.lastErr = nil
+		a.backoff = 0
+		a.nextTry = time.Time{}
+	} else {
+		a.lastErr = err
+		a.backoff = nextBackoff(a.backoff)
+		a.nextTry = time.Now().Add(a.backoff)
+		retryIn = a.backoff
+	}
+	close(done)
+	a.mu.Unlock()
+
+	if err != nil {
+		// Bounded by the backoff schedule, so this cannot become per-request
+		// spam however much traffic arrives while the issuer is down.
+		a.logger.Warn("OIDC issuer unreachable; requests will be rejected until it responds",
+			zap.String("issuer", a.issuer),
+			zap.Duration("retry_after", retryIn),
+			zap.Error(err))
+	}
+}
+
+// attemptResolve performs one full fetch: discovery if needed, then the JWKS.
+func (a *oidcAuthenticator) attemptResolve() (*oidcResolution, error) {
+	ctx, cancel := context.WithTimeout(a.ctx, authFetchTimeout)
+	defer cancel()
+
+	res := &oidcResolution{jwksURL: a.configuredJWKSURL}
+	if res.jwksURL == "" {
+		meta, err := fetchOIDCMetadata(ctx, a.issuer)
+		if err != nil {
+			return nil, fmt.Errorf("auth oidc: fetching discovery document: %w", err)
+		}
+		res.meta = meta
+		res.jwksURL = meta.JWKSUri
+	}
+
+	// The cache's refresher gets its own cancellable context so a failed attempt
+	// can shut it down immediately, rather than leaving one refresher per
+	// attempt running until the process exits.
+	cacheCtx, cacheCancel := context.WithCancel(a.ctx)
+	cache, err := jwk.NewCache(cacheCtx, httprc.NewClient(httprc.WithHTTPClient(authHTTPClient)))
+	if err != nil {
+		cacheCancel()
+		return nil, fmt.Errorf("auth oidc: creating JWKS cache: %w", err)
+	}
+	if err := cache.Register(cacheCtx, res.jwksURL, jwk.WithMinInterval(15*time.Minute)); err != nil {
+		cacheCancel()
+		return nil, fmt.Errorf("auth oidc: registering JWKS cache: %w", err)
+	}
+	if _, err := cache.Refresh(ctx, res.jwksURL); err != nil {
+		cacheCancel()
+		return nil, fmt.Errorf("auth oidc: initial JWKS fetch from %s: %w", res.jwksURL, err)
+	}
+
+	res.cache = cache
+	res.cancel = cacheCancel
+	return res, nil
+}
+
+// unavailable is the response to a request that arrived while the issuer could
+// not be reached. It is a 503 and never a pass: a provider being down must not
+// turn a protected route into an open one.
+func (a *oidcAuthenticator) unavailable() *AuthFailure {
+	a.mu.Lock()
+	retryAfter := time.Until(a.nextTry)
+	a.mu.Unlock()
+
+	seconds := 1
+	if retryAfter > 0 {
+		seconds = int(math.Ceil(retryAfter.Seconds()))
+	}
+
+	return &AuthFailure{
+		Status: http.StatusServiceUnavailable,
+		Response: &types.HTTPResponseWrapper{
+			Status:      http.StatusServiceUnavailable,
+			Headers:     http.Header{"Retry-After": []string{strconv.Itoa(seconds)}},
+			ContentType: "text/plain; charset=utf-8",
+			Body:        []byte("Service Unavailable\n"),
+			IsError:     true,
+		},
+	}
 }
 
 func (a *oidcAuthenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalContext) (cty.Value, *AuthFailure, error) {
+	// Checked before anything is resolved: a request with no credential is
+	// wrong whatever the issuer's state, and answering costs no I/O.
 	token, err := extractBearerToken(r)
 	if err != nil {
 		return cty.NilVal, &AuthFailure{
@@ -168,10 +371,15 @@ func (a *oidcAuthenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalConte
 	}
 
 	if a.useIntrospect {
-		return introspectToken(token, a.introspectURL, a.introspectClientID, a.introspectSecret, a.audience)
+		return introspectToken(r.Context(), token, a.introspectURL, a.introspectClientID, a.introspectSecret, a.audience)
 	}
 
-	keySet, err := a.cache.Lookup(r.Context(), a.jwksURL)
+	res, err := a.resolve(r.Context())
+	if err != nil {
+		return cty.NilVal, a.unavailable(), nil
+	}
+
+	keySet, err := res.cache.Lookup(r.Context(), res.jwksURL)
 	if err != nil {
 		return cty.NilVal, nil, fmt.Errorf("auth oidc: getting JWKS: %w", err)
 	}
@@ -179,7 +387,7 @@ func (a *oidcAuthenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalConte
 	parsed, err := a.parseToken(token, keySet)
 	if err != nil {
 		// Try refreshing the cache once (handles key rotation / unknown kid).
-		if refreshed, refreshErr := a.cache.Refresh(r.Context(), a.jwksURL); refreshErr == nil {
+		if refreshed, refreshErr := res.cache.Refresh(r.Context(), res.jwksURL); refreshErr == nil {
 			parsed, err = a.parseToken(token, refreshed)
 		}
 		if err != nil {
@@ -252,9 +460,13 @@ func (a *oidcAuthenticator) permittedKeys(keySet jwk.Set) jwk.Set {
 }
 
 // fetchOIDCMetadata retrieves the OIDC discovery document from the issuer.
-func fetchOIDCMetadata(issuer string) (*OIDCMetadata, error) {
+func fetchOIDCMetadata(ctx context.Context, issuer string) (*OIDCMetadata, error) {
 	discoveryURL := strings.TrimSuffix(issuer, "/") + "/.well-known/openid-configuration"
-	resp, err := http.Get(discoveryURL) //nolint:gosec // URL comes from trusted config
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("building request for %s: %w", discoveryURL, err)
+	}
+	resp, err := authHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("GET %s: %w", discoveryURL, err)
 	}

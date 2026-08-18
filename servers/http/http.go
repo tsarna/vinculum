@@ -426,7 +426,7 @@ func wrapWithAuth(handler http.Handler, effectiveAuth *cfg.AuthConfig, serverNam
 		return handler, nil
 	}
 
-	authenticator, err := serverauth.BuildAuthenticator(effectiveAuth, serverName, config.EvalCtx())
+	authenticator, err := serverauth.BuildAuthenticator(effectiveAuth, serverName, config)
 	if err != nil {
 		return nil, hcl.Diagnostics{
 			&hcl.Diagnostic{

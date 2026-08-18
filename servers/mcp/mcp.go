@@ -351,6 +351,7 @@ func ProcessMcpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody h
 		MeterProvider:   mp,
 		BaggageFilter:   def.Baggage,
 		ParentEvalCtx:   config.EvalCtx(),
+		Config:          config,
 		Logger:          config.Logger,
 		Resources:       resources,
 		Tools:           tools,

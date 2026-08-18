@@ -16,6 +16,7 @@ import (
 	"github.com/lestrrat-go/jwx/v3/jwt"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
+	"go.uber.org/zap"
 )
 
 // signingKey is a private key plus the public JWK an issuer would publish for it.
@@ -77,35 +78,44 @@ func (k *signingKey) sign(t *testing.T, build func(*jwt.Builder) *jwt.Builder) s
 func newIssuer(t *testing.T, keys ...*signingKey) *httptest.Server {
 	t.Helper()
 
-	entries := make([]json.RawMessage, len(keys))
-	for i, k := range keys {
-		encoded, err := json.Marshal(k.public)
-		if err != nil {
-			t.Fatalf("marshaling public key: %v", err)
-		}
-		entries[i] = encoded
-	}
-	set := map[string]any{"keys": entries}
-
 	mux := http.NewServeMux()
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(OIDCMetadata{
-			Issuer:                srv.URL,
-			AuthorizationEndpoint: srv.URL + "/authorize",
-			TokenEndpoint:         srv.URL + "/token",
-			JWKSUri:               srv.URL + "/jwks.json",
-		})
+		writeDiscovery(w, srv.URL)
 	})
 	mux.HandleFunc("/jwks.json", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(set)
+		writeJWKS(w, keys...)
 	})
 
 	return srv
+}
+
+// writeDiscovery serves the discovery document an issuer at base would publish.
+func writeDiscovery(w http.ResponseWriter, base string) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(OIDCMetadata{
+		Issuer:                base,
+		AuthorizationEndpoint: base + "/authorize",
+		TokenEndpoint:         base + "/token",
+		JWKSUri:               base + "/jwks.json",
+	})
+}
+
+// writeJWKS serves the given keys as a JWKS document.
+func writeJWKS(w http.ResponseWriter, keys ...*signingKey) {
+	entries := make([]json.RawMessage, len(keys))
+	for i, k := range keys {
+		encoded, err := json.Marshal(k.public)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		entries[i] = encoded
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"keys": entries})
 }
 
 // expr parses src into a real HCL expression, so IsExpressionProvided sees a
@@ -118,6 +128,21 @@ func expr(t *testing.T, src string) hcl.Expression {
 		t.Fatalf("parsing expression %q: %v", src, diags)
 	}
 	return e
+}
+
+// newTestOIDC builds an OIDC authenticator and stops it when the test ends, so
+// no JWKS refresher outlives the test that created it.
+func newTestOIDC(t *testing.T, ac *cfg.AuthConfig) Authenticator {
+	t.Helper()
+
+	a, err := newOIDCAuthenticator(ac, nil, zap.NewNop())
+	if err != nil {
+		t.Fatalf("newOIDCAuthenticator: %v", err)
+	}
+	if s, ok := a.(interface{ Stop() error }); ok {
+		t.Cleanup(func() { _ = s.Stop() })
+	}
+	return a
 }
 
 // authenticate runs a request carrying token through the authenticator.
@@ -135,14 +160,11 @@ func TestOIDCAuthenticatorValidToken(t *testing.T) {
 	key := newSigningKey(t, jwa.RS256(), "key-1")
 	issuer := newIssuer(t, key)
 
-	a, err := newOIDCAuthenticator(&cfg.AuthConfig{
+	a := newTestOIDC(t, &cfg.AuthConfig{
 		Mode:     "oidc",
 		Issuer:   issuer.URL,
 		Audience: expr(t, `["api.example.com"]`),
-	}, nil)
-	if err != nil {
-		t.Fatalf("newOIDCAuthenticator: %v", err)
-	}
+	})
 
 	token := key.sign(t, func(b *jwt.Builder) *jwt.Builder {
 		return b.Subject("user-42").
@@ -208,14 +230,11 @@ func TestOIDCAuthenticatorRejectsDisallowedAlgorithm(t *testing.T) {
 	disallowed := newSigningKey(t, jwa.RS512(), "key-rs512")
 	issuer := newIssuer(t, allowed, disallowed)
 
-	a, err := newOIDCAuthenticator(&cfg.AuthConfig{
+	a := newTestOIDC(t, &cfg.AuthConfig{
 		Mode:       "oidc",
 		Issuer:     issuer.URL,
 		Algorithms: expr(t, `["RS256"]`),
-	}, nil)
-	if err != nil {
-		t.Fatalf("newOIDCAuthenticator: %v", err)
-	}
+	})
 
 	claims := func(b *jwt.Builder) *jwt.Builder {
 		return b.Subject("user-42").
@@ -250,13 +269,10 @@ func TestOIDCAuthenticatorDuplicateJWKSEntry(t *testing.T) {
 	key := newSigningKey(t, jwa.RS256(), "key-1")
 	issuer := newIssuer(t, key, key) // published twice
 
-	a, err := newOIDCAuthenticator(&cfg.AuthConfig{
+	a := newTestOIDC(t, &cfg.AuthConfig{
 		Mode:   "oidc",
 		Issuer: issuer.URL,
-	}, nil)
-	if err != nil {
-		t.Fatalf("newOIDCAuthenticator: %v", err)
-	}
+	})
 
 	token := key.sign(t, func(b *jwt.Builder) *jwt.Builder {
 		return b.Subject("user-42").Expiration(time.Now().Add(time.Hour))
@@ -271,14 +287,11 @@ func TestOIDCAuthenticatorRejectsBadTokens(t *testing.T) {
 	other := newSigningKey(t, jwa.RS256(), "key-1") // same kid, wrong key
 	issuer := newIssuer(t, key)
 
-	a, err := newOIDCAuthenticator(&cfg.AuthConfig{
+	a := newTestOIDC(t, &cfg.AuthConfig{
 		Mode:     "oidc",
 		Issuer:   issuer.URL,
 		Audience: expr(t, `["api.example.com"]`),
-	}, nil)
-	if err != nil {
-		t.Fatalf("newOIDCAuthenticator: %v", err)
-	}
+	})
 
 	base := func(b *jwt.Builder) *jwt.Builder {
 		return b.Subject("user-42").
@@ -346,14 +359,11 @@ func TestOIDCAuthenticatorClockSkew(t *testing.T) {
 	key := newSigningKey(t, jwa.RS256(), "key-1")
 	issuer := newIssuer(t, key)
 
-	a, err := newOIDCAuthenticator(&cfg.AuthConfig{
+	a := newTestOIDC(t, &cfg.AuthConfig{
 		Mode:      "oidc",
 		Issuer:    issuer.URL,
 		ClockSkew: expr(t, `"5m"`),
-	}, nil)
-	if err != nil {
-		t.Fatalf("newOIDCAuthenticator: %v", err)
-	}
+	})
 
 	token := key.sign(t, func(b *jwt.Builder) *jwt.Builder {
 		return b.Subject("user-42").
@@ -370,26 +380,23 @@ func TestOIDCAuthenticatorClockSkew(t *testing.T) {
 	}
 }
 
-// TestOIDCAuthenticatorJWKSUrlSkipsDiscovery checks the explicit-JWKS path, where
-// no discovery document is fetched and CachedMetadata stays nil.
+// TestOIDCAuthenticatorJWKSUrlSkipsDiscovery checks the explicit-JWKS path,
+// where no discovery document is ever fetched and there is none to expose.
 func TestOIDCAuthenticatorJWKSUrlSkipsDiscovery(t *testing.T) {
 	key := newSigningKey(t, jwa.RS256(), "key-1")
 	issuer := newIssuer(t, key)
 
-	a, err := newOIDCAuthenticator(&cfg.AuthConfig{
+	a := newTestOIDC(t, &cfg.AuthConfig{
 		Mode:    "oidc",
 		JWKSUrl: issuer.URL + "/jwks.json",
-	}, nil)
-	if err != nil {
-		t.Fatalf("newOIDCAuthenticator: %v", err)
-	}
+	})
 
 	oidcAuth, ok := a.(*oidcAuthenticator)
 	if !ok {
 		t.Fatalf("got %T, want *oidcAuthenticator", a)
 	}
-	if meta := oidcAuth.CachedMetadata(); meta != nil {
-		t.Errorf("CachedMetadata = %+v, want nil when jwks_url is explicit", meta)
+	if oidcAuth.DiscoveryMetadata() != nil {
+		t.Error("DiscoveryMetadata is non-nil, but jwks_url was explicit — nothing to discover")
 	}
 
 	token := key.sign(t, func(b *jwt.Builder) *jwt.Builder {
@@ -440,18 +447,11 @@ func TestOIDCAuthenticatorConfigErrors(t *testing.T) {
 				Algorithms: expr(t, `"RS256"`),
 			},
 		},
-		{
-			name: "issuer has no discovery document",
-			ac: &cfg.AuthConfig{
-				Mode:   "oidc",
-				Issuer: issuer.URL + "/nonexistent",
-			},
-		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := newOIDCAuthenticator(tc.ac, nil); err == nil {
+			if _, err := newOIDCAuthenticator(tc.ac, nil, zap.NewNop()); err == nil {
 				t.Fatal("newOIDCAuthenticator succeeded, want error")
 			}
 		})

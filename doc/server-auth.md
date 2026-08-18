@@ -257,9 +257,24 @@ Uses `issuer` (required unless `jwks_url` is set), `jwks_url`, `audience`,
 `introspect_url` with `introspect_client_id` and `introspect_client_secret`. See
 [Attributes](#attributes) for their types and defaults.
 
-At startup, vinculum fetches the OIDC discovery document from `{issuer}/.well-known/openid-configuration`
-and caches the JWKS endpoint. The JWKS key set is refreshed automatically in the background and on
-unknown `kid` values (to handle key rotation).
+vinculum fetches the OIDC discovery document from
+`{issuer}/.well-known/openid-configuration` and caches the JWKS endpoint. The
+JWKS key set is refreshed automatically in the background and on unknown `kid`
+values (to handle key rotation).
+
+That fetch happens on first use, not while the config is being loaded, so an
+identity provider that is unreachable does not stop the process from starting or
+prevent `vinculum check` from validating the file. While the provider cannot be
+reached, protected routes answer `503 Service Unavailable` with a `Retry-After`
+header — never anonymous access — and the fetch is retried on a backoff (1s
+doubling to 60s) so a provider that comes up late is picked up without a
+restart. Each failed attempt logs once; requests arriving in between are
+answered from the cached failure rather than each opening their own connection
+to the provider.
+
+Configuration errors are still reported immediately: a missing `issuer`, an
+unknown entry in `algorithms`, an unparseable `clock_skew`. Those are typos, not
+outages.
 
 On `server "mcp"` in standalone mode, vinculum automatically serves the discovery document at
 `GET /.well-known/oauth-authorization-server` to support MCP clients that implement the

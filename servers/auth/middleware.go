@@ -21,8 +21,11 @@ type AuthFailure struct {
 	// WWWAuthenticate is the value for the WWW-Authenticate response header.
 	// Empty string means no header.
 	WWWAuthenticate string
-	// Response, if non-nil, is written directly as the HTTP response instead
-	// of the default status + header (used by auth "custom" for redirects).
+	// Response, if non-nil, is written directly as the HTTP response instead of
+	// the default status + header. Used where a rejection needs headers or a
+	// body the two fields above cannot express — a redirect from auth "custom",
+	// or the Retry-After on a 503 from an authenticator whose identity provider
+	// is unreachable.
 	Response *types.HTTPResponseWrapper
 }
 
@@ -65,26 +68,57 @@ func NewAuthMiddleware(authenticator Authenticator, evalCtx *hcl.EvalContext, lo
 // BuildAuthenticator constructs an Authenticator from the given AuthConfig.
 // Returns nil, nil when ac is nil, ac.Disabled, or ac.Mode == "none" (no
 // authentication). The serverName is used as the default Basic auth realm when
-// not specified. evalCtx is the global configuration eval context, used for
-// evaluating static expressions (e.g. credentials maps) at construction time if needed.
-func BuildAuthenticator(ac *cfg.AuthConfig, serverName string, evalCtx *hcl.EvalContext) (Authenticator, error) {
+// not specified.
+//
+// An authenticator with a lifetime of its own — a background refresher, a cache
+// sweep — registers it against config here rather than at each call site, so
+// nothing that talks to an identity provider survives shutdown. Only local
+// validation is fatal: an authenticator that needs to reach a provider defers
+// that until it is used, so a provider that is down cannot stop the process
+// from starting.
+func BuildAuthenticator(ac *cfg.AuthConfig, serverName string, config *cfg.Config) (Authenticator, error) {
 	if ac == nil || ac.Disabled || ac.Mode == "none" {
 		return nil, nil
 	}
 
+	var (
+		authenticator Authenticator
+		err           error
+		evalCtx       *hcl.EvalContext
+		logger        *zap.Logger
+	)
+	if config != nil {
+		evalCtx = config.EvalCtx()
+		logger = config.Logger
+	}
+
 	switch ac.Mode {
 	case "basic":
-		return newBasicAuthenticator(ac, serverName, evalCtx)
+		authenticator, err = newBasicAuthenticator(ac, serverName, evalCtx)
 	case "oidc":
-		return newOIDCAuthenticator(ac, evalCtx)
+		authenticator, err = newOIDCAuthenticator(ac, evalCtx, logger)
 	case "oauth2":
-		return newOAuth2Authenticator(ac, evalCtx)
+		authenticator, err = newOAuth2Authenticator(ac, evalCtx)
 	case "custom":
-		return newCustomAuthenticator(ac), nil
+		authenticator = newCustomAuthenticator(ac)
 	default:
 		// ValidateAuthConfig should have caught this; defensive fallback.
 		return nil, nil
 	}
+	if err != nil || authenticator == nil {
+		return nil, err
+	}
+
+	if config != nil {
+		if s, ok := authenticator.(cfg.Startable); ok {
+			config.Startables = append(config.Startables, s)
+		}
+		if s, ok := authenticator.(cfg.Stoppable); ok {
+			config.Stoppables = append(config.Stoppables, s)
+		}
+	}
+
+	return authenticator, nil
 }
 
 // writeResponse writes an HTTPResponseWrapper to w.

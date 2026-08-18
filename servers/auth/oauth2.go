@@ -22,6 +22,11 @@ type oauth2Authenticator struct {
 	audience      []string
 	cacheTTL      time.Duration
 
+	// cancel stops the sweep goroutine. Without it the loop is started on
+	// context.Background() and runs for the life of the process, one per
+	// authenticator built.
+	cancel context.CancelFunc
+
 	mu    sync.Mutex
 	cache map[string]oauth2CacheEntry
 }
@@ -76,11 +81,21 @@ func newOAuth2Authenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext) (Authe
 	}
 
 	if a.cacheTTL > 0 {
+		ctx, cancel := context.WithCancel(context.Background())
+		a.cancel = cancel
 		a.cache = make(map[string]oauth2CacheEntry)
-		go a.sweepLoop(context.Background())
+		go a.sweepLoop(ctx)
 	}
 
 	return a, nil
+}
+
+// Stop ends the cache sweep.
+func (a *oauth2Authenticator) Stop() error {
+	if a.cancel != nil {
+		a.cancel()
+	}
+	return nil
 }
 
 // sweepLoop periodically removes expired cache entries to bound memory growth.
@@ -124,7 +139,7 @@ func (a *oauth2Authenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalCon
 		a.mu.Unlock()
 	}
 
-	authVal, failure, introspectErr := introspectToken(token, a.introspectURL, a.clientID, a.clientSecret, a.audience)
+	authVal, failure, introspectErr := introspectToken(r.Context(), token, a.introspectURL, a.clientID, a.clientSecret, a.audience)
 	if introspectErr != nil {
 		return cty.NilVal, nil, introspectErr
 	}
@@ -146,18 +161,18 @@ func (a *oauth2Authenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalCon
 // introspectToken calls the RFC 7662 introspection endpoint and returns the
 // auth value or failure. Shared by both oidcAuthenticator (introspect mode)
 // and oauth2Authenticator.
-func introspectToken(token, introspectURL, clientID, clientSecret string, audience []string) (cty.Value, *AuthFailure, error) {
+func introspectToken(ctx context.Context, token, introspectURL, clientID, clientSecret string, audience []string) (cty.Value, *AuthFailure, error) {
 	form := url.Values{}
 	form.Set("token", token)
 
-	req, err := http.NewRequest(http.MethodPost, introspectURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, introspectURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return cty.NilVal, nil, fmt.Errorf("auth: building introspection request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.SetBasicAuth(clientID, clientSecret)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := authHTTPClient.Do(req)
 	if err != nil {
 		return cty.NilVal, nil, fmt.Errorf("auth: introspection request: %w", err)
 	}

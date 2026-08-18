@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	_ "github.com/tsarna/vinculum/ambient"
 	cfg "github.com/tsarna/vinculum/config"
 	httpserver "github.com/tsarna/vinculum/servers/http"
 	"go.uber.org/zap"
@@ -29,6 +30,9 @@ var authNoneFilesVCL []byte
 
 //go:embed testdata/auth_disabled.vcl
 var authDisabledVCL []byte
+
+//go:embed testdata/auth_oidc_unreachable.vcl
+var authOIDCUnreachableVCL []byte
 
 func basicAuthHeader(username, password string) string {
 	creds := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
@@ -173,4 +177,38 @@ func TestCustomAuth_HTTPRedirect(t *testing.T) {
 	resp := w.Result()
 	assert.Equal(t, http.StatusFound, resp.StatusCode)
 	assert.Equal(t, "https://example.com/login", resp.Header.Get("Location"))
+}
+
+// --- OIDC auth ---
+
+// TestOIDCAuth_UnreachableIssuerStillBuilds is the regression test for an
+// identity provider being down turning into a config error: the whole server —
+// including routes with nothing to do with OIDC — used to fail to start, and
+// `vinculum check` could not validate the file without network access to the
+// provider. Build() here is exactly what check runs.
+func TestOIDCAuth_UnreachableIssuerStillBuilds(t *testing.T) {
+	t.Setenv("VINCULUM_TEST_OIDC_ISSUER", unreachableURL(t))
+
+	srv := buildHTTPServer(t, authOIDCUnreachableVCL) // fails the test if Build errors
+
+	req := httptest.NewRequest(http.MethodGet, "/private", nil)
+	req.Header.Set("Authorization", "Bearer eyJhbGciOiJSUzI1NiJ9.e30.sig")
+	w := httptest.NewRecorder()
+	srv.Server.Handler.ServeHTTP(w, req)
+
+	resp := w.Result()
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode,
+		"an unreachable issuer must reject, and must say why")
+	assert.NotEmpty(t, resp.Header.Get("Retry-After"))
+}
+
+// unreachableURL returns the URL of a server that has been shut down, so the
+// port is known to be free and connecting to it fails immediately.
+func unreachableURL(t *testing.T) string {
+	t.Helper()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	url := srv.URL
+	srv.Close()
+	return url
 }

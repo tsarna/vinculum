@@ -40,10 +40,14 @@ type ServerConfig struct {
 	MeterProvider  otelmetric.MeterProvider
 	BaggageFilter  *hclutil.BaggageFilterConfig
 	ParentEvalCtx  *hcl.EvalContext
-	Logger         *zap.Logger
-	Resources      []ResourceDef
-	Tools          []ToolDef
-	Prompts        []PromptDef
+	// Config is the enclosing configuration, needed so an authenticator with a
+	// background lifetime can register itself for startup and shutdown. Nil in
+	// tests that build a server without one.
+	Config    *cfg.Config
+	Logger    *zap.Logger
+	Resources []ResourceDef
+	Tools     []ToolDef
+	Prompts   []PromptDef
 }
 
 // Server is a vinculum MCP server. It wraps the MCP SDK server and handles
@@ -135,7 +139,7 @@ func New(scfg ServerConfig) (*Server, error) {
 		return s.sdkServer
 	}, nil)
 
-	if err := s.buildHTTPHandler(path, streamHandler, scfg.Auth, scfg.ParentEvalCtx); err != nil {
+	if err := s.buildHTTPHandler(path, streamHandler, scfg.Auth, scfg.Config, scfg.ParentEvalCtx); err != nil {
 		return nil, err
 	}
 
@@ -174,22 +178,24 @@ func New(scfg ServerConfig) (*Server, error) {
 
 // buildHTTPHandler assembles s.httpHandler from the stream handler, optional auth
 // middleware, and (for standalone OIDC servers) the OAuth2 discovery endpoint.
-func (s *Server) buildHTTPHandler(path string, streamHandler http.Handler, authCfg *cfg.AuthConfig, evalCtx *hcl.EvalContext) error {
+func (s *Server) buildHTTPHandler(path string, streamHandler http.Handler, authCfg *cfg.AuthConfig, config *cfg.Config, evalCtx *hcl.EvalContext) error {
 	// If auth is configured, build an authenticator and wrap the stream handler.
 	var protected http.Handler = streamHandler
 	var oidcMeta *oidcMetadataHandler
 
 	if authCfg != nil && authCfg.Mode != "none" {
-		authenticator, meta, err := buildMCPAuthenticator(authCfg, s.name, evalCtx)
+		authenticator, resolveMeta, err := buildMCPAuthenticator(authCfg, s.name, config)
 		if err != nil {
 			return err
 		}
 		if authenticator != nil {
 			protected = newMCPAuthMiddleware(authenticator, evalCtx, s.logger, streamHandler)
 		}
-		// For standalone OIDC servers that used discovery, expose the metadata document.
-		if meta != nil && s.listen != "" {
-			oidcMeta = &oidcMetadataHandler{meta: meta}
+		// For standalone OIDC servers that use discovery, expose the metadata
+		// document. Whether the issuer has actually answered yet is the
+		// handler's problem, not this decision's.
+		if resolveMeta != nil && s.listen != "" {
+			oidcMeta = &oidcMetadataHandler{resolve: resolveMeta}
 		}
 	}
 

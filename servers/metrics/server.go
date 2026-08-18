@@ -324,7 +324,7 @@ func ProcessMetricsServerBlock(config *cfg.Config, block *hcl.Block, remainingBo
 
 	// Wrap the metrics handler with auth middleware if configured.
 	if def.Auth != nil && def.Auth.Mode != "none" {
-		authenticator, err := metricsauth.BuildAuthenticator(def.Auth, name, config.EvalCtx())
+		authenticator, err := metricsauth.BuildAuthenticator(def.Auth, name, config)
 		if err != nil {
 			return nil, hcl.Diagnostics{
 				&hcl.Diagnostic{
