@@ -36,7 +36,7 @@ require (
 	github.com/sosodev/duration v1.4.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.12.0
 	github.com/tsarna/barcode-cty-func v0.2.0
 	github.com/tsarna/functy v0.15.0
 	github.com/tsarna/geo-cty-funcs v0.4.0
@@ -170,11 +170,9 @@ require (
 require (
 	github.com/agext/levenshtein v1.2.1 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/heimdalr/dag v1.5.1
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/tsarna/url-cty-funcs v0.2.0
 	github.com/tsarna/vinculum-fsm v0.5.1
 	github.com/zclconf/go-cty v1.19.0
