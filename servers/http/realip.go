@@ -1,12 +1,12 @@
 package httpserver
 
 import (
-	"fmt"
 	"net"
 	"net/http"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
+	cfg "github.com/tsarna/vinculum/config"
 )
 
 // realIPConfig is the decoded `real_ip` sub-block of a `server "http"` block.
@@ -23,7 +23,7 @@ type realIPConfig struct {
 
 // realIPResolver is the compiled form of realIPConfig used at request time.
 type realIPResolver struct {
-	trusted   []*net.IPNet
+	trusted   *cfg.TrustedProxies
 	header    string
 	recursive bool
 }
@@ -31,8 +31,6 @@ type realIPResolver struct {
 // compileRealIP validates a decoded real_ip block and compiles it into a
 // resolver, parsing each trusted_proxies entry as a CIDR or a bare IP.
 func compileRealIP(c *realIPConfig) (*realIPResolver, hcl.Diagnostics) {
-	var diags hcl.Diagnostics
-
 	r := &realIPResolver{
 		header:    "X-Forwarded-For",
 		recursive: c.Recursive,
@@ -41,66 +39,18 @@ func compileRealIP(c *realIPConfig) (*realIPResolver, hcl.Diagnostics) {
 		r.header = c.Header
 	}
 
-	if len(c.TrustedProxies) == 0 {
-		return nil, hcl.Diagnostics{
-			&hcl.Diagnostic{
-				Severity: hcl.DiagError,
-				Summary:  "real_ip requires trusted_proxies",
-				Detail:   "a real_ip block must list at least one trusted proxy network in trusted_proxies",
-				Subject:  &c.DefRange,
-			},
-		}
-	}
-
-	for _, entry := range c.TrustedProxies {
-		ipnet, err := parseCIDROrIP(entry)
-		if err != nil {
-			diags = append(diags, &hcl.Diagnostic{
-				Severity: hcl.DiagError,
-				Summary:  "Invalid trusted_proxies entry",
-				Detail:   fmt.Sprintf("%q is not a valid IP address or CIDR: %v", entry, err),
-				Subject:  &c.DefRange,
-			})
-			continue
-		}
-		r.trusted = append(r.trusted, ipnet)
-	}
+	trusted, diags := cfg.ParseTrustedProxies(c.TrustedProxies, &c.DefRange, "trusted_proxies")
 	if diags.HasErrors() {
 		return nil, diags
 	}
+	r.trusted = trusted
 
 	return r, nil
 }
 
-// parseCIDROrIP parses a CIDR ("10.0.0.0/8") or a bare IP ("10.0.0.7", treated
-// as a host route) into an *net.IPNet.
-func parseCIDROrIP(s string) (*net.IPNet, error) {
-	if strings.Contains(s, "/") {
-		_, ipnet, err := net.ParseCIDR(s)
-		if err != nil {
-			return nil, err
-		}
-		return ipnet, nil
-	}
-	ip := net.ParseIP(s)
-	if ip == nil {
-		return nil, fmt.Errorf("not an IP or CIDR")
-	}
-	bits := 32
-	if ip.To4() == nil {
-		bits = 128
-	}
-	return &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)}, nil
-}
-
 // trusts reports whether ip falls in any trusted proxy network.
 func (r *realIPResolver) trusts(ip net.IP) bool {
-	for _, n := range r.trusted {
-		if n.Contains(ip) {
-			return true
-		}
-	}
-	return false
+	return r.trusted.Trusts(ip)
 }
 
 // wrap returns a middleware that rewrites the request's RemoteAddr to the real

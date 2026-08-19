@@ -29,14 +29,15 @@ The `tls` block enables HTTPS; see [TLS](#tls) below. The `baggage` block
 controls which inbound [baggage](baggage.md) keys are trusted — inbound baggage
 is **stripped by default**; see
 [Server-side trust filtering](baggage.md#server-side-trust-filtering). The `auth`
-block is covered under [Authentication](#authentication), and in full on the
-[shared auth page](server-auth.md).
+attribute is covered under [Authentication](#authentication), and in full on the
+[`auth` block page](auth.md).
 
 <!-- vinculum:begin block-attrs server http level=3 -->
 
 | Attribute | Type | Required | Default | Description |
 |---|---|---|---|:---|
 | `listen` | string (listen-addr) | yes |  | Address and port to listen on. |
+| `auth` | expression (auth-ref) |  |  | Authentication required here. |
 | `disabled` | bool |  |  | Skip this block entirely. |
 | `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
 | `shutdown_timeout` | expression (duration) |  | `10s` | How long to let in-flight work finish while shutting down. |
@@ -45,6 +46,10 @@ block is covered under [Authentication](#authentication), and in full on the
 **`listen`**
 
 For example `":8080"` or `"127.0.0.1:9090"`.
+
+**`auth`**
+
+An `auth.<name>` reference, or a list of them. Every `handle` and `files` block inherits it unless it sets its own `auth`, and a block that sets one replaces this rather than adding to it — including `auth = auth.anonymous`, which is how a route opts out. Omitted, nothing is required anywhere.
 
 **`disabled`**
 
@@ -64,7 +69,6 @@ A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
 
 ### Blocks
 
-- `auth "<mode>"` (optional) — Authentication required by this server or handler.
 - `baggage` (optional) — Which inbound baggage keys to trust.
 - `files "<urlpath>"` (0..n) — Serves a directory tree of static files.
 - `handle "<route>"` (0..n) — A route handler.
@@ -160,6 +164,7 @@ Serving multiple hosts over **HTTPS** requires a certificate covering every host
 | Attribute | Type | Required | Description |
 |---|---|---|:---|
 | `action` | expression (action-expression) |  | Expression evaluated for each matching request. |
+| `auth` | expression (auth-ref) |  | Authentication required here. |
 | `disabled` | bool |  | Skip this route entirely. |
 | `handler` | expression (server-ref) |  | Another server to delegate this route to. |
 
@@ -174,13 +179,13 @@ bytes object with its own content type, anything else as JSON, and `null` as
 
 Evaluated against the `http-request` context.
 
+**`auth`**
+
+An `auth.<name>` reference, or a list of them, replacing whatever the server requires. `auth = auth.anonymous` opts this route out of the server's authentication — for a health check, or a login endpoint that cannot require the credential it issues.
+
 **`handler`**
 
 Mounts a server that exposes an HTTP handler, such as `server "mcp"` or `server "metrics"`.
-
-### Blocks
-
-- `auth "<mode>"` (optional) — Authentication required by this server or handler.
 
 <!-- vinculum:end block-attrs server http handle -->
 
@@ -211,7 +216,7 @@ Carries `method`, `url`, `host`, `remote_addr`, `proto`, the basic-auth `user`/`
 
 **`ctx.auth`**
 
-Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+Set when the request was authenticated: `username`, `subject`, `claims`, and `method` naming the mechanism. Null on a route that allows unauthenticated requests, and everywhere the event did not arrive over an authenticated path — so a route accepting both branches on `ctx.auth == null`. See [the auth block](auth.md).
 
 **`ctx.baggage`**
 
@@ -270,15 +275,16 @@ file server serves GET and HEAD only.
 | Attribute | Type | Required | Description |
 |---|---|---|:---|
 | `directory` | string | yes | Directory to serve files from. |
+| `auth` | expression (auth-ref) |  | Authentication required here. |
 | `disabled` | bool |  | Skip this tree entirely. |
 
 **`directory`**
 
 A relative path resolves against the `--file-path` base directory, which `vinculum serve` requires whenever any `files` block is active.
 
-### Blocks
+**`auth`**
 
-- `auth "<mode>"` (optional) — Authentication required by this server or handler.
+An `auth.<name>` reference, or a list of them, replacing whatever the server requires. `auth = auth.anonymous` serves this tree to anyone.
 
 <!-- vinculum:end block-attrs server http files -->
 
@@ -512,8 +518,9 @@ auth "basic" {
 ```
 
 On success, the authenticated identity is available as `ctx.auth` in the `action` expression.
-See [Authentication](server-auth.md) for the full reference including all modes
-(`basic`, `oidc`, `oauth2`, `custom`, `none`) and the `ctx.auth` object shape.
+See [the `auth` block](auth.md) for the full reference — every mechanism
+(`basic`, `oidc`, `introspection`, `custom`, `proxy`), the `auth.none` sentinel,
+accepting several mechanisms on one route, and the `ctx.auth` object shape.
 
 ---
 

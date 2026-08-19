@@ -20,6 +20,86 @@ Dates are the release in which the deprecation warning was introduced; see
 These are not deprecations — the old behavior is gone. They are recorded here
 because upgrading requires a config change.
 
+### Inline `auth` blocks
+
+**Removed in 0.46.0.**
+
+Authentication was an anonymous `auth "<mode>" { … }` block written inside each
+server or route. It is now a named top-level [`auth`](auth.md) block that servers
+and routes reference by name:
+
+```hcl
+# Before
+server "http" "main" {
+    listen = ":8080"
+
+    auth "oidc" {
+        issuer = "https://accounts.example.com"
+    }
+
+    handle "/healthz" {
+        auth "none" {}
+        action = "ok"
+    }
+}
+
+# After
+auth "oidc" "corp" {
+    issuer = "https://accounts.example.com"
+}
+
+server "http" "main" {
+    listen = ":8080"
+    auth   = auth.corp
+
+    handle "/healthz" {
+        auth   = auth.anonymous
+        action = "ok"
+    }
+}
+```
+
+The transform is mechanical: hoist the block out, give it a name, and replace it
+with a reference. `auth "none" {}` becomes `auth = auth.anonymous` — renamed
+because the sentinel's near-twin is `auth.disabled`, and "none" and "disabled"
+read as synonyms while meaning opposite things in a list: one admits a request,
+the other drops out and leaves the remaining mechanisms enforcing.
+
+Naming it is what makes the rest possible. An anonymous block was rebuilt at
+every site that inherited it, so one `auth "oidc"` on a server with eight routes
+opened eight connections to the issuer and ran eight key refreshers; a named
+block is built once. It is also what lets a route accept
+[more than one mechanism](auth.md#accepting-more-than-one-mechanism), and what
+gives a protected resource an identity to publish under.
+
+Three further changes come with it:
+
+- **`auth "oauth2"` is now `auth "introspection"`.** The name claimed a whole
+  framework but implemented one corner of it — RFC 7662 token introspection.
+  `oidc` is equally OAuth2-based, so the old pair implied the two were
+  alternatives at the same level, when both take bearer tokens and differ only in
+  *how the token is checked*. `oidc` versus `introspection` says that; `oidc`
+  versus `oauth2` invited the reading that one of them was the interactive login
+  flow, which neither is. Rename the block label; every attribute is unchanged.
+
+  `ctx.auth.method` reports `"introspection"` for this mechanism accordingly.
+
+- **`auth "oidc"` loses `introspect_url`, `introspect_client_id`, and
+  `introspect_client_secret`.** Introspection now lives only on
+  [`auth "introspection"`](auth.md#introspection), which is the same code path and
+  additionally supports `cache_ttl` — so `oidc` with `introspect_url` had been
+  making an uncacheable round trip per request. When introspecting, `oidc`'s
+  `issuer`, `jwks_url`, `algorithms`, and `clock_skew` did nothing.
+
+- **The Basic realm defaults to the auth block's name** rather than the server's,
+  since the block is no longer inside a server. Set `realm` explicitly to keep a
+  particular value — browsers key saved credentials on it.
+
+- **`method` is reserved in an `auth "custom"` action's returned object.** It
+  names the mechanism that authenticated the request. An action that returned a
+  `method` key previously had it passed through to `ctx.auth`; it is now an
+  error.
+
 ### Standalone `server "mcp"`
 
 **Removed in 0.46.0.**

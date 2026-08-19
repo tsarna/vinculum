@@ -10,7 +10,6 @@ import (
 
 	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jwt"
-	cfg "github.com/tsarna/vinculum/config"
 	"go.uber.org/zap"
 )
 
@@ -46,18 +45,12 @@ func deadIssuerURL(t *testing.T) string {
 //
 // Construction must now succeed, and Start must neither block nor fail.
 func TestOIDCUnreachableIssuerIsNotFatal(t *testing.T) {
-	a := newTestOIDC(t, &cfg.AuthConfig{
-		Mode:   "oidc",
+	a := newTestOIDC(t, &oidcDefinition{
 		Issuer: deadIssuerURL(t),
 	})
 
-	starter, ok := a.(interface{ Start() error })
-	if !ok {
-		t.Fatalf("%T does not implement Start", a)
-	}
-
 	done := make(chan error, 1)
-	go func() { done <- starter.Start() }()
+	go func() { done <- a.Start() }()
 
 	select {
 	case err := <-done:
@@ -72,8 +65,7 @@ func TestOIDCUnreachableIssuerIsNotFatal(t *testing.T) {
 // TestOIDCUnreachableIssuerRejects checks the other half of the bargain: having
 // not failed at startup, the authenticator must not let anything through.
 func TestOIDCUnreachableIssuerRejects(t *testing.T) {
-	a := newTestOIDC(t, &cfg.AuthConfig{
-		Mode:   "oidc",
+	a := newTestOIDC(t, &oidcDefinition{
 		Issuer: deadIssuerURL(t),
 	})
 
@@ -100,8 +92,7 @@ func TestOIDCUnreachableIssuerRejects(t *testing.T) {
 // credential at all is wrong regardless of the issuer's state, and answering it
 // costs no network round trip.
 func TestOIDCMissingTokenStillGets401(t *testing.T) {
-	a := newTestOIDC(t, &cfg.AuthConfig{
-		Mode:   "oidc",
+	a := newTestOIDC(t, &oidcDefinition{
 		Issuer: deadIssuerURL(t),
 	})
 
@@ -134,8 +125,7 @@ func TestOIDCHungIssuerTimesOut(t *testing.T) {
 	}))
 	t.Cleanup(hung.Close)
 
-	a := newTestOIDC(t, &cfg.AuthConfig{
-		Mode:   "oidc",
+	a := newTestOIDC(t, &oidcDefinition{
 		Issuer: hung.URL,
 	})
 
@@ -187,8 +177,7 @@ func TestOIDCCallerCancellationDoesNotAbortTheFetch(t *testing.T) {
 	issuer = httptest.NewServer(mux)
 	t.Cleanup(issuer.Close)
 
-	a := newTestOIDC(t, &cfg.AuthConfig{
-		Mode:   "oidc",
+	a := newTestOIDC(t, &oidcDefinition{
 		Issuer: issuer.URL,
 	})
 
@@ -232,8 +221,7 @@ func TestOIDCNegativeCaching(t *testing.T) {
 	}))
 	t.Cleanup(issuer.Close)
 
-	a := newTestOIDC(t, &cfg.AuthConfig{
-		Mode:   "oidc",
+	a := newTestOIDC(t, &oidcDefinition{
 		Issuer: issuer.URL,
 	})
 
@@ -273,8 +261,7 @@ func TestOIDCRecoversWhenIssuerComesUp(t *testing.T) {
 	issuer = httptest.NewServer(mux)
 	t.Cleanup(issuer.Close)
 
-	a := newTestOIDC(t, &cfg.AuthConfig{
-		Mode:   "oidc",
+	a := newTestOIDC(t, &oidcDefinition{
 		Issuer: issuer.URL,
 	})
 
@@ -289,10 +276,9 @@ func TestOIDCRecoversWhenIssuerComesUp(t *testing.T) {
 	}
 
 	healthy.Store(true)
-	oidcAuth := a.(*oidcAuthenticator)
-	oidcAuth.mu.Lock()
-	oidcAuth.nextTry = time.Time{} // skip the backoff wait
-	oidcAuth.mu.Unlock()
+	a.mu.Lock()
+	a.nextTry = time.Time{} // skip the backoff wait
+	a.mu.Unlock()
 
 	if _, failure, err := authenticate(t, a, token); err != nil || failure != nil {
 		t.Fatalf("token still rejected after the issuer came up: failure=%+v err=%v", failure, err)
@@ -315,23 +301,21 @@ func TestOIDCStopEndsRefreshing(t *testing.T) {
 	key := newSigningKey(t, jwa.RS256(), "key-1")
 	issuer := newIssuer(t, key)
 
-	a, err := newOIDCAuthenticator(&cfg.AuthConfig{
-		Mode:   "oidc",
+	a, err := newOIDCAuthenticator(&oidcDefinition{
 		Issuer: issuer.URL,
 	}, nil, zap.NewNop())
 	if err != nil {
 		t.Fatalf("newOIDCAuthenticator: %v", err)
 	}
 
-	oidcAuth := a.(*oidcAuthenticator)
-	if _, err := oidcAuth.resolve(context.Background()); err != nil {
+	if _, err := a.resolve(context.Background()); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
 
-	if err := oidcAuth.Stop(); err != nil {
+	if err := a.Stop(); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	if oidcAuth.ctx.Err() == nil {
+	if a.ctx.Err() == nil {
 		t.Error("Stop did not cancel the authenticator context")
 	}
 }

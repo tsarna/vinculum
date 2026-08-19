@@ -37,7 +37,7 @@ User-facing documentation lives in `doc/`. Each file covers one topic:
 | `doc/server-vws.md` | `server "vws"` and `client "vws"`: VWS protocol, allow_send, reconnect |
 | `doc/server-websocket.md` | `server "websocket"`: simple raw WebSocket push server |
 | `doc/server-metrics.md` | `server "metrics"`: Prometheus-style metrics endpoint |
-| `doc/server-auth.md` | Shared HTTP auth (`basic`, `oauth2`, `oidc`, `custom`) |
+| `doc/auth.md` | `auth` block: named HTTP authentication (`basic`, `oidc`, `introspection`, `custom`, `proxy`), the `auth.anonymous`/`auth.disabled` sentinels, multi-auth lists |
 | `doc/client-*.md` | Per-client references: `http`, `mqtt`, `kafka`, `rabbitmq`, `redis`, `sns`, `sqs`, `sql`, `llm`, `otlp` |
 | `doc/deprecations.md` | Deprecated features, replacements, and planned removal |
 | `doc/vinit.md` | `.vinit` bootstrap file format, two-pass discovery, minimal eval context, `disabled` |
@@ -89,7 +89,9 @@ servers/        Server implementations (each registers via RegisterServerType in
   mcp/          server "mcp" — MCP protocol (server.go, resources.go, tools.go,
                 prompts.go, context.go, schema.go, auth.go)
   metrics/      server "metrics"
-  auth/         shared HTTP auth middleware (basic, oauth2, oidc, custom)
+  auth/         `auth` block mechanisms (basic, oidc, introspection, custom,
+                proxy), each registering via RegisterAuthType in init(), plus
+                the middleware that dispatches a route's policy
 clients/        Client implementations (each registers via RegisterClientType in init())
                 http/ vws/ mqtt/ kafka/ rabbitmq/ redis*/ sns/ sqs/ aws/ sql/ llm/ openai/ otlp/
 triggers/       Trigger implementations: cron, at, after, interval, once, watch,

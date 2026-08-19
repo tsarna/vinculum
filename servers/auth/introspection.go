@@ -11,11 +11,12 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 )
 
-type oauth2Authenticator struct {
+type introspectionAuthenticator struct {
 	introspectURL string
 	clientID      string
 	clientSecret  string
@@ -28,10 +29,10 @@ type oauth2Authenticator struct {
 	cancel context.CancelFunc
 
 	mu    sync.Mutex
-	cache map[string]oauth2CacheEntry
+	cache map[string]introspectionCacheEntry
 }
 
-type oauth2CacheEntry struct {
+type introspectionCacheEntry struct {
 	result    cty.Value
 	failure   *AuthFailure
 	expiresAt time.Time
@@ -49,8 +50,84 @@ type introspectionResponse struct {
 	Extra    map[string]interface{} `json:"-"`
 }
 
-func newOAuth2Authenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext) (Authenticator, error) {
-	a := &oauth2Authenticator{
+// introspectionDefinition is the body of an `auth "introspection"` block.
+type introspectionDefinition struct {
+	// IntrospectUrl is the RFC 7662 introspection endpoint.
+	IntrospectUrl string `hcl:"introspect_url"`
+	// ClientID and ClientSecret authenticate this server to that endpoint.
+	ClientID     string `hcl:"client_id"`
+	ClientSecret string `hcl:"client_secret"`
+	// Audience lists acceptable `aud` values.
+	Audience hcl.Expression `hcl:"audience,optional"`
+	// CacheTTL bounds how long an introspection result is reused.
+	CacheTTL hcl.Expression `hcl:"cache_ttl,optional"`
+
+	DefRange hcl.Range `hcl:",def_range"`
+}
+
+func init() {
+	cfg.RegisterAuthType("introspection", processIntrospectionAuth, cfg.WithSchema(introspectionAuthSchema))
+}
+
+var introspectionAuthSchema = cfg.TypeSchema{
+	Sample:  &introspectionDefinition{},
+	Summary: "A bearer token checked with the authorization server.",
+	DocPage: "auth.md#introspection",
+	Doc: `Asks the authorization server about each token, through its
+[RFC 7662](https://datatracker.ietf.org/doc/html/rfc7662) introspection endpoint.
+
+This sees a revoked token immediately, which a signature check cannot — the cost
+is a round trip per request, which ` + "`cache_ttl`" + ` trades back against how quickly
+revocation takes effect. Where a locally verifiable signature is enough,
+` + "[`oidc`](auth.md#oidc)" + ` makes no call at all.
+
+Use it for opaque tokens, which carry nothing to verify locally, and wherever a
+revocation has to take effect before the token would have expired on its own.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"introspect_url": {
+			Summary: "RFC 7662 token introspection endpoint.",
+			Hint:    cfg.HintURL,
+		},
+		"client_id": {
+			Summary: "Client ID this server presents to the introspection endpoint.",
+		},
+		"client_secret": {
+			Summary: "Client secret this server presents to the introspection endpoint.",
+			Doc:     "Supply it from the environment rather than as a literal.",
+		},
+		"audience": {
+			Summary: "Accepted `aud` values.",
+			Doc:     "The introspection response must carry at least one of them.",
+		},
+		"cache_ttl": {
+			Summary: "How long to reuse an introspection result.",
+			Doc: "Zero calls the endpoint on every request, so a revoked token stops " +
+				"working at once. A non-zero value trades that immediacy for the round " +
+				"trip: a token revoked at the authorization server keeps working here " +
+				"for up to this long.",
+			Hint:    cfg.HintDuration,
+			Default: "0s",
+		},
+	},
+}
+
+func processIntrospectionAuth(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Authenticator, hcl.Diagnostics) {
+	def := introspectionDefinition{}
+	if diags := gohcl.DecodeBody(body, config.EvalCtx(), &def); diags.HasErrors() {
+		return nil, diags
+	}
+
+	a, err := newIntrospectionAuthenticator(&def, config.EvalCtx())
+	if err != nil {
+		return nil, authDiag(block, "Invalid auth configuration", err.Error())
+	}
+
+	config.Stoppables = append(config.Stoppables, a)
+	return a, nil
+}
+
+func newIntrospectionAuthenticator(ac *introspectionDefinition, evalCtx *hcl.EvalContext) (*introspectionAuthenticator, error) {
+	a := &introspectionAuthenticator{
 		introspectURL: ac.IntrospectUrl,
 		clientID:      ac.ClientID,
 		clientSecret:  ac.ClientSecret,
@@ -59,11 +136,11 @@ func newOAuth2Authenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext) (Authe
 	if cfg.IsExpressionProvided(ac.CacheTTL) {
 		val, diags := ac.CacheTTL.Value(evalCtx)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("auth oauth2: evaluating cache_ttl: %w", diags)
+			return nil, fmt.Errorf("auth introspection: evaluating cache_ttl: %w", diags)
 		}
 		d, err := cfg.ParseDurationFromValue(val)
 		if err != nil {
-			return nil, fmt.Errorf("auth oauth2: invalid cache_ttl: %w", err)
+			return nil, fmt.Errorf("auth introspection: invalid cache_ttl: %w", err)
 		}
 		a.cacheTTL = d
 	}
@@ -71,11 +148,11 @@ func newOAuth2Authenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext) (Authe
 	if cfg.IsExpressionProvided(ac.Audience) {
 		audVal, diags := ac.Audience.Value(evalCtx)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("auth oauth2: evaluating audience: %w", diags)
+			return nil, fmt.Errorf("auth introspection: evaluating audience: %w", diags)
 		}
 		aud, err := ctyStringList(audVal, "audience")
 		if err != nil {
-			return nil, fmt.Errorf("auth oauth2: %w", err)
+			return nil, fmt.Errorf("auth introspection: %w", err)
 		}
 		a.audience = aud
 	}
@@ -83,7 +160,7 @@ func newOAuth2Authenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext) (Authe
 	if a.cacheTTL > 0 {
 		ctx, cancel := context.WithCancel(context.Background())
 		a.cancel = cancel
-		a.cache = make(map[string]oauth2CacheEntry)
+		a.cache = make(map[string]introspectionCacheEntry)
 		go a.sweepLoop(ctx)
 	}
 
@@ -91,7 +168,7 @@ func newOAuth2Authenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext) (Authe
 }
 
 // Stop ends the cache sweep.
-func (a *oauth2Authenticator) Stop() error {
+func (a *introspectionAuthenticator) Stop() error {
 	if a.cancel != nil {
 		a.cancel()
 	}
@@ -99,7 +176,7 @@ func (a *oauth2Authenticator) Stop() error {
 }
 
 // sweepLoop periodically removes expired cache entries to bound memory growth.
-func (a *oauth2Authenticator) sweepLoop(ctx context.Context) {
+func (a *introspectionAuthenticator) sweepLoop(ctx context.Context) {
 	ticker := time.NewTicker(a.cacheTTL / 2)
 	defer ticker.Stop()
 	for {
@@ -119,7 +196,18 @@ func (a *oauth2Authenticator) sweepLoop(ctx context.Context) {
 	}
 }
 
-func (a *oauth2Authenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalContext) (cty.Value, *AuthFailure, error) {
+func (a *introspectionAuthenticator) Method() string { return "introspection" }
+
+// Claims recognizes a request carrying a bearer token. Whether the
+// authorization server accepts it is Authenticate's business.
+func (a *introspectionAuthenticator) Claims(r *http.Request) bool {
+	_, err := extractBearerToken(r)
+	return err == nil
+}
+
+func (a *introspectionAuthenticator) Challenge() string { return "Bearer" }
+
+func (a *introspectionAuthenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalContext) (cty.Value, *AuthFailure, error) {
 	token, err := extractBearerToken(r)
 	if err != nil {
 		return cty.NilVal, &AuthFailure{
@@ -147,7 +235,7 @@ func (a *oauth2Authenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalCon
 	// Store in cache.
 	if a.cache != nil && a.cacheTTL > 0 {
 		a.mu.Lock()
-		a.cache[token] = oauth2CacheEntry{
+		a.cache[token] = introspectionCacheEntry{
 			result:    authVal,
 			failure:   failure,
 			expiresAt: time.Now().Add(a.cacheTTL),
@@ -160,7 +248,7 @@ func (a *oauth2Authenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalCon
 
 // introspectToken calls the RFC 7662 introspection endpoint and returns the
 // auth value or failure. Shared by both oidcAuthenticator (introspect mode)
-// and oauth2Authenticator.
+// and introspectionAuthenticator.
 func introspectToken(ctx context.Context, token, introspectURL, clientID, clientSecret string, audience []string) (cty.Value, *AuthFailure, error) {
 	form := url.Values{}
 	form.Set("token", token)

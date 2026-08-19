@@ -51,7 +51,7 @@ type HttpServerDefinition struct {
 	Listen          string                       `hcl:"listen"`
 	ShutdownTimeout hcl.Expression               `hcl:"shutdown_timeout,optional"`
 	TLS             *cfg.TLSConfig               `hcl:"tls,block"`
-	Auth            *cfg.AuthConfig              `hcl:"auth,block"`
+	Auth            hcl.Expression               `hcl:"auth,optional"`
 	RealIP          *realIPConfig                `hcl:"real_ip,block"`
 	Tracing         hcl.Expression               `hcl:"tracing,optional"`
 	Metrics         hcl.Expression               `hcl:"metrics,optional"`
@@ -62,20 +62,20 @@ type HttpServerDefinition struct {
 }
 
 type staticFilesDefinition struct {
-	UrlPath   string          `hcl:"urlpath,label"`
-	Directory string          `hcl:"directory"`
-	Auth      *cfg.AuthConfig `hcl:"auth,block"`
-	Disabled  bool            `hcl:"disabled,optional"`
-	DefRange  hcl.Range       `hcl:",def_range"`
+	UrlPath   string         `hcl:"urlpath,label"`
+	Directory string         `hcl:"directory"`
+	Auth      hcl.Expression `hcl:"auth,optional"`
+	Disabled  bool           `hcl:"disabled,optional"`
+	DefRange  hcl.Range      `hcl:",def_range"`
 }
 
 type handlerDefinition struct {
-	Route    string          `hcl:"route,label"`
-	Auth     *cfg.AuthConfig `hcl:"auth,block"`
-	Action   hcl.Expression  `hcl:"action,optional"`
-	Handler  hcl.Expression  `hcl:"handler,optional"`
-	Disabled bool            `hcl:"disabled,optional"`
-	DefRange hcl.Range       `hcl:",def_range"`
+	Route    string         `hcl:"route,label"`
+	Auth     hcl.Expression `hcl:"auth,optional"`
+	Action   hcl.Expression `hcl:"action,optional"`
+	Handler  hcl.Expression `hcl:"handler,optional"`
+	Disabled bool           `hcl:"disabled,optional"`
+	DefRange hcl.Range      `hcl:",def_range"`
 }
 
 func init() {
@@ -98,6 +98,11 @@ metrics — can be mounted into a route with ` + "`handler = server.<name>`" + `
 		"tracing":          cfg.TracingAttr,
 		"metrics":          cfg.MetricsAttr,
 		"shutdown_timeout": cfg.ShutdownTimeoutAttr,
+		"auth": cfg.AuthAttr.WithDoc(
+			"An `auth.<name>` reference, or a list of them. Every `handle` and `files` " +
+				"block inherits it unless it sets its own `auth`, and a block that sets " +
+				"one replaces this rather than adding to it — including `auth = auth.anonymous`, " +
+				"which is how a route opts out. Omitted, nothing is required anywhere."),
 	},
 	Blocks: map[string]cfg.TypeSchema{
 		"real_ip": {
@@ -155,6 +160,11 @@ bytes object with its own content type, anything else as JSON, and ` + "`null`" 
 					Summary: "Skip this route entirely.",
 					Hint:    cfg.HintBool,
 				},
+				"auth": cfg.AuthAttr.WithDoc(
+					"An `auth.<name>` reference, or a list of them, replacing whatever the " +
+						"server requires. `auth = auth.anonymous` opts this route out of the " +
+						"server's authentication — for a health check, or a login endpoint " +
+						"that cannot require the credential it issues."),
 			},
 			Constraints: []cfg.Constraint{
 				cfg.MutuallyExclusive("action", "handler"),
@@ -175,6 +185,9 @@ bytes object with its own content type, anything else as JSON, and ` + "`null`" 
 					Summary: "Skip this tree entirely.",
 					Hint:    cfg.HintBool,
 				},
+				"auth": cfg.AuthAttr.WithDoc(
+					"An `auth.<name>` reference, or a list of them, replacing whatever the " +
+						"server requires. `auth = auth.anonymous` serves this tree to anyone."),
 			},
 		},
 	},
@@ -188,10 +201,10 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 	}
 	serverDef.DefRange = block.DefRange
 
-	if serverDef.Auth != nil {
-		if authDiags := cfg.ValidateAuthConfig(serverDef.Auth); authDiags.HasErrors() {
-			return nil, authDiags
-		}
+	// The server-level policy, inherited by every route that does not set its own.
+	serverAuth, authDiags := cfg.ResolveAuth(config, serverDef.Auth)
+	if authDiags.HasErrors() {
+		return nil, authDiags
 	}
 
 	if baggageDiags := serverDef.Baggage.Validate(); baggageDiags.HasErrors() {
@@ -312,18 +325,14 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 		urlPath := strings.TrimSuffix(rawPath, "/") + "/"
 		pattern := host + urlPath
 
-		if file.Auth != nil {
-			if authDiags := cfg.ValidateAuthConfig(file.Auth); authDiags.HasErrors() {
-				return nil, authDiags
-			}
+		effectiveAuth, authDiags := routeAuth(config, serverAuth, file.Auth)
+		if authDiags.HasErrors() {
+			return nil, authDiags
 		}
+		reportAnonymous(config, effectiveAuth, pattern, file.DefRange)
 
-		effectiveAuth := resolveAuth(serverDef.Auth, file.Auth)
 		var inner http.Handler = http.StripPrefix(urlPath, http.FileServer(http.Dir(dir)))
-		inner, diags = wrapWithAuth(inner, effectiveAuth, serverName, config, &file.DefRange)
-		if diags.HasErrors() {
-			return nil, diags
-		}
+		inner = serverauth.NewAuthMiddleware(effectiveAuth, config.EvalCtx(), config.Logger, inner)
 		inner = newLoggingMiddleware(config.Logger, pattern, inner)
 		if diags := safeMuxHandle(mux, pattern, inner, file.DefRange); diags.HasErrors() {
 			return nil, diags
@@ -345,11 +354,11 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 			}
 		}
 
-		if handlerDef.Auth != nil {
-			if authDiags := cfg.ValidateAuthConfig(handlerDef.Auth); authDiags.HasErrors() {
-				return nil, authDiags
-			}
+		effectiveAuth, authDiags := routeAuth(config, serverAuth, handlerDef.Auth)
+		if authDiags.HasErrors() {
+			return nil, authDiags
 		}
+		reportAnonymous(config, effectiveAuth, handlerDef.Route, handlerDef.DefRange)
 
 		var inner http.Handler
 		if cfg.IsExpressionProvided(handlerDef.Action) {
@@ -377,11 +386,7 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 			inner = handlerServer.GetHandler()
 		}
 
-		effectiveAuth := resolveAuth(serverDef.Auth, handlerDef.Auth)
-		inner, diags = wrapWithAuth(inner, effectiveAuth, serverName, config, &handlerDef.DefRange)
-		if diags.HasErrors() {
-			return nil, diags
-		}
+		inner = serverauth.NewAuthMiddleware(effectiveAuth, config.EvalCtx(), config.Logger, inner)
 		inner = newLoggingMiddleware(config.Logger, handlerDef.Route, inner)
 		if diags := safeMuxHandle(mux, handlerDef.Route, inner, handlerDef.DefRange); diags.HasErrors() {
 			return nil, diags
@@ -414,34 +419,45 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 	return server, nil
 }
 
-func resolveAuth(serverAuth, blockAuth *cfg.AuthConfig) *cfg.AuthConfig {
-	if blockAuth != nil {
-		return blockAuth
+// routeAuth resolves a route's own `auth`, falling back to the server's.
+//
+// A route that says nothing inherits; one that names anything at all — a
+// mechanism, a list, or auth.anonymous — replaces rather than adds to what it
+// inherited, so what protects a route is readable from the route.
+func routeAuth(config *cfg.Config, serverAuth *cfg.AuthPolicy, routeExpr hcl.Expression) (*cfg.AuthPolicy, hcl.Diagnostics) {
+	policy, diags := cfg.ResolveAuth(config, routeExpr)
+	if diags.HasErrors() {
+		return nil, diags
 	}
-	return serverAuth
+	if policy == nil {
+		return serverAuth, nil
+	}
+	return policy, nil
 }
 
-func wrapWithAuth(handler http.Handler, effectiveAuth *cfg.AuthConfig, serverName string, config *cfg.Config, defRange *hcl.Range) (http.Handler, hcl.Diagnostics) {
-	if effectiveAuth == nil || effectiveAuth.Mode == "none" {
-		return handler, nil
+// reportAnonymous warns when a route ends up unauthenticated by consequence
+// rather than by intent — every mechanism it named turned out to be disabled.
+//
+// Disabling one of several mechanisms leaves a route protected and says nothing.
+// Writing auth.anonymous says nothing either: that is the deliberate,
+// unconditional opt-out, and warning about it would train people to ignore the
+// warning. What is worth a line is the case where a toggle nobody was thinking
+// about took the last mechanism away.
+func reportAnonymous(config *cfg.Config, policy *cfg.AuthPolicy, route string, defRange hcl.Range) {
+	if policy == nil || policy.Enforced() || len(policy.Names) == 0 {
+		return
 	}
-
-	authenticator, err := serverauth.BuildAuthenticator(effectiveAuth, serverName, config)
-	if err != nil {
-		return nil, hcl.Diagnostics{
-			&hcl.Diagnostic{
-				Severity: hcl.DiagError,
-				Summary:  "Failed to build auth",
-				Detail:   err.Error(),
-				Subject:  defRange,
-			},
+	for _, name := range policy.Names {
+		if name == cfg.AuthAnonymousName {
+			return
 		}
 	}
-	if authenticator == nil {
-		return handler, nil
-	}
 
-	return serverauth.NewAuthMiddleware(authenticator, config.EvalCtx(), config.Logger, handler), nil
+	config.UserLogger.Warn("Route is unauthenticated because every auth block it names is disabled",
+		zap.String("route", route),
+		zap.Strings("auth", policy.Names),
+		zap.String("at", defRange.String()),
+	)
 }
 
 func (h *HttpServer) Start() error {

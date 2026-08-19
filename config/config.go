@@ -124,6 +124,12 @@ type Config struct {
 	CtyConditionMap  map[string]cty.Value
 	CtyFsmMap        map[string]cty.Value
 	CtyWireFormatMap map[string]cty.Value
+	CtyAuthMap       map[string]cty.Value
+
+	// authRefs and authBlocks back CtyAuthMap: what each auth name resolves to,
+	// and the block that bound it, for the duplicate-name diagnostic.
+	authRefs   map[string]*AuthRef
+	authBlocks map[string]*hcl.Block
 
 	MetricsServers map[string]MetricsRegistrar
 	OtlpClients    map[string]OtlpClient
@@ -249,6 +255,8 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		CtyWireFormatMap: make(map[string]cty.Value),
 		MetricsServers:   make(map[string]MetricsRegistrar),
 	}
+
+	initAuthNamespace(config)
 
 	// Validate write-path is under file-path
 	if config.WriteDir != "" {

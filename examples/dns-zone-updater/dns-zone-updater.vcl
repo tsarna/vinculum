@@ -16,16 +16,17 @@
 # Set ZONES_DIR to the directory containing the zone files, e.g. /etc/bind/zones
 # The directory should contain a zone file for each zone, named {zone}.zone, e.g. dyn.example.com.zone
 
+auth "basic" "updaters" {
+    credentials = {
+        # Credential usernames should be in the form "{zone}/{host}", e.g. "dyn.example.com/foo"
+
+        "dyn.example.com/foo" = env.PASS_FOO_DYN_EXAMPLE_COM
+    }
+}
+
 server "http" "dns_webhook" {
     listen = ":8080"
-
-    auth "basic" {
-        credentials = {
-            # Credential usernames should be in the form "{zone}/{host}", e.g. "dyn.example.com/foo"
-
-            "dyn.example.com/foo" = env.PASS_FOO_DYN_EXAMPLE_COM
-        }
-    }
+    auth   = auth.updaters
 
     handle "GET /dns/update/{zone}" {
         action = update_dns(ctx, ctx.auth.username, ctx.request.path.zone,

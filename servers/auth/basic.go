@@ -1,53 +1,131 @@
 package auth
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"net/http"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
-	"github.com/tsarna/vinculum/hclutil"
-	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"
 )
 
-type basicAuthenticator struct {
-	realm       string
-	credentials hcl.Expression // map(string) username→password; nil if action is used
-	action      hcl.Expression // per-request expression; nil if credentials is used
-	evalCtx     *hcl.EvalContext
+// basicDefinition is the body of an `auth "basic"` block.
+type basicDefinition struct {
+	// Realm is shown in the WWW-Authenticate header; defaults to the block name.
+	Realm string `hcl:"realm,optional"`
+	// Credentials is a map(string) of username → password.
+	Credentials hcl.Expression `hcl:"credentials,optional"`
+	// Action checks the credentials itself, for a store this cannot express.
+	Action hcl.Expression `hcl:"action,optional"`
+
+	DefRange hcl.Range `hcl:",def_range"`
 }
 
-func newBasicAuthenticator(ac *cfg.AuthConfig, serverName string, evalCtx *hcl.EvalContext) (Authenticator, error) {
-	realm := ac.Realm
-	if realm == "" {
-		realm = serverName
+func init() {
+	cfg.RegisterAuthType("basic", processBasicAuth, cfg.WithSchema(basicAuthSchema))
+}
+
+var basicAuthSchema = cfg.TypeSchema{
+	Sample:  &basicDefinition{},
+	Summary: "HTTP Basic authentication.",
+	DocPage: "auth.md#basic",
+	Doc: `Checks a username and password from the ` + "`Authorization`" + ` header, either against
+a map or with an expression.
+
+Basic credentials travel base64-encoded, not encrypted, so this belongs behind
+TLS.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"realm": {
+			Summary: "Realm shown in the `WWW-Authenticate` header.",
+			Doc:     "Browsers show it in the password prompt, and use it to decide which saved credentials to offer.",
+			Default: "the block's name",
+		},
+		"credentials": {
+			Summary: "Map of username to password.",
+			Doc: "Supply passwords from the environment rather than as literals. " +
+				"Comparison is constant-time, so a wrong password does not leak its " +
+				"correct prefix through timing.",
+		},
+		"action": {
+			Summary: "Expression that checks the credentials itself.",
+			Doc: "For credentials this block cannot express — a database, an API. " +
+				"`ctx.request.user` and `ctx.request.password` carry what the client sent. " +
+				"Return an object to accept (it becomes `ctx.auth`, with `username` filled " +
+				"in), or a falsey value to reject.",
+			Hint:    cfg.HintActionExpression,
+			Context: "http-request",
+		},
+	},
+	Constraints: []cfg.Constraint{
+		cfg.MutuallyExclusive("credentials", "action"),
+		cfg.AtLeastOneOf("credentials", "action").
+			WithMessage("Basic auth needs either a map of credentials or an action to check them."),
+	},
+}
+
+func processBasicAuth(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Authenticator, hcl.Diagnostics) {
+	def := basicDefinition{}
+	if diags := gohcl.DecodeBody(body, config.EvalCtx(), &def); diags.HasErrors() {
+		return nil, diags
 	}
+
+	hasCredentials := cfg.IsExpressionProvided(def.Credentials)
+	hasAction := cfg.IsExpressionProvided(def.Action)
+	switch {
+	case hasCredentials && hasAction:
+		return nil, authDiag(block, "Conflicting auth attributes",
+			`auth "basic" takes exactly one of "credentials" or "action", not both.`)
+	case !hasCredentials && !hasAction:
+		return nil, authDiag(block, "Missing auth attribute",
+			`auth "basic" needs either "credentials" (a map of username to password) or "action" (an expression that checks them).`)
+	}
+
+	realm := def.Realm
+	if realm == "" {
+		realm = block.Labels[1]
+	}
+
 	return &basicAuthenticator{
 		realm:       realm,
-		credentials: ac.Credentials,
-		action:      ac.Action,
-		evalCtx:     evalCtx,
+		credentials: def.Credentials,
+		action:      def.Action,
 	}, nil
 }
 
+type basicAuthenticator struct {
+	realm       string
+	credentials hcl.Expression // map(string) username→password; nil when action is used
+	action      hcl.Expression // per-request expression; nil when credentials is used
+}
+
+func (b *basicAuthenticator) Method() string { return "basic" }
+
+// Claims recognizes a request carrying Basic credentials. Whether they are
+// correct is Authenticate's business — a wrong password must be rejected here
+// rather than passed to the next mechanism on the route.
+func (b *basicAuthenticator) Claims(r *http.Request) bool {
+	_, _, ok := r.BasicAuth()
+	return ok
+}
+
+func (b *basicAuthenticator) Challenge() string {
+	return fmt.Sprintf("Basic realm=%q", b.realm)
+}
+
 func (b *basicAuthenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalContext) (cty.Value, *AuthFailure, error) {
-	noCredentials := &AuthFailure{
+	rejected := &AuthFailure{
 		Status:          http.StatusUnauthorized,
-		WWWAuthenticate: fmt.Sprintf("Basic realm=%q", b.realm),
-	}
-	wrongCredentials := &AuthFailure{
-		Status:          http.StatusUnauthorized,
-		WWWAuthenticate: fmt.Sprintf("Basic realm=%q", b.realm),
+		WWWAuthenticate: b.Challenge(),
 	}
 
 	username, password, ok := r.BasicAuth()
 	if !ok {
-		return cty.NilVal, noCredentials, nil
+		return cty.NilVal, rejected, nil
 	}
 
 	if cfg.IsExpressionProvided(b.credentials) {
-		// Static credentials map: evaluate and check.
 		credsVal, diags := b.credentials.Value(evalCtx)
 		if diags.HasErrors() {
 			return cty.NilVal, nil, fmt.Errorf("evaluating auth credentials: %w", diags)
@@ -56,71 +134,55 @@ func (b *basicAuthenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalCont
 			return cty.NilVal, nil, fmt.Errorf("auth credentials must be an object or map, got %s", credsVal.Type().FriendlyName())
 		}
 		if !credsVal.IsKnown() || credsVal.IsNull() {
-			return cty.NilVal, wrongCredentials, nil
+			return cty.NilVal, rejected, nil
 		}
 
-		var expectedPassword cty.Value
+		var expected cty.Value
 		if credsVal.Type().IsObjectType() && credsVal.Type().HasAttribute(username) {
-			expectedPassword = credsVal.GetAttr(username)
+			expected = credsVal.GetAttr(username)
 		} else if credsVal.Type().IsMapType() {
 			idx := cty.StringVal(username)
 			if credsVal.HasIndex(idx).True() {
-				expectedPassword = credsVal.Index(idx)
+				expected = credsVal.Index(idx)
 			}
 		}
 
-		if !expectedPassword.IsKnown() || expectedPassword.IsNull() || expectedPassword.Type() != cty.String {
-			return cty.NilVal, wrongCredentials, nil
+		if expected == cty.NilVal || !expected.IsKnown() || expected.IsNull() || expected.Type() != cty.String {
+			return cty.NilVal, rejected, nil
 		}
-		if expectedPassword.AsString() != password {
-			return cty.NilVal, wrongCredentials, nil
+		// Constant-time, so a wrong password does not leak its correct prefix
+		// through how long the comparison took.
+		if subtle.ConstantTimeCompare([]byte(expected.AsString()), []byte(password)) != 1 {
+			return cty.NilVal, rejected, nil
 		}
 
-		authVal := cty.ObjectVal(map[string]cty.Value{
+		return cty.ObjectVal(map[string]cty.Value{
 			"username": cty.StringVal(username),
-			"subject":  cty.NullVal(cty.DynamicPseudoType),
+			"subject":  cty.StringVal(username),
 			"claims":   cty.NullVal(cty.DynamicPseudoType),
-		})
-		return authVal, nil, nil
+		}), nil, nil
 	}
 
-	// Action-based basic auth: evaluate with ctx.request in scope.
-	actionEvalCtx, err := hclutil.NewEvalContext(r.Context()).
-		WithAttribute("request", types.BuildHTTPRequestObject(r, nil)).
-		BuildEvalContext(evalCtx)
-	if err != nil {
-		return cty.NilVal, nil, fmt.Errorf("building auth action eval context: %w", err)
+	result, failure, err := evalAuthAction(r, b.action, evalCtx)
+	if err != nil || failure != nil {
+		return cty.NilVal, failure, err
+	}
+	if result.IsNull() || !result.IsKnown() || !result.Type().IsObjectType() {
+		return cty.NilVal, rejected, nil
 	}
 
-	result, diags := b.action.Value(actionEvalCtx)
-	if diags.HasErrors() {
-		return cty.NilVal, wrongCredentials, nil
-	}
-
-	// http_redirect or http_response value → send directly.
-	if resp, ok := types.GetHTTPResponseFromValue(result); ok {
-		return cty.NilVal, &AuthFailure{
-			Status:   resp.Status,
-			Response: resp,
-		}, nil
-	}
-
-	if result.IsNull() || !result.IsKnown() {
-		return cty.NilVal, wrongCredentials, nil
-	}
-	if !result.Type().IsObjectType() {
-		return cty.NilVal, wrongCredentials, nil
-	}
-
-	// Merge username into the returned object.
-	attrs := result.Type().AttributeTypes()
+	// The action decided who this is; the username came off the wire, so fill it
+	// in rather than making every such action repeat it.
 	vals := map[string]cty.Value{}
-	for name := range attrs {
+	for name := range result.Type().AttributeTypes() {
 		vals[name] = result.GetAttr(name)
+	}
+	if err := rejectReservedAuthKeys(vals); err != nil {
+		return cty.NilVal, nil, err
 	}
 	vals["username"] = cty.StringVal(username)
 	if _, has := vals["subject"]; !has {
-		vals["subject"] = cty.NullVal(cty.DynamicPseudoType)
+		vals["subject"] = cty.StringVal(username)
 	}
 	if _, has := vals["claims"]; !has {
 		vals["claims"] = cty.NullVal(cty.DynamicPseudoType)

@@ -19,14 +19,14 @@ import (
 //go:embed testdata/auth_basic.vcl
 var authBasicVCL []byte
 
-//go:embed testdata/auth_none_override.vcl
-var authNoneOverrideVCL []byte
+//go:embed testdata/auth_anonymous_override.vcl
+var authAnonymousOverrideVCL []byte
 
 //go:embed testdata/auth_custom.vcl
 var authCustomVCL []byte
 
-//go:embed testdata/auth_none_files.vcl
-var authNoneFilesVCL []byte
+//go:embed testdata/auth_anonymous_files.vcl
+var authAnonymousFilesVCL []byte
 
 //go:embed testdata/auth_disabled.vcl
 var authDisabledVCL []byte
@@ -58,7 +58,9 @@ func TestBasicAuth_MissingCredentials(t *testing.T) {
 
 	resp := w.Result()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
-	assert.Equal(t, `Basic realm="main"`, resp.Header.Get("WWW-Authenticate"))
+	// The realm defaults to the auth block's name, which is what a browser shows
+	// in its prompt and keys saved credentials on.
+	assert.Equal(t, `Basic realm="web"`, resp.Header.Get("WWW-Authenticate"))
 }
 
 func TestBasicAuth_WrongCredentials(t *testing.T) {
@@ -70,7 +72,9 @@ func TestBasicAuth_WrongCredentials(t *testing.T) {
 
 	resp := w.Result()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
-	assert.Equal(t, `Basic realm="main"`, resp.Header.Get("WWW-Authenticate"))
+	// The realm defaults to the auth block's name, which is what a browser shows
+	// in its prompt and keys saved credentials on.
+	assert.Equal(t, `Basic realm="web"`, resp.Header.Get("WWW-Authenticate"))
 }
 
 func TestBasicAuth_CorrectCredentials(t *testing.T) {
@@ -104,20 +108,20 @@ func TestBasicAuth_Disabled(t *testing.T) {
 	assert.Equal(t, "ok", string(body))
 }
 
-// --- auth "none" overriding server-level auth ---
+// --- auth.anonymous overriding server-level auth ---
 
-func TestAuthNoneOverride_PublicRouteNoCredentials(t *testing.T) {
-	srv := buildHTTPServer(t, authNoneOverrideVCL)
+func TestAuthAnonymousOverride_PublicRouteNoCredentials(t *testing.T) {
+	srv := buildHTTPServer(t, authAnonymousOverrideVCL)
 	req := httptest.NewRequest(http.MethodGet, "/public", nil)
 	w := httptest.NewRecorder()
 	srv.Server.Handler.ServeHTTP(w, req)
 
-	// auth "none" on the handle disables server-level basic auth
+	// auth.anonymous on the handle replaces the server's basic auth
 	assert.Equal(t, http.StatusOK, w.Result().StatusCode)
 }
 
-func TestAuthNoneOverride_PrivateRouteNoCredentials(t *testing.T) {
-	srv := buildHTTPServer(t, authNoneOverrideVCL)
+func TestAuthAnonymousOverride_PrivateRouteNoCredentials(t *testing.T) {
+	srv := buildHTTPServer(t, authAnonymousOverrideVCL)
 	req := httptest.NewRequest(http.MethodGet, "/private", nil)
 	w := httptest.NewRecorder()
 	srv.Server.Handler.ServeHTTP(w, req)
@@ -125,13 +129,15 @@ func TestAuthNoneOverride_PrivateRouteNoCredentials(t *testing.T) {
 	// No block-level auth → inherits server-level basic auth
 	resp := w.Result()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
-	assert.Equal(t, `Basic realm="main"`, resp.Header.Get("WWW-Authenticate"))
+	// The realm defaults to the auth block's name, which is what a browser shows
+	// in its prompt and keys saved credentials on.
+	assert.Equal(t, `Basic realm="web"`, resp.Header.Get("WWW-Authenticate"))
 }
 
-// --- auth "none" on files block ---
+// --- auth.anonymous on files block ---
 
-func TestAuthNoneFiles_NoCredentials(t *testing.T) {
-	c, diags := cfg.NewConfig().WithSources(authNoneFilesVCL).WithLogger(zap.NewNop()).
+func TestAuthAnonymousFiles_NoCredentials(t *testing.T) {
+	c, diags := cfg.NewConfig().WithSources(authAnonymousFilesVCL).WithLogger(zap.NewNop()).
 		WithFeature("readfiles", "/tmp").Build()
 	require.False(t, diags.HasErrors(), diags.Error())
 	srv := c.Servers["http"]["main"].(*httpserver.HttpServer)
@@ -139,7 +145,7 @@ func TestAuthNoneFiles_NoCredentials(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.Server.Handler.ServeHTTP(w, req)
 
-	// auth "none" on the files block disables server-level basic auth
+	// auth.anonymous on the files block replaces the server's basic auth
 	// File server returns 200 or 301 (directory listing/redirect), not 401
 	assert.NotEqual(t, http.StatusUnauthorized, w.Result().StatusCode)
 }

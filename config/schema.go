@@ -318,10 +318,15 @@ func RegisterContextSchema(name string, cs ContextSchema) {
 // described once here rather than repeated in every shape.
 var universalContextFields = []ContextField{
 	{
-		Name:    "auth",
-		Type:    CtxTypeObject,
-		Summary: "The authenticated identity, or null.",
-		Doc:     "Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.",
+		Name:     "auth",
+		Type:     CtxTypeObject,
+		Optional: true,
+		Summary:  "The authenticated identity, or null.",
+		Doc: "Set when the request was authenticated: `username`, `subject`, `claims`, and " +
+			"`method` naming the mechanism. Null on a route that allows unauthenticated " +
+			"requests, and everywhere the event did not arrive over an authenticated " +
+			"path — so a route accepting both branches on `ctx.auth == null`. " +
+			"See [the auth block](auth.md).",
 	},
 	{
 		Name:    "baggage",
@@ -400,6 +405,9 @@ const (
 	HintServerRef Hint = "server-ref"
 	// HintMetricRef is a `metric.<name>` reference.
 	HintMetricRef Hint = "metric-ref"
+	// HintAuthRef is an `auth.<name>` reference, or a list of them. The two
+	// predefined names belong here too, so a completion offers auth.anonymous.
+	HintAuthRef Hint = "auth-ref"
 	// HintTracingRef is a reference to a tracing backend: a `client "otlp"`
 	// block. Narrower than HintClientRef, which would offer every client.
 	HintTracingRef Hint = "tracing-ref"
@@ -1745,6 +1753,21 @@ func mustReflect(sample any) *reflectedBody {
 // envelope's own Summary is for maintainers reading this file rather than for
 // consumers of the document.
 var envelopeSchemas = map[string]TypeSchema{
+	"auth": {
+		Sample:  &AuthDefinition{},
+		Summary: "Attributes every auth block accepts.",
+		Attrs: map[string]AttrMeta{
+			"disabled": {
+				Summary: "Switch this mechanism off.",
+				Doc: "Unlike other blocks, the name still resolves — to a sentinel meaning " +
+					"\"disabled\", which is dropped from a route's list of mechanisms. A route " +
+					"naming only this one is then unauthenticated; a route naming it alongside " +
+					"another is left with that one. Required attributes are not validated, so " +
+					"one variable can both supply credentials and switch the mechanism off.",
+				Hint: HintBool,
+			},
+		},
+	},
 	"client": {
 		Sample:  &ClientDefinition{},
 		Summary: "Attributes every client block accepts.",
@@ -1788,6 +1811,17 @@ var (
 			"so any expression reading that name fails to resolve. Disable the blocks that read it too, " +
 			"or drop the reference.",
 		Hint: HintBool,
+	}
+
+	// AuthAttr documents `auth`, which names the mechanisms guarding a server
+	// or a route.
+	AuthAttr = AttrMeta{
+		Summary: "Authentication required here.",
+		Doc: "An `auth.<name>` reference, or a list of them — the first mechanism that " +
+			"recognizes the request's credential judges it, and its rejection is final. " +
+			"`auth.anonymous` allows an unauthenticated request; written last in a list, it " +
+			"allows one that carried no credential at all. Omitted, nothing is required.",
+		Hint: HintAuthRef,
 	}
 
 	// TracingAttr documents `tracing`, which selects a tracing backend.
@@ -1873,6 +1907,8 @@ func MergeAttrs(maps ...map[string]AttrMeta) map[string]AttrMeta {
 // block, or nil when the block has no registry behind it.
 func registeredTypeNames(blockType string) []string {
 	switch blockType {
+	case "auth":
+		return sortedKeys(authRegistry)
 	case "client":
 		return sortedKeys(clientRegistry)
 	case "server":

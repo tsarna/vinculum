@@ -1,24 +1,30 @@
+auth "custom" "reject" {
+  action = null
+}
+
+auth "custom" "accept" {
+  action = { subject = "user" }
+}
+
+auth "custom" "login" {
+  action = http::redirect("https://example.com/login")
+}
+
 server "http" "main" {
   listen = "127.0.0.1:0"
 
   handle "/fail" {
-    auth "custom" {
-      action = null
-    }
+    auth   = auth.reject
     action = "ok"
   }
 
   handle "/succeed" {
-    auth "custom" {
-      action = { subject = "user" }
-    }
+    auth   = auth.accept
     action = ctx.auth.subject
   }
 
   handle "/redirect" {
-    auth "custom" {
-      action = http::redirect("https://example.com/login")
-    }
+    auth   = auth.login
     action = "logged in"
   }
 }

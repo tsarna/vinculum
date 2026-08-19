@@ -41,6 +41,7 @@ func (b *BlockHandlerBase) FinishProcessing(config *Config) hcl.Diagnostics {
 func GetBlockHandlers() map[string]BlockHandler {
 	return map[string]BlockHandler{
 		"assert":       NewAssertBlockHandler(),
+		"auth":         NewAuthBlockHandler(),
 		"bus":          NewBusBlockHandler(),
 		"client":       NewClientBlockHandler(),
 		"condition":    NewConditionBlockHandler(),
@@ -59,6 +60,10 @@ var blockSchema = []hcl.BlockHeaderSchema{
 	{
 		Type:       "assert",
 		LabelNames: []string{"name"},
+	},
+	{
+		Type:       "auth",
+		LabelNames: []string{"type", "name"},
 	},
 	{
 		Type:       "editor",

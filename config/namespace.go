@@ -137,6 +137,15 @@ const (
 // This is the single source of truth for "is this root a block reference",
 // which `vinculum check` also reads (see exprcheck.go).
 var blockNamespaceSchemas = map[string]NamespaceSchema{
+	"auth": {
+		Block:   "auth",
+		Summary: "Each authentication mechanism, by name.",
+		Doc: "Name one in a server's or route's `auth`, or a list of them to accept " +
+			"several. Two names are predefined: `auth.anonymous` allows an unauthenticated " +
+			"request, and `auth.disabled` is what the name of a switched-off block " +
+			"resolves to.",
+		DocPage: "auth.md",
+	},
 	"bus": {
 		Block:   "bus",
 		Summary: "Each bus, by name.",

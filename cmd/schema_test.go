@@ -39,7 +39,7 @@ func TestSchemaTopLevelBlocks(t *testing.T) {
 	// separate assertion: a block that moved between them would be a silent
 	// change to what each file may contain.
 	expectedVCL := []string{
-		"assert", "bus", "client", "condition", "const", "editor", "fsm",
+		"assert", "auth", "bus", "client", "condition", "const", "editor", "fsm",
 		"function", "jq", "metric", "server", "subscription", "trigger",
 		"var", "wire_format",
 	}
@@ -532,10 +532,11 @@ func TestSchemaServerVariants(t *testing.T) {
 		assert.NotEmpty(t, variant.Summary, "server %q has no summary", name)
 	}
 
-	// The http server's nested blocks, including two levels of auth.
+	// The http server's nested blocks. Authentication is not among them: it is
+	// a top-level `auth` block, referenced by an attribute.
 	http := server.Variants["http"]
 	assert.ElementsMatch(t,
-		[]string{"tls", "auth", "baggage", "real_ip", "handle", "files"},
+		[]string{"tls", "baggage", "real_ip", "handle", "files"},
 		keysOf(http.Blocks))
 	handle := http.Blocks["handle"]
 	require.NotNil(t, handle)
@@ -581,12 +582,13 @@ func TestSchemaSharedBlocks(t *testing.T) {
 		assert.Equal(t, tlsSummary, tlsBlock.Summary, "server %q describes tls differently", name)
 	}
 
-	// auth reaches nested blocks too, not just the top level of a server.
-	handlerAuth := servers["http"].Blocks["handle"].Blocks["auth"]
-	require.NotNil(t, handlerAuth)
-	assert.Equal(t, []string{"mode"}, handlerAuth.Labels,
-		"an unnamed hcl label falls back to the field name")
-	assert.NotEmpty(t, handlerAuth.Summary)
+	// The auth attribute reaches nested blocks too, not just the top level of a
+	// server, so a route can require something different from its server.
+	for _, nested := range []string{"handle", "files"} {
+		attr := findAttr(&servers["http"].Blocks[nested].SchemaBody, "auth")
+		require.NotNil(t, attr, "server http %s has no auth attribute", nested)
+		assert.NotEmpty(t, attr.Summary)
+	}
 
 	assert.NotEmpty(t, servers["http"].Blocks["baggage"].Summary)
 }

@@ -14,7 +14,7 @@ A dynamic DNS service that exposes a small HTTP API for updating BIND zone
 files in place. Demonstrates:
 
 - [`server "http"`](../doc/server-http.md) with route handlers and
-  [basic authentication](../doc/server-auth.md)
+  [basic authentication](../doc/auth.md)
 - A [functy (`.cty`)](../doc/functy.md) function that encapsulates the update
   logic and authorizes callers based on their authenticated username, sitting in
   a `.cty` file alongside the `.vcl` and callable from the handlers like a
@@ -31,7 +31,7 @@ configuration.
 
 Required environment variables: `ZONES_DIR` (path to the directory containing
 BIND zone files) and one `PASS_<ZONE>_<HOST>` variable per credential, as
-referenced from the `auth "basic"` block in the example.
+referenced from the `auth "basic" "updaters"` block in the example.
 
 ### [weather-mcp/](weather-mcp/)
 

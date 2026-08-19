@@ -174,15 +174,15 @@ func newMetricsServer(name string, defRange hcl.Range, listen, path string, isDe
 
 // MetricsServerDefinition holds the decoded HCL attributes for a server "metrics" block.
 type MetricsServerDefinition struct {
-	Listen           *string         `hcl:"listen,optional"`
-	Path             *string         `hcl:"path,optional"`
-	DefaultMetrics   *bool           `hcl:"default_metrics,optional"`
-	IncludeGoMetrics *bool           `hcl:"include_go_metrics,optional"`
-	Tracing          hcl.Expression  `hcl:"tracing,optional"`
-	ShutdownTimeout  hcl.Expression  `hcl:"shutdown_timeout,optional"`
-	TLS              *cfg.TLSConfig  `hcl:"tls,block"`
-	Auth             *cfg.AuthConfig `hcl:"auth,block"`
-	DefRange         hcl.Range       `hcl:",def_range"`
+	Listen           *string        `hcl:"listen,optional"`
+	Path             *string        `hcl:"path,optional"`
+	DefaultMetrics   *bool          `hcl:"default_metrics,optional"`
+	IncludeGoMetrics *bool          `hcl:"include_go_metrics,optional"`
+	Tracing          hcl.Expression `hcl:"tracing,optional"`
+	ShutdownTimeout  hcl.Expression `hcl:"shutdown_timeout,optional"`
+	TLS              *cfg.TLSConfig `hcl:"tls,block"`
+	Auth             hcl.Expression `hcl:"auth,optional"`
+	DefRange         hcl.Range      `hcl:",def_range"`
 }
 
 func init() {
@@ -232,6 +232,11 @@ automatically; with several, exactly one may set this.`,
 				"then waits this long for those already in flight. Whatever is still running when the " +
 				"time is up is closed out from under it. `0` waits indefinitely. " +
 				"Standalone mode only — a mounted server drains with the `server \"http\"` block hosting it."),
+		"auth": cfg.AuthAttr.WithDoc(
+			"An `auth.<name>` reference, or a list of them. Scrapers are programs rather " +
+				"than people, so `basic` or a bearer token usually fits better than an " +
+				"interactive mechanism. Omitted, the metrics are served to anyone who can " +
+				"reach the endpoint."),
 	},
 }
 
@@ -292,11 +297,9 @@ func ProcessMetricsServerBlock(config *cfg.Config, block *hcl.Block, remainingBo
 		}
 	}
 
-	// Validate auth block if present.
-	if def.Auth != nil {
-		if authDiags := cfg.ValidateAuthConfig(def.Auth); authDiags.HasErrors() {
-			return nil, authDiags
-		}
+	authPolicy, authDiags := cfg.ResolveAuth(config, def.Auth)
+	if authDiags.HasErrors() {
+		return nil, authDiags
 	}
 
 	// Resolve tracing client.
@@ -322,23 +325,7 @@ func ProcessMetricsServerBlock(config *cfg.Config, block *hcl.Block, remainingBo
 		}
 	}
 
-	// Wrap the metrics handler with auth middleware if configured.
-	if def.Auth != nil && def.Auth.Mode != "none" {
-		authenticator, err := metricsauth.BuildAuthenticator(def.Auth, name, config)
-		if err != nil {
-			return nil, hcl.Diagnostics{
-				&hcl.Diagnostic{
-					Severity: hcl.DiagError,
-					Summary:  "Failed to build auth",
-					Detail:   err.Error(),
-					Subject:  &def.Auth.DefRange,
-				},
-			}
-		}
-		if authenticator != nil {
-			srv.handler = metricsauth.NewAuthMiddleware(authenticator, config.EvalCtx(), config.Logger, srv.handler)
-		}
-	}
+	srv.handler = metricsauth.NewAuthMiddleware(authPolicy, config.EvalCtx(), config.Logger, srv.handler)
 
 	if config.MetricsServers == nil {
 		config.MetricsServers = make(map[string]cfg.MetricsRegistrar)

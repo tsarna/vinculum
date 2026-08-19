@@ -14,7 +14,6 @@ import (
 	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/lestrrat-go/jwx/v3/jwt"
-	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -132,16 +131,14 @@ func expr(t *testing.T, src string) hcl.Expression {
 
 // newTestOIDC builds an OIDC authenticator and stops it when the test ends, so
 // no JWKS refresher outlives the test that created it.
-func newTestOIDC(t *testing.T, ac *cfg.AuthConfig) Authenticator {
+func newTestOIDC(t *testing.T, ac *oidcDefinition) *oidcAuthenticator {
 	t.Helper()
 
 	a, err := newOIDCAuthenticator(ac, nil, zap.NewNop())
 	if err != nil {
 		t.Fatalf("newOIDCAuthenticator: %v", err)
 	}
-	if s, ok := a.(interface{ Stop() error }); ok {
-		t.Cleanup(func() { _ = s.Stop() })
-	}
+	t.Cleanup(func() { _ = a.Stop() })
 	return a
 }
 
@@ -160,8 +157,7 @@ func TestOIDCAuthenticatorValidToken(t *testing.T) {
 	key := newSigningKey(t, jwa.RS256(), "key-1")
 	issuer := newIssuer(t, key)
 
-	a := newTestOIDC(t, &cfg.AuthConfig{
-		Mode:     "oidc",
+	a := newTestOIDC(t, &oidcDefinition{
 		Issuer:   issuer.URL,
 		Audience: expr(t, `["api.example.com"]`),
 	})
@@ -230,8 +226,7 @@ func TestOIDCAuthenticatorRejectsDisallowedAlgorithm(t *testing.T) {
 	disallowed := newSigningKey(t, jwa.RS512(), "key-rs512")
 	issuer := newIssuer(t, allowed, disallowed)
 
-	a := newTestOIDC(t, &cfg.AuthConfig{
-		Mode:       "oidc",
+	a := newTestOIDC(t, &oidcDefinition{
 		Issuer:     issuer.URL,
 		Algorithms: expr(t, `["RS256"]`),
 	})
@@ -269,8 +264,7 @@ func TestOIDCAuthenticatorDuplicateJWKSEntry(t *testing.T) {
 	key := newSigningKey(t, jwa.RS256(), "key-1")
 	issuer := newIssuer(t, key, key) // published twice
 
-	a := newTestOIDC(t, &cfg.AuthConfig{
-		Mode:   "oidc",
+	a := newTestOIDC(t, &oidcDefinition{
 		Issuer: issuer.URL,
 	})
 
@@ -287,8 +281,7 @@ func TestOIDCAuthenticatorRejectsBadTokens(t *testing.T) {
 	other := newSigningKey(t, jwa.RS256(), "key-1") // same kid, wrong key
 	issuer := newIssuer(t, key)
 
-	a := newTestOIDC(t, &cfg.AuthConfig{
-		Mode:     "oidc",
+	a := newTestOIDC(t, &oidcDefinition{
 		Issuer:   issuer.URL,
 		Audience: expr(t, `["api.example.com"]`),
 	})
@@ -359,8 +352,7 @@ func TestOIDCAuthenticatorClockSkew(t *testing.T) {
 	key := newSigningKey(t, jwa.RS256(), "key-1")
 	issuer := newIssuer(t, key)
 
-	a := newTestOIDC(t, &cfg.AuthConfig{
-		Mode:      "oidc",
+	a := newTestOIDC(t, &oidcDefinition{
 		Issuer:    issuer.URL,
 		ClockSkew: expr(t, `"5m"`),
 	})
@@ -386,8 +378,7 @@ func TestOIDCAuthenticatorJWKSUrlSkipsDiscovery(t *testing.T) {
 	key := newSigningKey(t, jwa.RS256(), "key-1")
 	issuer := newIssuer(t, key)
 
-	a := newTestOIDC(t, &cfg.AuthConfig{
-		Mode:    "oidc",
+	a := newTestOIDC(t, &oidcDefinition{
 		JWKSUrl: issuer.URL + "/jwks.json",
 	})
 
@@ -398,10 +389,9 @@ func TestOIDCAuthenticatorJWKSUrlSkipsDiscovery(t *testing.T) {
 		t.Fatalf("valid token rejected: failure=%+v err=%v", failure, err)
 	}
 
-	oidcAuth := a.(*oidcAuthenticator)
-	oidcAuth.mu.Lock()
-	meta := oidcAuth.resolved.meta
-	oidcAuth.mu.Unlock()
+	a.mu.Lock()
+	meta := a.resolved.meta
+	a.mu.Unlock()
 	if meta != nil {
 		t.Errorf("a discovery document was fetched (%+v) despite an explicit jwks_url", meta)
 	}
@@ -413,36 +403,32 @@ func TestOIDCAuthenticatorConfigErrors(t *testing.T) {
 
 	tests := []struct {
 		name string
-		ac   *cfg.AuthConfig
+		ac   *oidcDefinition
 	}{
 		{
 			name: "unknown algorithm",
-			ac: &cfg.AuthConfig{
-				Mode:       "oidc",
+			ac: &oidcDefinition{
 				Issuer:     issuer.URL,
 				Algorithms: expr(t, `["RS256", "HS999"]`),
 			},
 		},
 		{
 			name: "empty algorithms",
-			ac: &cfg.AuthConfig{
-				Mode:       "oidc",
+			ac: &oidcDefinition{
 				Issuer:     issuer.URL,
 				Algorithms: expr(t, `[]`),
 			},
 		},
 		{
 			name: "unsigned tokens are not an algorithm",
-			ac: &cfg.AuthConfig{
-				Mode:       "oidc",
+			ac: &oidcDefinition{
 				Issuer:     issuer.URL,
 				Algorithms: expr(t, `["none"]`),
 			},
 		},
 		{
 			name: "algorithms is not a list of strings",
-			ac: &cfg.AuthConfig{
-				Mode:       "oidc",
+			ac: &oidcDefinition{
 				Issuer:     issuer.URL,
 				Algorithms: expr(t, `"RS256"`),
 			},

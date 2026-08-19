@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/lestrrat-go/httprc/v3"
 	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jwk"
@@ -49,11 +50,9 @@ type oidcAuthenticator struct {
 	// `alg`, never from the token header, so filtering the key set is what makes
 	// the configured list actually restrictive.
 	algorithms map[jwa.SignatureAlgorithm]struct{}
-	// useIntrospect switches from local JWT validation to introspection.
-	useIntrospect      bool
-	introspectURL      string
-	introspectClientID string
-	introspectSecret   string
+	// tokenHeader carries the raw token when it does not arrive as
+	// `Authorization: Bearer`. Empty means the standard header.
+	tokenHeader string
 
 	logger *zap.Logger
 
@@ -87,7 +86,115 @@ type oidcResolution struct {
 	cancel context.CancelFunc
 }
 
-func newOIDCAuthenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext, logger *zap.Logger) (Authenticator, error) {
+// oidcDefinition is the body of an `auth "oidc"` block.
+type oidcDefinition struct {
+	// Issuer is the OIDC issuer URL, used for discovery.
+	Issuer string `hcl:"issuer,optional"`
+	// JWKSUrl names the key endpoint directly, skipping discovery.
+	JWKSUrl string `hcl:"jwks_url,optional"`
+	// Audience lists acceptable `aud` values.
+	Audience hcl.Expression `hcl:"audience,optional"`
+	// Algorithms restricts which signing algorithms may verify a token.
+	Algorithms hcl.Expression `hcl:"algorithms,optional"`
+	// ClockSkew is the tolerance applied to exp and nbf.
+	ClockSkew hcl.Expression `hcl:"clock_skew,optional"`
+	// TokenHeader carries the bare token, for a proxy that presents it under
+	// its own header rather than as `Authorization: Bearer`.
+	TokenHeader string `hcl:"token_header,optional"`
+
+	DefRange hcl.Range `hcl:",def_range"`
+}
+
+func init() {
+	cfg.RegisterAuthType("oidc", processOIDCAuth, cfg.WithSchema(oidcAuthSchema))
+}
+
+var oidcAuthSchema = cfg.TypeSchema{
+	Sample:  &oidcDefinition{},
+	Summary: "A bearer token verified against an OIDC issuer's keys.",
+	DocPage: "auth.md#oidc",
+	Doc: `Verifies a JWT's signature against the issuer's published keys. Verification is
+local, so no call is made to the issuer per request, and a token stays valid
+until it expires — see ` + "[`introspection`](auth.md#introspection)" + ` where revocation must take
+effect immediately.
+
+The issuer's discovery document and keys are fetched on first use rather than at
+startup, so an issuer that is unreachable does not stop the process from
+starting. Until they arrive, protected routes answer ` + "`503`" + ` — never anonymous
+access.`,
+	Attrs: map[string]cfg.AttrMeta{
+		"issuer": {
+			Summary: "OIDC issuer URL.",
+			Doc: "Its `/.well-known/openid-configuration` document is fetched to find the " +
+				"key endpoint.",
+			Hint: cfg.HintURL,
+		},
+		"jwks_url": {
+			Summary: "Key endpoint, named directly.",
+			Doc:     "Skips discovery, for an issuer that publishes no discovery document.",
+			Hint:    cfg.HintURL,
+		},
+		"audience": {
+			Summary: "Accepted `aud` values.",
+			Doc: "The token must carry at least one of them. Without this, any token the " +
+				"issuer signed is accepted, including one minted for a different " +
+				"service — set it whenever the issuer serves more than this API.",
+		},
+		"algorithms": {
+			Summary: "Permitted token signing algorithms.",
+			Doc: "A key verifies a token only if the algorithm it advertises is listed " +
+				"here, so narrowing the list narrows what the issuer can present. The " +
+				"algorithm always comes from the key rather than from the token header, " +
+				"which is attacker-controlled. Unrecognized names, an empty list, and " +
+				"`\"none\"` are rejected at config load.",
+			Default: `["RS256", "ES256"]`,
+		},
+		"clock_skew": {
+			Summary: "Tolerance applied to `exp` and `nbf`.",
+			Doc:     "Accepts a duration string, a number of seconds, or a duration value.",
+			Hint:    cfg.HintDuration,
+			Default: "30s",
+		},
+		"token_header": {
+			Summary: "Header carrying the token, instead of `Authorization: Bearer`.",
+			Doc: "For a reverse proxy that presents the token under its own name — " +
+				"Cloudflare Access uses `Cf-Access-Jwt-Assertion`, an AWS ALB uses " +
+				"`x-amzn-oidc-data`. The value is the bare token, with no `Bearer ` " +
+				"prefix. The signature is still verified, so unlike " +
+				"[`proxy`](auth.md#proxy) this needs no network-level trust in the proxy.",
+			Default: "Authorization",
+		},
+	},
+	Constraints: []cfg.Constraint{
+		cfg.MutuallyExclusive("issuer", "jwks_url").
+			WithMessage("Setting jwks_url replaces discovery, which is what issuer is for."),
+		cfg.AtLeastOneOf("issuer", "jwks_url").
+			WithMessage("Verifying a token needs the issuer's keys, found either by discovery from issuer or directly at jwks_url."),
+	},
+}
+
+func processOIDCAuth(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Authenticator, hcl.Diagnostics) {
+	def := oidcDefinition{}
+	if diags := gohcl.DecodeBody(body, config.EvalCtx(), &def); diags.HasErrors() {
+		return nil, diags
+	}
+
+	if def.Issuer == "" && def.JWKSUrl == "" {
+		return nil, authDiag(block, "Missing auth attribute",
+			`auth "oidc" needs "issuer" (to discover the issuer's keys) or "jwks_url" (to name the key endpoint directly).`)
+	}
+
+	a, err := newOIDCAuthenticator(&def, config.EvalCtx(), config.Logger)
+	if err != nil {
+		return nil, authDiag(block, "Invalid auth configuration", err.Error())
+	}
+
+	config.Startables = append(config.Startables, a)
+	config.Stoppables = append(config.Stoppables, a)
+	return a, nil
+}
+
+func newOIDCAuthenticator(ac *oidcDefinition, evalCtx *hcl.EvalContext, logger *zap.Logger) (*oidcAuthenticator, error) {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -157,15 +264,8 @@ func newOIDCAuthenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext, logger *
 	// Record where verification material comes from. Nothing is fetched here:
 	// see resolve.
 	a.issuer = ac.Issuer
-	if ac.IntrospectUrl != "" {
-		// Use introspection instead of local JWKS validation.
-		a.useIntrospect = true
-		a.introspectURL = ac.IntrospectUrl
-		a.introspectClientID = ac.IntrospectClientID
-		a.introspectSecret = ac.IntrospectClientSecret
-	} else {
-		a.configuredJWKSURL = ac.JWKSUrl
-	}
+	a.configuredJWKSURL = ac.JWKSUrl
+	a.tokenHeader = ac.TokenHeader
 
 	return a, nil
 }
@@ -179,9 +279,6 @@ func newOIDCAuthenticator(ac *cfg.AuthConfig, evalCtx *hcl.EvalContext, logger *
 // OIDC should still bind. Requests retry on their own schedule, so a provider
 // that comes up late is recovered from without a restart.
 func (a *oidcAuthenticator) Start() error {
-	if a.useIntrospect {
-		return nil
-	}
 	go func() {
 		_, _ = a.resolve(a.ctx) // failure is logged by resolve
 	}()
@@ -294,16 +391,18 @@ func (a *oidcAuthenticator) attemptResolve() (*oidcResolution, error) {
 		res.jwksURL = meta.JWKSUri
 	}
 
-	// The cache's refresher gets its own cancellable context so a failed attempt
-	// can shut it down immediately, rather than leaving one refresher per
-	// attempt running until the process exits.
+	// Two contexts, deliberately. cacheCtx bounds the *lifetime* of the cache's
+	// background refresher, so it lasts until shutdown or until this attempt
+	// gives up. ctx bounds this *attempt*, and Register takes it because
+	// Register performs the first fetch and waits for it — handed a context
+	// that only cancels, an unreachable JWKS endpoint blocks here forever.
 	cacheCtx, cacheCancel := context.WithCancel(a.ctx)
 	cache, err := jwk.NewCache(cacheCtx, httprc.NewClient(httprc.WithHTTPClient(authHTTPClient)))
 	if err != nil {
 		cacheCancel()
 		return nil, fmt.Errorf("auth oidc: creating JWKS cache: %w", err)
 	}
-	if err := cache.Register(cacheCtx, res.jwksURL, jwk.WithMinInterval(15*time.Minute)); err != nil {
+	if err := cache.Register(ctx, res.jwksURL, jwk.WithMinInterval(15*time.Minute)); err != nil {
 		cacheCancel()
 		return nil, fmt.Errorf("auth oidc: registering JWKS cache: %w", err)
 	}
@@ -342,19 +441,47 @@ func (a *oidcAuthenticator) unavailable() *AuthFailure {
 	}
 }
 
+func (a *oidcAuthenticator) Method() string { return "oidc" }
+
+// Claims recognizes a request carrying a token where this block expects one.
+// Whether it verifies is Authenticate's business — a bad token must be rejected
+// here rather than passed to the next mechanism on the route.
+func (a *oidcAuthenticator) Claims(r *http.Request) bool {
+	_, err := a.extractToken(r)
+	return err == nil
+}
+
+func (a *oidcAuthenticator) Challenge() string {
+	// A token in a header of the proxy's choosing is not something a client can
+	// be asked for, so there is no challenge to issue.
+	if a.tokenHeader != "" {
+		return ""
+	}
+	return "Bearer"
+}
+
+// extractToken reads the token from wherever this block expects it: the bare
+// value of a configured header, or the standard Authorization: Bearer.
+func (a *oidcAuthenticator) extractToken(r *http.Request) (string, error) {
+	if a.tokenHeader == "" {
+		return extractBearerToken(r)
+	}
+	token := strings.TrimSpace(r.Header.Get(a.tokenHeader))
+	if token == "" {
+		return "", fmt.Errorf("missing %s header", a.tokenHeader)
+	}
+	return token, nil
+}
+
 func (a *oidcAuthenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalContext) (cty.Value, *AuthFailure, error) {
 	// Checked before anything is resolved: a request with no credential is
 	// wrong whatever the issuer's state, and answering costs no I/O.
-	token, err := extractBearerToken(r)
+	token, err := a.extractToken(r)
 	if err != nil {
 		return cty.NilVal, &AuthFailure{
 			Status:          http.StatusUnauthorized,
-			WWWAuthenticate: "Bearer",
+			WWWAuthenticate: a.Challenge(),
 		}, nil
-	}
-
-	if a.useIntrospect {
-		return introspectToken(r.Context(), token, a.introspectURL, a.introspectClientID, a.introspectSecret, a.audience)
 	}
 
 	res, err := a.resolve(r.Context())

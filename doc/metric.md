@@ -270,7 +270,7 @@ Fields readable as `ctx.<name>` (shape `metric-value`):
 
 **`ctx.auth`**
 
-Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+Set when the request was authenticated: `username`, `subject`, `claims`, and `method` naming the mechanism. Null on a route that allows unauthenticated requests, and everywhere the event did not arrive over an authenticated path — so a route accepting both branches on `ctx.auth == null`. See [the auth block](auth.md).
 
 **`ctx.baggage`**
 

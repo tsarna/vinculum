@@ -6,7 +6,8 @@ server "http" "main" {
   listen = "127.0.0.1:0"
   auth   = auth.web
 
-  handle "/whoami" {
-    action = ctx.auth.username
+  files "/public" {
+    auth      = auth.anonymous
+    directory = "/tmp"
   }
 }

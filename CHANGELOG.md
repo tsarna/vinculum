@@ -7,6 +7,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Authentication is now a named top-level `auth` block.** It was an anonymous
+  `auth "<mode>" { … }` block written inside each server or route; it is now
+  `auth "<type>" "<name>"` at the top level, referenced with `auth = auth.<name>` from
+  `server "http"` (and its `handle` and `files` blocks) and `server "metrics"`. The
+  transform is mechanical — hoist the block, name it, reference it; `auth "none" {}`
+  becomes `auth = auth.anonymous`. See [doc/deprecations.md](doc/deprecations.md) for
+  before/after and [doc/auth.md](doc/auth.md) for the full reference.
+
+  Naming it is what the rest rests on. An anonymous block was rebuilt at every site
+  that inherited it, so one `auth "oidc"` on a server with eight routes opened eight
+  connections to the issuer and ran eight background key refreshers. A named block is
+  built once, however many routes name it.
+
+  Each mechanism now has its own attributes rather than sharing one struct, so
+  `auth "basic" "x" { issuer = … }` is an error instead of being silently ignored, and
+  a plugin can register a mechanism the way it can already register a server or client
+  type. `doc/server-auth.md` is now `doc/auth.md`, since it documents a block of its
+  own rather than part of `server`.
+
+- **`auth "oauth2"` is renamed `auth "introspection"`.** The old name claimed a whole
+  framework but implemented one corner of it — RFC 7662 token introspection. `oidc` is
+  equally OAuth2-based, so the pair implied the two were alternatives at the same
+  level, when both take bearer tokens and differ only in how the token is checked.
+  Worse, the familiar name invited the reading that this was the interactive login
+  flow, which Vinculum does not implement at all. Every attribute is unchanged; only
+  the block label moves. `ctx.auth.method` reports `"introspection"` to match.
+
+### Added
+
+- **`shutdown_timeout` on every block that accepts inbound connections** — `server "http"`,
+  `"metrics"`, `"vws"`, and `"websocket"`. It bounds how long that server waits
+  for in-flight work while shutting down, defaulting to `10s`; whatever is still running
+  when the time is up is closed out from under it, so one stuck request or one client that
+  has stopped reading cannot hold shutdown open. `0` waits indefinitely. On the two
+  WebSocket servers what it bounds is connections closing rather than requests finishing,
+  since that is what those blocks own.
+
+- **A route may accept more than one authentication mechanism** —
+  `auth = [auth.corp, auth.break_glass]`. The first mechanism that *recognizes* the
+  request's credential judges it, and its rejection is final rather than falling
+  through to the next: falling through would let a caller grind against every
+  mechanism a route accepts, and would make which one rejected them unknowable. A
+  request no mechanism recognized gets a 401 offering every challenge the route can
+  issue (RFC 7235 permits more than one `WWW-Authenticate` header).
+
+  This fixes being locked out of your own admin route by an identity-provider outage.
+  It also makes `[auth.corp, auth.anonymous]` meaningful: a request carrying no
+  credential is anonymous and `ctx.auth` is null, while one carrying a *bad* credential
+  is still rejected — anonymous reads with authenticated writes on a single route.
+
+- **`auth.anonymous` and `auth.disabled`.** `auth.anonymous` is how a route allows an
+  unauthenticated request, replacing the inline `auth "none" {}`. `auth.disabled` is
+  what the name of a switched-off block resolves to, and is dropped from a route's
+  list rather than permitting anonymous access — so disabling one of two mechanisms
+  leaves the route protected by the other. Disabling the *only* mechanism still opens
+  the route, as it always has, and now logs a warning naming it.
+
+  The sentinel is `anonymous` rather than `none` because these two are exactly where
+  a misreading is dangerous, and "none" and "disabled" are near-synonyms in English
+  while meaning opposite things here. `anonymous` also reads as a list element:
+  `[auth.corp, auth.anonymous]` is "corp, or anonymous", where "none" would read as
+  negating the whole list.
+
+  Several `auth` blocks may share a name so long as no more than one is enabled,
+  making the "declare both, let an environment variable choose" idiom a rule rather
+  than something that happened to work. They need not share a mechanism.
+
+- **`auth "proxy"`** — identity asserted by a reverse proxy that has already
+  authenticated the user, reading oauth2-proxy's `X-Forwarded-User`/`-Email`/`-Groups`
+  by default and any other names on request. `trusted_proxies` is required: the
+  headers are plaintext, so a request from any other address is rejected outright.
+  Where the proxy can pass on the token it verified, `auth "oidc"` remains the
+  stronger choice and is documented as such.
+
+- **`token_header` on `auth "oidc"`**, for a proxy that presents the token under its
+  own header — Cloudflare Access's `Cf-Access-Jwt-Assertion`, an AWS ALB's
+  `x-amzn-oidc-data`. The signature is still verified, so this needs no network-level
+  trust in the proxy.
+
+- **`ctx.auth.method`** names the mechanism that authenticated the request, so an
+  expression can tell which one won on a route that accepts several. It is a reserved
+  key: an `auth "custom"` action returning an object that sets it is now an error
+  rather than having its value silently overwritten.
+
 ### Removed
 
 - **Standalone `server "mcp"`.** An MCP server is now always mounted on a route of a
@@ -29,15 +115,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   See [doc/deprecations.md](doc/deprecations.md) for a before/after config.
 
-### Added
-
-- **`shutdown_timeout` on every block that accepts inbound connections** — `server "http"`,
-  `"metrics"`, `"vws"`, and `"websocket"`. It bounds how long that server waits
-  for in-flight work while shutting down, defaulting to `10s`; whatever is still running
-  when the time is up is closed out from under it, so one stuck request or one client that
-  has stopped reading cannot hold shutdown open. `0` waits indefinitely. On the two
-  WebSocket servers what it bounds is connections closing rather than requests finishing,
-  since that is what those blocks own.
+- **`server "mcp"` loses its `baggage` block.** Every other `baggage` block sits on
+  something that owns an inbound edge — the HTTP listener, or a Kafka/MQTT/SQS/RabbitMQ/
+  Redis-stream receiver. An MCP server no longer has one, and its filter already did
+  nothing when mounted, so which inbound baggage keys are trusted is decided by the
+  hosting `server "http"` block.
 
 ### Fixed
 
@@ -50,12 +132,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reported immediately.
 
 - **RFC 7662 introspection had the same missing timeout**, on a path that runs per request
-  rather than once at startup. `auth "oauth2"` and `auth "oidc"` with an `introspect_url`
-  now share the same bounded client.
+  rather than once at startup. `auth "introspection"` now shares the same bounded client.
 
 - **Authenticators are shut down with the process.** The JWKS background refresher and the
-  `auth "oauth2"` token-cache sweep both ran on `context.Background()` for the life of the
-  process, one per authenticator built. Both are now cancelled during teardown.
+  `auth "introspection"` token-cache sweep both ran on `context.Background()` for the life
+  of the process, one per authenticator built. Both are now cancelled during teardown.
 
 - **Servers now stop accepting before the runtime behind them is torn down.** No listening
   server in the tree implemented shutdown at all: `server "http"` registered only a

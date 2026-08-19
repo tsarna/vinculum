@@ -71,6 +71,7 @@ but the metrics will not be scraped. This may be useful during development.
 
 | Attribute | Type | Required | Default | Description |
 |---|---|---|---|:---|
+| `auth` | expression (auth-ref) |  |  | Authentication required here. |
 | `default_metrics` | bool |  |  | Make this the default metrics backend. |
 | `disabled` | bool |  |  | Skip this block entirely. |
 | `include_go_metrics` | bool |  | `true` | Register Go runtime metrics. |
@@ -78,6 +79,10 @@ but the metrics will not be scraped. This may be useful during development.
 | `path` | string |  | `/metrics` | Path the metrics are served at. |
 | `shutdown_timeout` | expression (duration) |  | `10s` | How long to let in-flight work finish while shutting down. |
 | `tracing` | expression (tracing-ref) |  |  | Where to report traces for scrape requests. |
+
+**`auth`**
+
+An `auth.<name>` reference, or a list of them. Scrapers are programs rather than people, so `basic` or a bearer token usually fits better than an interactive mechanism. Omitted, the metrics are served to anyone who can reach the endpoint.
 
 **`default_metrics`**
 
@@ -111,7 +116,6 @@ A `client "otlp"` block. Auto-wires to the default when omitted.
 
 ### Blocks
 
-- `auth "<mode>"` (optional) — Authentication required by this server or handler.
 - `tls` (optional) — TLS settings for this connection.
 
 <!-- vinculum:end block-attrs server metrics -->
@@ -345,4 +349,4 @@ server "metrics" "metrics" {
 }
 ```
 
-Any auth mode is supported. See [Authentication](server-auth.md) for the full reference.
+Any auth mechanism is supported. See [Authentication](auth.md) for the full reference.

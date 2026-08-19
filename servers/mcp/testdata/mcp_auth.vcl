@@ -1,6 +1,11 @@
 // An MCP server owns no listener, so authentication belongs to the route of the
 // `server "http"` block that mounts it. The identity the route establishes
 // reaches the tool as ctx.auth.
+auth "custom" "header" {
+  # Accept any request with a username; use it as the subject.
+  action = ctx.request.user != "" ? { subject = ctx.request.user } : null
+}
+
 server "mcp" "auth_test" {
     server_name = "Auth Test Server"
 
@@ -15,10 +20,6 @@ server "http" "main" {
 
     handle "/mcp" {
         handler = server.auth_test
-
-        auth "custom" {
-            # Accept any request with a username; use it as the subject.
-            action = ctx.request.user != "" ? { subject = ctx.request.user } : null
-        }
+        auth    = auth.header
     }
 }

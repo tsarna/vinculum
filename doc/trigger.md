@@ -86,7 +86,7 @@ Fields readable as `ctx.<name>` (shape `trigger-after`):
 
 **`ctx.auth`**
 
-Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+Set when the request was authenticated: `username`, `subject`, `claims`, and `method` naming the mechanism. Null on a route that allows unauthenticated requests, and everywhere the event did not arrive over an authenticated path — so a route accepting both branches on `ctx.auth == null`. See [the auth block](auth.md).
 
 **`ctx.baggage`**
 
@@ -246,7 +246,7 @@ Fields readable as `ctx.<name>` (shape `trigger-at`):
 
 **`ctx.auth`**
 
-Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+Set when the request was authenticated: `username`, `subject`, `claims`, and `method` naming the mechanism. Null on a route that allows unauthenticated requests, and everywhere the event did not arrive over an authenticated path — so a route accepting both branches on `ctx.auth == null`. See [the auth block](auth.md).
 
 **`ctx.baggage`**
 
@@ -392,7 +392,7 @@ Fields readable as `ctx.<name>` (shape `trigger-cron`):
 
 **`ctx.auth`**
 
-Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+Set when the request was authenticated: `username`, `subject`, `claims`, and `method` naming the mechanism. Null on a route that allows unauthenticated requests, and everywhere the event did not arrive over an authenticated path — so a route accepting both branches on `ctx.auth == null`. See [the auth block](auth.md).
 
 **`ctx.baggage`**
 
@@ -596,7 +596,7 @@ For a `"rename"` event this is the **old** path. Not every OS backend reports th
 
 **`ctx.auth`**
 
-Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+Set when the request was authenticated: `username`, `subject`, `claims`, and `method` naming the mechanism. Null on a route that allows unauthenticated requests, and everywhere the event did not arrive over an authenticated path — so a route accepting both branches on `ctx.auth == null`. See [the auth block](auth.md).
 
 **`ctx.baggage`**
 
@@ -808,7 +808,7 @@ Fields readable as `ctx.<name>` (shape `trigger-interval`):
 
 **`ctx.auth`**
 
-Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+Set when the request was authenticated: `username`, `subject`, `claims`, and `method` naming the mechanism. Null on a route that allows unauthenticated requests, and everywhere the event did not arrive over an authenticated path — so a route accepting both branches on `ctx.auth == null`. See [the auth block](auth.md).
 
 **`ctx.baggage`**
 
@@ -962,7 +962,7 @@ Fields readable as `ctx.<name>` (shape `trigger-once`):
 
 **`ctx.auth`**
 
-Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+Set when the request was authenticated: `username`, `subject`, `claims`, and `method` naming the mechanism. Null on a route that allows unauthenticated requests, and everywhere the event did not arrive over an authenticated path — so a route accepting both branches on `ctx.auth == null`. See [the auth block](auth.md).
 
 **`ctx.baggage`**
 
@@ -1061,7 +1061,7 @@ Fields readable as `ctx.<name>` (shape `trigger-shutdown`):
 
 **`ctx.auth`**
 
-Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+Set when the request was authenticated: `username`, `subject`, `claims`, and `method` naming the mechanism. Null on a route that allows unauthenticated requests, and everywhere the event did not arrive over an authenticated path — so a route accepting both branches on `ctx.auth == null`. See [the auth block](auth.md).
 
 **`ctx.baggage`**
 
@@ -1170,7 +1170,7 @@ Numbers vary by platform; `sys.signals.SIGHUP` is the portable way to name one.
 
 **`ctx.auth`**
 
-Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+Set when the request was authenticated: `username`, `subject`, `claims`, and `method` naming the mechanism. Null on a route that allows unauthenticated requests, and everywhere the event did not arrive over an authenticated path — so a route accepting both branches on `ctx.auth == null`. See [the auth block](auth.md).
 
 **`ctx.baggage`**
 
@@ -1256,7 +1256,7 @@ Fields readable as `ctx.<name>` (shape `trigger-start`):
 
 **`ctx.auth`**
 
-Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+Set when the request was authenticated: `username`, `subject`, `claims`, and `method` naming the mechanism. Null on a route that allows unauthenticated requests, and everywhere the event did not arrive over an authenticated path — so a route accepting both branches on `ctx.auth == null`. See [the auth block](auth.md).
 
 **`ctx.baggage`**
 
@@ -1373,7 +1373,7 @@ Fields readable as `ctx.<name>` (shape `trigger-watch`):
 
 **`ctx.auth`**
 
-Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+Set when the request was authenticated: `username`, `subject`, `claims`, and `method` naming the mechanism. Null on a route that allows unauthenticated requests, and everywhere the event did not arrive over an authenticated path — so a route accepting both branches on `ctx.auth == null`. See [the auth block](auth.md).
 
 **`ctx.baggage`**
 
@@ -1566,7 +1566,7 @@ Reset to 0 by `set(trigger.<name>)`.
 
 **`ctx.auth`**
 
-Populated by the auth middleware when the event arrived through an authenticated path; null everywhere else.
+Set when the request was authenticated: `username`, `subject`, `claims`, and `method` naming the mechanism. Null on a route that allows unauthenticated requests, and everywhere the event did not arrive over an authenticated path — so a route accepting both branches on `ctx.auth == null`. See [the auth block](auth.md).
 
 **`ctx.baggage`**
 
