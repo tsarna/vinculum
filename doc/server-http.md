@@ -39,6 +39,7 @@ attribute is covered under [Authentication](#authentication), and in full on the
 | `listen` | string (listen-addr) | yes |  | Address and port to listen on. |
 | `auth` | expression (auth-ref) |  |  | Authentication required here. |
 | `disabled` | bool |  |  | Skip this block entirely. |
+| `external_url` | string (url) |  |  | Base URL clients reach this server at from outside. |
 | `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
 | `shutdown_timeout` | expression (duration) |  | `10s` | How long to let in-flight work finish while shutting down. |
 | `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
@@ -54,6 +55,10 @@ An `auth.<name>` reference, or a list of them. Every `handle` and `files` block 
 **`disabled`**
 
 The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
+
+**`external_url`**
+
+Needed only by features that must hand a client an absolute URL back to this server — currently the `resource` of an `auth` block. Behind a proxy that terminates TLS or mounts the server under a path prefix, the real scheme, host, and prefix are invisible from inside, so they cannot be derived from `listen` and must be stated: `"https://api.example.com"`, or `"https://example.com/vinculum"` when a prefix is stripped by the proxy. Nothing else in the config consults it, and it does not affect what the server binds to.
 
 **`metrics`**
 

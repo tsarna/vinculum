@@ -38,6 +38,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **OAuth discovery for clients given only a URL — `resource` on `auth "oidc"`, and
+  `external_url` on `server "http"`.** Setting `resource` publishes an
+  [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728.html) protected resource metadata
+  document and adds a `resource_metadata` pointer to it on every `401`, so a client
+  holding no credentials can find the issuer, obtain a token, and retry. This is what
+  the MCP authorization spec requires; a client already configured with credentials
+  needs none of it, and blocks that do not set `resource` are unaffected.
+
+  `resource` is either an absolute URL or a path resolved against the referencing
+  server's `external_url` — needed because a proxy that terminates TLS leaves the real
+  scheme and host invisible from inside. The value must match the URL clients are
+  pointed at exactly, since a client checks it against the URL it dialled and refuses a
+  mismatch; a relative one therefore belongs to a single `server "http"`. The document
+  is served unauthenticated, which is the point of it. Requires `issuer`, since
+  `authorization_servers` carries the issuer identifier and a `jwks_url` cannot be
+  turned back into one. See [doc/auth.md](doc/auth.md#oauth-discovery).
+
 - **`shutdown_timeout` on every block that accepts inbound connections** — `server "http"`,
   `"metrics"`, `"vws"`, and `"websocket"`. It bounds how long that server waits
   for in-flight work while shutting down, defaulting to `10s`; whatever is still running

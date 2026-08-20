@@ -54,6 +54,10 @@ type oidcAuthenticator struct {
 	// `Authorization: Bearer`. Empty means the standard header.
 	tokenHeader string
 
+	// resource is the RFC 9728 identity this block publishes, or nil when the
+	// block declared no `resource` and so serves no discovery document.
+	resource *protectedResource
+
 	logger *zap.Logger
 
 	// ctx is cancelled by Stop. Everything with a lifetime — the JWKS cache's
@@ -101,6 +105,9 @@ type oidcDefinition struct {
 	// TokenHeader carries the bare token, for a proxy that presents it under
 	// its own header rather than as `Authorization: Bearer`.
 	TokenHeader string `hcl:"token_header,optional"`
+	// Resource is the RFC 9728 resource identifier this block protects, which
+	// turns on OAuth discovery for clients that know only an endpoint URL.
+	Resource string `hcl:"resource,optional"`
 
 	DefRange hcl.Range `hcl:",def_range"`
 }
@@ -164,12 +171,28 @@ access.`,
 				"[`proxy`](auth.md#proxy) this needs no network-level trust in the proxy.",
 			Default: "Authorization",
 		},
+		"resource": {
+			Summary: "Resource identifier to publish for OAuth discovery (RFC 9728).",
+			Doc: "Setting it serves a protected resource metadata document, and adds a " +
+				"`resource_metadata` pointer to it on every `401`, so a client holding no " +
+				"credentials and knowing only this server's URL can find the issuer and " +
+				"obtain a token. This is what the MCP authorization spec requires; a client " +
+				"configured with credentials already needs none of it.\n\n" +
+				"Either an absolute URL, or a path resolved against the referencing " +
+				"server's `external_url` — so `resource = \"/mcp\"` beside `handle \"/mcp\"`. " +
+				"The value **must exactly match the URL clients are pointed at**, since a " +
+				"client checks it against the URL it dialled and refuses a mismatch. A " +
+				"relative value can therefore belong to only one `server \"http\"`.",
+			Hint: cfg.HintURL,
+		},
 	},
 	Constraints: []cfg.Constraint{
 		cfg.MutuallyExclusive("issuer", "jwks_url").
 			WithMessage("Setting jwks_url replaces discovery, which is what issuer is for."),
 		cfg.AtLeastOneOf("issuer", "jwks_url").
 			WithMessage("Verifying a token needs the issuer's keys, found either by discovery from issuer or directly at jwks_url."),
+		cfg.Requires("resource", "issuer").
+			WithMessage("Publishing a resource means telling clients which authorization server issues its tokens, and that is the issuer. A jwks_url names a key endpoint, which cannot be turned back into an issuer."),
 	},
 }
 
@@ -182,6 +205,13 @@ func processOIDCAuth(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.A
 	if def.Issuer == "" && def.JWKSUrl == "" {
 		return nil, authDiag(block, "Missing auth attribute",
 			`auth "oidc" needs "issuer" (to discover the issuer's keys) or "jwks_url" (to name the key endpoint directly).`)
+	}
+
+	if def.Resource != "" && def.Issuer == "" {
+		return nil, authDiag(block, "resource requires issuer",
+			`Publishing a "resource" means telling clients which authorization server issues its tokens, `+
+				`and authorization_servers carries the issuer identifier. A "jwks_url" names a key endpoint, `+
+				`which cannot be turned back into an issuer — set "issuer" instead, or drop "resource".`)
 	}
 
 	a, err := newOIDCAuthenticator(&def, config.EvalCtx(), config.Logger)
@@ -267,7 +297,24 @@ func newOIDCAuthenticator(ac *oidcDefinition, evalCtx *hcl.EvalContext, logger *
 	a.configuredJWKSURL = ac.JWKSUrl
 	a.tokenHeader = ac.TokenHeader
 
+	// The identifier cannot be resolved yet: a relative resource is resolved
+	// against the external_url of whichever server references this block, and no
+	// server has been processed at this point. ContributeRoutes finishes it.
+	if ac.Resource != "" {
+		a.resource = newProtectedResource(ac.Resource, ac.DefRange, []string{ac.Issuer})
+	}
+
 	return a, nil
+}
+
+// ContributeRoutes serves this block's protected resource metadata document from
+// the server that references it, which is where it has to live: the well-known
+// URL sits at the host root, and a mounted handler never sees it.
+func (a *oidcAuthenticator) ContributeRoutes(host cfg.AuthHost) ([]cfg.ContributedRoute, hcl.Diagnostics) {
+	if a.resource == nil {
+		return nil, nil
+	}
+	return a.resource.bind(host)
 }
 
 // Start warms the authenticator so an unreachable issuer produces one log line
@@ -451,13 +498,32 @@ func (a *oidcAuthenticator) Claims(r *http.Request) bool {
 	return err == nil
 }
 
+// Challenge offers a Bearer challenge, carrying a pointer to the discovery
+// document when this block publishes one.
+//
+// RFC 9728 §5.1 wants that pointer on every 401, not only on a request that
+// arrived with no credential at all — a client whose token has expired needs to
+// find the issuer just as much as one that never had a token. Every rejection
+// path routes its WWW-Authenticate through here, so they all get it.
 func (a *oidcAuthenticator) Challenge() string {
 	// A token in a header of the proxy's choosing is not something a client can
 	// be asked for, so there is no challenge to issue.
 	if a.tokenHeader != "" {
 		return ""
 	}
-	return "Bearer"
+	return a.bearerChallenge()
+}
+
+// bearerChallenge builds a Bearer challenge carrying params plus, when this block
+// publishes one, the pointer to its discovery document.
+func (a *oidcAuthenticator) bearerChallenge(params ...string) string {
+	if param := a.resource.resourceMetadataChallenge(); param != "" {
+		params = append(params, param)
+	}
+	if len(params) == 0 {
+		return "Bearer"
+	}
+	return "Bearer " + strings.Join(params, ", ")
 }
 
 // extractToken reads the token from wherever this block expects it: the bare
@@ -501,9 +567,12 @@ func (a *oidcAuthenticator) Authenticate(r *http.Request, evalCtx *hcl.EvalConte
 			parsed, err = a.parseToken(token, refreshed)
 		}
 		if err != nil {
+			// A rejected token needs the discovery pointer as much as a missing
+			// one does — an expired token is the ordinary way a working client
+			// arrives here, and it has to find the issuer again to renew.
 			return cty.NilVal, &AuthFailure{
 				Status:          http.StatusUnauthorized,
-				WWWAuthenticate: `Bearer error="invalid_token"`,
+				WWWAuthenticate: a.bearerChallenge(`error="invalid_token"`),
 			}, nil
 		}
 	}

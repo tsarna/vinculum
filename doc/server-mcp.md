@@ -23,8 +23,7 @@ server "http" "main" {
 }
 ```
 
-The server uses the [Streamable HTTP transport](https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/transports/#streamable-http)
-(MCP spec 2025-03-26).
+The server uses the [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http).
 
 An MCP block owns no socket: it is always mounted on a route of a
 `server "http"` block, with `handler = server.<name>` — see

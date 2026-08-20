@@ -49,6 +49,7 @@ type HttpServer struct {
 
 type HttpServerDefinition struct {
 	Listen          string                       `hcl:"listen"`
+	ExternalURL     string                       `hcl:"external_url,optional"`
 	ShutdownTimeout hcl.Expression               `hcl:"shutdown_timeout,optional"`
 	TLS             *cfg.TLSConfig               `hcl:"tls,block"`
 	Auth            hcl.Expression               `hcl:"auth,optional"`
@@ -94,6 +95,18 @@ metrics — can be mounted into a route with ` + "`handler = server.<name>`" + `
 			Summary: "Address and port to listen on.",
 			Doc:     "For example `\":8080\"` or `\"127.0.0.1:9090\"`.",
 			Hint:    cfg.HintListenAddr,
+		},
+		"external_url": {
+			Summary: "Base URL clients reach this server at from outside.",
+			Doc: "Needed only by features that must hand a client an absolute URL back to " +
+				"this server — currently the `resource` of an `auth` block. Behind a proxy " +
+				"that terminates TLS or mounts the server under a path prefix, the real " +
+				"scheme, host, and prefix are invisible from inside, so they cannot be " +
+				"derived from `listen` and must be stated: `\"https://api.example.com\"`, or " +
+				"`\"https://example.com/vinculum\"` when a prefix is stripped by the proxy. " +
+				"Nothing else in the config consults it, and it does not affect what the " +
+				"server binds to.",
+			Hint: cfg.HintURL,
 		},
 		"tracing":          cfg.TracingAttr,
 		"metrics":          cfg.MetricsAttr,
@@ -260,6 +273,11 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 		return nil, diags
 	}
 
+	externalURL, extDiags := parseExternalURL(serverDef.ExternalURL, serverDef.DefRange)
+	if extDiags.HasErrors() {
+		return nil, extDiags
+	}
+
 	server := &HttpServer{
 		Logger: config.Logger,
 		BaseServer: cfg.BaseServer{
@@ -274,6 +292,10 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 	}
 
 	mux := http.NewServeMux()
+
+	// Every auth block any route names, so that each contributes its own
+	// endpoints once however many routes referenced it.
+	var authRoutes cfg.AuthRouteSet
 
 	for _, file := range serverDef.StaticFiles {
 		if file.Disabled {
@@ -330,6 +352,7 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 			return nil, authDiags
 		}
 		reportAnonymous(config, effectiveAuth, pattern, file.DefRange)
+		authRoutes.Add(effectiveAuth, pattern)
 
 		var inner http.Handler = http.StripPrefix(urlPath, http.FileServer(http.Dir(dir)))
 		inner = serverauth.NewAuthMiddleware(effectiveAuth, config.EvalCtx(), config.Logger, inner)
@@ -359,6 +382,7 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 			return nil, authDiags
 		}
 		reportAnonymous(config, effectiveAuth, handlerDef.Route, handlerDef.DefRange)
+		authRoutes.Add(effectiveAuth, handlerDef.Route)
 
 		var inner http.Handler
 		if cfg.IsExpressionProvided(handlerDef.Action) {
@@ -389,6 +413,28 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 		inner = serverauth.NewAuthMiddleware(effectiveAuth, config.EvalCtx(), config.Logger, inner)
 		inner = newLoggingMiddleware(config.Logger, handlerDef.Route, inner)
 		if diags := safeMuxHandle(mux, handlerDef.Route, inner, handlerDef.DefRange); diags.HasErrors() {
+			return nil, diags
+		}
+	}
+
+	// Endpoints the auth blocks bring with them — an RFC 9728 metadata document,
+	// and in future the redirect and logout endpoints of an interactive flow.
+	//
+	// These are mounted on the bare mux, outside NewAuthMiddleware. That is not an
+	// oversight to tidy up later: a client that cannot authenticate yet is exactly
+	// the client that needs to read the document saying how, so requiring auth to
+	// reach it would lock out every client it exists for.
+	contributed, contribDiags := authRoutes.Contribute(cfg.AuthHost{
+		ServerName:  serverName,
+		ExternalURL: externalURL,
+		DefRange:    serverDef.DefRange,
+		UserLogger:  config.UserLogger,
+	})
+	if contribDiags.HasErrors() {
+		return nil, contribDiags
+	}
+	for _, route := range contributed {
+		if diags := safeMuxHandle(mux, route.Pattern, route.Handler, route.Subject); diags.HasErrors() {
 			return nil, diags
 		}
 	}

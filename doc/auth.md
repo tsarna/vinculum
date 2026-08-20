@@ -298,10 +298,12 @@ Basic credentials are base64-encoded, not encrypted — this belongs behind TLS.
 | `disabled` | bool |  |  | Switch this mechanism off. |
 | `issuer` | string (url) |  |  | OIDC issuer URL. |
 | `jwks_url` | string (url) |  |  | Key endpoint, named directly. |
+| `resource` | string (url) |  |  | Resource identifier to publish for OAuth discovery (RFC 9728). |
 | `token_header` | string |  | `Authorization` | Header carrying the token, instead of `Authorization: Bearer`. |
 
 - Setting jwks_url replaces discovery, which is what issuer is for.
 - Verifying a token needs the issuer's keys, found either by discovery from issuer or directly at jwks_url.
+- Publishing a resource means telling clients which authorization server issues its tokens, and that is the issuer. A jwks_url names a key endpoint, which cannot be turned back into an issuer.
 
 **`algorithms`**
 
@@ -326,6 +328,12 @@ Its `/.well-known/openid-configuration` document is fetched to find the key endp
 **`jwks_url`**
 
 Skips discovery, for an issuer that publishes no discovery document.
+
+**`resource`**
+
+Setting it serves a protected resource metadata document, and adds a `resource_metadata` pointer to it on every `401`, so a client holding no credentials and knowing only this server's URL can find the issuer and obtain a token. This is what the MCP authorization spec requires; a client configured with credentials already needs none of it.
+
+Either an absolute URL, or a path resolved against the referencing server's `external_url` — so `resource = "/mcp"` beside `handle "/mcp"`. The value **must exactly match the URL clients are pointed at**, since a client checks it against the URL it dialled and refuses a mismatch. A relative value can therefore belong to only one `server "http"`.
 
 **`token_header`**
 
@@ -530,6 +538,95 @@ Where the proxy can pass on the token it verified, prefer `oidc` — see below.
 
 ---
 
+## OAuth discovery
+
+Most clients are configured with credentials, or with an issuer to get them from,
+and need nothing here. This section is for the other kind: a client given nothing
+but a URL, which has to work out where to get a token before it can make its
+first successful request. That is how MCP clients connect, and the MCP
+authorization spec requires a server to support it.
+
+Set `resource` on an `oidc` block to turn it on:
+
+```hcl
+auth "oidc" "corp" {
+    issuer   = "https://accounts.example.com"
+    resource = "/mcp"
+}
+
+server "http" "main" {
+    listen       = ":8080"
+    external_url = "https://api.example.com"
+
+    handle "/mcp" {
+        handler = server.tools
+        auth    = auth.corp
+    }
+}
+```
+
+Two things then happen. Protected routes add a pointer to their `401`:
+
+```
+WWW-Authenticate: Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource/mcp"
+```
+
+and that URL serves a [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728.html)
+metadata document naming the issuer:
+
+```json
+{
+  "resource": "https://api.example.com/mcp",
+  "authorization_servers": ["https://accounts.example.com"],
+  "bearer_methods_supported": ["header"]
+}
+```
+
+The client follows `authorization_servers` to the issuer's own metadata, obtains
+a token, and retries. **The document is served without authentication**, on every
+route of the server — it is what a client reads *because* it cannot authenticate
+yet.
+
+### `resource` must match the URL clients are given
+
+A client compares the document's `resource` against the URL it was configured
+with and refuses a mismatch, so `resource` is the endpoint URL exactly, not an
+approximation of it. Given `external_url = "https://api.example.com"` and
+`resource = "/mcp"`, clients must be pointed at `https://api.example.com/mcp` —
+not at `http://`, not at a different host, not with a trailing slash.
+
+This is also why `external_url` exists. Behind a proxy that terminates TLS, the
+scheme and host vinculum sees are the proxy's, not the ones clients use, so the
+external URL cannot be derived from `listen` and has to be stated. `resource` may
+instead be written as an absolute URL, in which case `external_url` is not needed.
+
+Because the identifier belongs to the *block*, one `auth` block is one protected
+resource:
+
+- A relative `resource` can belong to only one `server "http"`. Two servers with
+  different `external_url`s would give one block two identities, which is an
+  error.
+- If the block also guards routes the identifier does not name, discovery works
+  from the named route and fails from the others, while a client that already
+  holds a token is served by all of them. Vinculum warns; give the other routes
+  their own `auth` block if they are meant to be separately discoverable.
+
+### Requirements
+
+- **`issuer` is required.** `authorization_servers` carries the issuer's
+  identifier, and a `jwks_url` names a key endpoint that cannot be turned back
+  into one, so `resource` with `jwks_url` is rejected at load.
+- **HTTPS, except for loopback.** Clients refuse a plain-`http` metadata URL or
+  issuer on any other host, so vinculum rejects one at load rather than letting
+  it fail later inside the client.
+- **A path prefix needs a proxy rule.** The well-known URL sits at the host root,
+  so if the proxy mounts vinculum under a prefix — `external_url =
+  "https://example.com/vinculum"` — it must also route
+  `/.well-known/oauth-protected-resource/...` through, since that path is not
+  under the prefix.
+
+---
+
 ## Working with a reverse proxy
 
 If you are using an authenticating proxy, there are three integrations, in
@@ -606,8 +703,15 @@ off leaves `/admin/` protected by `auth.corp` rather than opening it.
 
 ### An MCP server behind OIDC
 
+`resource` lets a client that was given only the endpoint URL discover where to
+get a token — see [OAuth discovery](#oauth-discovery).
+
 ```hcl
-auth "oidc" "corp" { issuer = "https://accounts.example.com" }
+auth "oidc" "corp" {
+    issuer   = "https://accounts.example.com"
+    audience = ["https://api.example.com/mcp"]
+    resource = "/mcp"
+}
 
 server "mcp" "tools" {
     tool "whoami" {
@@ -617,7 +721,8 @@ server "mcp" "tools" {
 }
 
 server "http" "main" {
-    listen = ":8080"
+    listen       = ":8080"
+    external_url = "https://api.example.com"
 
     handle "/mcp" {
         handler = server.tools
