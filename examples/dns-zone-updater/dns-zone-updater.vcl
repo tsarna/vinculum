@@ -1,41 +1,54 @@
 # Dynamic DNS zone file updater
-
-# GET /dns/update/{zone}?host=foo&ip=1.2.3.4
-#     updates zone record A for foo, re-enabling if disabled
-# GET /dns/disable/{zone}?host=foo
-#     disables the A record for foo by commenting it out
-
-# Compatible with Unifi Network Controller's Dynamic DNS feature, configured as follows:
 #
-# Service: Custom
-# Hostname: foo.dyn.example.com
-# Username: dyn.example.com/foo
-# Password: ...
-# Server: api.example.com/dns/update/dyn.example.com?host=foo&ip=%i
+# Endpoints, deployment, the credentials file format, and the Unifi Network
+# Controller settings are all documented in README.md next to this file.
+#
+# Nothing site-specific lives in this file: credentials come from a mounted
+# secret and the rest from the environment, so this config can be published,
+# pinned, and fetched by a .vinit git block as-is.
 
-# Set ZONES_DIR to the directory containing the zone files, e.g. /etc/bind/zones
-# The directory should contain a zone file for each zone, named {zone}.zone, e.g. dyn.example.com.zone
+const {
+    # Credentials are a JSON object mapping "{zone}/{host}" to that
+    # credential's password:
+    #
+    #   { "dyn.example.com/foo": "s3cret", "dyn.example.com/bar": "hunter2" }
+    #
+    # Adding or revoking a credential is a change to the secret, not to this
+    # file. It is read once at startup, so a missing or malformed file fails
+    # the boot rather than each individual request.
+    #
+    # The path is relative to --file-path unless absolute; file() is not
+    # defined at all unless --file-path is set.
+    #
+    # A const is referenced by its bare name, not as const.<name>.
+    dns_updaters = jsondecode(file(try(env.DNS_CREDENTIALS_FILE, "dns-updaters.json")))
+}
 
 auth "basic" "updaters" {
-    credentials = {
-        # Credential usernames should be in the form "{zone}/{host}", e.g. "dyn.example.com/foo"
+    realm = "Dynamic DNS"
 
-        "dyn.example.com/foo" = env.PASS_FOO_DYN_EXAMPLE_COM
-    }
+    # A username the file does not list is rejected, so an empty or absent
+    # credential set denies everything. Do NOT add `disabled` here to make the
+    # secret optional: a route whose only mechanism is disabled becomes
+    # unauthenticated. See doc/auth.md, "Turning a mechanism off".
+    credentials = dns_updaters
 }
 
 server "http" "dns_webhook" {
-    listen = ":8080"
+    listen = try(env.DNS_LISTEN, ":8080")
     auth   = auth.updaters
 
+    # A query parameter that wasn't sent is not a key of ctx.request.form at
+    # all, so indexing it directly would fail to evaluate and return a 500.
+    # try() turns that into "", which update_dns answers with a 400.
     handle "GET /dns/update/{zone}" {
         action = update_dns(ctx, ctx.auth.username, ctx.request.path.zone,
-            ctx.request.form.host[0], ctx.request.form.ip[0], false)
+            try(ctx.request.form.host[0], ""), try(ctx.request.form.ip[0], ""), false)
     }
 
     handle "GET /dns/disable/{zone}" {
         action = update_dns(ctx, ctx.auth.username, ctx.request.path.zone,
-            ctx.request.form.host[0], "127.0.0.1", true)
+            try(ctx.request.form.host[0], ""), "127.0.0.1", true)
     }
 }
 

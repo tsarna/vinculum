@@ -6,11 +6,21 @@ func update_dns(
     username: string,  // authenticated Basic-auth user; must equal "<zone>/<host>"
     zone: string,      // target DNS zone, from the request path
     host: string,      // hostname within the zone to update
-    ip: string,        // new A-record address; "" is rejected as a bad request
+    ip: string,        // new A-record address; "" means the caller omitted it
     disabled: bool,    // true comments the record out instead of setting it
 ) -> http_response {
+    // A missing query parameter is the caller's mistake, not a refusal, so it
+    // gets a 400 — and saying so plainly here leaks nothing, because the 401
+    // has already established that the caller holds a valid credential.
+    if host == "" || ip == "" {
+        return http::response(http_status.BadRequest, "missing host or ip")
+    }
+
+    // The credential names exactly one record: its username is "{zone}/{host}".
+    // Both halves come from the request, so this is what stops a valid
+    // credential from being used against any other zone or host.
     var expected_username = "${zone}/${host}"
-    if username != expected_username || ip == "" {
+    if username != expected_username {
         return http::response(http_status.Forbidden, "Forbidden")
     }
 

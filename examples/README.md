@@ -10,28 +10,17 @@ documentation.
 
 ### [dns-zone-updater/](dns-zone-updater/)
 
-A dynamic DNS service that exposes a small HTTP API for updating BIND zone
-files in place. Demonstrates:
-
-- [`server "http"`](../doc/server-http.md) with route handlers and
-  [basic authentication](../doc/auth.md)
-- A [functy (`.cty`)](../doc/functy.md) function that encapsulates the update
-  logic and authorizes callers based on their authenticated username, sitting in
-  a `.cty` file alongside the `.vcl` and callable from the handlers like a
-  built-in
-- An [`editor "line"`](../doc/editor.md) block that performs idempotent,
-  locked, line-by-line edits on a zone file (header timestamp, SOA serial bump,
-  A-record replace), using "incidental" edits that don't, on their own, count
-  as a real file change — so unrelated header/serial updates are discarded
-  when no record actually changed
-
-The configuration is compatible with the Unifi Network Controller's Dynamic DNS
-feature; see the comments at the top of the file for the controller-side
-configuration.
-
-Required environment variables: `ZONES_DIR` (path to the directory containing
-BIND zone files) and one `PASS_<ZONE>_<HOST>` variable per credential, as
-referenced from the `auth "basic" "updaters"` block in the example.
+A dynamic DNS service that exposes a small HTTP API for updating BIND zone files
+in place, compatible with the Unifi Network Controller's Dynamic DNS feature.
+Combines a [`server "http"`](../doc/server-http.md) under
+[basic authentication](../doc/auth.md), a [functy (`.cty`)](../doc/functy.md)
+function holding the update and authorization logic, and an
+[`editor "line"`](../doc/editor.md) block making idempotent, locked,
+line-by-line edits to the zone file. Its credentials come from a mounted secret
+rather than from the config, so the configuration carries nothing site-specific
+and can be fetched at boot by a [`.vinit` `git` block](../doc/git.md). See
+[dns-zone-updater/README.md](dns-zone-updater/README.md) for the endpoints,
+required environment and flags, and deployment.
 
 ### [weather-mcp/](weather-mcp/)
 
