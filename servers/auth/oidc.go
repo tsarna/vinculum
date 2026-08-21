@@ -317,6 +317,14 @@ func (a *oidcAuthenticator) ContributeRoutes(host cfg.AuthHost) ([]cfg.Contribut
 	return a.resource.bind(host)
 }
 
+// ReportIfUnbound warns when this block declared a resource that no server "http"
+// ever asked it to publish.
+func (a *oidcAuthenticator) ReportIfUnbound(logger *zap.Logger) {
+	if a.resource != nil {
+		a.resource.reportIfUnbound(logger)
+	}
+}
+
 // Start warms the authenticator so an unreachable issuer produces one log line
 // at boot rather than first appearing as a rejected request.
 //

@@ -401,8 +401,12 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		return nil, diags
 	}
 
-	for _, handler := range blockHandlers {
-		diags = diags.Extend(handler.FinishPreprocessing(config))
+	// Sorted by block type rather than ranged over the map: two runs of the same
+	// config should report the same problems in the same order.
+	handlerOrder := sortedKeys(blockHandlers)
+
+	for _, blockType := range handlerOrder {
+		diags = diags.Extend(blockHandlers[blockType].FinishPreprocessing(config))
 	}
 	if diags.HasErrors() {
 		return nil, diags
@@ -458,6 +462,18 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		}
 	}
 
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	// Every block has been processed, so a handler can now check things that are
+	// only knowable once all of them have run — whether something a block
+	// declared was ever picked up by a block processed later, in particular.
+	// Nothing before this point can see that, since a handler runs while blocks
+	// it does not know about are still to come.
+	for _, blockType := range handlerOrder {
+		diags = diags.Extend(blockHandlers[blockType].FinishProcessing(config))
+	}
 	if diags.HasErrors() {
 		return nil, diags
 	}

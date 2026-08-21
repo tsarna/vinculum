@@ -137,8 +137,19 @@ type ContributedRoute struct {
 // ContributeRoutes is called once per referencing server, at config time, after
 // that server has wired its own routes. An implementation whose identity can only
 // belong to one server reports the conflict from here, on the second call.
+//
+// Nothing calls it at all when no server references the block, which is why
+// ReportIfUnbound exists: a block configured to publish something, that nothing
+// ever asked to publish, is inert in a way no request will ever reveal. Only the
+// pass over every processed block can see that, since a server that would have
+// asked might have been processed at any point.
 type RouteContributor interface {
 	ContributeRoutes(host AuthHost) ([]ContributedRoute, hcl.Diagnostics)
+
+	// ReportIfUnbound warns if this block was configured to contribute routes
+	// and ContributeRoutes was never called. Silent otherwise, including when
+	// the block had nothing to contribute in the first place.
+	ReportIfUnbound(logger *zap.Logger)
 }
 
 // AuthRouteSet collects the distinct authenticators a server has referenced, so

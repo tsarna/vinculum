@@ -180,6 +180,22 @@ func (h *AuthBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnos
 	return nil
 }
 
+// FinishProcessing reports auth blocks that were configured to contribute
+// endpoints to a server and never asked for them, because no server referenced
+// the block.
+//
+// It has to run here rather than at the end of Process: a server that would have
+// asked may be processed at any point, so until every block has run, "nothing
+// referenced it" is indistinguishable from "nothing has referenced it yet".
+func (h *AuthBlockHandler) FinishProcessing(config *Config) hcl.Diagnostics {
+	for _, name := range sortedKeys(config.authRefs) {
+		if contributor, ok := config.authRefs[name].Authenticator.(RouteContributor); ok {
+			contributor.ReportIfUnbound(config.UserLogger)
+		}
+	}
+	return nil
+}
+
 // enabledDeclaration returns the block that already bound this name to a
 // mechanism, or nil.
 func (h *AuthBlockHandler) enabledDeclaration(config *Config, name string) *hcl.Block {

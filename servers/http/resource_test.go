@@ -366,6 +366,54 @@ server "http" "main" {
 	assert.Equal(t, []any{"/api/"}, entries[0].ContextMap()["routes"])
 }
 
+// TestUnreferencedResourceWarns covers the case nothing at request time can
+// reveal: a block configured for discovery that no `server "http"` route
+// references publishes nothing, and looks identical to a block that never asked.
+//
+// It is also what the whole-config pass exists for — until every block has been
+// processed, "no server referenced it" cannot be told from "no server has
+// referenced it yet".
+func TestUnreferencedResourceWarns(t *testing.T) {
+	core, logs := observer.New(zap.WarnLevel)
+
+	_, diags := cfg.NewConfig().
+		WithSources([]byte(`
+auth "oidc" "corp" {
+  issuer   = "http://127.0.0.1:9/idp"
+  resource = "/mcp"
+}
+
+server "http" "main" {
+  listen = "127.0.0.1:0"
+
+  handle "/open" {
+    action = "ok"
+  }
+}
+`)).
+		WithLogger(zap.New(core)).
+		Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+
+	entries := logs.FilterMessageSnippet("declares a resource that nothing publishes").All()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "/mcp", entries[0].ContextMap()["resource"])
+}
+
+// TestPublishedResourceDoesNotWarn guards the other side of it: the warning must
+// stay quiet for the configuration it is meant to contrast with, or it trains
+// people to ignore it.
+func TestPublishedResourceDoesNotWarn(t *testing.T) {
+	core, logs := observer.New(zap.WarnLevel)
+
+	_, diags := cfg.NewConfig().
+		WithSources([]byte(publishedResource)).
+		WithLogger(zap.New(core)).
+		Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	assert.Zero(t, logs.FilterMessageSnippet("nothing publishes").Len())
+}
+
 // TestMetadataRejectsNonGET: the document is a read, and CORS preflight has to
 // work for a browser-based client to reach it at all.
 func TestMetadataRejectsNonGET(t *testing.T) {

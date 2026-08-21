@@ -161,9 +161,16 @@ doc/            User-facing documentation
 2. **Extract functions** — user-defined `function` and `jq` blocks extracted first
 3. **Build eval context** — stdlib + user functions assembled into `*hcl.EvalContext`
 4. **Preprocess blocks** — each `BlockHandler.Preprocess()` called (dep ID extraction)
-5. **Topological sort** — blocks ordered by declared dependencies (`dep.go`)
-6. **Process blocks** — each `BlockHandler.Process()` called in dependency order
-7. **Finish** — `FinishProcessing()` called on each handler
+5. **Finish preprocessing** — `FinishPreprocessing()` called on each handler
+6. **Topological sort** — blocks ordered by declared dependencies (`dep.go`)
+7. **Process blocks** — each `BlockHandler.Process()` called in dependency order
+8. **Finish processing** — `FinishProcessing()` called on each handler
+
+Steps 5 and 8 iterate handlers **sorted by block type**, not in map order, so the
+same config reports the same problems in the same order. Both are whole-config
+passes: use 8 for anything only knowable once every block has run, such as
+whether something one block declared was ever picked up by a block processed
+later.
 
 The result is a `*Config` containing maps of buses, servers, clients, crons, and a
 list of `Startable` items that are started in order when the server runs.

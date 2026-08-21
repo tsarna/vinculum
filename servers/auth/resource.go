@@ -115,6 +115,31 @@ func (p *protectedResource) bind(host cfg.AuthHost) ([]cfg.ContributedRoute, hcl
 	}}, nil
 }
 
+// reportIfUnbound warns when a declared resource was never resolved, which means
+// no `server "http"` referenced this block.
+//
+// The result is a block that looks configured for OAuth discovery and does none
+// of it: no document is served, and no 401 points at one. Nothing at request time
+// distinguishes that from a block that never asked for discovery, so startup is
+// the only place it can be said.
+//
+// A warning rather than an error, because declaring an auth block and not
+// referencing it is legal on its own, and because a block referenced only by
+// `server "metrics"` is a working authenticator — it is the `resource` on it that
+// has no effect, not the block.
+func (p *protectedResource) reportIfUnbound(logger *zap.Logger) {
+	if logger == nil || p.boundTo != "" {
+		return
+	}
+
+	logger.Warn("Auth block declares a resource that nothing publishes",
+		zap.String("resource", p.declared),
+		zap.String("at", p.subject.String()),
+		zap.String("effect", "no protected resource metadata document is served and no 401 "+
+			"points at one, because no server \"http\" route references this block"),
+	)
+}
+
 // reportExtraRoutes warns when this block guards routes the published identifier
 // does not name.
 //

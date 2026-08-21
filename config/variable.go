@@ -14,8 +14,8 @@ type VariableBlockHandler struct {
 	BlockHandlerBase
 	variables map[string]*types.Variable
 	// functyVarInit holds the unevaluated initializer for each functy-declared
-	// top-level var, evaluated in FinishProcessing (after consts and VCL vars are
-	// resolved).
+	// top-level var, evaluated by setFunctyVarValues once consts are resolved and
+	// before the Process phase reads var.<name>.
 	functyVarInit map[string]hcl.Expression
 }
 
@@ -114,8 +114,8 @@ func (h *VariableBlockHandler) FinishPreprocessing(config *Config) hcl.Diagnosti
 
 // foldFunctyVars creates a types.Variable for each functy top-level `var`,
 // applying its declared type constraint and stashing its initializer for
-// evaluation in FinishProcessing (after consts/VCL vars resolve). Duplicate names
-// — across VCL vars and other functy vars — are reported.
+// setFunctyVarValues to evaluate once consts and VCL vars resolve. Duplicate
+// names — across VCL vars and other functy vars — are reported.
 func (h *VariableBlockHandler) foldFunctyVars(config *Config) hcl.Diagnostics {
 	var diags hcl.Diagnostics
 	if config.functyState == nil || config.functyState.result == nil {
