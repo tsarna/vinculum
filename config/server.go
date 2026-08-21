@@ -68,13 +68,22 @@ func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	}
 
 	if _, ok := config.CtyServerMap[block.Labels[1]]; ok {
-		existingDef := servers[block.Labels[1]]
+		// Searched across every type, not just this block's: the colliding
+		// server may well be of another type.
+		where := "elsewhere in this configuration"
+		if existing, found := findAcrossTypes(config.Servers, block.Labels[1]); found {
+			where = existing.GetDefRange().String()
+		}
 		return hcl.Diagnostics{
 			&hcl.Diagnostic{
 				Severity: hcl.DiagError,
 				Summary:  "Server already defined",
-				Detail:   fmt.Sprintf("Server %s already defined at %s", block.Labels[1], existingDef.GetDefRange()),
-				Subject:  block.DefRange.Ptr(),
+				Detail: fmt.Sprintf("Server %q is already defined at %s. Server names are global: "+
+					"server.%s names one server whatever its type, so two enabled blocks cannot "+
+					"share a name. Rename one, or set disabled on the one this configuration "+
+					"should not use.",
+					block.Labels[1], where, block.Labels[1]),
+				Subject: block.DefRange.Ptr(),
 			},
 		}
 	}

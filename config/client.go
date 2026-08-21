@@ -76,29 +76,22 @@ func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	}
 
 	if _, ok := config.CtyClientMap[block.Labels[1]]; ok {
-		// The existing entry may live under a different type bucket,
-		// e.g. when `client "http" "foo"` and `client "httpmock" "foo"`
-		// are both enabled. Walk all type buckets to find it so the
-		// error message can point at the right def range.
-		var existingDef Client
-		for _, byName := range config.Clients {
-			if c, exists := byName[block.Labels[1]]; exists {
-				existingDef = c
-				break
-			}
-		}
-		var detail string
-		if existingDef != nil {
-			detail = fmt.Sprintf("Client %s already defined at %s", block.Labels[1], existingDef.GetDefRange())
-		} else {
-			detail = fmt.Sprintf("Client %s already defined", block.Labels[1])
+		// Searched across every type: the colliding client may be of another
+		// one, e.g. `client "http" "foo"` against `client "httpmock" "foo"`.
+		where := "elsewhere in this configuration"
+		if existing, found := findAcrossTypes(config.Clients, block.Labels[1]); found {
+			where = existing.GetDefRange().String()
 		}
 		return hcl.Diagnostics{
 			&hcl.Diagnostic{
 				Severity: hcl.DiagError,
 				Summary:  "Client already defined",
-				Detail:   detail,
-				Subject:  block.DefRange.Ptr(),
+				Detail: fmt.Sprintf("Client %q is already defined at %s. Client names are global: "+
+					"client.%s names one client whatever its type, so two enabled blocks cannot "+
+					"share a name. Rename one, or set disabled on the one this configuration "+
+					"should not use.",
+					block.Labels[1], where, block.Labels[1]),
+				Subject: block.DefRange.Ptr(),
 			},
 		}
 	}

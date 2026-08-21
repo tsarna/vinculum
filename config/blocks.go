@@ -38,6 +38,23 @@ func (b *BlockHandlerBase) FinishProcessing(config *Config) hcl.Diagnostics {
 	return nil
 }
 
+// findAcrossTypes locates name in a two-level type→name→value registry.
+//
+// `server` and `client` are stored keyed by type, but the namespace expressions
+// see is flat — `server.x` is one server whatever its type. So a duplicate name
+// is not necessarily in the same bucket as the block that collides with it, and
+// looking only in that bucket finds nothing and reports it as if there were no
+// conflict at all.
+func findAcrossTypes[V any](byType map[string]map[string]V, name string) (V, bool) {
+	for _, byName := range byType {
+		if v, ok := byName[name]; ok {
+			return v, true
+		}
+	}
+	var zero V
+	return zero, false
+}
+
 func GetBlockHandlers() map[string]BlockHandler {
 	return map[string]BlockHandler{
 		"assert":       NewAssertBlockHandler(),

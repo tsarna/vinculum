@@ -36,6 +36,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flow, which Vinculum does not implement at all. Every attribute is unchanged; only
   the block label moves. `ctx.auth.method` reports `"introspection"` to match.
 
+### Fixed
+
+- **Two servers of different types sharing a name crashed config processing.**
+  `server "http" "x"` alongside `server "mcp" "x"` panicked instead of reporting the
+  conflict: server names are global — `server.x` names one server whatever its type —
+  but the check looked the colliding block up in its own type's bucket, which is the
+  one place a cross-type collision cannot be. Both `server` and `client` now report it
+  cleanly and say that the namespace is global. Declaring two same-named blocks and
+  using `disabled` to select between them is unaffected.
+
 ### Added
 
 - **OAuth discovery for clients given only a URL — `resource` on `auth "oidc"`, and
