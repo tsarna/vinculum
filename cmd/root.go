@@ -24,6 +24,7 @@ and supports various event bus patterns and integrations.`,
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() error {
+	annotateEnvUsage(rootCmd)
 	return rootCmd.Execute()
 }
 

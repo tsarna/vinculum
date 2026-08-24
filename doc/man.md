@@ -232,6 +232,13 @@ vinculum man client mqtt | glow     # Markdown, rendered by something else
 | `NO_COLOR` | Set to anything to disable colour. |
 | `MANWIDTH` | Wrap width, if `--width` is not given. |
 
+These follow man(1)'s and git's conventions and are specific to this command.
+Separately, every flag here is settable from the environment under a derived
+name — `VINCULUM_MAN_WIDTH` for `--width`, `VINCULUM_NO_PAGER` for
+`--no-pager`, and so on. Those take precedence over `MANWIDTH`, for the same
+reason the flag does. See
+[Configuring from the Environment](cli-env.md).
+
 ---
 
 ## Plugins

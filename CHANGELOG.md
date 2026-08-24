@@ -38,6 +38,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Overriding a container image's command silently disabled file functions and
+  plugins.** The images carried `-f /data`, `-w /data/write`, and
+  `--plugin-path /plugins` in `CMD`, and Docker replaces the entire `CMD` as soon as
+  the user passes arguments — so `docker run … serve /myconf` dropped all three, and a
+  config calling `file()` failed with "no function named file" for no visible reason.
+  The three are now `ENV` (`VINCULUM_FILE_PATH`, `VINCULUM_WRITE_PATH`,
+  `VINCULUM_PLUGIN_PATH`) and `CMD` is `["serve", "/conf"]`, so they survive a command
+  the user supplies and each is separately overridable with `-e`.
+
+  `docker run … vinculum` with no arguments is unchanged. Where a command *was*
+  overridden, file functions become enabled rooted at `/data` where they had been
+  silently off, and `docker run … check /conf` now validates the configuration under
+  the same capabilities `serve` will give it.
+
 - **Two servers of different types sharing a name crashed config processing.**
   `server "http" "x"` alongside `server "mcp" "x"` panicked instead of reporting the
   conflict: server names are global — `server.x` names one server whatever its type —
@@ -47,6 +61,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   using `disabled` to select between them is unaffected.
 
 ### Added
+
+- **Every CLI flag is settable from the environment.** A flag's name derives its
+  variable: uppercase, `-` to `_`, prefixed `VINCULUM_`. Both a bare form
+  (`VINCULUM_PLUGIN_PATH`, applying to whichever command runs) and a command-scoped
+  one (`VINCULUM_SCHEMA_FORMAT`, applying to that command alone) resolve to the flag,
+  with the scoped name winning and an explicit flag winning over both. A variable that
+  is set but empty is applied as an empty value, which is how a default baked into a
+  container image is switched off. A value the flag rejects stops the run, naming
+  every bad variable at once. `--help` names each flag's variable. See
+  [doc/cli-env.md](doc/cli-env.md).
+
+  This exists because Docker replaces a container's entire `CMD` as soon as the user
+  passes arguments of their own, so a flag the image needs cannot survive there.
 
 - **OAuth discovery for clients given only a URL — `resource` on `auth "oidc"`, and
   `external_url` on `server "http"`.** Setting `resource` publishes an

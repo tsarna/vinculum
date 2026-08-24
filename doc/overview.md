@@ -21,9 +21,10 @@
 17. [Formatting](#formatting)
 18. [Config Language Schema](#config-language-schema)
 19. [Reading the Reference](#reading-the-reference)
-20. [Container Images](#container-images)
-21. [Bootstrap and Plugins](#bootstrap-and-plugins)
-22. [Block Type Reference](#block-type-reference)
+20. [Configuring from the Environment](#configuring-from-the-environment)
+21. [Container Images](#container-images)
+22. [Bootstrap and Plugins](#bootstrap-and-plugins)
+23. [Block Type Reference](#block-type-reference)
 
 ## Introduction
 
@@ -442,6 +443,25 @@ to a terminal is styled and paged; output going anywhere else is Markdown.
 
 See [man.md](man.md) for topic paths, `ctx` shapes, and the pager and color
 environment.
+
+## Configuring from the Environment
+
+Every command-line flag is also settable from the environment, under a
+`VINCULUM_`-prefixed name derived from it. An explicit flag wins over the
+variable, and a command-scoped name (`VINCULUM_SCHEMA_FORMAT`) wins over the
+bare one (`VINCULUM_FORMAT`):
+
+```sh
+VINCULUM_LOG_LEVEL=debug vinculum serve /conf
+VINCULUM_PLUGIN_PATH=/plugins vinculum check /conf
+```
+
+This is what lets a container carry its settings without baking them into a
+command that any `docker run` argument would replace. `--help` names each
+flag's variable.
+
+See [cli-env.md](cli-env.md) for the derivation rule, precedence, and the
+variables the published images set.
 
 ## Container Images
 

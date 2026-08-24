@@ -65,5 +65,15 @@ COPY --from=builder /go/bin/vinculum /vinculum
 
 USER 65534
 
+# Docker replaces the entire CMD as soon as a run supplies arguments
+# of its own, so a flag carried there would be lost by `docker run <image>
+# serve /myconf` — taking file functions and the plugin directory with it.
+# Each of these is overridable with -e, and an empty value turns one off:
+# -e VINCULUM_PLUGIN_PATH=. Clear the two file paths together, since a write
+# path has to sit under a file path.
+ENV VINCULUM_FILE_PATH=/data \
+    VINCULUM_WRITE_PATH=/data/write \
+    VINCULUM_PLUGIN_PATH=/plugins
+
 ENTRYPOINT ["/vinculum"]
-CMD ["serve", "-f", "/data", "-w", "/data/write", "--plugin-path", "/plugins", "/conf"]
+CMD ["serve", "/conf"]

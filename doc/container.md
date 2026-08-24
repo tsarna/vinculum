@@ -50,8 +50,37 @@ Mount points pre-created in the image:
 Default command:
 
 ```
-serve -f /data -w /data/write /conf
+serve /conf
 ```
+
+The image's other settings are carried as environment variables rather than
+command arguments, because `docker run` replaces the whole command as soon as
+you pass arguments of your own:
+
+| Variable | Value | Effect |
+|---|---|---|
+| `VINCULUM_FILE_PATH` | `/data` | Enables `file()`, `fileexists()`, `fileset()`, rooted there. |
+| `VINCULUM_WRITE_PATH` | `/data/write` | Enables the file-write functions, rooted there. |
+| `VINCULUM_PLUGIN_PATH` | `/plugins` | Where [plugins](plugins.md) are loaded from. |
+
+So they survive a command you supply yourself, and each is separately
+overridable — an empty value turns one off:
+
+```sh
+docker run … ghcr.io/tsarna/vinculum serve /myconf              # keeps all three
+docker run -e VINCULUM_FILE_PATH=/mnt/files … ghcr.io/tsarna/vinculum
+docker run -e VINCULUM_PLUGIN_PATH= … ghcr.io/tsarna/vinculum
+```
+
+To turn off file access, clear both paths — a write path has to be under a
+file path, so clearing only `VINCULUM_FILE_PATH` is rejected at startup:
+
+```sh
+docker run -e VINCULUM_FILE_PATH= -e VINCULUM_WRITE_PATH= … ghcr.io/tsarna/vinculum
+```
+
+See [cli-env.md](cli-env.md) for the general rule — every flag has such a
+variable, whether or not the image sets it.
 
 Typical usage:
 
@@ -75,9 +104,12 @@ shell, package manager, or any other tooling inside the container.
 **This image cannot load plugins.** The binary is statically linked
 (`CGO_ENABLED=0`) and `scratch` has no dynamic loader or libc, so
 `plugin.Open` (a `dlopen`) cannot work. The `/plugins` directory and the
-`--plugin-path` flag are present for parity but are inert unless a config
-declares a `plugin` block — in which case startup fails. Use the default
+`VINCULUM_PLUGIN_PATH` setting are present for parity but are inert unless a
+config declares a `plugin` block — in which case startup fails. Use the default
 (alpine) image if you need plugins.
+
+It carries the same command and the same environment defaults as the alpine
+image.
 
 Tag suffix is `-minimal`, e.g. `ghcr.io/tsarna/vinculum:0.36.0-minimal`,
 `:latest-minimal`, `:dev-minimal`.

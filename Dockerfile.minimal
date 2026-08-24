@@ -6,8 +6,10 @@
 # NOTE: this image does NOT support plugins. The binary is statically
 # linked (CGO_ENABLED=0) and scratch has no dynamic loader or libc, so it
 # cannot dlopen a plugin. Use the default (alpine) image if you need
-# plugins. The /plugins dir and --plugin-path flag below are harmless
-# unless a config actually declares a `plugin` block.
+# plugins. The /plugins dir and the VINCULUM_PLUGIN_PATH below are kept for
+# parity with that image and are inert unless a config actually declares a
+# `plugin` block — a plugin path is only consulted when there is a block to
+# load, so it costs nothing on any command.
 #
 #   docker build -f Dockerfile.minimal -t vinculum:minimal .
 
@@ -67,5 +69,15 @@ COPY --from=builder /out/vinculum /vinculum
 
 USER 65534
 
+# Docker replaces the entire CMD as soon as a run supplies arguments
+# of its own, so a flag carried there would be lost by `docker run <image>
+# serve /myconf` — taking file functions and the plugin directory with it.
+# Each of these is overridable with -e, and an empty value turns one off:
+# -e VINCULUM_PLUGIN_PATH=. Clear the two file paths together, since a write
+# path has to sit under a file path.
+ENV VINCULUM_FILE_PATH=/data \
+    VINCULUM_WRITE_PATH=/data/write \
+    VINCULUM_PLUGIN_PATH=/plugins
+
 ENTRYPOINT ["/vinculum"]
-CMD ["serve", "-f", "/data", "-w", "/data/write", "--plugin-path", "/plugins", "/conf"]
+CMD ["serve", "/conf"]
