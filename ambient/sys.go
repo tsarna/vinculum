@@ -25,7 +25,7 @@ var processStartTime = time.Now()
 
 func init() {
 	cfg.RegisterAmbientProvider("sys", func(c *cfg.Config) cty.Value {
-		return GetSysObject(c.BaseDir, c.WriteDir, c.EnabledFeatureNames(), c.Testing)
+		return GetSysObject(c.BaseDir, c.WriteDir, c.EnabledFeatureNames(), c.Testing, c.Health.ReadyValue())
 	}, cfg.WithNamespaceSchema(sysNamespace))
 }
 
@@ -34,9 +34,11 @@ func init() {
 // means. Every member GetSysObject builds must appear here, and nothing else
 // may.
 var sysNamespace = cfg.NamespaceSchema{
-	Summary: "Process and host identity, captured at startup.",
-	Doc: "All values are read-only, and all are captured once when the process starts rather " +
-		"than read afresh on each use.",
+	Summary: "Process and host identity, and the runtime's own readiness.",
+	Doc: "All values are read-only. Identity — the process, the host, the build, the invocation — " +
+		"is captured once when the process starts rather than read afresh on each use. " +
+		"`sys.ready` is the exception: it is live runtime state, read when something asks " +
+		"for it. See [health](health.md).",
 	DocPage: "config.md#variables",
 	Members: map[string]cfg.MemberMeta{
 		"pid":      {Summary: "Process ID of the running process."},
@@ -72,6 +74,25 @@ var sysNamespace = cfg.NamespaceSchema{
 		"cwd":        {Summary: "Working directory the process started in."},
 		"homedir":    {Summary: "Home directory of the current user."},
 		"tempdir":    {Summary: "Default directory for temporary files."},
+		"ready": {
+			Summary: "Whether the process is currently ready to serve traffic.",
+			Doc: "Reads as a boolean with `get()` — `get(sys.ready)`, or `get(ctx, sys.ready)` where " +
+				"a `ctx` is in scope, which is the better form since it carries the trace parent " +
+				"and the caller's deadline. It is also watchable, so a reactive expression naming " +
+				"it is re-evaluated when readiness flips.\n\n" +
+				"It is a *sampled* watchable, unlike every other one in Vinculum. Readiness is " +
+				"computed only when something asks for it — an HTTP probe, a `health::` call, a " +
+				"metrics scrape — so in a configuration with none of those it never changes at " +
+				"all. Where transitions must be observed independently of who is probing, poll " +
+				"it at a cadence you control:\n\n" +
+				"```hcl\n" +
+				"trigger \"interval\" \"health_poll\" {\n" +
+				"    every  = \"10s\"\n" +
+				"    action = health::refresh(ctx)\n" +
+				"}\n" +
+				"```\n\n" +
+				"See [health](health.md).",
+		},
 		"testing": {
 			Summary: "True when running under `vinculum test`.",
 			Doc: "Write `disabled = sys.testing` to switch off real external connections while a " +
@@ -138,7 +159,9 @@ var sysNamespace = cfg.NamespaceSchema{
 // features is the sorted list of enabled feature flag names.
 // testing is true when the config is built for `vinculum test`, projected as
 // sys.testing so a config can gate external I/O off under test.
-func GetSysObject(baseDir string, writeDir string, features []string, testing bool) cty.Value {
+// ready is the runtime's readiness handle, projected as sys.ready — the one
+// member that is live state rather than startup identity.
+func GetSysObject(baseDir string, writeDir string, features []string, testing bool, ready cty.Value) cty.Value {
 	sysMap := make(map[string]cty.Value)
 
 	// Process ID
@@ -213,6 +236,10 @@ func GetSysObject(baseDir string, writeDir string, features []string, testing bo
 	// True when running under `vinculum test`; use in `disabled = sys.testing`
 	// to switch off real external connections while a config is under test.
 	sysMap["testing"] = cty.BoolVal(testing)
+
+	// Readiness of the running process. Unlike everything else here this is a
+	// live handle, not a captured value: reading it asks the health aggregator.
+	sysMap["ready"] = ready
 
 	// Base directory for file functions (--file-path flag); empty if not set
 	sysMap["filepath"] = cty.StringVal(baseDir)

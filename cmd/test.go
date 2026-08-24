@@ -142,6 +142,12 @@ func runTest(cmd *cobra.Command, args []string) error {
 		defer shutdown(cfg, logger)
 	}
 
+	// Boot is complete either way. Under --no-serve nothing was started, but
+	// nothing registered a contributor either, so leaving the process gate at
+	// "starting" would make every health:: call in a test body report an
+	// outage that does not exist.
+	cfg.Health.SetBooted()
+
 	// The injected ctx is cancelable through this timeout, so context-aware
 	// functions a test calls (send, http, ...) are bounded; a watchdog also
 	// aborts the run if the tests themselves overrun the budget.

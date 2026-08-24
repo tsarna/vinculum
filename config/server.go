@@ -18,9 +18,14 @@ type ServerDefinition struct {
 	Type string `hcl:"type,label"`
 	Name string `hcl:"name,label"`
 
-	Disabled      bool      `hcl:"disabled,optional"`
-	DefRange      hcl.Range `hcl:",def_range"`
-	RemainingBody hcl.Body  `hcl:",remain"`
+	Disabled bool `hcl:"disabled,optional"`
+	// Readiness is a pointer so that "not written" is distinguishable from
+	// "written false"; unset means true. Only a server type registered
+	// WithReadiness accepts it — see applyReadiness.
+	Readiness      *bool     `hcl:"readiness,optional"`
+	ReadinessRange hcl.Range `hcl:"readiness,attr_range"`
+	DefRange       hcl.Range `hcl:",def_range"`
+	RemainingBody  hcl.Body  `hcl:",remain"`
 }
 
 type ServerBlockHandler struct {
@@ -106,7 +111,87 @@ func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	config.CtyServerMap[block.Labels[1]] = NewServerCapsule(server)
 	config.evalCtx.Variables["server"] = cty.ObjectVal(config.CtyServerMap)
 
+	// Registering here rather than by scanning Startables for the interface is
+	// what gives the entry a real `server.<name>` identity instead of a Go type
+	// name: this is the only place that knows the kind, type, and name together.
+	return applyReadiness(config, "server", block.Labels[0], block.Labels[1], server,
+		serverDef.Readiness, serverDef.ReadinessRange, block.DefRange)
+}
+
+// readinessAttrName is the attribute a client or server sets to opt out of
+// gating the process's readiness.
+const readinessAttrName = "readiness"
+
+// applyReadiness wires one client or server into the readiness probe.
+//
+// Only a type registered WithReadiness participates. On any other type there is
+// no readiness to configure, so `readiness` is rejected rather than accepted
+// and ignored — the same reason it is not documented there.
+//
+// A component of a participating type that is switched off with
+// `readiness = false`, and every component of a non-participating type,
+// contributes nothing and is absent from the report entirely. "Unknown" is
+// treated as ready, because the alternative is that adding this feature makes
+// every existing configuration permanently unready.
+func applyReadiness(config *Config, blockType, typeName, name string, component any,
+	readiness *bool, attrRange, defRange hcl.Range) hcl.Diagnostics {
+
+	reports := TypeReportsReadiness(blockType, typeName)
+	_, implements := component.(Readyable)
+
+	// The type's registration and its implementation are written in the same
+	// package but checked in neither until here, where both are finally in
+	// hand. Either half without the other is a bug in that type — the likely
+	// one being an implementation that gained Ready() while its registration
+	// did not gain WithReadiness(), which would silently drop the component
+	// from every probe and its `readiness` attribute from the documentation.
+	if reports != implements {
+		detail := fmt.Sprintf("%s type %q implements config.Readyable but was not registered with "+
+			"cfg.WithReadiness(), so it contributes to no probe and `readiness` is undocumented on it.",
+			blockType, typeName)
+		if reports {
+			detail = fmt.Sprintf("%s type %q was registered with cfg.WithReadiness() but its "+
+				"implementation does not implement config.Readyable, so it has nothing to report.",
+				blockType, typeName)
+		}
+		return hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "Inconsistent readiness registration",
+			Detail:   detail + " This is a bug in that type, not in this configuration.",
+			Subject:  defRange.Ptr(),
+		}}
+	}
+
+	if !reports {
+		if readiness == nil {
+			return nil
+		}
+		return hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "Unsupported argument",
+			Detail: fmt.Sprintf("%s type %q does not report whether it is serving, so it never gates "+
+				"the process's readiness and there is nothing for %q to switch off. Remove it.",
+				blockType, typeName, readinessAttrName),
+			Subject: readinessSubject(attrRange, defRange),
+		}}
+	}
+
+	if readiness != nil && !*readiness {
+		return nil
+	}
+	config.Health.RegisterReady(blockType, typeName, name, component.(Readyable))
 	return nil
+}
+
+// readinessSubject underlines the attribute itself where gohcl captured its
+// range, falling back to the block header. A *bool carries no range of its own,
+// and pointing at a whole client block would leave the reader hunting for which
+// line was meant.
+func readinessSubject(attrRange, defRange hcl.Range) *hcl.Range {
+	if attrRange.Filename == "" {
+		return defRange.Ptr()
+	}
+	return attrRange.Ptr()
 }
 
 type Listener interface {

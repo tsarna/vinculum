@@ -30,7 +30,8 @@ func TestSys(t *testing.T) {
 }
 
 func TestGetSysObject(t *testing.T) {
-	val := ambient.GetSysObject("", "", nil, false)
+	ready := config.NewHealth().ReadyValue()
+	val := ambient.GetSysObject("", "", nil, false, ready)
 
 	allSigs := platform.AllSignals()
 	sigAttrTypes := make(map[string]cty.Type, len(allSigs)+1)
@@ -59,6 +60,7 @@ func TestGetSysObject(t *testing.T) {
 		"homedir":    cty.String,
 		"tempdir":    cty.String,
 		"testing":    cty.Bool,
+		"ready":      config.ReadyCapsuleType,
 		"filepath":   cty.String,
 		"writepath":  cty.String,
 		"starttime":  timecty.TimeCapsuleType,
@@ -95,7 +97,7 @@ func TestGetSysObject(t *testing.T) {
 	assert.False(t, attrs["testing"].True(), "sys.testing should be false when not under test")
 
 	// filepath and writepath reflect values when set; testing reflects the flag
-	val2 := ambient.GetSysObject("/tmp/myfiles", "/tmp/myfiles/out", []string{"readfiles", "writefiles"}, true)
+	val2 := ambient.GetSysObject("/tmp/myfiles", "/tmp/myfiles/out", []string{"readfiles", "writefiles"}, true, ready)
 	attrs2 := val2.AsValueMap()
 	assert.Equal(t, "/tmp/myfiles", attrs2["filepath"].AsString())
 	assert.Equal(t, "/tmp/myfiles/out", attrs2["writepath"].AsString())
@@ -106,7 +108,7 @@ func TestGetSysObject(t *testing.T) {
 	st, err := timecty.GetTime(attrs["starttime"])
 	assert.NoError(t, err)
 	assert.True(t, !st.After(before), "starttime should not be in the future")
-	st2, _ := timecty.GetTime(ambient.GetSysObject("", "", nil, false).AsValueMap()["starttime"])
+	st2, _ := timecty.GetTime(ambient.GetSysObject("", "", nil, false, ready).AsValueMap()["starttime"])
 	assert.True(t, st.Equal(st2), "starttime should be stable across GetSysObject calls")
 
 	// boottime should be at or before starttime

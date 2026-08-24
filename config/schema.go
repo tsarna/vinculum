@@ -511,6 +511,7 @@ type registerOptions struct {
 	schema    *TypeSchema
 	variants  map[string]TypeSchema
 	namespace *NamespaceSchema
+	readiness bool
 }
 
 func applyRegisterOptions(opts []RegisterOption) registerOptions {
@@ -542,6 +543,26 @@ func WithVariantSchemas(schemas map[string]TypeSchema) RegisterOption {
 	}
 }
 
+// WithReadiness marks a server or client type as one that reports whether it
+// is currently serving — that is, whose implementation implements Readyable:
+//
+//	cfg.RegisterClientType("mqtt", ProcessMqttClientBlock,
+//	    cfg.WithSchema(mqttSchema), cfg.WithReadiness())
+//
+// Only such a type carries the `readiness` attribute. The attribute configures
+// whether a component gates the process's readiness, and one with no readiness
+// to report has nothing to configure — so on every other type it is neither
+// documented nor accepted, rather than documented everywhere and silently
+// inert on most of them.
+//
+// Declaring it and not implementing Readyable, or the reverse, is reported when
+// a block of that type is processed.
+func WithReadiness() RegisterOption {
+	return func(o *registerOptions) {
+		o.readiness = true
+	}
+}
+
 // WithNamespaceSchema attaches the machine-readable description of the
 // top-level namespace an ambient provider contributes:
 //
@@ -568,6 +589,11 @@ var (
 	// config state, so they can be flagged in the output.
 	conditionalTypes = map[string]map[string]bool{}
 
+	// readinessTypes records the server and client types that report whether
+	// they are serving, keyed by block type then type name. It is what decides
+	// where `readiness` is documented and accepted; see WithReadiness.
+	readinessTypes = map[string]map[string]bool{}
+
 	// topLevelBlockSchemas holds schemas for top-level blocks with no
 	// BlockHandler to carry them (`function`, `jq`, `editor`), registered via
 	// RegisterBlockSchema.
@@ -582,10 +608,23 @@ var (
 // block, if any.
 func registerTypeSchema(blockType, typeName string, opts []RegisterOption) {
 	o := applyRegisterOptions(opts)
+	if o.readiness {
+		if readinessTypes[blockType] == nil {
+			readinessTypes[blockType] = map[string]bool{}
+		}
+		readinessTypes[blockType][typeName] = true
+	}
 	if o.schema == nil {
 		return
 	}
 	setTypeSchema(blockType, typeName, *o.schema)
+}
+
+// TypeReportsReadiness reports whether a server or client type was registered
+// with WithReadiness. Exported for the block handlers, which reject the
+// `readiness` attribute on a type that has no readiness to report.
+func TypeReportsReadiness(blockType, typeName string) bool {
+	return readinessTypes[blockType][typeName]
 }
 
 // registerConditionalTypeSchemas records the schemas of a set of conditional
@@ -1706,7 +1745,7 @@ func (b *schemaBuilder) variants(blockType string, blockTS TypeSchema) map[strin
 				b.problemf("%s: no schema registered", path)
 			}
 		}
-		body.Attributes = appendCommonAttrs(body.Attributes, common)
+		body.Attributes = appendCommonAttrs(body.Attributes, envelopeAttrsFor(blockType, name, common))
 		body.Conditional = conditionalTypes[blockType][name]
 		// A variant is what a generated per-type index links to, so it is the
 		// one place a reference page is required rather than optional.
@@ -1716,6 +1755,28 @@ func (b *schemaBuilder) variants(blockType string, blockTS TypeSchema) map[strin
 		variants[name] = body
 	}
 	return variants
+}
+
+// envelopeAttrsFor drops the envelope attributes one variant does not accept.
+//
+// Almost every envelope attribute is true of every variant by construction —
+// `disabled` skips any block whatever its type. `readiness` is the exception:
+// it configures whether a component gates the process's readiness, so it means
+// something only where there is readiness to report. Splicing it in everywhere
+// would document a setting that does nothing on most of the blocks listing it,
+// and a reader has no way to tell which those are.
+func envelopeAttrsFor(blockType, typeName string, common []*SchemaAttr) []*SchemaAttr {
+	if TypeReportsReadiness(blockType, typeName) {
+		return common
+	}
+	out := make([]*SchemaAttr, 0, len(common))
+	for _, a := range common {
+		if a.Name == readinessAttrName {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 // appendCommonAttrs adds the block-level attributes a variant does not itself
@@ -1771,12 +1832,12 @@ var envelopeSchemas = map[string]TypeSchema{
 	"client": {
 		Sample:  &ClientDefinition{},
 		Summary: "Attributes every client block accepts.",
-		Attrs:   map[string]AttrMeta{"disabled": DisabledAttr},
+		Attrs:   map[string]AttrMeta{"disabled": DisabledAttr, "readiness": ReadinessAttr},
 	},
 	"server": {
 		Sample:  &ServerDefinition{},
 		Summary: "Attributes every server block accepts.",
-		Attrs:   map[string]AttrMeta{"disabled": DisabledAttr},
+		Attrs:   map[string]AttrMeta{"disabled": DisabledAttr, "readiness": ReadinessAttr},
 	},
 	"trigger": {
 		Sample:  &TriggerDefinition{},
@@ -1811,6 +1872,21 @@ var (
 			"so any expression reading that name fails to resolve. Disable the blocks that read it too, " +
 			"or drop the reference.",
 		Hint: HintBool,
+	}
+
+	// ReadinessAttr documents `readiness`. Unlike DisabledAttr this is not
+	// spliced into every variant: it appears only on the types that report
+	// whether they are serving. See WithReadiness.
+	ReadinessAttr = AttrMeta{
+		Summary: "Whether this component gates the process's readiness.",
+		Doc: "This block reports whether it is currently serving, and by default that gates the " +
+			"process: while it is down, `/readyz` fails and traffic should go elsewhere. Set " +
+			"this false for an integration the service can do without, so losing it does not " +
+			"take the whole process out of rotation.\n\n" +
+			"The attribute exists only on the types that have readiness to report; see " +
+			"[health](health.md).",
+		Hint:    HintBool,
+		Default: "true",
 	}
 
 	// AuthAttr documents `auth`, which names the mechanisms guarding a server

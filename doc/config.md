@@ -131,9 +131,9 @@ All server types share a single name namespace — you cannot have both an HTTP 
 
 #### `sys`
 
-Process and host identity, captured at startup.
+Process and host identity, and the runtime's own readiness.
 
-All values are read-only, and all are captured once when the process starts rather than read afresh on each use.
+All values are read-only. Identity — the process, the host, the build, the invocation — is captured once when the process starts rather than read afresh on each use. `sys.ready` is the exception: it is live runtime state, read when something asks for it. See [health](health.md).
 
 #### `trigger`
 
@@ -194,6 +194,7 @@ Readable as `sys.<name>`:
 | `sys.os` | string | Operating system, e.g. `linux`, `darwin`, `windows`. |
 | `sys.pid` | number | Process ID of the running process. |
 | `sys.plugins` | list | Names of every registered plugin component. |
+| `sys.ready` | capsule | Whether the process is currently ready to serve traffic. |
 | `sys.signals` | object | Signal numbers for the host OS, by name. *(has members of its own)* |
 | `sys.signals.bynumber` | map | Signal name, keyed by the number as a string. |
 | `sys.starttime` | time | Approximate time the process started. |
@@ -223,6 +224,21 @@ Read from the binary's build info — `(devel)` in a workspace build, empty if u
 **`sys.plugins`**
 
 For example `["ambient.sys", "client.kafka", "functions.kill", "server.mcp"]`. Both in-tree components and those a `.vinit` [plugin](plugins.md) contributed are listed, so this is how a configuration tells whether the binary it is running on has what it needs.
+
+**`sys.ready`**
+
+Reads as a boolean with `get()` — `get(sys.ready)`, or `get(ctx, sys.ready)` where a `ctx` is in scope, which is the better form since it carries the trace parent and the caller's deadline. It is also watchable, so a reactive expression naming it is re-evaluated when readiness flips.
+
+It is a *sampled* watchable, unlike every other one in Vinculum. Readiness is computed only when something asks for it — an HTTP probe, a `health::` call, a metrics scrape — so in a configuration with none of those it never changes at all. Where transitions must be observed independently of who is probing, poll it at a cadence you control:
+
+```hcl
+trigger "interval" "health_poll" {
+    every  = "10s"
+    action = health::refresh(ctx)
+}
+```
+
+See [health](health.md).
 
 **`sys.signals`**
 

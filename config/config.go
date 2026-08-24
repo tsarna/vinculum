@@ -105,6 +105,12 @@ type Config struct {
 	// it.
 	probeAllFeatures bool
 
+	// Health aggregates readiness for the process: the boot and drain gates,
+	// every component that reports whether it is serving, and the `check`
+	// blocks the config declares. It is built once and its contributor set is
+	// fixed for the life of the process.
+	Health *Health
+
 	SigActions       *SignalActionHandler
 	Startables       []Startable
 	PostStartables   []PostStartable
@@ -240,6 +246,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		WriteDir:         cb.features["writefiles"],
 		Testing:          cb.testing,
 		Constants:        make(map[string]cty.Value),
+		Health:           NewHealth(),
 		SigActions:       NewSignalActionHandler(cb.logger, userLogger),
 		Buses:            make(map[string]bus.EventBus),
 		CtyBusMap:        make(map[string]cty.Value),

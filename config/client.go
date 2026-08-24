@@ -15,9 +15,14 @@ type ClientDefinition struct {
 	Type string `hcl:"type,label"`
 	Name string `hcl:"name,label"`
 
-	Disabled      bool      `hcl:"disabled,optional"`
-	DefRange      hcl.Range `hcl:",def_range"`
-	RemainingBody hcl.Body  `hcl:",remain"`
+	Disabled bool `hcl:"disabled,optional"`
+	// Readiness is a pointer so that "not written" is distinguishable from
+	// "written false"; unset means true. Only a client type registered
+	// WithReadiness accepts it — see applyReadiness.
+	Readiness      *bool     `hcl:"readiness,optional"`
+	ReadinessRange hcl.Range `hcl:"readiness,attr_range"`
+	DefRange       hcl.Range `hcl:",def_range"`
+	RemainingBody  hcl.Body  `hcl:",remain"`
 }
 
 type ClientBlockHandler struct {
@@ -126,7 +131,8 @@ func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	}
 	config.evalCtx.Variables["client"] = cty.ObjectVal(config.CtyClientMap)
 
-	return nil
+	return applyReadiness(config, "client", block.Labels[0], block.Labels[1], client,
+		clientDef.Readiness, clientDef.ReadinessRange, block.DefRange)
 }
 
 // Client is the base identity interface for all client types.

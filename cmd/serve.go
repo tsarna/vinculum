@@ -140,6 +140,11 @@ func runServer(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Boot is complete. Until this point readiness is false with reason
+	// "starting", so a startupProbe pointed at /readyz behaves correctly
+	// without a separate endpoint.
+	cfg.Health.SetBooted()
+
 	if interactive {
 		// Present the REPL on the foreground goroutine instead of blocking on a
 		// signal. SIGINT is handled by the line editor (cancel current line);
@@ -170,6 +175,15 @@ func runServer(cmd *cobra.Command, args []string) error {
 // phase has already stopped.
 func shutdown(cfg *config.Config, logger *zap.Logger) {
 	logger.Info("Shutting down")
+
+	// Readiness goes false before anything is torn down, so the endpoint
+	// controller removes the pod while in-flight work finishes. This has to
+	// precede drain(), not merely the Stoppables: draining is what closes the
+	// listeners, and a probe arriving after that gets a connection refusal
+	// instead of the honest 503 that distinguishes a graceful rollout from a
+	// lossy one.
+	cfg.Health.BeginDrain()
+
 	drain(cfg, logger)
 	for i := len(cfg.PreStoppables) - 1; i >= 0; i-- {
 		if err := cfg.PreStoppables[i].PreStop(); err != nil {
