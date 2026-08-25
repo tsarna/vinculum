@@ -62,6 +62,8 @@ var (
 	allowKill     bool
 	pluginPath    string
 	interactive   bool
+	healthListen  string
+	healthVerbose bool
 )
 
 func init() {
@@ -73,6 +75,8 @@ func init() {
 	serverCmd.Flags().BoolVar(&allowKill, "allow-kill", false, "enable the kill function (feature \"allowkill\")")
 	serverCmd.Flags().StringVar(&pluginPath, "plugin-path", "", "directory containing Go plugin .so files; required if any .vinit plugin block is present")
 	serverCmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "after startup, present an interactive REPL instead of blocking on a signal (requires a terminal)")
+	serverCmd.Flags().StringVar(&healthListen, "health-listen", "", "address to serve /readyz, /livez, and /healthz on; needs no config (e.g. \":8081\")")
+	serverCmd.Flags().BoolVar(&healthVerbose, "health-verbose", false, "let --health-listen honor ?verbose, which names every component and quotes its failure")
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
@@ -125,6 +129,20 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	if err := reportBuildDiags(cmd.ErrOrStderr(), configBuilder, diags); err != nil {
 		return err
+	}
+
+	// The health listener binds before anything starts, so a probe arriving
+	// during boot gets an honest "503 starting" rather than a refused
+	// connection — the difference between a startupProbe that works and one
+	// that reports the pod unreachable. It is closed after shutdown() returns,
+	// so draining answers 503 while in-flight work finishes. That lifecycle is
+	// the inverse of every Startable's, which is why it is not one.
+	healthSrv, err := startHealthListener(cfg, logger)
+	if err != nil {
+		return err
+	}
+	if healthSrv != nil {
+		defer healthSrv.Close()
 	}
 
 	for _, startable := range cfg.Startables {

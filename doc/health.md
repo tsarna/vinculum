@@ -31,6 +31,7 @@ makes every replica *not live* is a fleet-wide restart loop. So:
 - [`sys.ready`](#sysready)
 - [Reacting to transitions](#reacting-to-transitions)
 - [The `check` block](#the-check-block)
+- [HTTP endpoints](#http-endpoints)
 - [Liveness](#liveness)
 - [When readiness is computed](#when-readiness-is-computed)
 
@@ -323,6 +324,192 @@ Falls back to the trace ID extracted from inbound headers, so it is populated ev
 - `check` › `input`
 
 <!-- vinculum:end context check -->
+
+---
+
+## HTTP endpoints
+
+Three paths, wherever they are served:
+
+| Path | Probe |
+|---|---|
+| `/readyz` | readiness |
+| `/livez` | liveness |
+| `/healthz` | liveness — the legacy Kubernetes name for the same question, and an alias for `/livez`. Giving it a third meaning would be a trap. |
+
+| State | Code |
+|---|---|
+| passing | `200 OK` |
+| failing | `503 Service Unavailable` |
+
+`503`, not a 4xx: nothing is wrong with the *request*; the server is temporarily
+unable to handle it, which is exactly what `503` means and what every probe tool
+and load balancer expects. `Cache-Control: no-store` is set on every response,
+and `HEAD` returns the status with no body.
+
+### Bodies
+
+Terse, the default:
+
+```
+ok
+```
+```
+not ready
+```
+
+Verbose (`?verbose`), mirroring `kube-apiserver`'s `/readyz?verbose` so operator
+habits transfer:
+
+```
+[+]process ok
+[+]server.api ok
+[-]client.broker failed: not connected: dial tcp 10.0.0.5:1883: connection refused
+[+]check.database ok
+readyz check failed
+```
+
+JSON (`Accept: application/json`, or `?format=json`):
+
+```json
+{"ready": false,
+ "checks": [
+   {"component": "process", "type": "", "ready": true, "reason": ""},
+   {"component": "client.broker", "type": "mqtt", "ready": false,
+    "reason": "not connected: dial tcp 10.0.0.5:1883: connection refused"}
+ ]}
+```
+
+The `checks` array is the serialization of `health::status`, so the two views
+cannot drift. On an endpoint that does not allow detail the array is omitted
+entirely and only the verdict is returned — negotiating your way past the
+setting would defeat it.
+
+### The standalone listener
+
+```sh
+vinculum serve --health-listen :8081 config.vcl
+VINCULUM_HEALTH_LISTEN=:8081 vinculum serve config.vcl
+```
+
+Serves all three from an internal listener that needs no VCL at all and no
+`server "http"` block. This is what lets a configuration consisting of nothing
+but an MQTT bridge have working probes, and it is the primary answer for
+deployments.
+
+It binds **before** anything starts, so a probe arriving during boot gets an
+honest `503 starting` rather than a refused connection — the difference between
+a `startupProbe` that works and one that reports the pod unreachable — and it is
+closed **after** everything stops, so draining answers `503` while in-flight work
+finishes. A port it cannot bind is a startup error.
+
+`--health-verbose` (`VINCULUM_HEALTH_VERBOSE`) lets it honor `?verbose`. It is
+off by default: a listener that comes up whether or not you asked for it must
+not also volunteer the names of every component and the text of every connection
+error.
+
+The listener is not a `server "http"` and publishes no `server.<name>`. It has no
+TLS, no auth, no request logging, and no tracing; for any of those, declare a
+server and use `health_endpoints` below.
+
+### Endpoints on your own `server "http"`
+
+```hcl
+server "http" "internal" {
+    listen           = ":8080"
+    health_endpoints = "on"       # "off" (default) | "on" | "verbose"
+}
+```
+
+`on` registers all three on that server, serving the terse body and **ignoring
+`?verbose`**; `verbose` honors it. The verbose body names your components and
+quotes their connection errors, which is fine on an internal listener and an
+information leak on a public one, so the safe reading is the one you get without
+thinking about it.
+
+They are **off by default**, for two reasons. Turning them on silently claims
+three paths: a configuration serving `handle "/"` as a reverse proxy to an
+application with its own `/healthz` would find exactly those intercepted on
+upgrade, with nothing changed in the config and nothing warned. And a probe
+endpoint has to bypass `auth` — a kubelet cannot authenticate — so defaulting it
+on would add unauthenticated surface to a server you may have deliberately
+locked down.
+
+Three rules apply wherever they are registered:
+
+1. **An explicit route wins.** If the block declares a `handle` for one of those
+   paths, nothing is registered over it. Comparison is by path alone, so
+   `handle "GET /readyz"` takes the whole path rather than leaving other methods
+   to Vinculum.
+2. **They are not wrapped in the server's `auth`.** This is why the default body
+   reveals nothing. For authenticated health, leave `health_endpoints` off and
+   write a `handle` with an `auth` block.
+3. **They are not logged or traced.** A probe every ten seconds across three
+   endpoints would dominate both request logs and trace volume. A `handle` you
+   wrote for the same path is logged and traced normally.
+
+### Building a response yourself
+
+```hcl
+handle "GET /readyz" { action = http::readyz(ctx, ctx.request) }
+handle "GET /livez"  { action = http::livez(ctx, ctx.request) }
+```
+
+`ctx` is the handler context, required, and used for the probe alone — trace
+parent, deadline, baggage. **It is not where the request comes from.** The
+optional second argument is explicit, and accepts either form:
+
+| Second argument | Behavior |
+|---|---|
+| omitted | Terse body, no negotiation. |
+| `ctx.request` | Honors `?verbose`, `?format=json`, and `Accept`, and takes the method so a `HEAD` gets the status with no body. |
+| an options object | As stated: `{verbose = true}`, `{format = "json"}`. |
+
+```hcl
+# the common form — the dependency is visible at the call site
+action = http::readyz(ctx, ctx.request)
+
+# always verbose, whatever the caller asked for
+action = http::readyz(ctx, {verbose = true})
+
+# terse, always
+action = http::readyz(ctx)
+```
+
+A function that reached into its `ctx` for the request would be the only one in
+the language that digs a request out of a context — `http::basic_auth`,
+`http::set_cookie`, and `http::response` all take explicit values — and it would
+silently degrade wherever that `ctx` did not come from an HTTP handler. A
+hand-written `handle` always honors `?verbose`: that is your choice to make,
+unlike the built-in endpoints, where terse is a property of an unauthenticated
+endpoint nobody wrote by hand.
+
+### Kubernetes
+
+With the published image, which sets `VINCULUM_HEALTH_LISTEN=:8081`, no health
+configuration is needed at all:
+
+```yaml
+startupProbe:
+  httpGet: { path: /readyz, port: 8081 }
+  failureThreshold: 30
+  periodSeconds: 2
+readinessProbe:
+  httpGet: { path: /readyz, port: 8081 }
+  periodSeconds: 10
+livenessProbe:
+  httpGet: { path: /livez, port: 8081 }
+  periodSeconds: 10
+```
+
+`startupProbe` and `readinessProbe` share a path because readiness already
+reports `starting` until boot completes; there is nothing a separate startup
+endpoint would add.
+
+**Do not point `livenessProbe` at `/readyz`.** It is the single most common way
+to turn a dependency outage into a fleet-wide restart loop: every replica loses
+the broker, every replica fails its liveness probe, every replica restarts, and
+none of them comes back any faster.
 
 ---
 

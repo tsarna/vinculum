@@ -62,6 +62,7 @@ you pass arguments of your own:
 | `VINCULUM_FILE_PATH` | `/data` | Enables `file()`, `fileexists()`, `fileset()`, rooted there. |
 | `VINCULUM_WRITE_PATH` | `/data/write` | Enables the file-write functions, rooted there. |
 | `VINCULUM_PLUGIN_PATH` | `/plugins` | Where [plugins](plugins.md) are loaded from. |
+| `VINCULUM_HEALTH_LISTEN` | `:8081` | Serves `/readyz`, `/livez`, and `/healthz` on port 8081. See [health.md](health.md). |
 
 So they survive a command you supply yourself, and each is separately
 overridable — an empty value turns one off:
@@ -78,6 +79,22 @@ file path, so clearing only `VINCULUM_FILE_PATH` is rejected at startup:
 ```sh
 docker run -e VINCULUM_FILE_PATH= -e VINCULUM_WRITE_PATH= … ghcr.io/tsarna/vinculum
 ```
+
+### Health probes
+
+Readiness and liveness probes work with no health configuration at all: the
+image serves `/readyz`, `/livez`, and `/healthz` on port 8081, which is
+`EXPOSE`d but published through no Service by default.
+
+```sh
+docker run -e VINCULUM_HEALTH_LISTEN=:9000 … ghcr.io/tsarna/vinculum   # move it
+docker run -e VINCULUM_HEALTH_LISTEN= … ghcr.io/tsarna/vinculum        # turn it off
+```
+
+The body says only `ok` or `not ready`. A listener that comes up whether or not
+you asked for it must not also volunteer the names of every component and the
+text of every connection error, so `?verbose` is ignored unless you set
+`VINCULUM_HEALTH_VERBOSE=true`. See [health.md](health.md#http-endpoints).
 
 See [cli-env.md](cli-env.md) for the general rule — every flag has such a
 variable, whether or not the image sets it.

@@ -45,6 +45,10 @@ type HttpServer struct {
 	// shutdownTimeout bounds how long Drain waits for in-flight requests
 	// before forcing the remaining connections closed. Zero waits forever.
 	shutdownTimeout time.Duration
+
+	// healthPaths are the probe endpoints this server mounted itself, filtered
+	// out of trace collection. Empty unless health_endpoints is on.
+	healthPaths []string
 }
 
 type HttpServerDefinition struct {
@@ -57,9 +61,14 @@ type HttpServerDefinition struct {
 	Tracing         hcl.Expression               `hcl:"tracing,optional"`
 	Metrics         hcl.Expression               `hcl:"metrics,optional"`
 	Baggage         *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
+	HealthEndpoints string                       `hcl:"health_endpoints,optional"`
 	DefRange        hcl.Range                    `hcl:",def_range"`
 	StaticFiles     []staticFilesDefinition      `hcl:"files,block"`
 	Handlers        []handlerDefinition          `hcl:"handle,block"`
+
+	// HealthEndpointsRange underlines the attribute itself when its value is
+	// rejected; a string carries no range of its own.
+	HealthEndpointsRange hcl.Range `hcl:"health_endpoints,attr_range"`
 }
 
 type staticFilesDefinition struct {
@@ -111,6 +120,24 @@ metrics — can be mounted into a route with ` + "`handler = server.<name>`" + `
 		"tracing":          cfg.TracingAttr,
 		"metrics":          cfg.MetricsAttr,
 		"shutdown_timeout": cfg.ShutdownTimeoutAttr,
+		"health_endpoints": {
+			Summary: "Serve `/readyz`, `/livez`, and `/healthz` on this server.",
+			Doc: "`on` registers all three, serving a body that says only `ok` or `not ready` " +
+				"and **ignoring `?verbose`**; `verbose` honors it. The verbose body names your " +
+				"components and quotes their connection errors, which is fine on an internal " +
+				"listener and an information leak on a public one, so the safe reading is the " +
+				"one you get without thinking about it.\n\n" +
+				"These are off by default, and turning them on adds unauthenticated surface to " +
+				"this server: a probe endpoint has to bypass `auth`, because a kubelet cannot " +
+				"authenticate. For probes on a port of their own, with no VCL at all, use " +
+				"`--health-listen` instead.\n\n" +
+				"An explicitly declared `handle` for one of those paths always wins, and is " +
+				"logged, traced, and authenticated normally — these are not, since a probe " +
+				"every ten seconds across three endpoints would dominate both request logs " +
+				"and trace volume. See [health](health.md).",
+			Enum:    []string{cfg.HealthEndpointsOff, cfg.HealthEndpointsOn, cfg.HealthEndpointsVerbose},
+			Default: cfg.HealthEndpointsOff,
+		},
 		"auth": cfg.AuthAttr.WithDoc(
 			"An `auth.<name>` reference, or a list of them. Every `handle` and `files` " +
 				"block inherits it unless it sets its own `auth`, and a block that sets " +
@@ -439,6 +466,12 @@ func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody 
 		}
 	}
 
+	healthPaths, healthDiags := mountHealthEndpoints(config, mux, &serverDef)
+	if healthDiags.HasErrors() {
+		return nil, healthDiags
+	}
+	server.healthPaths = healthPaths
+
 	server.Server = &http.Server{
 		Addr:    serverDef.Listen,
 		Handler: mux,
@@ -529,6 +562,20 @@ func (h *HttpServer) Start() error {
 		)),
 		otelhttp.WithServerName(h.Name),
 	)
+
+	// A probe every ten seconds across three endpoints would dominate trace
+	// volume and say nothing. Only the endpoints this server mounted itself are
+	// filtered — a handle the author wrote for the same path is their route and
+	// is traced normally.
+	if len(h.healthPaths) > 0 {
+		filtered := make(map[string]bool, len(h.healthPaths))
+		for _, p := range h.healthPaths {
+			filtered[p] = true
+		}
+		otelOpts = append(otelOpts, otelhttp.WithFilter(func(r *http.Request) bool {
+			return !filtered[r.URL.Path]
+		}))
+	}
 
 	// Wrap the mux with the baggage filter (if configured) INSIDE otelhttp, so it
 	// runs after the W3C propagator extracts baggage but before any handler.

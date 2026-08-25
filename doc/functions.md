@@ -1309,6 +1309,27 @@ is needed. See [`server "http"`](server-http.md#response) for full details.
 - `http::remove_header(response, name)`: Return a new response with the given header removed.
 - `http::set_cookie(cookieObj)`: Format a `Set-Cookie` header value from a cookie definition object (fields: `name`, `value`, `path`, `domain`, `expires`, `max_age`, `secure`, `http_only`, `same_site`, `partitioned`). Use with `http::add_header()`.
 
+#### Health probe responses
+
+- `http::readyz(ctx [, request-or-options])`: Build a readiness probe response — `200` when ready, `503` when not, with `Cache-Control: no-store`.
+- `http::livez(ctx [, request-or-options])`: The same for liveness.
+
+The optional second argument decides the body. Omitted, it is terse. Pass
+`ctx.request` to honor `?verbose`, `?format=json`, and `Accept` — and to take
+the method, so a `HEAD` gets the status with no body. Pass an options object
+(`{verbose = true}`, `{format = "json"}`) to state it outright.
+
+```hcl
+handle "GET /readyz" { action = http::readyz(ctx, ctx.request) }
+handle "GET /livez"  { action = http::livez(ctx, ctx.request) }
+```
+
+`ctx` is used for the probe alone — trace parent, deadline, baggage — and is
+deliberately *not* where the request comes from; that is why the second argument
+is explicit. For probes with no VCL at all, see
+[`--health-listen`](health.md#the-standalone-listener); for them on a server you
+already declare, [`health_endpoints`](server-http.md#health-endpoints).
+
 ### HTTP Utilities
 
 These functions are always available and help construct HTTP request values.

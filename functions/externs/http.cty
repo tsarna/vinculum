@@ -1,0 +1,28 @@
+//functy:extern
+
+namespace http
+
+// The health probe response builders, provided in Go by vinculum
+// (GetHealthHTTPFunctions). Signatures only — never compiled, nothing here is
+// callable.
+//
+// Only these two are declared. Their second argument is optional, and cty can
+// only approximate an optional trailing parameter with a variadic, which erases
+// the name, the type, and the default and reflects as `*request` — reading as
+// "any number of requests" when at most one is accepted. The rest of the http::
+// functions have complete cty metadata and are deliberately absent.
+
+// Build a readiness probe response: 200 when the process is ready, 503 when it
+// is not, with Cache-Control: no-store.
+func readyz(
+    ctx: ctx,  // handler context; required, and used for the probe alone
+    request: any = null,  // ctx.request, or {verbose = true} / {format = "json"}
+) -> http_response
+
+// The same for liveness. Failing means the process is wedged and should be
+// restarted, so no client or server feeds it — only a check declared
+// probe = "live".
+func livez(
+    ctx: ctx,  // handler context; required, and used for the probe alone
+    request: any = null,  // ctx.request, or {verbose = true} / {format = "json"}
+) -> http_response

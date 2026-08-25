@@ -73,7 +73,16 @@ USER 65534
 # path has to sit under a file path.
 ENV VINCULUM_FILE_PATH=/data \
     VINCULUM_WRITE_PATH=/data/write \
-    VINCULUM_PLUGIN_PATH=/plugins
+    VINCULUM_PLUGIN_PATH=/plugins \
+    VINCULUM_HEALTH_LISTEN=:8081
+
+# Readiness and liveness probes work out of the box, with no health config at
+# all: /readyz, /livez, and /healthz are served here. The body says only "ok" or
+# "not ready" — a listener that comes up whether or not the operator asked for
+# it must not also volunteer the names of every component and the text of every
+# connection error. Set VINCULUM_HEALTH_VERBOSE=true to allow ?verbose,
+# VINCULUM_HEALTH_LISTEN=:9000 to move it, or an empty value to turn it off.
+EXPOSE 8081
 
 ENTRYPOINT ["/vinculum"]
 CMD ["serve", "/conf"]

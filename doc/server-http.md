@@ -40,6 +40,7 @@ attribute is covered under [Authentication](#authentication), and in full on the
 | `auth` | expression (auth-ref) |  |  | Authentication required here. |
 | `disabled` | bool |  |  | Skip this block entirely. |
 | `external_url` | string (url) |  |  | Base URL clients reach this server at from outside. |
+| `health_endpoints` | string |  | `off` | Serve `/readyz`, `/livez`, and `/healthz` on this server. |
 | `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
 | `shutdown_timeout` | expression (duration) |  | `10s` | How long to let in-flight work finish while shutting down. |
 | `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
@@ -59,6 +60,16 @@ The block is parsed and validated, but nothing is created from it. A block that 
 **`external_url`**
 
 Needed only by features that must hand a client an absolute URL back to this server — currently the `resource` of an `auth` block. Behind a proxy that terminates TLS or mounts the server under a path prefix, the real scheme, host, and prefix are invisible from inside, so they cannot be derived from `listen` and must be stated: `"https://api.example.com"`, or `"https://example.com/vinculum"` when a prefix is stripped by the proxy. Nothing else in the config consults it, and it does not affect what the server binds to.
+
+**`health_endpoints`**
+
+`on` registers all three, serving a body that says only `ok` or `not ready` and **ignoring `?verbose`**; `verbose` honors it. The verbose body names your components and quotes their connection errors, which is fine on an internal listener and an information leak on a public one, so the safe reading is the one you get without thinking about it.
+
+These are off by default, and turning them on adds unauthenticated surface to this server: a probe endpoint has to bypass `auth`, because a kubelet cannot authenticate. For probes on a port of their own, with no VCL at all, use `--health-listen` instead.
+
+An explicitly declared `handle` for one of those paths always wins, and is logged, traced, and authenticated normally — these are not, since a probe every ten seconds across three endpoints would dominate both request logs and trace volume. See [health](health.md).
+
+One of: `off`, `on`, `verbose`.
 
 **`metrics`**
 
@@ -631,6 +642,38 @@ server "http" "dev" {
     }
 }
 ```
+
+---
+
+## Health Endpoints
+
+```hcl
+server "http" "internal" {
+    listen           = ":8080"
+    health_endpoints = "on"       # "off" (default) | "on" | "verbose"
+}
+```
+
+`on` registers `GET /readyz`, `GET /livez`, and `GET /healthz` on this server,
+answering `200` when the process is serving and `503` when it is not. `verbose`
+additionally honors `?verbose`, whose body names every component and quotes its
+failure — fine on an internal listener, an information leak on a public one.
+
+Three rules apply:
+
+- **An explicit route wins.** A `handle` you declare for one of those paths is
+  left alone; comparison is by path, so `handle "GET /readyz"` takes the whole
+  path rather than leaving other methods to Vinculum.
+- **They bypass this server's `auth`**, because a kubelet cannot authenticate.
+  That is why the default body reveals nothing. For authenticated health, leave
+  this off and write a `handle` calling
+  [`http::readyz`](functions.md#health-probe-responses).
+- **They are not logged or traced.** A probe every ten seconds across three
+  endpoints would dominate both. A `handle` you wrote is logged and traced
+  normally.
+
+For probes on a port of their own, needing no `server "http"` block at all, use
+`--health-listen` instead. See [health.md](health.md#http-endpoints).
 
 ---
 
