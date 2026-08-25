@@ -96,6 +96,7 @@ shared one, documented under [TLS configuration](config.md#tls).
 | `mode` | string |  | `standalone` | Topology to connect to. |
 | `password` | expression |  |  | Password to authenticate with. |
 | `pool_size` | number |  | `10 × GOMAXPROCS` | Maximum number of connections in the pool, per node. |
+| `readiness` | bool |  | `true` | Whether this component gates the process's readiness. |
 | `sentinel_password` | expression |  |  | Password to authenticate to the sentinels with. |
 | `sentinel_username` | string |  |  | Username to authenticate to the sentinels with. |
 | `username` | string |  |  | Username to authenticate with. |
@@ -144,6 +145,12 @@ Supply it from the environment rather than a literal.
 **`pool_size`**
 
 The default is go-redis's, which scales with the machine.
+
+**`readiness`**
+
+This block reports whether it is currently serving, and by default that gates the process: while it is down, `/readyz` fails and traffic should go elsewhere. Set this false for an integration the service can do without, so losing it does not take the whole process out of rotation.
+
+The attribute exists only on the types that have readiness to report; see [health](health.md).
 
 **`sentinel_password`**
 

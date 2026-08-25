@@ -11,7 +11,11 @@ import (
 // produces a clear "not compiled in" error rather than the generic "unknown
 // client type" error.
 func init() {
-	cfg.RegisterClientType("sqlite", processUnsupported, cfg.WithSchema(sqliteSchema))
+	// WithReadiness matches the cgo build so `vinculum schema` describes the
+	// same attributes either way; the processor here never produces a client
+	// for it to apply to.
+	cfg.RegisterClientType("sqlite", processUnsupported,
+		cfg.WithSchema(sqliteSchema), cfg.WithReadiness())
 }
 
 func processUnsupported(_ *cfg.Config, block *hcl.Block, _ hcl.Body) (cfg.Client, hcl.Diagnostics) {

@@ -8,6 +8,7 @@ package redis
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"time"
 
@@ -19,7 +20,8 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("redis", process, cfg.WithSchema(redisClientSchema))
+	cfg.RegisterClientType("redis", process,
+		cfg.WithSchema(redisClientSchema), cfg.WithReadiness())
 }
 
 // RedisConnectionDefinition is the HCL schema for `client "redis" "<name>"`.
@@ -131,6 +133,18 @@ func (c *RedisClient) Start() error {
 		return fmt.Errorf("redis client %q: ping failed: %w", c.Name, err)
 	}
 	return nil
+}
+
+// Ready implements cfg.Readyable: the server answers a PING.
+//
+// go-redis reconnects lazily, so an unreachable server is a recoverable state
+// rather than a dead client — which is exactly the case readiness exists to
+// report: out of rotation now, back in when the ping succeeds again.
+func (c *RedisClient) Ready(ctx context.Context) error {
+	if c.client == nil {
+		return errors.New("not connected")
+	}
+	return c.client.Ping(ctx).Err()
 }
 
 func (c *RedisClient) Stop() error {

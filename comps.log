@@ -1,0 +1,17 @@
+Usage:
+  vinculum serve [config-files-or-directories...] [flags]
+
+Flags:
+      --allow-kill           enable the kill function (feature "allowkill") [env: VINCULUM_ALLOW_KILL]
+  -f, --file-path string     base directory for file functions (enables file, fileexists, fileset functions) [env: VINCULUM_FILE_PATH]
+  -h, --help                 help for serve
+  -i, --interactive          after startup, present an interactive REPL instead of blocking on a signal (requires a terminal) [env: VINCULUM_INTERACTIVE]
+  -l, --log-level string     log level (debug, info, warn, error) [env: VINCULUM_LOG_LEVEL] (default "info")
+      --plugin-path string   directory containing Go plugin .so files; required if any .vinit plugin block is present [env: VINCULUM_PLUGIN_PATH]
+  -w, --write-path string    base directory for file write functions; must be under --file-path [env: VINCULUM_WRITE_PATH]
+
+Global Flags:
+  -d, --debug     debug output [env: VINCULUM_DEBUG]
+  -v, --verbose   verbose output [env: VINCULUM_VERBOSE]
+
+Error: unknown flag: --health-listen

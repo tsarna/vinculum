@@ -24,11 +24,21 @@ func mountedServer(t *testing.T, src string, features ...string) http.Handler {
 	require.False(t, diags.HasErrors(), "%v", diags)
 	config.Health.SetBooted()
 
-	srv, ok := config.Servers["http"]["s"]
+	listener, ok := config.Servers["http"]["s"]
 	require.True(t, ok, "server.s was not created")
+	srv := listener.(*HttpServer)
+
 	// Start() wraps this in otelhttp and friends; the bare mux is what the
 	// routing assertions are about.
-	return srv.(*HttpServer).Server.Handler
+	handler := srv.Server.Handler
+
+	// Bind for real, on :0. The server contributes to readiness, so a probe
+	// against an unstarted one would report the server itself as not
+	// listening — true, but not what these tests are asking about.
+	require.NoError(t, srv.Start())
+	t.Cleanup(func() { srv.Server.Close() })
+
+	return handler
 }
 
 func probeGet(t *testing.T, h http.Handler, target string) (int, string) {

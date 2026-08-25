@@ -42,6 +42,7 @@ attribute is covered under [Authentication](#authentication), and in full on the
 | `external_url` | string (url) |  |  | Base URL clients reach this server at from outside. |
 | `health_endpoints` | string |  | `off` | Serve `/readyz`, `/livez`, and `/healthz` on this server. |
 | `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
+| `readiness` | bool |  | `true` | Whether this component gates the process's readiness. |
 | `shutdown_timeout` | expression (duration) |  | `10s` | How long to let in-flight work finish while shutting down. |
 | `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
 
@@ -74,6 +75,12 @@ One of: `off`, `on`, `verbose`.
 **`metrics`**
 
 A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
+
+**`readiness`**
+
+This block reports whether it is currently serving, and by default that gates the process: while it is down, `/readyz` fails and traffic should go elsewhere. Set this false for an integration the service can do without, so losing it does not take the whole process out of rotation.
+
+The attribute exists only on the types that have readiness to report; see [health](health.md).
 
 **`shutdown_timeout`**
 

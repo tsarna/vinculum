@@ -3,8 +3,11 @@ package metricsserver
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
@@ -42,6 +45,11 @@ type MetricsServer struct {
 	// httpSrv is the standalone listener, set by Start and read by Drain.
 	// Nil in mounted mode, where the server "http" block owns the listener.
 	httpSrv *http.Server
+
+	// listener is non-nil once Start has bound successfully, which is what
+	// Ready reports. Guarded because Ready is called from probe goroutines.
+	mu       sync.RWMutex
+	listener net.Listener
 }
 
 // GetHandler returns the HTTP handler for the metrics endpoint.
@@ -113,19 +121,50 @@ func (s *MetricsServer) Start() error {
 	// Retained so Drain can close it on shutdown.
 	s.httpSrv = srv
 
+	// Bind synchronously and report the failure. ListenAndServe inside the
+	// goroutine discarded it entirely, leaving a process that was up and
+	// scraping nothing, with not even a log line to say so.
+	ln, err := net.Listen("tcp", s.listen)
+	if err != nil {
+		return fmt.Errorf("metrics server %q: %w", s.GetName(), err)
+	}
+	s.setListener(ln)
+
 	go func() {
 		var err error
 		if s.tlsConfig != nil {
 			srv.TLSConfig = s.tlsConfig
-			err = srv.ListenAndServeTLS("", "")
+			err = srv.ServeTLS(ln, "", "")
 		} else {
-			err = srv.ListenAndServe()
+			err = srv.Serve(ln)
 		}
-		if err != nil && err != http.ErrServerClosed {
-			_ = err
+		if err != nil && err != http.ErrServerClosed && s.logger != nil {
+			s.logger.Error("Metrics server stopped", zap.Error(err))
 		}
 	}()
 
+	return nil
+}
+
+func (s *MetricsServer) setListener(ln net.Listener) {
+	s.mu.Lock()
+	s.listener = ln
+	s.mu.Unlock()
+}
+
+// Ready implements cfg.Readyable: bound and serving.
+//
+// A mounted metrics server has no listener of its own — the server "http" block
+// it is mounted on owns that, and reports on it — so it is trivially ready.
+func (s *MetricsServer) Ready(context.Context) error {
+	if s.listen == "" {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.listener == nil {
+		return errors.New("not listening")
+	}
 	return nil
 }
 
@@ -186,7 +225,8 @@ type MetricsServerDefinition struct {
 }
 
 func init() {
-	cfg.RegisterServerType("metrics", ProcessMetricsServerBlock, cfg.WithSchema(metricsServerSchema))
+	cfg.RegisterServerType("metrics", ProcessMetricsServerBlock,
+		cfg.WithSchema(metricsServerSchema), cfg.WithReadiness())
 }
 
 var metricsServerSchema = cfg.TypeSchema{

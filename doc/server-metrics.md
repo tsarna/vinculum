@@ -77,6 +77,7 @@ but the metrics will not be scraped. This may be useful during development.
 | `include_go_metrics` | bool |  | `true` | Register Go runtime metrics. |
 | `listen` | string (listen-addr) |  |  | Address to serve metrics on, as a standalone server. |
 | `path` | string |  | `/metrics` | Path the metrics are served at. |
+| `readiness` | bool |  | `true` | Whether this component gates the process's readiness. |
 | `shutdown_timeout` | expression (duration) |  | `10s` | How long to let in-flight work finish while shutting down. |
 | `tracing` | expression (tracing-ref) |  |  | Where to report traces for scrape requests. |
 
@@ -105,6 +106,12 @@ Omit to mount this server into a `server "http"` route instead.
 **`path`**
 
 Standalone mode only. A mounted server is reached at the route its `handle` block declares, and setting this alongside a mount warns.
+
+**`readiness`**
+
+This block reports whether it is currently serving, and by default that gates the process: while it is down, `/readyz` fails and traffic should go elsewhere. Set this false for an integration the service can do without, so losing it does not take the whole process out of rotation.
+
+The attribute exists only on the types that have readiness to report; see [health](health.md).
 
 **`shutdown_timeout`**
 

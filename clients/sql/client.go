@@ -3,6 +3,7 @@ package sql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 	"time"
@@ -69,6 +70,7 @@ var (
 	_ cfg.CtyValuer = (*SQLClient)(nil)
 	_ cfg.Startable = (*SQLClient)(nil)
 	_ cfg.Stoppable = (*SQLClient)(nil)
+	_ cfg.Readyable = (*SQLClient)(nil)
 )
 
 // Start opens the connection pool and verifies connectivity.
@@ -91,6 +93,20 @@ func (c *SQLClient) Start() error {
 
 	c.db = db
 	return nil
+}
+
+// Ready implements cfg.Readyable: the pool has a usable connection.
+//
+// PingContext is what the pool itself uses to decide a connection is good, and
+// it reuses an idle one rather than opening a new connection per probe. Start
+// closes the pool and leaves db nil when its own ping fails, so an unset pool
+// is the honest "never connected" case rather than a nil dereference waiting to
+// happen.
+func (c *SQLClient) Ready(ctx context.Context) error {
+	if c.db == nil {
+		return errors.New("not connected")
+	}
+	return c.db.PingContext(ctx)
 }
 
 // Stop closes the connection pool.

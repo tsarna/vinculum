@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -26,7 +27,8 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("kafka", process, cfg.WithSchema(kafkaClientSchema))
+	cfg.RegisterClientType("kafka", process,
+		cfg.WithSchema(kafkaClientSchema), cfg.WithReadiness())
 }
 
 // ─── HCL definition structs ──────────────────────────────────────────────────
@@ -461,6 +463,23 @@ func (c *KafkaClient) Start() error {
 	c.mu.Unlock()
 
 	return nil
+}
+
+// Ready implements cfg.Readyable: at least one broker answers.
+//
+// franz-go retries in the background and never fails Start, so "started" says
+// nothing about whether the cluster is reachable. Ping is what distinguishes
+// the two, and a failure here is recoverable — the retry loop is already
+// running, so the client comes back into rotation on its own.
+func (c *KafkaClient) Ready(ctx context.Context) error {
+	c.mu.RLock()
+	kgoClient := c.kgoClient
+	c.mu.RUnlock()
+
+	if kgoClient == nil {
+		return errors.New("not connected")
+	}
+	return kgoClient.Ping(ctx)
 }
 
 func (c *KafkaClient) Stop() error {

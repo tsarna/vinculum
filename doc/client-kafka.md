@@ -80,6 +80,7 @@ block declares at least one `sender`.
 | `max_records` | number |  | `10000` | Records that may be buffered awaiting production. |
 | `metadata_max_age` | expression (duration) |  | `5m` | How long cluster metadata may be reused before it is refreshed. |
 | `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
+| `readiness` | bool |  | `true` | Whether this component gates the process's readiness. |
 | `request_timeout` | expression (duration) |  | `10s` | Deadline for a single broker request. |
 | `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
 | `wire_format` | expression |  | `auto` | How to encode and decode message payloads. |
@@ -125,6 +126,12 @@ The default is franz-go's.
 **`metrics`**
 
 A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics backend when omitted.
+
+**`readiness`**
+
+This block reports whether it is currently serving, and by default that gates the process: while it is down, `/readyz` fails and traffic should go elsewhere. Set this false for an integration the service can do without, so losing it does not take the whole process out of rotation.
+
+The attribute exists only on the types that have readiness to report; see [health](health.md).
 
 **`request_timeout`**
 

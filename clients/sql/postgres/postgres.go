@@ -24,7 +24,8 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("postgres", process, cfg.WithSchema(postgresSchema))
+	cfg.RegisterClientType("postgres", process,
+		cfg.WithSchema(postgresSchema), cfg.WithReadiness())
 }
 
 // postgresPoolDefaults are the Postgres-flavored pool defaults from the spec's

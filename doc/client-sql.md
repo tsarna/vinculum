@@ -72,6 +72,7 @@ client "sqlite" "state" {
 | `mode` | string |  |  | How to open the database. |
 | `path` | string |  |  | Path to the database file. |
 | `pragmas` | expression |  |  | PRAGMA statements applied to each new connection. |
+| `readiness` | bool |  | `true` | Whether this component gates the process's readiness. |
 | `shared_cache` | bool |  |  | Share one page cache across connections. |
 | `statement_timeout` | string (duration) |  |  | Deadline applied to every query on this client. |
 
@@ -100,6 +101,12 @@ Use `:memory:` for a database that lives only as long as the process.
 **`pragmas`**
 
 A map of pragma name to value, for example `{ journal_mode = "WAL" }`.
+
+**`readiness`**
+
+This block reports whether it is currently serving, and by default that gates the process: while it is down, `/readyz` fails and traffic should go elsewhere. Set this false for an integration the service can do without, so losing it does not take the whole process out of rotation.
+
+The attribute exists only on the types that have readiness to report; see [health](health.md).
 
 **`statement_timeout`**
 
@@ -195,6 +202,7 @@ should declare `cardinality = "one"` (or `"many"`) rather than `"exec"`.
 | `max_open_conns` | number |  | `25` | Maximum simultaneous connections to the database. |
 | `password` | string |  |  | Password to connect with. |
 | `port` | number |  |  | Server port. |
+| `readiness` | bool |  | `true` | Whether this component gates the process's readiness. |
 | `search_path` | string |  |  | Schema search path for the session. |
 | `sslmode` | string |  |  | How strictly to verify the server's TLS certificate. |
 | `statement_timeout` | string (duration) |  |  | Deadline applied to every query on this client. |
@@ -233,6 +241,12 @@ Supply it from the environment rather than a literal.
 **`port`**
 
 Defaults to `5432`.
+
+**`readiness`**
+
+This block reports whether it is currently serving, and by default that gates the process: while it is down, `/readyz` fails and traffic should go elsewhere. Set this false for an integration the service can do without, so losing it does not take the whole process out of rotation.
+
+The attribute exists only on the types that have readiness to report; see [health](health.md).
 
 **`sslmode`**
 
@@ -328,6 +342,7 @@ connection unencrypted.
 | `max_open_conns` | number |  | `25` | Maximum simultaneous connections to the database. |
 | `password` | string |  |  | Password to connect with. |
 | `port` | number |  |  | Server port. |
+| `readiness` | bool |  | `true` | Whether this component gates the process's readiness. |
 | `statement_timeout` | string (duration) |  |  | Deadline applied to every query on this client. |
 | `user` | string |  |  | User to connect as. |
 
@@ -364,6 +379,12 @@ Supply it from the environment rather than a literal.
 **`port`**
 
 Defaults to `3306`.
+
+**`readiness`**
+
+This block reports whether it is currently serving, and by default that gates the process: while it is down, `/readyz` fails and traffic should go elsewhere. Set this false for an integration the service can do without, so losing it does not take the whole process out of rotation.
+
+The attribute exists only on the types that have readiness to report; see [health](health.md).
 
 **`statement_timeout`**
 

@@ -22,7 +22,8 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("mysql", process, cfg.WithSchema(mysqlSchema))
+	cfg.RegisterClientType("mysql", process,
+		cfg.WithSchema(mysqlSchema), cfg.WithReadiness())
 }
 
 // mysqlPoolDefaults are the MySQL-flavored pool defaults from the spec's Pooling

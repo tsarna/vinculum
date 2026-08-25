@@ -22,7 +22,8 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("sqlite", process, cfg.WithSchema(sqliteSchema))
+	cfg.RegisterClientType("sqlite", process,
+		cfg.WithSchema(sqliteSchema), cfg.WithReadiness())
 }
 
 // sqlitePoolDefaults are the SQLite-flavored pool defaults: modest concurrency,

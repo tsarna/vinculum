@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
@@ -49,6 +50,11 @@ type HttpServer struct {
 	// healthPaths are the probe endpoints this server mounted itself, filtered
 	// out of trace collection. Empty unless health_endpoints is on.
 	healthPaths []string
+
+	// listener is non-nil once Start has bound successfully, which is what
+	// Ready reports. Guarded because Ready is called from probe goroutines.
+	mu       sync.RWMutex
+	listener net.Listener
 }
 
 type HttpServerDefinition struct {
@@ -89,7 +95,8 @@ type handlerDefinition struct {
 }
 
 func init() {
-	cfg.RegisterServerType("http", ProcessHttpServerBlock, cfg.WithSchema(httpServerSchema))
+	cfg.RegisterServerType("http", ProcessHttpServerBlock,
+		cfg.WithSchema(httpServerSchema), cfg.WithReadiness())
 }
 
 var httpServerSchema = cfg.TypeSchema{
@@ -596,20 +603,57 @@ func (h *HttpServer) Start() error {
 		h.Server.Handler = h.realIP.wrap(h.Server.Handler)
 	}
 
+	// Bind synchronously and report the failure, then serve on the accepted
+	// listener in the goroutine.
+	//
+	// ListenAndServe inside the goroutine would log a bind failure and return
+	// nil, leaving the process up and serving nothing — invisible to anything
+	// but the log. It also has to be this way for Ready() to mean anything:
+	// "bound" is a fact only the caller of Listen knows.
+	addr := h.Server.Addr
+	if addr == "" {
+		addr = ":http"
+	}
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("http server %q: %w", h.Name, err)
+	}
+	h.setListener(ln)
+
+	h.Logger.Info("Starting HTTP server", zap.String("name", h.Name), zap.String("addr", ln.Addr().String()))
+
 	go func() {
-		h.Logger.Info("Starting HTTP server", zap.String("name", h.Name), zap.String("addr", h.Server.Addr))
 		var err error
 		if h.TLSConfig != nil {
 			h.Server.TLSConfig = h.TLSConfig
-			err = h.Server.ListenAndServeTLS("", "")
+			err = h.Server.ServeTLS(ln, "", "")
 		} else {
-			err = h.Server.ListenAndServe()
+			err = h.Server.Serve(ln)
 		}
 		if err != nil && err != http.ErrServerClosed {
-			h.Logger.Error("Failed to start HTTP server", zap.Error(err))
+			h.Logger.Error("HTTP server stopped", zap.Error(err))
 		}
 	}()
 
+	return nil
+}
+
+// setListener records that the server is bound and serving.
+func (h *HttpServer) setListener(ln net.Listener) {
+	h.mu.Lock()
+	h.listener = ln
+	h.mu.Unlock()
+}
+
+// Ready implements cfg.Readyable: the server is ready once its listener is
+// bound. A bind that failed leaves it permanently unready, which is what makes
+// the failure visible to a probe rather than only to the log.
+func (h *HttpServer) Ready(context.Context) error {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.listener == nil {
+		return errors.New("not listening")
+	}
 	return nil
 }
 
