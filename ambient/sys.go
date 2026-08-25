@@ -87,7 +87,7 @@ var sysNamespace = cfg.NamespaceSchema{
 				"it at a cadence you control:\n\n" +
 				"```hcl\n" +
 				"trigger \"interval\" \"health_poll\" {\n" +
-				"    every  = \"10s\"\n" +
+				"    delay  = \"10s\"\n" +
 				"    action = health::refresh(ctx)\n" +
 				"}\n" +
 				"```\n\n" +

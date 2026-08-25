@@ -60,6 +60,7 @@ func GetBlockHandlers() map[string]BlockHandler {
 		"assert":       NewAssertBlockHandler(),
 		"auth":         NewAuthBlockHandler(),
 		"bus":          NewBusBlockHandler(),
+		"check":        NewCheckBlockHandler(),
 		"client":       NewClientBlockHandler(),
 		"condition":    NewConditionBlockHandler(),
 		"const":        NewConstBlockHandler(),
@@ -92,6 +93,10 @@ var blockSchema = []hcl.BlockHeaderSchema{
 	},
 	{
 		Type:       "bus",
+		LabelNames: []string{"name"},
+	},
+	{
+		Type:       "check",
 		LabelNames: []string{"name"},
 	},
 	{

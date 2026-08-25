@@ -490,6 +490,7 @@ Top-level block types:
 
 - `assert` — configuration validation assertions
 - `bus` — event bus declaration
+- `check` — a health check of your own, contributing to the readiness or liveness probe (see [health.md](health.md))
 - `client` — client protocol instance (see [Protocols](#protocols))
 - `condition` — named boolean with temporal rules, composable via `input = …` and observable via `trigger "watch"` (see [condition.md](condition.md))
 - `const` — named constants

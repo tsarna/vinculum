@@ -39,8 +39,8 @@ func TestSchemaTopLevelBlocks(t *testing.T) {
 	// separate assertion: a block that moved between them would be a silent
 	// change to what each file may contain.
 	expectedVCL := []string{
-		"assert", "auth", "bus", "client", "condition", "const", "editor", "fsm",
-		"function", "jq", "metric", "server", "subscription", "trigger",
+		"assert", "auth", "bus", "check", "client", "condition", "const", "editor",
+		"fsm", "function", "jq", "metric", "server", "subscription", "trigger",
 		"var", "wire_format",
 	}
 	expectedVinit := []string{"git", "plugin"}

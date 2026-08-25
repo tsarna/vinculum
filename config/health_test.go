@@ -70,7 +70,7 @@ func TestHealthIsReadyWithNoContributors(t *testing.T) {
 	h := bootedHealth()
 
 	assert.True(t, h.IsReady(context.Background()))
-	assert.Empty(t, h.Unready(context.Background(), ProbeReady, true))
+	assert.Empty(t, h.Failing(context.Background(), ProbeReady, true))
 	assert.Equal(t, []string{"process"}, componentNames(h.Status(context.Background(), ProbeReady, true)))
 }
 
@@ -79,7 +79,7 @@ func TestHealthBootGateSkipsContributors(t *testing.T) {
 	c := &fakeReadyable{}
 	h.RegisterReady("client", "mqtt", "broker", c)
 
-	unready := h.Unready(context.Background(), ProbeReady, true)
+	unready := h.Failing(context.Background(), ProbeReady, true)
 	require.Len(t, unready, 1)
 	assert.Equal(t, "process", unready[0].Component)
 	assert.Equal(t, "starting", unready[0].Reason)
@@ -104,7 +104,7 @@ func TestHealthDrainGateBypassesTheCache(t *testing.T) {
 	// shutting down.
 	h.BeginDrain()
 
-	unready := h.Unready(context.Background(), ProbeReady, false)
+	unready := h.Failing(context.Background(), ProbeReady, false)
 	require.Len(t, unready, 1)
 	assert.Equal(t, "process", unready[0].Component)
 	assert.Equal(t, "shutting down", unready[0].Reason)
@@ -116,7 +116,7 @@ func TestHealthDrainingIsStillLive(t *testing.T) {
 
 	// A draining process is not wedged. Restarting it mid-drain is the
 	// opposite of what shutdown is trying to achieve.
-	assert.Empty(t, h.Unready(context.Background(), ProbeLive, true))
+	assert.Empty(t, h.Failing(context.Background(), ProbeLive, true))
 }
 
 func TestHealthReportsTheContributorsReason(t *testing.T) {
@@ -126,7 +126,7 @@ func TestHealthReportsTheContributorsReason(t *testing.T) {
 	})
 	h.RegisterReady("server", "http", "api", &fakeReadyable{})
 
-	unready := h.Unready(context.Background(), ProbeReady, true)
+	unready := h.Failing(context.Background(), ProbeReady, true)
 	require.Len(t, unready, 1)
 	assert.Equal(t, "client.broker", unready[0].Component)
 	assert.Equal(t, "mqtt", unready[0].Type)
@@ -150,7 +150,7 @@ func TestHealthSeparatesTheTwoProbes(t *testing.T) {
 		componentNames(h.Status(context.Background(), ProbeLive, true)))
 
 	// A broker outage must not restart the pod.
-	assert.Empty(t, h.Unready(context.Background(), ProbeLive, true))
+	assert.Empty(t, h.Failing(context.Background(), ProbeLive, true))
 }
 
 func TestHealthTimesOutASlowContributor(t *testing.T) {
@@ -159,7 +159,7 @@ func TestHealthTimesOutASlowContributor(t *testing.T) {
 	h.RegisterReady("server", "http", "api", &fakeReadyable{})
 
 	start := time.Now()
-	unready := h.Unready(context.Background(), ProbeReady, true)
+	unready := h.Failing(context.Background(), ProbeReady, true)
 	elapsed := time.Since(start)
 
 	require.Len(t, unready, 1)
@@ -176,7 +176,7 @@ func TestHealthRecoversAPanickingContributor(t *testing.T) {
 	h.RegisterReady("client", "sql", "db", &fakeReadyable{panic: true})
 	h.RegisterReady("server", "http", "api", &fakeReadyable{})
 
-	unready := h.Unready(context.Background(), ProbeReady, true)
+	unready := h.Failing(context.Background(), ProbeReady, true)
 	require.Len(t, unready, 1)
 	assert.Equal(t, "client.db", unready[0].Component)
 	assert.Contains(t, unready[0].Reason, "wedged")
@@ -201,8 +201,8 @@ func TestHealthServesTheCacheUntilRefreshed(t *testing.T) {
 	assert.Equal(t, int32(1), c.calls.Load())
 
 	// refresh() is the configuration instructing itself, so it is not rate
-	// limited — a trigger that says every = "1s" must not silently get 5s.
-	unready := h.Unready(context.Background(), ProbeReady, true)
+	// limited — a trigger that says delay = "1s" must not silently get 5s.
+	unready := h.Failing(context.Background(), ProbeReady, true)
 	assert.Equal(t, int32(2), c.calls.Load())
 	require.Len(t, unready, 1)
 	assert.Equal(t, "client.broker", unready[0].Component)
@@ -240,7 +240,7 @@ func TestHealthSharedRefreshSurvivesACallerLeaving(t *testing.T) {
 	go func() {
 		defer close(done)
 		close(started)
-		h.Unready(leaving, ProbeReady, true)
+		h.Failing(leaving, ProbeReady, true)
 	}()
 	<-started
 	time.Sleep(20 * time.Millisecond)
@@ -248,7 +248,7 @@ func TestHealthSharedRefreshSurvivesACallerLeaving(t *testing.T) {
 	// A second caller is waiting on that shared evaluation.
 	stayingResult := make(chan []ComponentStatus, 1)
 	go func() {
-		stayingResult <- h.Unready(context.Background(), ProbeReady, false)
+		stayingResult <- h.Failing(context.Background(), ProbeReady, false)
 	}()
 	time.Sleep(20 * time.Millisecond)
 
@@ -299,20 +299,20 @@ func TestSysReadyNotifiesOnlyOnAFlip(t *testing.T) {
 	// The first observation establishes the baseline rather than synthesizing
 	// a rising edge, and repeats of a value already held are noise.
 	require.True(t, h.IsReady(context.Background()))
-	h.Unready(context.Background(), ProbeReady, true)
+	h.Failing(context.Background(), ProbeReady, true)
 	assert.Empty(t, w.values())
 
 	c.set(errors.New("not connected"))
-	h.Unready(context.Background(), ProbeReady, true)
+	h.Failing(context.Background(), ProbeReady, true)
 	require.Len(t, w.values(), 1)
 	assert.True(t, w.values()[0].RawEquals(cty.False))
 
 	// Still down: a watcher woken with the value it already had is noise.
-	h.Unready(context.Background(), ProbeReady, true)
+	h.Failing(context.Background(), ProbeReady, true)
 	assert.Len(t, w.values(), 1)
 
 	c.set(nil)
-	h.Unready(context.Background(), ProbeReady, true)
+	h.Failing(context.Background(), ProbeReady, true)
 	require.Len(t, w.values(), 2)
 	assert.True(t, w.values()[1].RawEquals(cty.True))
 }
@@ -345,7 +345,7 @@ func TestSysReadyIsGettableAndWatchable(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, got.RawEquals(cty.True))
 
-	h.Unready(context.Background(), ProbeReady, true)
+	h.Failing(context.Background(), ProbeReady, true)
 	got, err = gettable.Get(context.Background(), nil)
 	require.NoError(t, err)
 	assert.True(t, got.RawEquals(cty.False))
@@ -415,7 +415,7 @@ func TestReadinessFalseDeclinesToContribute(t *testing.T) {
 	assert.False(t, diags.HasErrors(), "%v", diags)
 	assert.Empty(t, config.Health.RegisteredComponents())
 
-	config.Health.Unready(context.Background(), ProbeReady, true)
+	config.Health.Failing(context.Background(), ProbeReady, true)
 	assert.Zero(t, optional.calls.Load())
 }
 

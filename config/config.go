@@ -128,6 +128,7 @@ type Config struct {
 	CtyTriggerMap    map[string]cty.Value
 	TriggerDefRanges map[string]hcl.Range
 	CtyConditionMap  map[string]cty.Value
+	CtyCheckMap      map[string]cty.Value
 	CtyFsmMap        map[string]cty.Value
 	CtyWireFormatMap map[string]cty.Value
 	CtyAuthMap       map[string]cty.Value
@@ -256,6 +257,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		CtyServerMap:     make(map[string]cty.Value),
 		CtyTriggerMap:    make(map[string]cty.Value),
 		CtyConditionMap:  make(map[string]cty.Value),
+		CtyCheckMap:      make(map[string]cty.Value),
 		CtyFsmMap:        make(map[string]cty.Value),
 		CtyVarMap:        make(map[string]cty.Value),
 		TriggerDefRanges: make(map[string]hcl.Range),

@@ -24,6 +24,7 @@ var ownFunctions = []string{
 	"http::response", "http::redirect", "http::error",
 	"http::add_header", "http::remove_header", "http::set_cookie", "http::basic_auth",
 	"mcp::image", "mcp::error", "mcp::user_message", "mcp::assistant_message",
+	"health::ready", "health::live", "health::status", "health::failing", "health::refresh",
 }
 
 // TestOwnFunctionsAreDocumented guards the metadata of vinculum's own functions against

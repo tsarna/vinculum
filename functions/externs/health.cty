@@ -1,0 +1,30 @@
+//functy:extern
+
+namespace health
+
+// Health probe functions, provided in Go by vinculum (GetHealthFunctions).
+// Signatures only — never compiled, nothing here is callable.
+//
+// Only `status` and `failing` are declared. cty cannot say that a trailing
+// parameter is optional; the closest it offers is a variadic, which erases the
+// name, the type, and the default, and reflects as `*probe` — reading as "any
+// number of probes" when at most one is accepted. The declarations here say what
+// the functions actually take.
+//
+// `ready`, `live`, and `refresh` are deliberately absent: they take one required
+// argument and return a bool, so their cty metadata already says everything true
+// about them, and an extern would only be a second place for it to drift.
+
+// Every contributor to a health probe, passing ones included, in boot order.
+func status(
+    ctx: ctx,  // request context; required, and spent evaluating check inputs
+    probe: string = "ready",  // "ready" or "live"
+) -> list(object({ component = string, type = string, ready = bool, reason = string }))
+
+// Only the contributors that are failing, with the reason for each. Empty means
+// the probe passes, which is why this is the one to log: a healthy process has
+// nothing to say.
+func failing(
+    ctx: ctx,  // request context; required, and spent evaluating check inputs
+    probe: string = "ready",  // "ready" or "live"
+) -> list(object({ component = string, type = string, ready = bool, reason = string }))

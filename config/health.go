@@ -20,7 +20,7 @@ import (
 // A nil error means ready. A non-nil error means not ready, and its message is
 // reported verbatim as the reason, so it should read as a fragment completing
 // "<component> is not ready: ...". ctx carries the probe's deadline; an
-// implementation that performs I/O must honour it.
+// implementation that performs I/O must honor it.
 type Readyable interface {
 	Ready(ctx context.Context) error
 }
@@ -238,10 +238,9 @@ func (h *Health) Status(ctx context.Context, probe string, force bool) []Compone
 	return out
 }
 
-// Unready returns the entries of Status that are not ready. An empty result
-// means the probe passes, which is the test callers write:
-// `length(health::ready(ctx)) == 0`.
-func (h *Health) Unready(ctx context.Context, probe string, force bool) []ComponentStatus {
+// Failing returns the entries of Status that are not passing. An empty result
+// means the probe passes, and is what makes the aggregate boolean.
+func (h *Health) Failing(ctx context.Context, probe string, force bool) []ComponentStatus {
 	all := h.Status(ctx, probe, force)
 	out := make([]ComponentStatus, 0, len(all))
 	for _, s := range all {
@@ -253,9 +252,16 @@ func (h *Health) Unready(ctx context.Context, probe string, force bool) []Compon
 }
 
 // IsReady reports the aggregate readiness boolean, subject to the cache. It is
-// what get(sys.ready) returns.
+// what get(sys.ready) and health::ready(ctx) return.
 func (h *Health) IsReady(ctx context.Context) bool {
-	return len(h.Unready(ctx, ProbeReady, false)) == 0
+	return len(h.Failing(ctx, ProbeReady, false)) == 0
+}
+
+// ValidProbe reports whether name is a probe this language knows. The vocabulary
+// is closed and owned by the language, so both the `check` block's `probe`
+// attribute and the health:: functions' probe selector validate against this.
+func ValidProbe(name string) bool {
+	return name == ProbeReady || name == ProbeLive
 }
 
 // processStatus returns the built-in `process` entry for probe, and whether it
@@ -488,7 +494,7 @@ var ReadyCapsuleType = cty.CapsuleWithOps("ready", reflect.TypeOf(ReadyHandle{})
 // ---------------------------------------------------------------------------
 
 // HealthStatusType is the object type of one report entry as expressions see
-// it. The HTTP JSON rendering serialises the same values, so the two views
+// it. The HTTP JSON rendering serializes the same values, so the two views
 // cannot drift.
 var HealthStatusType = cty.Object(map[string]cty.Type{
 	"component": cty.String,
@@ -497,11 +503,11 @@ var HealthStatusType = cty.Object(map[string]cty.Type{
 	"reason":    cty.String,
 })
 
-// HealthStatusListType is what health::ready and health::status return.
+// HealthStatusListType is what health::status and health::failing return.
 var HealthStatusListType = cty.List(HealthStatusType)
 
 // StatusesToCty projects a report into the list-of-objects shape expressions
-// see. A list preserves boot order and serialises to JSON the way an operator
+// see. A list preserves boot order and serializes to JSON the way an operator
 // expects, where a map keyed by name would do neither.
 func StatusesToCty(statuses []ComponentStatus) cty.Value {
 	if len(statuses) == 0 {

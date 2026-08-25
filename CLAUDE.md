@@ -31,6 +31,7 @@ User-facing documentation lives in `doc/`. Each file covers one topic:
 | `doc/fsm.md` | `fsm` block: state machines |
 | `doc/trigger.md` | `trigger` block types (`cron`, `at`, `after`, `interval`, `once`, `watch`, `watchdog`, `signals`, `start`, `shutdown`, `file`) |
 | `doc/metric.md` | `metric` block and metric types |
+| `doc/health.md` | Readiness/liveness model, `check` block, `sys.ready`, `health::` functions, `readiness` on clients and servers |
 | `doc/baggage.md` | OTel `ctx.baggage`: read/write/delete, secure-by-default `baggage {}` trust filtering, `record_baggage` span projection |
 | `doc/server-http.md` | `server "http"`: handle/files blocks, context vars, request functions |
 | `doc/server-mcp.md` | `server "mcp"`: resources, tools, prompts, MCP functions |
@@ -66,6 +67,10 @@ config/         Core config parsing, block registries, and shared block impls
   trigger.go    Trigger interface + RegisterTriggerType registry
   condition.go  Condition subtype registry (RegisterConditionSubtype)
   bus.go        bus block
+  health.go     Readyable, the Health aggregator (no goroutine; TTL cache +
+                single-flight), boot/drain gates, the sys.ready watchable
+  check.go      check block: a probe over an expression, evaluated by the
+                prober rather than by an event; publishes check.<name>
   subs.go       subscription block
   config.go     Config and ConfigBuilder types
   dep.go        dependency graph + topological sort
@@ -100,7 +105,11 @@ conditions/     Condition subtypes (threshold, counter, timer, state, hooks)
 procedure/      Procedure compiler/interpreter (ir, scope, signal, spec)
 editors/        Editor implementations (line)
 ambient/        Ambient providers (env, sys, httpstatus, boottime)
-functions/      Built-in HCL functions (log, stdlib, jq, diff, mcp_*, http, etc.)
+functions/      Built-in HCL functions (log, stdlib, jq, diff, mcp_*, http, health, etc.)
+  externs/      In-tree functy //functy:extern declarations, for functions whose
+                real signature cty cannot express — an optional *trailing*
+                parameter has to be faked with a variadic, which erases its name,
+                type, and default (health::status/failing's `probe`)
 repl/           Interactive REPL (serve -i)
 hclutil/        Shared HCL helpers (ContextObjectBuilder, capsule/ctx/auth/env/tracing)
 internal/       Internal-only helpers
@@ -406,6 +415,7 @@ platform. Only the *loader* is platform-gated.
 ```hcl
 assert "name" { condition = expr }
 bus "name" { queue_size = 1000 }
+check "name" { input = expr }   # health probe; exposed as check.<name>
 client "type" "name" { ... }
 condition "type" "name" { ... }
 const { name = expr; ... }

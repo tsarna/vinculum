@@ -1158,6 +1158,30 @@ condition "timer" "system_fault" {
 Circular dependencies between conditions (via `input =` or `inhibit =`) are
 detected at configuration load time and rejected.
 
+### Composing a condition into a health check
+
+A condition computes a boolean and says nothing about what it is *for*. A
+[`check`](health.md#the-check-block) is the opposite: it attaches meaning to one
+— this boolean, when false, means do not send this process traffic. So a health
+check that needs flapping suppression does not reimplement any of the above; it
+names a condition:
+
+```hcl
+condition "timer" "broker_backlog_ok" {
+    input            = get(var.backlog) < 1000
+    deactivate_after = "30s"          # a momentary spike is not an outage
+}
+
+check "backlog" {
+    input  = get(condition.broker_backlog_ok)
+    reason = "message backlog above threshold for 30s"
+}
+```
+
+The condition remains a plain boolean anything else may read; the check is the
+single place that says what it means for serving traffic. See
+[health.md](health.md).
+
 ---
 
 ## Integration with `trigger "watch"`

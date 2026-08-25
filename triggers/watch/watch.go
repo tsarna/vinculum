@@ -188,6 +188,13 @@ var watchTriggerSchema = cfg.TypeSchema{
 the same value is still alive. For changes-only semantics, say
 ` + "`skip_when = ctx.old_value == ctx.new_value`" + `.
 
+` + "`sys.ready`" + ` and ` + "`check.<name>`" + ` are watchable too, and behave differently
+in two ways worth knowing: they notify only when the value actually *changes*,
+since a derived state repeating itself is not an event, and they are **sampled**
+— readiness is recomputed only when something asks for it, so in a configuration
+with no health endpoint and no polling trigger a watch on one never fires. See
+[health](health.md).
+
 The action is dispatched to its own goroutine, so the caller of ` + "`set()`" + ` is not
 blocked. It keeps the caller's context values (trace span, auth) but not its
 cancellation, so a short-lived caller cannot interrupt an in-flight action. On

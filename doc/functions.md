@@ -29,6 +29,8 @@ separate, context-specific mini-DSL, not regular functions.
   - [Messaging](#messaging)
   - [Variables and Metrics](#variables-and-metrics)
   - [Conditions](#conditions)
+- [Health](#health)
+  - [Readiness and Liveness Functions](#readiness-and-liveness-functions)
 - [HTTP](#http)
   - [HTTP Client Verb Functions](#http-client-verb-functions)
   - [HTTP Response Functions](#http-response-functions)
@@ -1146,6 +1148,84 @@ trigger "cron" "daily_report" {
     }
 }
 ```
+
+## Health
+
+### Readiness and Liveness Functions
+
+These report whether the process is able to serve. Each takes the handler
+context as a required leading argument — a refresh evaluates `check` blocks,
+which run arbitrary expressions and arbitrary I/O, so it needs the caller's
+trace parent and deadline. See [health.md](health.md) for the probe model and
+the `check` block.
+
+#### `health::ready(ctx)` → bool
+
+Whether the process is ready to serve traffic — false while booting, while
+shutting down, and whenever any contributor is failing.
+
+```hcl
+action = health::ready(ctx) ? "ok" : http::error(503, "not ready")
+```
+
+Subject to a 5-second cache: readiness is computed when something asks, never on
+a timer.
+
+#### `health::live(ctx)` → bool
+
+Whether the process is live. False only while booting or when a `check` declared
+`probe = "live"` is failing. No client or server contributes to liveness,
+deliberately, because a dependency outage must never restart every replica.
+
+#### `health::status(ctx [, probe])` → list(object)
+
+Every contributor to the probe, passing ones included, in boot order. `probe` is
+`"ready"` (the default) or `"live"`. Each entry is:
+
+```hcl
+{
+    component = "client.broker"   # or "check.database", or "process"
+    type      = "mqtt"            # the block's type label, "" where there is none
+    ready     = false
+    reason    = "not connected: dial tcp 10.0.0.5:1883: connection refused"
+}
+```
+
+#### `health::failing(ctx [, probe])` → list(object)
+
+The same objects, filtered to the contributors that are failing. This is the one
+to log — a healthy process has nothing to say, so an empty result is the good
+case and a transition line stays short:
+
+```hcl
+log::warn("not ready", {problems = health::failing(ctx)})
+```
+
+#### `health::refresh(ctx)` → bool
+
+Evaluates every contributor **now**, ignoring the cache, and returns readiness.
+This is how a configuration polls at a cadence of its own; the cache governs
+callers the configuration did not choose, not its own instructions.
+
+```hcl
+trigger "interval" "health_poll" {
+    delay  = "10s"
+    action = cond(health::refresh(ctx), "ok",
+                  log::warn("not ready", {problems = health::failing(ctx)}))
+}
+```
+
+The second call is free — it reads the report the refresh just computed.
+
+Reach for [`cond()`](#control-flow) rather than `?:` when pairing
+`health::refresh` with another `health::` call. HCL's ternary evaluates *both*
+branches, in no guaranteed order, so `health::refresh(ctx) ? … : health::failing(ctx)`
+can read the cache before the refresh replaces it and report the previous
+answer. `cond()` short-circuits: the condition first, then only the branch it
+selected.
+
+For the aggregate as a watchable, usable in a reactive expression where there is
+no `ctx`, use `get(sys.ready)` — see [health.md](health.md#sysready).
 
 ## HTTP
 

@@ -152,6 +152,15 @@ var blockNamespaceSchemas = map[string]NamespaceSchema{
 		Doc:     "`bus.main` always exists, even when it is not declared explicitly.",
 		DocPage: "config.md#bus",
 	},
+	"check": {
+		Block:   "check",
+		Summary: "Each health check, by name.",
+		Doc: "Reads as the check's last result with `get()`, and is watchable: a reactive " +
+			"expression naming one is re-evaluated when that check passes or fails, and a " +
+			"`trigger \"watch\"` over one fires on its transitions without involving the " +
+			"aggregate. A check nothing has probed yet reads as `true`.",
+		DocPage: "health.md",
+	},
 	"client": {
 		Block:   "client",
 		Summary: "Each client, by name.",
