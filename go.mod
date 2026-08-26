@@ -49,12 +49,12 @@ require (
 	github.com/tsarna/time-cty-funcs v0.4.0
 	github.com/tsarna/vinculum-bus v0.16.0
 	github.com/tsarna/vinculum-kafka v0.12.0
-	github.com/tsarna/vinculum-mqtt v0.11.0
-	github.com/tsarna/vinculum-rabbitmq v0.4.0
+	github.com/tsarna/vinculum-mqtt v0.12.1
+	github.com/tsarna/vinculum-rabbitmq v0.5.0
 	github.com/tsarna/vinculum-redis v0.5.0
 	github.com/tsarna/vinculum-sns v0.3.0
 	github.com/tsarna/vinculum-sqs v0.4.1
-	github.com/tsarna/vinculum-vws v0.13.0
+	github.com/tsarna/vinculum-vws v0.14.1
 	github.com/tsarna/vinculum-wire v0.5.0
 	github.com/twmb/franz-go v1.21.6
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260820024614-9b174ed31afe

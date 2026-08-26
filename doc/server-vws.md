@@ -118,6 +118,7 @@ client "vws" "name" {
 | `dial_timeout` | expression (duration) |  | `30s` | Deadline for establishing the connection. |
 | `disabled` | bool |  |  | Skip this block entirely. |
 | `headers` | map |  |  | Extra headers sent with the WebSocket handshake. |
+| `readiness` | bool |  | `true` | Whether this component gates the process's readiness. |
 | `write_queue_size` | number |  | `100` | Outbound message queue depth. |
 
 **`url`**
@@ -133,6 +134,12 @@ Evaluated against the `connection` context.
 **`disabled`**
 
 The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
+
+**`readiness`**
+
+This block reports whether it is currently serving, and by default that gates the process: while it is down, `/readyz` fails and traffic should go elsewhere. Set this false for an integration the service can do without, so losing it does not take the whole process out of rotation.
+
+The attribute exists only on the types that have readiness to report; see [health](health.md).
 
 ### Blocks
 

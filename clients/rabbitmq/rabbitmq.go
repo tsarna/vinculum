@@ -5,6 +5,7 @@ package rabbitmq
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/url"
 	"sync"
@@ -27,7 +28,8 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("rabbitmq", process, cfg.WithSchema(rabbitmqClientSchema))
+	cfg.RegisterClientType("rabbitmq", process,
+		cfg.WithSchema(rabbitmqClientSchema), cfg.WithReadiness())
 }
 
 // ─── HCL definition structs ──────────────────────────────────────────────────
@@ -455,6 +457,25 @@ func (c *RMQClientWrapper) Start() error {
 	c.client = cli
 	c.senders = senders
 	c.mu.Unlock()
+	return nil
+}
+
+// Ready implements cfg.Readyable: the broker connection is up.
+//
+// The client reconnects on its own, so a broker outage is a recoverable state
+// rather than a dead client — exactly what readiness exists to report: out of
+// rotation while the broker is away, back in when the reconnect loop succeeds.
+func (c *RMQClientWrapper) Ready(context.Context) error {
+	c.mu.RLock()
+	client := c.client
+	c.mu.RUnlock()
+
+	if client == nil {
+		return errors.New("not started")
+	}
+	if !client.IsConnected() {
+		return errors.New("not connected")
+	}
 	return nil
 }
 

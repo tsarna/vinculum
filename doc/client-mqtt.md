@@ -88,6 +88,7 @@ client "mqtt" "iot" {
 | `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
 | `on_connect` | expression (action-expression) |  |  | Evaluated after the connection is established and ready. |
 | `on_disconnect` | expression (action-expression) |  |  | Evaluated when the connection is lost or closed. |
+| `readiness` | bool |  | `true` | Whether this component gates the process's readiness. |
 | `session_expiry_interval` | expression (duration) |  | `0` | How long the broker keeps the session after disconnect. |
 | `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
 | `wire_format` | expression |  | `auto` | How to encode and decode message payloads. |
@@ -123,6 +124,12 @@ Evaluated against the `connection` context.
 Always runs before any reconnection attempt, and on a graceful shutdown before the connection is torn down. Every `on_connect` after the first is preceded by one.
 
 Evaluated against the `connection` context.
+
+**`readiness`**
+
+This block reports whether it is currently serving, and by default that gates the process: while it is down, `/readyz` fails and traffic should go elsewhere. Set this false for an integration the service can do without, so losing it does not take the whole process out of rotation.
+
+The attribute exists only on the types that have readiness to report; see [health](health.md).
 
 **`session_expiry_interval`**
 

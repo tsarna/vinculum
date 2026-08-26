@@ -3,6 +3,7 @@ package mqtt
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -26,7 +27,8 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("mqtt", process, cfg.WithSchema(mqttClientSchema))
+	cfg.RegisterClientType("mqtt", process,
+		cfg.WithSchema(mqttClientSchema), cfg.WithReadiness())
 }
 
 var mqttClientSchema = cfg.TypeSchema{
@@ -374,6 +376,25 @@ func (c *MQTTClientWrapper) Start() error {
 	c.connCancel = connCancel
 	c.mu.Unlock()
 
+	return nil
+}
+
+// Ready implements cfg.Readyable: the broker connection is up.
+//
+// autopaho reconnects on its own, so a broker outage is a recoverable state
+// rather than a dead client — exactly what readiness exists to report: out of
+// rotation while the broker is away, back in when the reconnect loop succeeds.
+func (c *MQTTClientWrapper) Ready(context.Context) error {
+	c.mu.RLock()
+	client := c.mqttClient
+	c.mu.RUnlock()
+
+	if client == nil {
+		return errors.New("not started")
+	}
+	if !client.IsConnected() {
+		return errors.New("not connected")
+	}
 	return nil
 }
 

@@ -1,6 +1,8 @@
 package vws
 
 import (
+	"context"
+	"errors"
 	"fmt"
 
 	"github.com/hashicorp/hcl/v2"
@@ -11,7 +13,8 @@ import (
 )
 
 func init() {
-	cfg.RegisterClientType("vws", process, cfg.WithSchema(vwsClientSchema))
+	cfg.RegisterClientType("vws", process,
+		cfg.WithSchema(vwsClientSchema), cfg.WithReadiness())
 }
 
 type VinculumWebsocketClient struct {
@@ -33,6 +36,24 @@ func (c *VinculumWebsocketClient) Build() (bus.Client, error) {
 	c.Client = busClient
 
 	return busClient, nil
+}
+
+// Ready implements cfg.Readyable: the WebSocket to the peer is up.
+//
+// A dropped connection is recoverable — a `reconnect` block installs a monitor
+// that re-dials — so this is the readiness case rather than a fatal one: out of
+// rotation while the bridge is down, back in when it reconnects.
+func (c *VinculumWebsocketClient) Ready(context.Context) error {
+	// c.Client is set by Build, which runs during startup, before the process
+	// gate opens and lets any probe reach a contributor.
+	vwsClient, ok := c.Client.(*client.Client)
+	if !ok || vwsClient == nil {
+		return errors.New("not started")
+	}
+	if !vwsClient.IsConnected() {
+		return errors.New("not connected")
+	}
+	return nil
 }
 
 var vwsClientSchema = cfg.TypeSchema{
