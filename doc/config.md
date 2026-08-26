@@ -239,7 +239,7 @@ For example `["ambient.sys", "client.kafka", "functions.kill", "server.mcp"]`. B
 
 Reads as a boolean with `get()` — `get(sys.ready)`, or `get(ctx, sys.ready)` where a `ctx` is in scope, which is the better form since it carries the trace parent and the caller's deadline. It is also watchable, so a reactive expression naming it is re-evaluated when readiness flips.
 
-It is a *sampled* watchable, unlike every other one in Vinculum. Readiness is computed only when something asks for it — an HTTP probe, a `health::` call, a metrics scrape — so in a configuration with none of those it never changes at all. Where transitions must be observed independently of who is probing, poll it at a cadence you control:
+A connected client reports a lost connection the moment it happens, so this goes false promptly even with nothing probing. Recovery and `check` blocks are still *sampled*: readiness is recomputed only when something asks — an HTTP probe, a `health::` call, a metrics scrape — so those are seen at the next such moment. Where that matters, poll at a cadence you control:
 
 ```hcl
 trigger "interval" "health_poll" {

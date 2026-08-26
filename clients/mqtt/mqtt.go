@@ -296,6 +296,46 @@ type MQTTClientWrapper struct {
 	mqttClient *mqttclient.MQTTClient
 	publishers []*mqttpublisher.MQTTPublisher
 	connCancel context.CancelFunc
+	// report tells the health subsystem the connection changed, so a drop is
+	// visible at once rather than at the next probe. Set at registration, which
+	// happens after this client is built and before anything starts.
+	report cfg.ReadyReporter
+}
+
+// Ensure interface compliance.
+var (
+	_ cfg.Readyable     = (*MQTTClientWrapper)(nil)
+	_ cfg.ReadyNotifier = (*MQTTClientWrapper)(nil)
+)
+
+// SetReadyReporter implements cfg.ReadyNotifier.
+func (c *MQTTClientWrapper) SetReadyReporter(report cfg.ReadyReporter) {
+	c.mu.Lock()
+	c.report = report
+	c.mu.Unlock()
+}
+
+func (c *MQTTClientWrapper) reportConnected() { c.reportHealth(nil) }
+
+// reportDisconnected fires before any reconnection attempt, which is the
+// guarantee on_disconnect already carries.
+//
+// The graceful-stop case is not covered — vinculum-mqtt clears its own state on
+// a deliberate DISCONNECT and does not promise OnConnectionDown for it — and
+// does not need to be: BeginDrain has already made readiness false before any
+// client is stopped.
+func (c *MQTTClientWrapper) reportDisconnected() {
+	c.reportHealth(errors.New("not connected"))
+}
+
+func (c *MQTTClientWrapper) reportHealth(err error) {
+	c.mu.RLock()
+	report := c.report
+	c.mu.RUnlock()
+
+	if report != nil {
+		report(err)
+	}
 }
 
 func (c *MQTTClientWrapper) CtyValue() cty.Value {
@@ -627,8 +667,19 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		return nil, reconnDiags
 	}
 
-	onConnect := makeLifecycleHook(config, def.OnConnect)
-	onDisconnect := makeLifecycleHook(config, def.OnDisconnect)
+	// Allocated before the lifecycle hooks so they can be bound to it. The rest
+	// of its fields are filled in below, once they have been built; nothing
+	// reads them until Start.
+	wrapper := &MQTTClientWrapper{
+		BaseClient: cfg.BaseClient{
+			Name:     clientName,
+			DefRange: def.DefRange,
+		},
+		logger: config.Logger,
+	}
+
+	onConnect := makeLifecycleHook(config, def.OnConnect, wrapper.reportConnected)
+	onDisconnect := makeLifecycleHook(config, def.OnDisconnect, wrapper.reportDisconnected)
 
 	mp, metricsDiags := cfg.ResolveMeterProvider(config, def.Metrics)
 	if metricsDiags.HasErrors() {
@@ -696,20 +747,13 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}
 	}
 
-	wrapper := &MQTTClientWrapper{
-		BaseClient: cfg.BaseClient{
-			Name:     clientName,
-			DefRange: def.DefRange,
-		},
-		clientCfg:        clientCfg,
-		pubSpecs:         pubSpecs,
-		subSpecs:         subSpecs,
-		publisherProxies: publisherProxies,
-		wireFormat:       ctyWF,
-		meterProvider:    mp,
-		tracerProvider:   tracerProvider,
-		logger:           config.Logger,
-	}
+	wrapper.clientCfg = clientCfg
+	wrapper.pubSpecs = pubSpecs
+	wrapper.subSpecs = subSpecs
+	wrapper.publisherProxies = publisherProxies
+	wrapper.wireFormat = ctyWF
+	wrapper.meterProvider = mp
+	wrapper.tracerProvider = tracerProvider
 
 	config.Startables = append(config.Startables, wrapper)
 	config.Stoppables = append(config.Stoppables, wrapper)
@@ -934,11 +978,26 @@ func makeMQTTVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) mqttsubs
 	}
 }
 
-func makeLifecycleHook(config *cfg.Config, expr hcl.Expression) func(ctx context.Context) {
-	if !cfg.IsExpressionProvided(expr) {
-		return nil
-	}
+// makeLifecycleHook builds the func the library calls on each connect or
+// disconnect: it reports the state change to the health subsystem, then
+// evaluates the user's `on_connect` / `on_disconnect` expression if there is
+// one.
+//
+// It is returned unconditionally, where it used to be nil with no VCL hook
+// declared. Health reporting does not depend on the configuration having asked
+// for a hook — this is the point at which the client knows its connection
+// changed, and it is the only one.
+//
+// notify runs first: it is a map write and a watcher notification, while the
+// expression can do arbitrary I/O, and the library documents this callback as
+// synchronous.
+func makeLifecycleHook(config *cfg.Config, expr hcl.Expression, notify func()) func(ctx context.Context) {
+	hasExpr := cfg.IsExpressionProvided(expr)
 	return func(ctx context.Context) {
+		notify()
+		if !hasExpr {
+			return
+		}
 		evalCtx, err := hclutil.NewEvalContext(ctx).BuildEvalContext(config.EvalCtx())
 		if err != nil {
 			config.UserLogger.Error("mqtt lifecycle hook: build eval context", zap.Error(err))

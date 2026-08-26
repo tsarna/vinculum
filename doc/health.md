@@ -659,26 +659,39 @@ branches in no guaranteed order, so it can read the cache before the refresh
 replaces it. The cache governs callers the configuration did not choose; the
 configuration's own instructions are not second-guessed.
 
-### `sys.ready` is a *sampled* watchable
+### What is prompt, and what is sampled
 
-This is the one real cost of having no poller, and it is part of the contract
-rather than an implementation detail. Every other watchable in Vinculum — `var`,
-`condition`, `metric` — fires because something actively changed it. `sys.ready`
-changes during a refresh, and refreshes happen only when something asks. So:
+A connected client **knows** the moment it loses its connection, and says so.
+`client "mqtt"`, `client "rabbitmq"`, and `client "vws"` report the drop from
+the same callback that fires `on_disconnect`, so:
 
 ```hcl
-# In a configuration with no probe and no interval trigger, this never fires.
-# It is not broken; nothing ever looked.
+# Fires within milliseconds of the broker going away, with no probe
+# configured and nothing polling.
 trigger "watch" "readiness_changed" {
     watch  = sys.ready
     action = log::warn("readiness changed", {ready = ctx.new_value})
 }
 ```
 
-A transition is therefore observed up to one asking-interval late. Where that
-matters, add the `trigger "interval"` above and you have an interval you can
-name, disable, trace, and change — none of which a hidden ticker would have
-offered.
+`/readyz` stops claiming the process is ready at the same moment, rather than
+serving the cached answer until it expires.
+
+Two things remain **sampled**, and are observed when something next asks:
+
+- **Recovery.** One component reconnecting does not make the process ready —
+  others may still be down, and finding out costs a full evaluation. A recovery
+  instead drops the cache, so the next reader gets the truth rather than a stale
+  failure. In Kubernetes that is the next probe, typically within 10s.
+- **`check` blocks.** A check is an expression, and nothing evaluates it until a
+  prober arrives. A check over a `condition` that flips is invisible until then.
+- **Clients that cannot push.** `redis`, `kafka`, and `sql` have no usable
+  connection-state callback in their drivers, so they are answered by polling
+  their `Ready` — which is what a probe does anyway.
+
+Where prompt recovery matters, poll at a cadence you control with the
+`trigger "interval"` above — an interval you can name, disable, trace, and
+change, none of which a hidden ticker would have offered.
 
 ---
 

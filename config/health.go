@@ -26,6 +26,28 @@ type Readyable interface {
 	Ready(ctx context.Context) error
 }
 
+// ReadyReporter is handed to a contributor that can tell Health when its own
+// state changes, rather than waiting to be asked. A nil error means the
+// component just became able to do its job; a non-nil one means it just stopped,
+// with the same message Ready would have returned.
+//
+// Reporting is an optimization for promptness, not a second source of truth:
+// the component's Ready is still what a probe consults, and must agree. What a
+// report buys is that a drop is visible immediately rather than at the next
+// refresh, and that the cache does not go on claiming the component is fine.
+//
+// It must not block. Calling it does no I/O and evaluates no expression, which
+// matters because the hooks it is called from are contractually synchronous.
+type ReadyReporter func(err error)
+
+// ReadyNotifier is an optional interface a Readyable may implement to be given
+// a ReadyReporter when it registers. A component that has a callback for its own
+// connect and disconnect — most message clients do — should implement it; one
+// that can only answer when polled should not.
+type ReadyNotifier interface {
+	SetReadyReporter(report ReadyReporter)
+}
+
 // The two probes a contributor may belong to. A contributor participates in
 // exactly one: readiness answers "should traffic be routed here right now?",
 // liveness answers "is this process wedged beyond recovery?", and a signal that
@@ -168,11 +190,74 @@ func (h *Health) register(probe, kind, typ, name string, r Readyable, timeout ti
 	if h == nil || r == nil {
 		return
 	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.contributors = append(h.contributors, readyContributor{
+	c := readyContributor{
 		probe: probe, kind: kind, typ: typ, name: name, r: r, timeout: timeout,
-	})
+	}
+
+	h.mu.Lock()
+	h.contributors = append(h.contributors, c)
+	h.mu.Unlock()
+
+	// A component that can push is handed a reporter bound to its own identity,
+	// rather than being asked to name itself on every call. The identity is the
+	// one computed here, so it cannot drift from the one the report will appear
+	// under.
+	if n, ok := r.(ReadyNotifier); ok {
+		n.SetReadyReporter(func(err error) { h.report(c, err) })
+	}
+}
+
+// report records a state change a contributor observed in itself.
+//
+// Becoming unready short-circuits: one failing contributor decides the
+// aggregate, so nothing else is consulted and the notification goes out at once.
+// Recovery cannot be concluded the same way — other contributors may still be
+// failing — so it only drops the cache, and the next read evaluates for real.
+// That is still an improvement on waiting: without it, a probe arriving inside
+// the TTL would go on serving the stale failure.
+func (h *Health) report(c readyContributor, err error) {
+	if h == nil {
+		return
+	}
+	ctx := context.Background()
+
+	h.mu.Lock()
+	if err == nil {
+		// Drop the cache rather than mark this entry passing: the aggregate is
+		// not this component's to decide, and the others may be stale.
+		h.results, h.computedAt = nil, time.Time{}
+		h.mu.Unlock()
+		return
+	}
+
+	// Correct the cached entry so a read inside the TTL stops claiming this
+	// component is fine. Absent a cached report there is nothing to correct —
+	// the next read evaluates and finds the same failure from Ready anyway.
+	for i := range h.results {
+		if h.results[i].Component == c.component() {
+			h.results[i].Ready = false
+			h.results[i].Reason = err.Error()
+		}
+	}
+
+	previous, known := h.observed[c.probe]
+	h.observed[c.probe] = false
+	h.mu.Unlock()
+
+	if c.probe == ProbeReady {
+		h.ready.observe(ctx, false)
+	}
+
+	// Named with the component that just dropped. Others may be failing too, but
+	// this is the one that changed, and finding out what else is wrong is what
+	// the probe endpoint is for.
+	if known && previous {
+		h.logHealthTransition(c.probe, false, []ComponentStatus{{
+			Component: c.component(),
+			Type:      c.typ,
+			Reason:    err.Error(),
+		}})
+	}
 }
 
 // SetBooted marks boot complete: every Start() and PostStart() has returned.
@@ -469,13 +554,18 @@ func allReady(results []ComponentStatus, probe string) bool {
 // ReadyHandle is the value behind sys.ready: a Gettable and Watchable holding
 // the aggregate readiness boolean.
 //
-// It is a *sampled* watchable, and that is part of its contract rather than an
-// implementation note. Every other Watchable in Vinculum — var, condition,
-// metric — fires because something actively changed it. This one is refreshed
-// only when something asks for readiness, so in a config with no health
-// endpoint and no interval trigger it never fires at all. A transition is
-// observed up to one asking-interval late, which in the common Kubernetes
-// deployment is the probe period.
+// It is *partly* a sampled watchable, which is part of its contract rather than
+// an implementation note.
+//
+// A component that knows its own state pushes it — see ReadyNotifier — so a
+// lost connection fires here at once, with nothing having asked. That covers
+// the transition that matters most and the one most likely to be watched.
+//
+// The rest is still sampled. Recovery is not one component's to declare, so it
+// only invalidates the cache and the next asker sees it; and a `check` block is
+// an expression nothing evaluates until a probe arrives. In a configuration
+// with no health endpoint and no polling trigger, those are observed only when
+// something looks.
 type ReadyHandle struct {
 	richcty.WatchableMixin
 	health *Health

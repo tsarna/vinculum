@@ -369,6 +369,36 @@ type RMQClientWrapper struct {
 	mu      sync.RWMutex
 	client  *rmqclient.Client
 	senders []*rmqsender.RMQSender
+	// report tells the health subsystem the connection changed, so a drop is
+	// visible at once rather than at the next probe. Set at registration, which
+	// happens after this client is built and before anything starts.
+	report cfg.ReadyReporter
+}
+
+// SetReadyReporter implements cfg.ReadyNotifier.
+func (c *RMQClientWrapper) SetReadyReporter(report cfg.ReadyReporter) {
+	c.mu.Lock()
+	c.report = report
+	c.mu.Unlock()
+}
+
+func (c *RMQClientWrapper) reportConnected() { c.reportHealth(nil) }
+
+// reportDisconnected fires before any reconnection attempt, and on a graceful
+// Stop as well — vinculum-rabbitmq guards both on `wasConnected`, so it runs
+// exactly once per dropped connection.
+func (c *RMQClientWrapper) reportDisconnected() {
+	c.reportHealth(errors.New("not connected"))
+}
+
+func (c *RMQClientWrapper) reportHealth(err error) {
+	c.mu.RLock()
+	report := c.report
+	c.mu.RUnlock()
+
+	if report != nil {
+		report(err)
+	}
 }
 
 // CtyValue exposes the client as `client.<name>` in HCL. When there are
@@ -590,8 +620,19 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		return nil, recDiags
 	}
 
-	onConnect := makeLifecycleHook(config, def.OnConnect)
-	onDisconnect := makeLifecycleHook(config, def.OnDisconnect)
+	// Allocated before the lifecycle hooks so they can be bound to it. The rest
+	// of its fields are filled in below, once they have been built; nothing
+	// reads them until Start.
+	wrapper := &RMQClientWrapper{
+		BaseClient: cfg.BaseClient{
+			Name:     clientName,
+			DefRange: def.DefRange,
+		},
+		logger: config.Logger,
+	}
+
+	onConnect := makeLifecycleHook(config, def.OnConnect, wrapper.reportConnected)
+	onDisconnect := makeLifecycleHook(config, def.OnDisconnect, wrapper.reportDisconnected)
 
 	mp, metricsDiags := cfg.ResolveMeterProvider(config, def.Metrics)
 	if metricsDiags.HasErrors() {
@@ -640,34 +681,27 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		}
 	}
 
-	wrapper := &RMQClientWrapper{
-		BaseClient: cfg.BaseClient{
-			Name:     clientName,
-			DefRange: def.DefRange,
-		},
-		clientCfg: rmqclient.Config{
-			ClientName:           clientName,
-			Brokers:              urlsToStrings(parsedURLs),
-			Username:             username,
-			Password:             password,
-			Heartbeat:            heartbeat,
-			ConnectionTimeout:    connTimeout,
-			TLSClientConfig:      tlsCfg,
-			Logger:               config.Logger,
-			OnConnect:            onConnect,
-			OnDisconnect:         onDisconnect,
-			ReconnectBackoff:     reconnectFn,
-			MaxReconnectAttempts: cfg.ReconnectMaxAttempts(def.Reconnect),
-			MeterProvider:        mp,
-		},
-		senderSpecs:    senderSpecs,
-		receiverSpecs:  receiverSpecs,
-		senderProxies:  senderProxies,
-		wireFormat:     ctyWF,
-		meterProvider:  mp,
-		tracerProvider: tracerProvider,
-		logger:         config.Logger,
+	wrapper.clientCfg = rmqclient.Config{
+		ClientName:           clientName,
+		Brokers:              urlsToStrings(parsedURLs),
+		Username:             username,
+		Password:             password,
+		Heartbeat:            heartbeat,
+		ConnectionTimeout:    connTimeout,
+		TLSClientConfig:      tlsCfg,
+		Logger:               config.Logger,
+		OnConnect:            onConnect,
+		OnDisconnect:         onDisconnect,
+		ReconnectBackoff:     reconnectFn,
+		MaxReconnectAttempts: cfg.ReconnectMaxAttempts(def.Reconnect),
+		MeterProvider:        mp,
 	}
+	wrapper.senderSpecs = senderSpecs
+	wrapper.receiverSpecs = receiverSpecs
+	wrapper.senderProxies = senderProxies
+	wrapper.wireFormat = ctyWF
+	wrapper.meterProvider = mp
+	wrapper.tracerProvider = tracerProvider
 
 	config.Startables = append(config.Startables, wrapper)
 	config.Stoppables = append(config.Stoppables, wrapper)
@@ -1093,11 +1127,25 @@ func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) rmqreceiver.
 	}
 }
 
-func makeLifecycleHook(config *cfg.Config, expr hcl.Expression) func(ctx context.Context) {
-	if !cfg.IsExpressionProvided(expr) {
-		return nil
-	}
+// makeLifecycleHook builds the func the library calls on each connect or
+// disconnect: it reports the state change to the health subsystem, then
+// evaluates the user's `on_connect` / `on_disconnect` expression if there is
+// one.
+//
+// It is returned unconditionally, where it used to be nil with no VCL hook
+// declared. Health reporting does not depend on the configuration having asked
+// for a hook — this is the point at which the client knows its connection
+// changed, and it is the only one.
+//
+// notify runs first: it is a map write and a watcher notification, while the
+// expression can do arbitrary I/O.
+func makeLifecycleHook(config *cfg.Config, expr hcl.Expression, notify func()) func(ctx context.Context) {
+	hasExpr := cfg.IsExpressionProvided(expr)
 	return func(ctx context.Context) {
+		notify()
+		if !hasExpr {
+			return
+		}
 		evalCtx, err := hclutil.NewEvalContext(ctx).BuildEvalContext(config.EvalCtx())
 		if err != nil {
 			config.UserLogger.Error("rabbitmq lifecycle hook: build eval context", zap.Error(err))
@@ -1112,10 +1160,12 @@ func makeLifecycleHook(config *cfg.Config, expr hcl.Expression) func(ctx context
 
 // Ensure interface compliance.
 var (
-	_ cfg.Client     = (*RMQClientWrapper)(nil)
-	_ cfg.Startable  = (*RMQClientWrapper)(nil)
-	_ cfg.Stoppable  = (*RMQClientWrapper)(nil)
-	_ cfg.CtyValuer  = (*RMQClientWrapper)(nil)
-	_ bus.Subscriber = (*RMQClientWrapper)(nil)
-	_ bus.Subscriber = (*RMQSenderProxy)(nil)
+	_ cfg.Client        = (*RMQClientWrapper)(nil)
+	_ cfg.Startable     = (*RMQClientWrapper)(nil)
+	_ cfg.Stoppable     = (*RMQClientWrapper)(nil)
+	_ cfg.CtyValuer     = (*RMQClientWrapper)(nil)
+	_ cfg.Readyable     = (*RMQClientWrapper)(nil)
+	_ cfg.ReadyNotifier = (*RMQClientWrapper)(nil)
+	_ bus.Subscriber    = (*RMQClientWrapper)(nil)
+	_ bus.Subscriber    = (*RMQSenderProxy)(nil)
 )

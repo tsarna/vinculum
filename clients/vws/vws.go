@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
@@ -20,6 +21,12 @@ func init() {
 type VinculumWebsocketClient struct {
 	cfg.BaseBusClient
 	ClientBuilder *client.ClientBuilder
+
+	mu sync.RWMutex
+	// report tells the health subsystem the connection changed, so a drop is
+	// visible at once rather than at the next probe. Set at registration, which
+	// happens after this client is built and before anything starts.
+	report cfg.ReadyReporter
 }
 
 func (c *VinculumWebsocketClient) Build() (bus.Client, error) {
@@ -36,6 +43,86 @@ func (c *VinculumWebsocketClient) Build() (bus.Client, error) {
 	c.Client = busClient
 
 	return busClient, nil
+}
+
+// Ensure interface compliance.
+var (
+	_ cfg.Readyable     = (*VinculumWebsocketClient)(nil)
+	_ cfg.ReadyNotifier = (*VinculumWebsocketClient)(nil)
+	_ bus.ClientMonitor = (*healthMonitor)(nil)
+)
+
+// SetReadyReporter implements cfg.ReadyNotifier.
+func (c *VinculumWebsocketClient) SetReadyReporter(report cfg.ReadyReporter) {
+	c.mu.Lock()
+	c.report = report
+	c.mu.Unlock()
+}
+
+func (c *VinculumWebsocketClient) reportHealth(err error) {
+	c.mu.RLock()
+	report := c.report
+	c.mu.RUnlock()
+
+	if report != nil {
+		report(err)
+	}
+}
+
+// healthMonitor is the bus.ClientMonitor installed on every vws client: it
+// reports connection changes to the health subsystem, then delegates to the
+// reconnector when the block declared one.
+//
+// A composite is needed because WithMonitor holds a single monitor, and a
+// `reconnect` block already claims it. Installing this unconditionally is what
+// gives a client with no `reconnect` block a health signal at all — previously
+// no monitor was installed and its state was invisible until something probed.
+//
+// A failed *initial* dial fires nothing: Connect returns an error rather than
+// notifying. That needs no handling, because the client was never ready and the
+// first poll reports "not connected" correctly.
+type healthMonitor struct {
+	client   *VinculumWebsocketClient
+	delegate bus.ClientMonitor // nil when there is no reconnect block
+}
+
+func (m *healthMonitor) OnConnect(ctx context.Context, client bus.Client) {
+	m.client.reportHealth(nil)
+	if m.delegate != nil {
+		m.delegate.OnConnect(ctx, client)
+	}
+}
+
+func (m *healthMonitor) OnDisconnect(ctx context.Context, client bus.Client, err error) {
+	reason := err
+	if reason == nil {
+		// A graceful disconnect is still a disconnect as far as serving goes.
+		reason = errors.New("not connected")
+	}
+	m.client.reportHealth(reason)
+
+	// Delegated after reporting, since this is what starts the reconnect loop.
+	if m.delegate != nil {
+		m.delegate.OnDisconnect(ctx, client, err)
+	}
+}
+
+func (m *healthMonitor) OnSubscribe(ctx context.Context, client bus.Client, topic string) {
+	if m.delegate != nil {
+		m.delegate.OnSubscribe(ctx, client, topic)
+	}
+}
+
+func (m *healthMonitor) OnUnsubscribe(ctx context.Context, client bus.Client, topic string) {
+	if m.delegate != nil {
+		m.delegate.OnUnsubscribe(ctx, client, topic)
+	}
+}
+
+func (m *healthMonitor) OnUnsubscribeAll(ctx context.Context, client bus.Client) {
+	if m.delegate != nil {
+		m.delegate.OnUnsubscribeAll(ctx, client)
+	}
 }
 
 // Ready implements cfg.Readyable: the WebSocket to the peer is up.
@@ -152,23 +239,28 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		// @@@ TODO
 	}
 
-	if clientDef.Reconnect != nil {
-		reconnector, diags := config.CreateReconnector(*clientDef.Reconnect)
-		if diags.HasErrors() {
-			return nil, diags
-		}
-		clientBuilder = clientBuilder.WithMonitor(reconnector)
-	}
-
-	c := VinculumWebsocketClient{
+	c := &VinculumWebsocketClient{
 		BaseBusClient: cfg.BaseBusClient{
 			BaseClient: cfg.BaseClient{
 				Name:     block.Labels[1],
 				DefRange: clientDef.DefRange,
 			},
 		},
-		ClientBuilder: clientBuilder,
 	}
 
-	return &c, nil
+	// The health monitor is installed whether or not a `reconnect` block was
+	// declared, wrapping the reconnector when there is one. Without it, a
+	// client with no reconnect block installed no monitor at all and its
+	// connection state was invisible until something probed.
+	monitor := &healthMonitor{client: c}
+	if clientDef.Reconnect != nil {
+		reconnector, diags := config.CreateReconnector(*clientDef.Reconnect)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		monitor.delegate = reconnector
+	}
+	c.ClientBuilder = clientBuilder.WithMonitor(monitor)
+
+	return c, nil
 }
