@@ -247,7 +247,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		WriteDir:         cb.features["writefiles"],
 		Testing:          cb.testing,
 		Constants:        make(map[string]cty.Value),
-		Health:           NewHealth(),
+		Health:           NewHealth(userLogger),
 		SigActions:       NewSignalActionHandler(cb.logger, userLogger),
 		Buses:            make(map[string]bus.EventBus),
 		CtyBusMap:        make(map[string]cty.Value),
@@ -483,6 +483,14 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	for _, blockType := range handlerOrder {
 		diags = diags.Extend(blockHandlers[blockType].FinishProcessing(config))
 	}
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	// Every metrics backend a block could declare now exists, so the health
+	// metrics can find the one they belong on. They are observable, so this
+	// only registers a callback — nothing is measured until a collector asks.
+	diags = diags.Extend(config.registerHealthMetrics())
 	if diags.HasErrors() {
 		return nil, diags
 	}

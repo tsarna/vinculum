@@ -32,6 +32,7 @@ makes every replica *not live* is a fleet-wide restart loop. So:
 - [Reacting to transitions](#reacting-to-transitions)
 - [The `check` block](#the-check-block)
 - [HTTP endpoints](#http-endpoints)
+- [Metrics and logging](#metrics-and-logging)
 - [Liveness](#liveness)
 - [When readiness is computed](#when-readiness-is-computed)
 
@@ -510,6 +511,77 @@ endpoint would add.
 to turn a dependency outage into a fleet-wide restart loop: every replica loses
 the broker, every replica fails its liveness probe, every replica restarts, and
 none of them comes back any faster.
+
+---
+
+## Metrics and logging
+
+### Metrics
+
+With a metrics backend configured — a [`server "metrics"`](server-metrics.md) or
+a [`client "otlp"`](client-otlp.md) — health is exported as two instruments:
+
+| Metric | Reports |
+|---|---|
+| `vinculum.health.status` | Whether the process passes each probe. |
+| `vinculum.health.component.status` | Whether each contributor passes. |
+
+Both follow OpenTelemetry's convention for
+[status metrics](https://opentelemetry.io/docs/specs/semconv/how-to-write-conventions/status-metrics/):
+an UpDownCounter with unit `1`, carrying a `vinculum.health.state` attribute of
+`passing` or `failing`, valued **1 for the state the subject is in and 0 for the
+other**. That shape means a plain sum counts subjects in a state, which a
+last-value gauge cannot do.
+
+| Attribute | On | Values |
+|---|---|---|
+| `vinculum.health.state` | both | `passing`, `failing` |
+| `vinculum.health.probe` | both | `readiness`, `liveness` |
+| `vinculum.health.component` | component | `client.broker`, `check.database`, `process`, … |
+| `vinculum.health.component.type` | component | the block's type label; omitted where there is none |
+
+Scraped from Prometheus, that reads:
+
+```
+vinculum_health_status{vinculum_health_probe="readiness",vinculum_health_state="failing"} 1
+vinculum_health_component_status{vinculum_health_component="client.broker",vinculum_health_component_type="mqtt",vinculum_health_probe="readiness",vinculum_health_state="failing"} 1
+```
+
+so alerting on `vinculum_health_status{vinculum_health_state="failing"} == 1`
+catches the process, and the component metric says which dependency to look at.
+
+The instruments are **observable**: their callback runs when a collector
+scrapes, so the exported value is true as of that moment rather than being
+whatever the last prober happened to see. A deployment that scrapes but never
+probes therefore still gets accurate readiness. Cardinality is bounded by the
+configuration's block count, which is static.
+
+They are registered on **every** metrics backend, not a resolved default — the
+same way [Go runtime metrics](server-metrics.md#the-default-metrics-backend)
+are. Health is a property of the process rather than a metric you declared, so
+it belongs in every pipeline the process has; an "is it up" series that exists
+in one pipeline and not the other is a blind spot in the second.
+
+### Logging
+
+A probe's verdict is logged when it **changes**, never per probe — three
+endpoints polled every ten seconds would otherwise bury the log in lines saying
+nothing happened:
+
+```
+WARN  Process is no longer ready  {"failing": ["client.broker: dial tcp 10.0.0.5:1883: connection refused"]}
+INFO  Process is now ready
+```
+
+The failing components are named, because "not ready" on its own sends the
+reader to an endpoint they may not have. Readiness and liveness are logged
+independently.
+
+The first verdict read establishes a baseline rather than announcing an edge, so
+a process that starts healthy and stays healthy logs nothing. Where something
+probes during boot — a Kubernetes `startupProbe`, for instance — the baseline is
+the `starting` state, so completing boot logs `Process is now ready` and marks
+the end of startup.
 
 ---
 

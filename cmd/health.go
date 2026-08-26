@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/tsarna/vinculum/config"
 	"go.uber.org/zap"
@@ -67,6 +70,45 @@ func startHealthListener(cfg *config.Config, logger *zap.Logger) (*healthListene
 		zap.Bool("verbose", healthVerbose),
 	)
 	return &healthListener{srv: srv, addr: ln.Addr().String()}, nil
+}
+
+// readyPollInterval is how often awaitReady re-checks. Short, because it is
+// waiting on connections that typically come up in milliseconds and the whole
+// point is not to make a fast test suite wait.
+const readyPollInterval = 25 * time.Millisecond
+
+// awaitReady blocks until every readiness contributor passes, or ctx expires.
+//
+// Without it a test suite races its own runtime: `send()` to a broker whose
+// client is still dialing fails for a reason that has nothing to do with the
+// behavior under test, and does so intermittently. Authors work around that
+// with `eventually(...)` around assertions that are not really about timing.
+//
+// It polls through the refresh path rather than the cached one — a 5s TTL
+// inside a boot barrier would turn a 200ms wait into a 5s one. A timeout names
+// what is still failing, which is materially better than the flaky failure it
+// replaces.
+func awaitReady(ctx context.Context, cfg *config.Config) error {
+	for {
+		failing := cfg.Health.Failing(ctx, config.ProbeReady, true)
+		if len(failing) == 0 {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			reasons := make([]string, 0, len(failing))
+			for _, f := range failing {
+				reasons = append(reasons, f.Component+" ("+f.Reason+")")
+			}
+			return &ExitCodeError{
+				Code: 1,
+				Err: fmt.Errorf("timed out waiting for the runtime to become ready; still failing: %s",
+					strings.Join(reasons, ", ")),
+			}
+		case <-time.After(readyPollInterval):
+		}
+	}
 }
 
 // healthListener is the running probe listener. It carries its resolved address

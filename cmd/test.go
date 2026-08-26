@@ -154,6 +154,13 @@ func runTest(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
+	if !testNoServe {
+		if err := awaitReady(ctx, cfg); err != nil {
+			cmd.SilenceUsage = true
+			return err
+		}
+	}
+
 	type runResult struct {
 		outcomes []functy.TestOutcome
 		err      error

@@ -10,6 +10,7 @@ import (
 
 	richcty "github.com/tsarna/rich-cty-types"
 	"github.com/zclconf/go-cty/cty"
+	"go.uber.org/zap"
 )
 
 // Readyable is implemented by components that can report whether they are
@@ -127,11 +128,21 @@ type Health struct {
 	// ready is the sys.ready watchable. It holds the last observed aggregate
 	// and fires watchers only when that boolean flips.
 	ready *ReadyHandle
+
+	// logger reports transitions. It is the UserLogger, since what makes a
+	// probe fail is nearly always the configuration or its environment.
+	logger *zap.Logger
+
+	// observed is the last verdict logged for each probe, so a transition can
+	// be told from a repeat. Absent until the first evaluation, which
+	// establishes the baseline rather than announcing an edge.
+	observed map[string]bool
 }
 
 // NewHealth returns a Health in the starting state, with no contributors.
-func NewHealth() *Health {
-	h := &Health{}
+// logger may be nil, which turns transition logging off.
+func NewHealth(logger *zap.Logger) *Health {
+	h := &Health{logger: logger, observed: map[string]bool{}}
 	h.ready = &ReadyHandle{health: h}
 	return h
 }
@@ -223,7 +234,9 @@ func (h *Health) Status(ctx context.Context, probe string, force bool) []Compone
 		if probe == ProbeReady {
 			h.ready.observe(ctx, gate.Ready)
 		}
-		return []ComponentStatus{gate}
+		out := []ComponentStatus{gate}
+		h.noteVerdict(probe, out)
+		return out
 	}
 
 	results := h.evaluate(ctx, force)
@@ -235,7 +248,36 @@ func (h *Health) Status(ctx context.Context, probe string, force bool) []Compone
 			out = append(out, r)
 		}
 	}
+	h.noteVerdict(probe, out)
 	return out
+}
+
+// noteVerdict logs a probe whose verdict has changed since it was last read.
+//
+// Driven from the read rather than from the evaluation because a probe only has
+// a verdict once its own contributors have been filtered out of the shared
+// report — the two probes reach opposite conclusions from one evaluation.
+// Repeats are silent, and the first read establishes a baseline rather than
+// announcing an edge.
+func (h *Health) noteVerdict(probe string, statuses []ComponentStatus) {
+	passing := true
+	var failing []ComponentStatus
+	for _, s := range statuses {
+		if !s.Ready {
+			passing = false
+			failing = append(failing, s)
+		}
+	}
+
+	h.mu.Lock()
+	previous, known := h.observed[probe]
+	h.observed[probe] = passing
+	h.mu.Unlock()
+
+	if !known || previous == passing {
+		return
+	}
+	h.logHealthTransition(probe, passing, failing)
 }
 
 // Failing returns the entries of Status that are not passing. An empty result

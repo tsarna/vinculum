@@ -30,7 +30,7 @@ func TestSys(t *testing.T) {
 }
 
 func TestGetSysObject(t *testing.T) {
-	ready := config.NewHealth().ReadyValue()
+	ready := config.NewHealth(zap.NewNop()).ReadyValue()
 	val := ambient.GetSysObject("", "", nil, false, ready)
 
 	allSigs := platform.AllSignals()

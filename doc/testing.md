@@ -114,6 +114,38 @@ Setup runs fresh before each test; a `skip`/`throw`/failed `assert` in it skips
 or fails that test. See the [functy language guide](functy.md) for the full
 semantics.
 
+## Waiting for the runtime
+
+Before the first test runs, `vinculum test` waits for the runtime to become
+[ready](health.md): every client connected, every listener bound, every
+`check` passing. Without that a suite races its own startup — a `send()` to a
+broker whose client is still dialing fails for a reason that has nothing to do
+with the behavior under test, and does so intermittently.
+
+The wait is bounded by `--timeout`. Exceeding it fails the run and names what is
+still failing, which is a better diagnosis than the flaky failure it replaces:
+
+```
+timed out waiting for the runtime to become ready; still failing:
+client.broker (dial tcp 10.0.0.5:1883: connection refused)
+```
+
+`--no-serve` skips it along with the rest of the runtime.
+
+A component the configuration disables creates nothing and so contributes
+nothing, which means the common `disabled = sys.testing` pattern keeps the wait
+honest with no special-casing: what is switched off under test is not waited
+for.
+
+Health is readable from a test body too, since the runner injects a `ctx`:
+
+```
+test "the runtime is serving" {
+    assert(health::ready(ctx))
+    assert(length(health::failing(ctx)) == 0)
+}
+```
+
 ## Asserting asynchronous effects: `eventually` / `never`
 
 `send()` returns immediately and subscribers react on other goroutines, so a

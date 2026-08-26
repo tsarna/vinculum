@@ -11,12 +11,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 // probeConfig returns a Config past its boot gate with the given contributors.
 func probeConfig(t *testing.T, contributors ...func(*Health)) *Config {
 	t.Helper()
-	c := &Config{Health: NewHealth()}
+	c := &Config{Health: NewHealth(zap.NewNop())}
 	for _, add := range contributors {
 		add(c.Health)
 	}
@@ -182,7 +183,7 @@ func TestLivezVerbosePrintsItsOwnName(t *testing.T) {
 }
 
 func TestProbeDuringBootReportsStarting(t *testing.T) {
-	c := &Config{Health: NewHealth()}
+	c := &Config{Health: NewHealth(zap.NewNop())}
 	c.Health.RegisterReady("client", "mqtt", "broker", &fakeReadyable{})
 
 	// A startupProbe pointed at /readyz works because of this, without a

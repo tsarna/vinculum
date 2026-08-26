@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	richcty "github.com/tsarna/rich-cty-types"
 	"github.com/zclconf/go-cty/cty"
+	"go.uber.org/zap"
 )
 
 // fakeReadyable is a contributor whose answer and latency a test controls.
@@ -53,7 +54,7 @@ func (f *fakeReadyable) set(err error) {
 // bootedHealth returns a Health past its boot gate, which is where every test
 // that cares about contributors rather than the gate wants to start.
 func bootedHealth() *Health {
-	h := NewHealth()
+	h := NewHealth(zap.NewNop())
 	h.SetBooted()
 	return h
 }
@@ -75,7 +76,7 @@ func TestHealthIsReadyWithNoContributors(t *testing.T) {
 }
 
 func TestHealthBootGateSkipsContributors(t *testing.T) {
-	h := NewHealth()
+	h := NewHealth(zap.NewNop())
 	c := &fakeReadyable{}
 	h.RegisterReady("client", "mqtt", "broker", c)
 
@@ -384,7 +385,7 @@ func withReadinessType(t *testing.T, blockType, typeName string) {
 }
 
 func testConfig() *Config {
-	c := &Config{Health: NewHealth()}
+	c := &Config{Health: NewHealth(zap.NewNop())}
 	c.Health.SetBooted()
 	return c
 }
