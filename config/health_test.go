@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	richcty "github.com/tsarna/rich-cty-types"
+	timecty "github.com/tsarna/time-cty-funcs"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -353,9 +354,10 @@ func TestSysReadyIsGettableAndWatchable(t *testing.T) {
 }
 
 func TestStatusesToCtyProjectsTheReportShape(t *testing.T) {
+	broke := time.Now().Add(-4 * time.Minute)
 	val := StatusesToCty([]ComponentStatus{
 		{Component: "process", Ready: true},
-		{Component: "client.broker", Type: "mqtt", Reason: "not connected"},
+		{Component: "client.broker", Type: "mqtt", Reason: "not connected", Since: broke},
 	})
 
 	require.True(t, val.Type().Equals(HealthStatusListType))
@@ -367,6 +369,13 @@ func TestStatusesToCtyProjectsTheReportShape(t *testing.T) {
 	assert.Equal(t, "", entries[0].GetAttr("reason").AsString())
 	assert.Equal(t, "mqtt", entries[1].GetAttr("type").AsString())
 	assert.Equal(t, "not connected", entries[1].GetAttr("reason").AsString())
+
+	// A time capsule, not a string: it is the same type sys.starttime and a
+	// trigger "at"'s ctx.scheduled_time carry, so the time:: functions work on
+	// it — and it still encodes to RFC 3339 under jsonencode.
+	since, err := timecty.GetTime(entries[1].GetAttr("since"))
+	require.NoError(t, err)
+	assert.True(t, since.Equal(broke))
 
 	assert.True(t, StatusesToCty(nil).Type().Equals(HealthStatusListType),
 		"an empty report must still carry the list type, so length() works on it")

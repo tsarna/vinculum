@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/tsarna/vinculum/types"
 )
@@ -122,10 +123,10 @@ func renderHealthVerbose(ep probeEndpoint, statuses []ComponentStatus, passing b
 	var b strings.Builder
 	for _, s := range statuses {
 		if s.Ready {
-			fmt.Fprintf(&b, "[+]%s ok\n", s.Component)
+			fmt.Fprintf(&b, "[+]%s ok%s\n", s.Component, heldFor(s.Since))
 			continue
 		}
-		fmt.Fprintf(&b, "[-]%s failed: %s\n", s.Component, s.Reason)
+		fmt.Fprintf(&b, "[-]%s failed: %s%s\n", s.Component, s.Reason, heldFor(s.Since))
 	}
 	if passing {
 		fmt.Fprintf(&b, "%s check passed\n", ep.endpoint)
@@ -135,15 +136,36 @@ func renderHealthVerbose(ep probeEndpoint, statuses []ComponentStatus, passing b
 	return []byte(b.String())
 }
 
+// heldFor renders how long an entry has held its verdict, as a parenthesized
+// suffix.
+//
+// Parenthesized because a failure line ends in the component's own message, and
+// "not connected for 4m12s" would read as part of it. Rounded to the second
+// because nothing here is diagnosed at finer resolution than that, and because
+// an unrounded duration is nine digits of noise on every line.
+//
+// A zero time yields nothing. Every entry from a real report carries one, but a
+// ComponentStatus built by hand — in a test, or by a caller assembling a
+// response — need not.
+func heldFor(since time.Time) string {
+	if since.IsZero() {
+		return ""
+	}
+	return " (for " + time.Since(since).Round(time.Second).String() + ")"
+}
+
 // renderHealthJSON emits the verdict, and the component list only where the
 // endpoint allows detail. A terse endpoint must stay terse however the caller
 // asks: negotiating your way past the setting would defeat it.
 func renderHealthJSON(ep probeEndpoint, statuses []ComponentStatus, passing, verbose bool) []byte {
+	// Since serializes as RFC 3339, which is what a cty time capsule encodes to
+	// as well — so `since` reads identically here and through jsonencode.
 	type entry struct {
-		Component string `json:"component"`
-		Type      string `json:"type"`
-		Ready     bool   `json:"ready"`
-		Reason    string `json:"reason"`
+		Component string    `json:"component"`
+		Type      string    `json:"type"`
+		Ready     bool      `json:"ready"`
+		Reason    string    `json:"reason"`
+		Since     time.Time `json:"since"`
 	}
 	doc := map[string]any{ep.verdictKey: passing}
 	if verbose {
@@ -151,7 +173,10 @@ func renderHealthJSON(ep probeEndpoint, statuses []ComponentStatus, passing, ver
 		// disagree about what is wrong.
 		checks := make([]entry, len(statuses))
 		for i, s := range statuses {
-			checks[i] = entry{Component: s.Component, Type: s.Type, Ready: s.Ready, Reason: s.Reason}
+			checks[i] = entry{
+				Component: s.Component, Type: s.Type,
+				Ready: s.Ready, Reason: s.Reason, Since: s.Since,
+			}
 		}
 		doc["checks"] = checks
 	}

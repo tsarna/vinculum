@@ -19,7 +19,7 @@ namespace health
 func status(
     ctx: ctx,  // request context; required, and spent evaluating check inputs
     probe: string = "ready",  // "ready" or "live"
-) -> list(object({ component = string, type = string, ready = bool, reason = string }))
+) -> list(object({ component = string, type = string, ready = bool, reason = string, since = time }))
 
 // Only the contributors that are failing, with the reason for each. Empty means
 // the probe passes, which is why this is the one to log: a healthy process has
@@ -27,4 +27,4 @@ func status(
 func failing(
     ctx: ctx,  // request context; required, and spent evaluating check inputs
     probe: string = "ready",  // "ready" or "live"
-) -> list(object({ component = string, type = string, ready = bool, reason = string }))
+) -> list(object({ component = string, type = string, ready = bool, reason = string, since = time }))

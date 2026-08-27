@@ -100,8 +100,36 @@ Each entry of a detail view is an object:
     type      = "mqtt"            # the block's type label, "" where there is none
     ready     = false
     reason    = "not connected: dial tcp 10.0.0.5:1883: connection refused"
+    since     = <time>            # when it last changed to this state
 }
 ```
+
+`since` is a `time`, the same type `sys.starttime` carries, so the `time::`
+functions work on it directly — which is how you ask the question that actually
+matters, "has this been broken long enough to care?":
+
+```hcl
+trigger "interval" "page_on_a_sustained_outage" {
+    delay  = "1m"
+    action = send(ctx, bus.alerts, "outage", [
+        for f in health::failing(ctx) : f.component
+        if duration::gt(time::since(f.since), duration("5m"))
+    ])
+}
+```
+
+A component that has never changed carries the moment it was **first observed**
+rather than the moment the process started. Those differ: a check is not
+evaluated until something probes, so in a configuration nothing polls, the
+first probe is when every age begins. `process` is the exception and the useful
+one — it flips when boot completes, so its `since` is how long the process has
+been serving.
+
+A client that reports its own disconnect (see
+[What is prompt, and what is sampled](#what-is-prompt-and-what-is-sampled))
+dates the drop to the moment it happened rather than to the probe that later
+noticed it — on a ten-second probe period, that difference is most of the
+number.
 
 A list rather than a map keyed by name: it preserves boot order, so
 infrastructure reads before the things that depend on it, and it serializes to
@@ -363,23 +391,32 @@ Verbose (`?verbose`), mirroring `kube-apiserver`'s `/readyz?verbose` so operator
 habits transfer:
 
 ```
-[+]process ok
-[+]server.api ok
-[-]client.broker failed: not connected: dial tcp 10.0.0.5:1883: connection refused
-[+]check.database ok
+[+]process ok (for 3h12m8s)
+[+]server.api ok (for 3h12m8s)
+[-]client.broker failed: not connected: dial tcp 10.0.0.5:1883: connection refused (for 47s)
+[+]check.database ok (for 3h12m8s)
 readyz check failed
 ```
+
+The trailing age is how long each component has held its verdict, so a genuine
+outage reads differently from a client that is flapping: one shows a failure
+minutes old, the other shows everything reset to a few seconds.
 
 JSON (`Accept: application/json`, or `?format=json`):
 
 ```json
 {"ready": false,
  "checks": [
-   {"component": "process", "type": "", "ready": true, "reason": ""},
+   {"component": "process", "type": "", "ready": true, "reason": "",
+    "since": "2026-03-04T08:51:22.117382Z"},
    {"component": "client.broker", "type": "mqtt", "ready": false,
-    "reason": "not connected: dial tcp 10.0.0.5:1883: connection refused"}
+    "reason": "not connected: dial tcp 10.0.0.5:1883: connection refused",
+    "since": "2026-03-04T12:03:23.402881Z"}
  ]}
 ```
+
+`since` is RFC 3339 here and a `time` in expressions, which is the same value:
+`jsonencode(health::status(ctx))` produces exactly this.
 
 The `checks` array is the serialization of `health::status`, so the two views
 cannot drift. On an endpoint that does not allow detail the array is omitted

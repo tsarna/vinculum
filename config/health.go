@@ -9,6 +9,7 @@ import (
 	"time"
 
 	richcty "github.com/tsarna/rich-cty-types"
+	timecty "github.com/tsarna/time-cty-funcs"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -97,6 +98,13 @@ type ComponentStatus struct {
 	// Reason completes "<component> is not ready: ...", and is empty when
 	// Ready is true.
 	Reason string
+	// Since is when this contributor last changed its verdict: the moment it
+	// became ready, or the moment it stopped being.
+	//
+	// A contributor that has never changed carries the moment it was first
+	// observed, which is not the same thing and is the closest a process with no
+	// history can honestly get.
+	Since time.Time
 
 	// probe is which probe this entry belongs to. One evaluation covers both,
 	// so a read filters on it; it is not projected to expressions, where the
@@ -159,12 +167,29 @@ type Health struct {
 	// be told from a repeat. Absent until the first evaluation, which
 	// establishes the baseline rather than announcing an edge.
 	observed map[string]bool
+
+	// since records, per component, the verdict it currently holds and when it
+	// took it, so a report can say how long something has been broken. Keyed by
+	// component name rather than contributor, so the synthesized `process` entry
+	// is dated the same way everything else is. The contributor set is fixed for
+	// the life of the process, so this cannot grow without bound.
+	since map[string]verdictSince
+}
+
+// verdictSince is one component's current verdict and the moment it took it.
+type verdictSince struct {
+	ready bool
+	at    time.Time
 }
 
 // NewHealth returns a Health in the starting state, with no contributors.
 // logger may be nil, which turns transition logging off.
 func NewHealth(logger *zap.Logger) *Health {
-	h := &Health{logger: logger, observed: map[string]bool{}}
+	h := &Health{
+		logger:   logger,
+		observed: map[string]bool{},
+		since:    map[string]verdictSince{},
+	}
 	h.ready = &ReadyHandle{health: h}
 	return h
 }
@@ -222,6 +247,11 @@ func (h *Health) report(c readyContributor, err error) {
 	ctx := context.Background()
 
 	h.mu.Lock()
+	// Either direction dates the change to now. A push is the earliest anything
+	// can know, so a later evaluation confirming the same verdict must not
+	// restamp it with the moment it got around to looking.
+	h.noteSinceLocked(c.component(), err == nil, time.Now())
+
 	if err == nil {
 		// Drop the cache rather than mark this entry passing: the aggregate is
 		// not this component's to decide, and the others may be stale.
@@ -257,6 +287,38 @@ func (h *Health) report(c readyContributor, err error) {
 			Type:      c.typ,
 			Reason:    err.Error(),
 		}})
+	}
+}
+
+// noteSinceLocked records that component currently holds the verdict ready, and
+// returns the moment it took it. Called with h.mu held.
+//
+// An unchanged verdict keeps its original timestamp, which is the whole point:
+// the age of a failure is what makes it diagnosable, and re-observing it must
+// not reset the clock. A component seen for the first time takes now, because a
+// process that has just started has no history and dating the state back to boot
+// would be inventing one.
+func (h *Health) noteSinceLocked(component string, ready bool, now time.Time) time.Time {
+	if prev, ok := h.since[component]; ok && prev.ready == ready {
+		return prev.at
+	}
+	h.since[component] = verdictSince{ready: ready, at: now}
+	return now
+}
+
+// stampSince fills in Since on each entry, recording any verdict not already
+// known.
+//
+// Stamping happens on the way out rather than during evaluation because the
+// `process` entry is synthesized per call and never passes through the
+// contributor results — this is the one point every entry of every report goes
+// through, whether it was computed just now or served from the cache.
+func (h *Health) stampSince(statuses []ComponentStatus) {
+	now := time.Now()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := range statuses {
+		statuses[i].Since = h.noteSinceLocked(statuses[i].Component, statuses[i].Ready, now)
 	}
 }
 
@@ -320,6 +382,7 @@ func (h *Health) Status(ctx context.Context, probe string, force bool) []Compone
 			h.ready.observe(ctx, gate.Ready)
 		}
 		out := []ComponentStatus{gate}
+		h.stampSince(out)
 		h.noteVerdict(probe, out)
 		return out
 	}
@@ -333,6 +396,7 @@ func (h *Health) Status(ctx context.Context, probe string, force bool) []Compone
 			out = append(out, r)
 		}
 	}
+	h.stampSince(out)
 	h.noteVerdict(probe, out)
 	return out
 }
@@ -464,6 +528,13 @@ func (h *Health) evaluate(ctx context.Context, force bool) []ComponentStatus {
 	h.mu.Lock()
 	h.results = results
 	h.computedAt = time.Now()
+	// One evaluation covers both probes, but a read sees only its own. Dating
+	// every result here means a component whose probe nobody asked about is
+	// still dated to when it was observed rather than to whenever a reader
+	// eventually filtered it in.
+	for i := range results {
+		h.noteSinceLocked(results[i].Component, results[i].Ready, h.computedAt)
+	}
 	h.inflight = nil
 	h.mu.Unlock()
 
@@ -633,6 +704,7 @@ var HealthStatusType = cty.Object(map[string]cty.Type{
 	"type":      cty.String,
 	"ready":     cty.Bool,
 	"reason":    cty.String,
+	"since":     timecty.TimeCapsuleType,
 })
 
 // HealthStatusListType is what health::status and health::failing return.
@@ -652,6 +724,7 @@ func StatusesToCty(statuses []ComponentStatus) cty.Value {
 			"type":      cty.StringVal(s.Type),
 			"ready":     cty.BoolVal(s.Ready),
 			"reason":    cty.StringVal(s.Reason),
+			"since":     timecty.NewTimeCapsule(s.Since),
 		})
 	}
 	return cty.ListVal(vals)

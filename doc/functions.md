@@ -1188,8 +1188,13 @@ Every contributor to the probe, passing ones included, in boot order. `probe` is
     type      = "mqtt"            # the block's type label, "" where there is none
     ready     = false
     reason    = "not connected: dial tcp 10.0.0.5:1883: connection refused"
+    since     = <time>            # when it last changed to this state
 }
 ```
+
+`since` is a `time`, so `time::since(entry.since)` gives the age of the state
+directly. See [health.md](health.md#reading-readiness-from-a-configuration) for
+what it means for a component that has never changed.
 
 #### `health::failing(ctx [, probe])` → list(object)
 

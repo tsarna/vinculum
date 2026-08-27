@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -92,11 +93,13 @@ func TestProbeVerboseBody(t *testing.T) {
 	resp := probe(t, c, ReadyzPath, true, "/readyz?verbose")
 	body := bodyOf(t, resp)
 
-	// Mirrors kube-apiserver's /readyz?verbose so operator habits transfer.
+	// Mirrors kube-apiserver's /readyz?verbose so operator habits transfer,
+	// plus how long each component has held its verdict. Nothing here has ever
+	// changed state, so every age is the moment it was first observed.
 	assert.Equal(t, strings.Join([]string{
-		"[+]process ok",
-		"[+]server.api ok",
-		"[-]client.broker failed: not connected: dial tcp 10.0.0.5:1883: connection refused",
+		"[+]process ok (for 0s)",
+		"[+]server.api ok (for 0s)",
+		"[-]client.broker failed: not connected: dial tcp 10.0.0.5:1883: connection refused (for 0s)",
 		"readyz check failed",
 		"",
 	}, "\n"), body)
@@ -125,13 +128,15 @@ func TestProbeJSON(t *testing.T) {
 	var doc struct {
 		Ready  bool `json:"ready"`
 		Checks []struct {
-			Component string `json:"component"`
-			Type      string `json:"type"`
-			Ready     bool   `json:"ready"`
-			Reason    string `json:"reason"`
+			Component string    `json:"component"`
+			Type      string    `json:"type"`
+			Ready     bool      `json:"ready"`
+			Reason    string    `json:"reason"`
+			Since     time.Time `json:"since"`
 		} `json:"checks"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(bodyOf(t, resp)), &doc))
+	body := bodyOf(t, resp)
+	require.NoError(t, json.Unmarshal([]byte(body), &doc))
 
 	assert.False(t, doc.Ready)
 	require.Len(t, doc.Checks, 2)
@@ -139,6 +144,11 @@ func TestProbeJSON(t *testing.T) {
 	assert.Equal(t, "client.broker", doc.Checks[1].Component)
 	assert.Equal(t, "mqtt", doc.Checks[1].Type)
 	assert.Equal(t, "not connected", doc.Checks[1].Reason)
+
+	// Every entry is dated, and RFC 3339 is what a cty time capsule encodes to,
+	// so `since` reads the same here as through jsonencode(health::status(ctx)).
+	assert.WithinDuration(t, time.Now(), doc.Checks[1].Since, time.Minute)
+	assert.Contains(t, body, `"since":"`+doc.Checks[1].Since.Format(time.RFC3339Nano)+`"`)
 }
 
 func TestProbeJSONWithoutDetailCarriesOnlyTheVerdict(t *testing.T) {
@@ -190,7 +200,7 @@ func TestProbeDuringBootReportsStarting(t *testing.T) {
 	// separate endpoint.
 	resp := probe(t, c, ReadyzPath, true, "/readyz?verbose")
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
-	assert.Equal(t, "[-]process failed: starting\nreadyz check failed\n", bodyOf(t, resp))
+	assert.Equal(t, "[-]process failed: starting (for 0s)\nreadyz check failed\n", bodyOf(t, resp))
 }
 
 func TestProbeDuringDrainReportsShuttingDown(t *testing.T) {
