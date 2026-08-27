@@ -102,9 +102,13 @@ func (c *VinculumWebsocketClient) reportHealth(err error) {
 // gives a client with no `reconnect` block a health signal at all — previously
 // no monitor was installed and its state was invisible until something probed.
 //
-// A failed *initial* dial fires nothing: Connect returns an error rather than
-// notifying. That needs no handling, because the client was never ready and the
-// first poll reports "not connected" correctly.
+// Dormant today: this client contributes to no probe (see the note on init()),
+// so no reporter is ever handed to it and reportHealth finds nil. It is kept
+// wired so that restoring readiness is a change to Ready() alone.
+//
+// When that happens, note that a failed *initial* dial fires nothing here —
+// Connect returns an error rather than notifying — so the first probe after a
+// failed dial is what reports it.
 type healthMonitor struct {
 	client   *VinculumWebsocketClient
 	delegate bus.ClientMonitor // nil when there is no reconnect block
