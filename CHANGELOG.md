@@ -38,6 +38,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A server that could not bind its port came up anyway, serving nothing.** Both
+  HTTP-bearing servers called `ListenAndServe` inside their own goroutine, so a bind
+  failure was logged and otherwise invisible — `server "metrics"` discarded the error
+  outright. `Start` now calls `net.Listen` synchronously and returns the failure. It
+  stays non-fatal, so the process comes up and reports `503` naming the server rather
+  than exiting silently on a port conflict.
+
+- **`log::` printed a list or object as Go source.** Complex values were formatted by
+  hand, falling back to cty's `GoString()`, so logging a structure emitted
+  `[cty.ObjectVal(map[string]cty.Value{"component":cty.StringVal(…` — neither readable
+  nor JSON. Structures now reach the log as real arrays and objects, a `time` logs as a
+  timestamp rather than an opaque handle, and an empty list logs as `[]` rather than
+  `null`. Scalars are unchanged and keep their types, so a number is still a number.
+
 - **Overriding a container image's command silently disabled file functions and
   plugins.** The images carried `-f /data`, `-w /data/write`, and
   `--plugin-path /plugins` in `CMD`, and Docker replaces the entire `CMD` as soon as
@@ -61,6 +75,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   using `disabled` to select between them is unaffected.
 
 ### Added
+
+- **Readiness and liveness.** Vinculum now knows whether it is able to do its job, and
+  will tell you. A process whose broker connection is down is running but not serving,
+  and the difference matters to anything routing traffic at it.
+
+  Servers and connection-oriented clients report whether they are serving; a new
+  `check "<name>"` block adds any test an expression can express. `/readyz`, `/livez`,
+  and `/healthz` serve the result — from `--health-listen` on its own port, or from an
+  existing `server "http"` with `health_endpoints`, outside auth and outside logging so
+  a kubelet that cannot authenticate can still reach them. A configuration reads the
+  same answer with `sys.ready`, `health::ready`, `health::failing`, and friends, and
+  `trigger "watch"` over `sys.ready` acts on the transition. See
+  [doc/health.md](doc/health.md).
+
+  Readiness and liveness are deliberately not the same question. A broker outage that
+  makes every replica *not ready* is a degraded service; one that makes every replica
+  *not live* is a fleet-wide restart loop. So everything that can lose a connection
+  contributes to readiness, and nothing contributes to liveness except the process
+  itself and checks written for it. Startup is not a third answer: readiness reports
+  `starting` until boot completes, so a `startupProbe` aimed at `/readyz` behaves
+  correctly without a second endpoint.
+
+  There is no background poller. A report is computed when something asks — a probe, a
+  function call, a metrics scrape — and cached briefly, so an unauthenticated caller
+  hammering `/readyz` cannot make the process work harder than the TTL allows. A client
+  that loses its connection does not wait to be asked, though: it reports the drop from
+  the same callback that fires `on_disconnect`, so `sys.ready` flips within
+  milliseconds even with nothing polling.
+
+  `readiness = false` opts a component out where losing it should not take the process
+  out of rotation. It exists only on the types that have readiness to report, and is
+  rejected elsewhere rather than silently ignored.
+
+  Every entry carries a `since` timestamp — how long it has held its state — so a fresh
+  outage reads differently from one that has been broken all along. Two metrics,
+  `vinculum.health.status` and `vinculum.health.component.status`, follow OpenTelemetry's
+  status-metric convention, and a verdict change is logged once on the transition rather
+  than on every probe.
+
+  `vinculum test` waits for readiness before running, naming whatever is still failing
+  if it gives up, and `:ready` prints the report at the interactive prompt.
 
 - **Every CLI flag is settable from the environment.** A flag's name derives its
   variable: uppercase, `-` to `_`, prefixed `VINCULUM_`. Both a bare form
