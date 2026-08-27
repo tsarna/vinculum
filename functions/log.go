@@ -2,8 +2,8 @@ package functions
 
 import (
 	"fmt"
-	"strings"
 
+	"github.com/tsarna/go2cty2go"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
@@ -193,29 +193,27 @@ func convertCtyValueToZapField(key string, val cty.Value) *zap.Field {
 		field := zap.Bool(key, val.True())
 		return &field
 	default:
-		// For complex types (lists, tuples, objects, etc.), convert to a more readable format
-		if val.Type().IsListType() || val.Type().IsTupleType() || val.Type().IsSetType() {
-			// Convert collections to a simple string representation
-			var elements []string
-			for it := val.ElementIterator(); it.Next(); {
-				_, elemVal := it.Element()
-				if elemVal.Type() == cty.String {
-					elements = append(elements, fmt.Sprintf(`"%s"`, elemVal.AsString()))
-				} else if elemVal.Type() == cty.Number {
-					elements = append(elements, elemVal.AsBigFloat().String())
-				} else if elemVal.Type() == cty.Bool {
-					elements = append(elements, fmt.Sprintf("%t", elemVal.True()))
-				} else {
-					elements = append(elements, elemVal.GoString())
-				}
-			}
-			field := zap.String(key, fmt.Sprintf("[%s]", strings.Join(elements, ", ")))
-			return &field
-		} else {
-			// For other complex types, use the string representation
-			field := zap.String(key, val.GoString())
+		// Lists, objects, maps, tuples, sets, capsules: hand them to zap as
+		// native Go, so the log carries real arrays and objects.
+		//
+		// zap.Reflect rather than zap.Any: Any dispatches on Go type, and its
+		// fmt.Stringer case makes one value render differently depending on how
+		// deeply it is nested — a `time` comes out RFC 3339 inside a list
+		// (reached through Reflect) but as Go's "2026-03-04 08:51:22 +0000 UTC"
+		// at the top level. Everything reaching here is a structure, so encode
+		// them all as structures.
+		//
+		// Scalars never reach this branch — the cases above claim them, keeping
+		// their typed zap fields.
+		if native, err := go2cty2go.CtyToAny(val); err == nil {
+			field := zap.Reflect(key, native)
 			return &field
 		}
+
+		// Unknown values and anything else CtyToAny cannot represent. No worse
+		// than what every complex value used to get.
+		field := zap.String(key, val.GoString())
+		return &field
 	}
 
 	return nil
