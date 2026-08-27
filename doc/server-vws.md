@@ -95,6 +95,18 @@ server "vws" "pubsub" {
 
 Connects to a remote VWS server and bridges it to a local bus.
 
+> **Not yet functional.** The block parses, validates, and publishes
+> `client.<name>`, but nothing in a running configuration connects it: a client
+> cannot currently be named as a `subscription` target, `send(ctx,
+> client.<name>, ...)` fails at runtime with `expected Subscriber capsule`, and
+> the client is never started. A configuration containing one is accepted — by
+> `vinculum check` too — and the bridge carries no traffic. It therefore
+> contributes nothing to [readiness](health.md): a client that never connects
+> would otherwise report "not started" forever and hold the whole process out
+> of service. `auth` is likewise accepted and unused. `server "vws"` is
+> unaffected, as is the VWS client inside `vinculum publish` / `vinculum
+> subscribe`.
+
 ```hcl
 client "vws" "name" {
     url = "ws://host:port/path"
@@ -118,7 +130,6 @@ client "vws" "name" {
 | `dial_timeout` | expression (duration) |  | `30s` | Deadline for establishing the connection. |
 | `disabled` | bool |  |  | Skip this block entirely. |
 | `headers` | map |  |  | Extra headers sent with the WebSocket handshake. |
-| `readiness` | bool |  | `true` | Whether this component gates the process's readiness. |
 | `write_queue_size` | number |  | `100` | Outbound message queue depth. |
 
 **`url`**
@@ -134,12 +145,6 @@ Evaluated against the `connection` context.
 **`disabled`**
 
 The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
-
-**`readiness`**
-
-This block reports whether it is currently serving, and by default that gates the process: while it is down, `/readyz` fails and traffic should go elsewhere. Set this false for an integration the service can do without, so losing it does not take the whole process out of rotation.
-
-The attribute exists only on the types that have readiness to report; see [health](health.md).
 
 ### Blocks
 

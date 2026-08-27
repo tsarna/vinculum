@@ -699,8 +699,8 @@ configuration's own instructions are not second-guessed.
 ### What is prompt, and what is sampled
 
 A connected client **knows** the moment it loses its connection, and says so.
-`client "mqtt"`, `client "rabbitmq"`, and `client "vws"` report the drop from
-the same callback that fires `on_disconnect`, so:
+`client "mqtt"` and `client "rabbitmq"` report the drop from the same callback
+that fires `on_disconnect`, so:
 
 ```hcl
 # Fires within milliseconds of the broker going away, with no probe

@@ -13,9 +13,29 @@ import (
 	cfg "github.com/tsarna/vinculum/config"
 )
 
+// No cfg.WithReadiness() here, deliberately, and Ready() is commented out to
+// match — see the note on it below.
+//
+// This client never connects. Build() has one caller, a switch arm in
+// ProcessSubscriptionBlock that is unreachable because the branch of
+// GetTargetFromExpression that would produce a BusClient is commented out;
+// nothing registers the client as Startable, so Connect is not called either;
+// and send(ctx, client.<name>, ...) is no way in, since this type implements no
+// OnEvent and send rejects it as "expected Subscriber capsule, got client".
+//
+// A component that reports on a connection it does not have is worse than one
+// that reports nothing. Registering this held every configuration that merely
+// *declares* a `client "vws"` permanently unready with the reason "not
+// started" — which reads as an unreachable peer rather than as a client that
+// was never wired up, and would take such a deployment out of service on
+// upgrade. The same reasoning already keeps `server "vws"`, `"websocket"`, and
+// `"mcp"` out of the probes: always mounted, owning no listener, nothing of
+// their own to report.
+//
+// See specs/VWS-CLIENT-GAP.md. Restore this in the commit that makes the client
+// connect, not before.
 func init() {
-	cfg.RegisterClientType("vws", process,
-		cfg.WithSchema(vwsClientSchema), cfg.WithReadiness())
+	cfg.RegisterClientType("vws", process, cfg.WithSchema(vwsClientSchema))
 }
 
 type VinculumWebsocketClient struct {
@@ -26,6 +46,10 @@ type VinculumWebsocketClient struct {
 	// report tells the health subsystem the connection changed, so a drop is
 	// visible at once rather than at the next probe. Set at registration, which
 	// happens after this client is built and before anything starts.
+	//
+	// Nothing registers this client today (see init()), so this stays nil and
+	// reportHealth is a no-op. The machinery is kept live rather than commented
+	// out so that restoring readiness is a change to Ready() alone.
 	report cfg.ReadyReporter
 }
 
@@ -47,7 +71,7 @@ func (c *VinculumWebsocketClient) Build() (bus.Client, error) {
 
 // Ensure interface compliance.
 var (
-	_ cfg.Readyable     = (*VinculumWebsocketClient)(nil)
+	// _ cfg.Readyable = (*VinculumWebsocketClient)(nil)   // with Ready(), below
 	_ cfg.ReadyNotifier = (*VinculumWebsocketClient)(nil)
 	_ bus.ClientMonitor = (*healthMonitor)(nil)
 )
@@ -130,18 +154,31 @@ func (m *healthMonitor) OnUnsubscribeAll(ctx context.Context, client bus.Client)
 // A dropped connection is recoverable — a `reconnect` block installs a monitor
 // that re-dials — so this is the readiness case rather than a fatal one: out of
 // rotation while the bridge is down, back in when it reconnects.
-func (c *VinculumWebsocketClient) Ready(context.Context) error {
-	// c.Client is set by Build, which runs during startup, before the process
-	// gate opens and lets any probe reach a contributor.
-	vwsClient, ok := c.Client.(*client.Client)
-	if !ok || vwsClient == nil {
-		return errors.New("not started")
-	}
-	if !vwsClient.IsConnected() {
-		return errors.New("not connected")
-	}
-	return nil
-}
+//
+// COMMENTED OUT until the client actually connects. See the note on init()
+// above. Restoring it is a two-line change — uncomment this and the
+// cfg.Readyable assertion, and put cfg.WithReadiness() back on the
+// RegisterClientType call — because the rest of the reporting machinery
+// (SetReadyReporter, reportHealth, healthMonitor) is left in place and
+// compiling. It is inert only because nothing registers this client as a
+// contributor, so no reporter is ever handed to it and reportHealth finds nil.
+//
+// Defining Ready() is precisely what makes applyReadiness disagree: it errors
+// when a type's registration and its Readyable implementation differ in either
+// direction, so this cannot be half-disabled.
+//
+// func (c *VinculumWebsocketClient) Ready(context.Context) error {
+// 	// c.Client is set by Build, which runs during startup, before the process
+// 	// gate opens and lets any probe reach a contributor.
+// 	vwsClient, ok := c.Client.(*client.Client)
+// 	if !ok || vwsClient == nil {
+// 		return errors.New("not started")
+// 	}
+// 	if !vwsClient.IsConnected() {
+// 		return errors.New("not connected")
+// 	}
+// 	return nil
+// }
 
 var vwsClientSchema = cfg.TypeSchema{
 	Sample:  &VinculumWebsocketsClientDefinition{},
