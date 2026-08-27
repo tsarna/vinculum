@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -84,10 +85,47 @@ func (h *host) metaCommands() []engine.MetaCommand {
 	return []engine.MetaCommand{
 		{Names: []string{":man"}, Summary: "show reference documentation (:man client mqtt)", Run: h.cmdMan},
 		{Names: []string{":apropos"}, Summary: "search the reference by keyword (:apropos keep_alive)", Run: h.cmdApropos},
+		{Names: []string{":ready"}, Summary: "show the health report (:ready, :ready live)", Run: h.cmdReady},
 		{Names: []string{":loglevel"}, Summary: "set async log level (debug|info|warn|error)", Run: h.cmdLoglevel},
 		{Names: []string{":quiet"}, Summary: "mute async logs", Run: h.cmdQuiet},
 		{Names: []string{":logs"}, Summary: "unmute / mute async logs (:logs on|off)", Run: h.cmdLogs},
 	}
+}
+
+// cmdReady shows the health report: what is serving, what is not, why, and for
+// how long.
+//
+// It is the same body `/readyz?verbose` returns, rendered by the same code —
+// the point of having it here is that a session debugging a broker outage
+// should not have to go find an HTTP endpoint, or remember whether one was
+// even configured.
+func (h *host) cmdReady(args []string, errOut io.Writer) bool {
+	h.readyTo(os.Stdout, args, errOut)
+	return false
+}
+
+// readyTo is cmdReady with its destination named, so a test can read what it
+// wrote.
+func (h *host) readyTo(out io.Writer, args []string, errOut io.Writer) {
+	probe := config.ProbeReady
+	switch len(args) {
+	case 0:
+	case 1:
+		if !config.ValidProbe(args[0]) {
+			fmt.Fprintf(errOut, "unknown probe %q: use \"ready\" or \"live\"\n", args[0])
+			return
+		}
+		probe = args[0]
+	default:
+		fmt.Fprintln(errOut, "usage: :ready [ready|live]")
+		return
+	}
+
+	// Forced: the TTL bounds what an unauthenticated HTTP caller can cost, and
+	// a person who just typed a command is neither. Being shown a five-second-
+	// old answer while poking at a broker is exactly the confusion this command
+	// exists to remove.
+	out.Write(h.cfg.HealthReportText(context.Background(), probe, true))
 }
 
 func (h *host) cmdLoglevel(args []string, errOut io.Writer) bool {

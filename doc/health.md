@@ -142,6 +142,10 @@ empty result is the good case and a transition line stays short:
 log::warn("not ready", {problems = health::failing(ctx)})
 ```
 
+At an interactive prompt, [`:ready`](repl.md#is-it-serving-ready) prints the
+same report without your having to write a call — and without the process
+needing a health endpoint configured at all.
+
 `ctx` is required, and leading, as it is for `send()` and `http::get()`. A
 refresh evaluates `check` expressions, which run arbitrary I/O, so it needs the
 caller's trace parent and deadline. It also means `health::ready()` in a `const`

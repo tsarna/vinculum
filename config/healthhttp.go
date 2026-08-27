@@ -104,6 +104,30 @@ func (c *Config) HealthResponse(ctx context.Context, path string, render HealthR
 	}
 }
 
+// HealthReportText renders a probe as the verbose body `/readyz?verbose`
+// serves, for a caller that shows it somewhere other than over HTTP — the
+// REPL's `:ready`.
+//
+// force skips the cache. An HTTP probe does not, because the TTL is there to
+// bound what an unauthenticated caller hammering the endpoint can cost; a
+// person typing a command arrives at human frequency and means "now".
+func (c *Config) HealthReportText(ctx context.Context, probe string, force bool) []byte {
+	ep := endpointFor(ReadyzPath)
+	if probe == ProbeLive {
+		ep = endpointFor(LivezPath)
+	}
+
+	statuses := c.Health.Status(ctx, ep.probe, force)
+	passing := true
+	for _, s := range statuses {
+		if !s.Ready {
+			passing = false
+			break
+		}
+	}
+	return renderHealthVerbose(ep, statuses, passing)
+}
+
 func renderHealthBody(ep probeEndpoint, statuses []ComponentStatus, passing bool, render HealthRender) ([]byte, string) {
 	if render.JSON {
 		return renderHealthJSON(ep, statuses, passing, render.Verbose), "application/json"

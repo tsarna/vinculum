@@ -136,6 +136,32 @@ corpus is this session's own eval context, functions your `.cty` files and
 plugins declare are searched too — which the shell command's
 [`--apropos`](man.md#searching) cannot do.
 
+### Is it serving: `:ready`
+
+The session is a live process with live connections, and `:ready` says whether
+they are working:
+
+```
+1> :ready
+[+]process ok (for 12m4s)
+[+]server.api ok (for 12m4s)
+[-]client.broker failed: not connected (for 8s)
+readyz check failed
+```
+
+It is the body [`/readyz?verbose`](health.md#http-endpoints) serves, rendered by
+the same code — so what you read here is what a probe sees, and the trailing age
+tells a fresh outage from one that has been broken all along. `:ready live`
+asks the [liveness](health.md#liveness) probe instead, which answers the
+different question of whether the process is wedged.
+
+Unlike an HTTP probe, `:ready` ignores the cache and evaluates now. The five-
+second TTL is there to bound what an unauthenticated caller hammering the
+endpoint can cost, and you are not one.
+
+`health::failing(ctx)` gets the same information as data, for when you want to
+pick it apart rather than read it.
+
 The number in the prompt is the index the **next** result will be bound to: at
 `3>` a successful, non-null result becomes `_3` (see
 [Result history](#result-history-_-and-_1--_n) below). Inputs that don't produce
@@ -234,6 +260,7 @@ Lines beginning with `:` are meta-commands rather than expressions:
 | `:vars` | List session bindings with their types. |
 | `:man [TOPIC …]` | Show reference documentation; no topic lists what there is. |
 | `:apropos WORD …` | Search the reference; lists every topic matching all the words. |
+| `:ready [PROBE]` | Show the health report. `PROBE` is `ready` (the default) or `live`. |
 | `:loglevel LEVEL` | Set the async log level (`debug`/`info`/`warn`/`error`). |
 | `:quiet` | Mute async logs. |
 | `:logs on` / `:logs off` | Unmute / mute async logs. |
