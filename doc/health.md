@@ -292,6 +292,23 @@ something happens.
 A returned string is always a complaint. A healthy check has nothing to say —
 the same principle that makes an empty `health::failing()` mean healthy.
 
+**Use `cond()` to choose between those shapes, not `?:`.** HCL's ternary
+requires both branches to have the same type, and the two most useful results —
+an object carrying a reason, and a bare `true` — do not unify:
+
+```hcl
+# Wrong. Passes `vinculum check`, then fails on every probe with
+# "Inconsistent conditional result types: the 'true' value is object,
+#  but the 'false' value is bool."
+input = get(condition.degraded) ? {ready = false, reason = "degraded"} : true
+
+# Right.
+input = cond(get(condition.degraded), {ready = false, reason = "degraded"}, true)
+```
+
+`input` is evaluated at probe time, so a mistake here is not caught at load —
+the check simply reports the evaluation error as its reason on every probe.
+
 ### Composing with conditions
 
 Flapping suppression, delay, and latching are not reimplemented here.
