@@ -151,14 +151,15 @@ func TestLogRendersNullAndEmptyCollections(t *testing.T) {
 
 	assert.Equal(t, "<null>", got["nothing"])
 
-	// Documenting current behavior, not endorsing it: an empty collection logs
-	// as `null` rather than `[]`, because go2cty2go returns a nil slice and Go
-	// marshals that as null.
+	// An empty result is health's *good* case — `health::failing` returning
+	// nothing — so it must log as `[]`, not `null`. A consumer doing
+	// `.problems | length` breaks on the latter.
 	//
-	// It shows up in health's good case — `health::failing` returning nothing
-	// logs "problems":null — and breaks a consumer doing `.problems | length`.
-	// The fix belongs in go2cty2go (return an empty slice, not a nil one),
-	// where it would also correct send::go; patching it here would fix logging
-	// and leave message payloads inconsistent.
-	assert.Nil(t, got["none"])
+	// This needed go2cty2go v0.3.1: it returned a nil slice for an empty
+	// collection, which Go marshals as null. Fixed there rather than here, so
+	// send::go was corrected by the same change.
+	assert.Equal(t, []any{}, got["none"])
+
+	// Null and empty stay distinct — that is the point.
+	assert.NotEqual(t, got["nothing"], got["none"])
 }

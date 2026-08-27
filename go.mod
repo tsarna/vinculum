@@ -41,7 +41,7 @@ require (
 	github.com/tsarna/functy v0.15.0
 	github.com/tsarna/geo-cty-funcs v0.4.0
 	github.com/tsarna/go-structdiff v0.2.1
-	github.com/tsarna/go2cty2go v0.3.0
+	github.com/tsarna/go2cty2go v0.3.1
 	github.com/tsarna/hcl-jqfunc v0.1.4
 	github.com/tsarna/rand-cty-funcs v0.2.0
 	github.com/tsarna/rich-cty-types v0.5.1

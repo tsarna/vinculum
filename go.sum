@@ -279,6 +279,8 @@ github.com/tsarna/go-structdiff v0.2.1 h1:SD30U/azJB85tH9dgNu4qVOA2bPie9e1l5EvJo
 github.com/tsarna/go-structdiff v0.2.1/go.mod h1:SJHNQUzbdMbXBBNyOBzBsRotrWcX1jruIrhouLuNBgo=
 github.com/tsarna/go2cty2go v0.3.0 h1:OhwtKQS8iFRWYGo2lAaNyn6TMiB4OsQXDDJpoBFsxjc=
 github.com/tsarna/go2cty2go v0.3.0/go.mod h1:RYrXdiw6Ukuz8z7O+ewhMRXexYpcpJmjrUVJZJ9DtKU=
+github.com/tsarna/go2cty2go v0.3.1 h1:vXMQpJ9mmtQUDqIjGwJH0MLqfem4UuK/OEohQHbls/g=
+github.com/tsarna/go2cty2go v0.3.1/go.mod h1:ERkPQbO5PO8cLFjxVSX9qA+/VXz0Kh09c3jVjb1iU38=
 github.com/tsarna/hcl-jqfunc v0.1.4 h1:RM6XtbsB/+vBmt3xyHrFcUQ9CBtoTyvH+f8cThFt4T0=
 github.com/tsarna/hcl-jqfunc v0.1.4/go.mod h1:68xhvtbrJJLOd4uYbnkKlFSxgoGaaZhWEnxuuOMTA5I=
 github.com/tsarna/rand-cty-funcs v0.2.0 h1:060dNk7Afk7+ACVnhLLNK5qw6V7NYcdUgbxOrem7SLM=
