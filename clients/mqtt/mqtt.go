@@ -405,16 +405,43 @@ func (c *MQTTClientWrapper) Start() error {
 	}
 
 	connCtx, connCancel := context.WithCancel(context.Background())
-	if startErr := mqttCl.Start(connCtx); startErr != nil {
-		connCancel()
-		return fmt.Errorf("mqtt client %q: %w", c.Name, startErr)
-	}
 
+	// Published before the connection is launched, not after it succeeds, so
+	// Ready has something to answer with while the first connect is still in
+	// flight: "not connected", which is the truth, rather than "not started",
+	// which would be a lie about a client that is trying.
 	c.mu.Lock()
 	c.mqttClient = mqttCl
 	c.publishers = publishers
 	c.connCancel = connCancel
 	c.mu.Unlock()
+
+	// mqttclient.Start blocks until the first connection is up, by design and
+	// by its documented contract. Waiting on it here made one unreachable
+	// broker stall the whole serial boot loop — every client and every HTTP
+	// listener after it, none of which had anything to do with MQTT. A caller
+	// that does not want to block satisfies that contract with a goroutine;
+	// this is not working around the library, it is declining to wait.
+	//
+	// Nothing awaits the result. autopaho retries on its own schedule and fires
+	// OnConnect when it succeeds, which is what pushes readiness and runs the
+	// user's on_connect — so the connection reports itself rather than being
+	// waited for. Until then publishers have no publish function and OnEvent
+	// says "not yet connected".
+	go func() {
+		if err := mqttCl.Start(connCtx); err != nil {
+			// A cancelled context is Stop doing its job, not a failure.
+			if connCtx.Err() != nil {
+				return
+			}
+			// What is left is a connection manager that could not be built or
+			// that terminated before ever connecting — a bad configuration, or
+			// a reconnect limit reached. Neither is retried, so this line is
+			// the only notice; the client stays not-ready with a reason.
+			c.logger.Error("mqtt client failed to start",
+				zap.String("client", c.Name), zap.Error(err))
+		}
+	}()
 
 	return nil
 }
@@ -424,6 +451,12 @@ func (c *MQTTClientWrapper) Start() error {
 // autopaho reconnects on its own, so a broker outage is a recoverable state
 // rather than a dead client — exactly what readiness exists to report: out of
 // rotation while the broker is away, back in when the reconnect loop succeeds.
+//
+// A broker that is not listening yet at boot lands on "not connected" and stays
+// there until it is, which is the same state as an outage because it is the
+// same state. "not started" needs Start not to have run at all, which a probe
+// can only see if something reaches a contributor before the process gate
+// opens.
 func (c *MQTTClientWrapper) Ready(context.Context) error {
 	c.mu.RLock()
 	client := c.mqttClient
