@@ -32,6 +32,8 @@ package rabbitmq_test
 import (
 	"context"
 	"fmt"
+	"io"
+	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -209,8 +211,16 @@ func buildCfg(t *testing.T, vcl string) *cfg.Config {
 	return c
 }
 
-// startCfg starts all Startables (connecting the rabbitmq client to the broker)
+// startCfg starts all Startables, waits until the runtime reports itself ready,
 // and registers reverse-order Stop cleanup.
+//
+// The wait is not politeness — it is what the Startable contract requires of
+// every caller. Start launches the connection machinery and returns without
+// waiting for a broker, so a test that publishes the instant it returns is
+// racing the first connection and will usually lose. `vinculum serve` is not
+// exposed to this because nothing routes traffic to a process until /readyz
+// says so; awaitReady in cmd/health.go is the same wait for `vinculum test`.
+// This is that gate, for a test that drives the runtime directly.
 func startCfg(t *testing.T, c *cfg.Config) {
 	t.Helper()
 	for _, s := range c.Startables {
@@ -221,6 +231,33 @@ func startCfg(t *testing.T, c *cfg.Config) {
 			_ = c.Stoppables[i].Stop()
 		}
 	})
+	c.Health.SetBooted()
+	awaitReady(t, c)
+}
+
+// awaitReady blocks until every readiness contributor passes, or fails the test
+// naming the ones that did not. It mirrors cmd/health.go's awaitReady, which is
+// what `vinculum test` uses for the same purpose.
+func awaitReady(t *testing.T, c *cfg.Config) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	for {
+		failing := c.Health.Failing(ctx, cfg.ProbeReady, true)
+		if len(failing) == 0 {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			reasons := make([]string, 0, len(failing))
+			for _, f := range failing {
+				reasons = append(reasons, f.Component+" ("+f.Reason+")")
+			}
+			t.Fatalf("runtime never became ready; still failing: %s", strings.Join(reasons, ", "))
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
 }
 
 // buildAndStart is the common path for happy-path tests.
@@ -334,10 +371,86 @@ func TestRMQ_Phase0_Connect(t *testing.T) {
     exchange = "`+exTopic+`"
   }`, "")
 	c := buildCfg(t, vcl)
-	// Start the wrapper directly so we can assert the connect succeeded.
 	w := c.Clients["rabbitmq"]["events"].(*rabbitmq.RMQClientWrapper)
-	require.NoError(t, w.Start(), "initial connect to broker")
+	require.NoError(t, w.Start(), "start the connect loop")
 	t.Cleanup(func() { _ = w.Stop() })
+
+	// Start no longer waits for the broker, so asserting it returned nil says
+	// nothing about connectivity — that is what Ready is for. A real connection
+	// to a real broker is still the point of this test.
+	require.Eventually(t, func() bool {
+		return w.Ready(context.Background()) == nil
+	}, 15*time.Second, 25*time.Millisecond, "never connected to the broker")
+}
+
+// The regression this whole change exists for, against a real broker.
+//
+// A broker that is not listening when the process starts used to leave the
+// client dead for its whole lifetime: Start returned the dial error before the
+// reconnect watcher was ever spawned, so nothing retried and the pod sat out of
+// rotation until something restarted it. Here the broker is genuinely absent at
+// Start and genuinely appears afterwards, with no restart in between.
+//
+// The absence is arranged with a TCP forwarder rather than by stopping the real
+// broker: the client dials a local port nothing is listening on, and the
+// forwarder to the real broker is only started once the client has already
+// failed several times.
+func TestRMQ_Phase0_ConnectsWhenTheBrokerAppearsLate(t *testing.T) {
+	e := loadEnv(t)
+
+	// A port with nothing behind it yet.
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := probe.Addr().String()
+	require.NoError(t, probe.Close())
+
+	vcl := vclConfig(e, fmt.Sprintf("amqp://%s/%s", addr, e.vhostSeg()), `
+  sender "out" {
+    exchange = "`+exTopic+`"
+  }`, "")
+	c := buildCfg(t, vcl)
+	w := c.Clients["rabbitmq"]["events"].(*rabbitmq.RMQClientWrapper)
+
+	require.NoError(t, w.Start(), "an absent broker is not a boot failure")
+	t.Cleanup(func() { _ = w.Stop() })
+
+	// Genuinely not connected, and staying that way while nothing is there.
+	require.Never(t, func() bool {
+		return w.Ready(context.Background()) == nil
+	}, 2*time.Second, 200*time.Millisecond, "connected to a broker that does not exist")
+
+	// The broker appears. Nothing restarts, nothing is reconfigured.
+	startForwarder(t, addr, e.host+":"+e.port)
+
+	require.Eventually(t, func() bool {
+		return w.Ready(context.Background()) == nil
+	}, 30*time.Second, 100*time.Millisecond,
+		"never connected after the broker became reachable")
+}
+
+// startForwarder accepts on listenAddr and pipes each connection to target,
+// until the test ends.
+func startForwarder(t *testing.T, listenAddr, target string) {
+	t.Helper()
+	ln, err := net.Listen("tcp", listenAddr)
+	require.NoError(t, err, "re-bind the port the client is dialling")
+	t.Cleanup(func() { _ = ln.Close() })
+
+	go func() {
+		for {
+			in, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			out, err := net.Dial("tcp", target)
+			if err != nil {
+				_ = in.Close()
+				continue
+			}
+			go func() { _, _ = io.Copy(out, in); _ = out.Close() }()
+			go func() { _, _ = io.Copy(in, out); _ = in.Close() }()
+		}
+	}()
 }
 
 func TestRMQ_Phase0_OnConnectHook(t *testing.T) {
@@ -370,10 +483,19 @@ client "rabbitmq" "events" {
 `, e.brokerURL(), e.user, exTopic)
 	c := buildCfg(t, vcl)
 	w := c.Clients["rabbitmq"]["events"].(*rabbitmq.RMQClientWrapper)
-	// Initial connect failures surface synchronously; they do NOT retry.
-	err := w.Start()
+	require.NoError(t, w.Start(), "rejected credentials are not a boot failure")
 	t.Cleanup(func() { _ = w.Stop() })
-	require.Error(t, err, "bad password should fail Start, not hang")
+
+	// Deliberately retriable rather than terminal. A 401 from a broker is as
+	// likely to be a credential mid-rotation as a permanently wrong one, and
+	// guessing terminal turns a recoverable outage into a crash-loop across
+	// every replica. The cost of guessing the other way is this: a pod that
+	// stays out of rotation, saying why.
+	require.Never(t, func() bool {
+		return w.Ready(context.Background()) == nil
+	}, 3*time.Second, 250*time.Millisecond, "a rejected password must not report ready")
+
+	assert.EqualError(t, w.Ready(context.Background()), "not connected")
 }
 
 // ─── Phase 1 — Sender (bus -> RabbitMQ) ──────────────────────────────────────

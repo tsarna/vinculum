@@ -7,6 +7,7 @@
 package rabbitmq_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -299,9 +300,19 @@ func TestRMQ_Phase6_ReadOnlyDeclareDenied(t *testing.T) {
   }`, queue), "")
 	c := buildCfg(t, vcl)
 	w := c.Clients["rabbitmq"]["events"].(*rabbitmq.RMQClientWrapper)
-	err := w.Start()
+	require.NoError(t, w.Start(), "a topology failure is not a boot failure")
 	t.Cleanup(func() { _ = w.Stop() })
-	require.Error(t, err, "read-only user must not be able to declare a queue")
+
+	// The declare is refused, so the connection is dialled but unusable: the
+	// setup is torn down and the loop keeps trying. Retriable rather than
+	// terminal for the same reason a rejected password is — a permission can
+	// be granted a moment later, and a broker mid-provisioning is a more
+	// common cause than a permanently wrong grant. What the operator sees is a
+	// pod that stays out of rotation with the broker's own 403 in the log.
+	require.Never(t, func() bool {
+		return w.Ready(context.Background()) == nil
+	}, 3*time.Second, 250*time.Millisecond,
+		"a queue the user may not declare must not report ready")
 }
 
 func TestRMQ_Phase6_ReadOnlyConsumeAllowed(t *testing.T) {

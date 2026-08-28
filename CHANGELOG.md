@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A dependency that is unreachable at startup no longer stops the process from
+  starting, and is recovered from without a restart.** Four clients had four
+  different answers to "the service I depend on is not there yet"; they now have
+  one. `Start` launches whatever connection machinery it owns and returns
+  promptly, reporting its state through `/readyz` until it connects.
+
+  - `client "mqtt"` blocked until the broker answered. Because components start
+    one after another, a single unreachable broker prevented everything declared
+    after it from starting at all — including HTTP listeners with nothing to do
+    with MQTT.
+  - `client "rabbitmq"` was worse: a failed first connection killed the client
+    for the life of the process. The retry schedule the `reconnect` block
+    configures never ran, because it was only ever armed after a first success.
+    Fixed upstream in vinculum-rabbitmq v0.6.0.
+  - `client "sql"` closed its connection pool on a failed ping, throwing away
+    the reconnection `database/sql` performs on its own and leaving every later
+    query to fail against nothing.
+  - `client "redis"`, `"kafka"` and `"otlp"` already behaved this way.
+
+  A pod whose database or broker comes up thirty seconds after it does now
+  reports `503` for thirty seconds and then serves, rather than needing a
+  restart to notice.
+
+  **The trade is that a message sent before the first connection now fails
+  instead of waiting for one.** Previously an mqtt or rabbitmq client had
+  connected by the time anything could send; now a `trigger "start"` action that
+  publishes immediately can run first and get "not connected". Gate on
+  readiness — `check`, `sys.ready`, or `health::ready(ctx)` — if a send must not
+  be attempted before the connection is up.
+
+- **A component that cannot work at all now stops the process** instead of
+  leaving it running and permanently unready, which is a crash-loop with worse
+  diagnostics. This covers a port already in use and a SQL driver that is not
+  registered. Everything else is treated as recoverable, deliberately: a refused
+  connection or a rejected password is far more often a broker mid-restart or a
+  credential mid-rotation than a permanent fact, and guessing wrong in that
+  direction turns an outage into a crash-loop across every replica. Guessing
+  wrong the other way costs an unready pod that says why.
+
 - **Authentication is now a named top-level `auth` block.** It was an anonymous
   `auth "<mode>" { … }` block written inside each server or route; it is now
   `auth "<type>" "<name>"` at the top level, referenced with `auth = auth.<name>` from

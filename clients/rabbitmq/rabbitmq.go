@@ -479,14 +479,23 @@ func (c *RMQClientWrapper) Start() error {
 		cli.AddReceiver(r)
 	}
 
-	if err := cli.Start(context.Background()); err != nil {
-		return err
-	}
-
+	// Published before the connection is launched, so Ready has something to
+	// answer with while the first connect is still in flight: "not connected",
+	// which is the truth, rather than "not started", which would be a lie about
+	// a client that is trying.
 	c.mu.Lock()
 	c.client = cli
 	c.senders = senders
 	c.mu.Unlock()
+
+	// Start no longer dials — it launches the connect-and-watch loop and
+	// returns. What it can still refuse is a configuration it cannot use at
+	// all: no brokers, or a second Start. Neither improves on a retry, and
+	// neither is reachable from a config that passed validation, so a failure
+	// here is a wiring bug rather than an outage.
+	if err := cli.Start(context.Background()); err != nil {
+		return cfg.Terminal(fmt.Errorf("rabbitmq client %q: %w", c.Name, err))
+	}
 	return nil
 }
 
@@ -495,6 +504,12 @@ func (c *RMQClientWrapper) Start() error {
 // The client reconnects on its own, so a broker outage is a recoverable state
 // rather than a dead client — exactly what readiness exists to report: out of
 // rotation while the broker is away, back in when the reconnect loop succeeds.
+//
+// A broker that is not listening yet at boot lands on "not connected" and stays
+// there until it is. That used to be "not started" forever: a failed first dial
+// returned from Start before the reconnect watcher was ever spawned, so the
+// client was dead for the life of the process and the report, while accurate,
+// described something no probe would ever see change.
 func (c *RMQClientWrapper) Ready(context.Context) error {
 	c.mu.RLock()
 	client := c.client
