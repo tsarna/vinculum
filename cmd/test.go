@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tsarna/functy"
 	"github.com/tsarna/vinculum/config"
-	"go.uber.org/zap"
 )
 
 var (
@@ -129,17 +128,13 @@ func runTest(cmd *cobra.Command, args []string) error {
 
 	// Full mode boots the runtime like serve; --no-serve skips it (and teardown).
 	if !testNoServe {
-		for _, startable := range cfg.Startables {
-			if serr := startable.Start(); serr != nil {
-				logger.Error("Failed to start component", zap.Error(serr))
-			}
-		}
-		for _, ps := range cfg.PostStartables {
-			if perr := ps.PostStart(); perr != nil {
-				logger.Error("Failed to post-start component", zap.Error(perr))
-			}
-		}
+		// Deferred before startAll runs, so a terminal failure part-way through
+		// boot still tears down what did start.
 		defer shutdown(cfg, logger)
+		if serr := startAll(cfg, logger); serr != nil {
+			cmd.SilenceUsage = true
+			return serr
+		}
 	}
 
 	// Boot is complete either way. Under --no-serve nothing was started, but

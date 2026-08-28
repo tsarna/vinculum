@@ -30,6 +30,33 @@ type ConfigBuilder struct {
 	files map[string]*hcl.File
 }
 
+// Startable is implemented by components that need to be launched once the
+// configuration is built. Start is called serially, in dependency order, before
+// the process reports itself ready.
+//
+// # The contract
+//
+// Start must not block on, and must not fail for, an external dependency. It
+// launches whatever connection machinery it owns, returns promptly, and reports
+// its state through Readyable until connected.
+//
+// Because the loop is serial, a Start that waits for a broker to appear stalls
+// every component after it — including HTTP listeners with nothing to do with
+// that broker. And because a dependency that is down at boot is nearly always
+// one that will come back, failing permanently for it trades a recoverable
+// outage for a pod that is out of rotation until something restarts it.
+//
+// Binding a listener is not an external dependency: a port conflict is local
+// and does not resolve itself, which is why a bind is synchronous and its
+// failure is Terminal.
+//
+// # What a returned error means
+//
+//   - nil — started; the component may still be connecting.
+//   - a plain error — started degraded. Logged once at Warn and boot continues;
+//     the component reports not-ready and retries on its own.
+//   - a TerminalError — this can never work. Logged at Error; teardown runs and
+//     the process exits non-zero.
 type Startable interface {
 	Start() error
 }

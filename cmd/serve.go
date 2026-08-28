@@ -145,17 +145,13 @@ func runServer(cmd *cobra.Command, args []string) error {
 		defer healthSrv.Close()
 	}
 
-	for _, startable := range cfg.Startables {
-		err := startable.Start()
-		if err != nil {
-			logger.Error("Failed to start component", zap.Error(err))
-		}
-	}
-
-	for _, ps := range cfg.PostStartables {
-		if err := ps.PostStart(); err != nil {
-			logger.Error("Failed to post-start component", zap.Error(err))
-		}
+	// A terminal failure tears down whatever did start rather than exiting on
+	// top of it: half a process is what the Startable contract exists to
+	// prevent, and a component that bound a port or opened a connection still
+	// has to give it back.
+	if err := startAll(cfg, logger); err != nil {
+		shutdown(cfg, logger)
+		return err
 	}
 
 	// Boot is complete. Until this point readiness is false with reason
