@@ -305,7 +305,12 @@ The `baggage` block is a [baggage](baggage.md) trust filter. Inbound baggage is
 `passthrough`/`allow`/`deny`. See
 [Server-side trust filtering](baggage.md#server-side-trust-filtering).
 `transforms` and `queue_size` behave as they do on a
-[subscription](config.md#subscription).
+[subscription](config.md#subscription) — but note that `queue_size` makes
+delivery succeed the moment the message is queued, so the message is deleted
+from the queue before the handler has run, and a handler error no longer leaves
+it to reappear after the visibility timeout. Use `concurrency` for throughput
+instead; set `queue_size` only if at-most-once delivery is acceptable. See
+[delivery model](config.md#delivery-model).
 
 <!-- vinculum:begin block-attrs client sqs_receiver level=3 -->
 
@@ -371,7 +376,7 @@ Evaluated against the `decode-error` context.
 
 **`queue_size`**
 
-When set, decouples delivery from the action so a slow action does not block the source.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, so a source that acknowledges on successful delivery acknowledges before the work is done.
 
 **`region`**
 

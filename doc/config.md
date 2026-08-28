@@ -440,6 +440,54 @@ Reserved for alternative bus implementations; omit for the default in-process bu
 
 <!-- vinculum:end block-attrs bus -->
 
+#### Delivery model
+
+A bus has **one delivery goroutine**. When a message is published, that
+goroutine walks the bus's subscribers and calls each one in turn, waiting for
+each to return before moving on to the next. A synchronous publish runs on the
+same goroutine; the publisher simply waits for the result.
+
+So a slow subscriber is everyone's problem: while it is blocked, no other
+subscriber on that bus receives anything. The usual culprits are the outbound
+halves of client blocks — `sender`, `producer`, or `publisher`, depending on
+the client — because they block until the remote system answers. An MQTT
+publish waits for its PUBACK, SQS and SNS make an HTTP API call, Redis waits
+for `XADD` or `PUBLISH`, a RabbitMQ sender in confirm mode waits for the
+broker. An `action` that calls `send()` to one of those occupies the same
+goroutine for the same reason.
+
+Those are attached with a `subscription` block, so the remedy is that block's
+`queue_size`:
+
+```hcl
+subscription "to_broker" {
+    target     = bus.main
+    topics     = ["sensor/#"]
+    subscriber = client.iot.sender.main
+    queue_size = 500    # publish on its own goroutine; the bus moves on
+}
+```
+
+The trade is the one stated on the attribute: the queue is bounded and drops
+when full, and delivery counts as successful the moment the message is queued.
+Nothing downstream of a bus subscription acts on that outcome, so for an
+outbound path this costs only the drop.
+
+Connection-oriented servers already do this for you. `server "vws"` and
+`server "websocket"` give every connection its own outbound queue (their own
+`queue_size`, default 256), so one stalled client cannot hold up the bus.
+
+**Inbound is the opposite case.** `queue_size` is also accepted on client
+*receivers*, where it is tempting for the same reason — don't let a slow action
+stall the poll loop. But there the blocking is doing a job: it is what bounds
+how much is in flight, and what lets the receiver decide whether to acknowledge
+the message. A receiver that acknowledges on successful delivery — a Kafka
+`receiver` with `commit_mode = "after_process"`, a RabbitMQ `receiver`, a
+`redis_stream` `consumer` with `auto_ack`, `client "sqs_receiver"` — will
+acknowledge at the moment the message is queued rather than when the work
+finishes, and an error from that work can no longer trigger redelivery or
+dead-lettering. Set it there only if at-most-once delivery is what you want.
+
 #### Tracing
 
 When `tracing` is configured (or auto-wired to a `client "otlp"` block), each
@@ -856,9 +904,16 @@ expression for each message or forwards messages to another subscriber.
 The `subscriber`/`action`/`transforms`/`queue_size` set of attributes is a
 shared delivery-target pattern: the same four attributes, with identical
 semantics, are also accepted by every client *receiver* block
-(`client "sqs_receiver"`, `client "kafka"` receivers, `client "mqtt"`
-subscribers, `client "redis_stream"` consumers, `client "redis_pubsub"`
-subscribers). The attribute reference below applies in all of those contexts.
+(`client "sqs_receiver"`, `client "kafka"` and `client "rabbitmq"` receivers,
+`client "mqtt"` subscribers, `client "redis_stream"` consumers,
+`client "redis_pubsub"` subscribers). The attribute reference below applies in
+all of those contexts.
+
+Identical semantics, but not identical consequences: `queue_size` on a
+subscription decouples a slow *outbound* path from the bus, which is what it is
+for, while on a receiver it discards the delivery outcome the receiver needs in
+order to acknowledge. See [delivery model](#delivery-model) under `bus` before
+setting it on a receiver.
 
 #### Attributes
 
@@ -893,7 +948,7 @@ The block is parsed and validated, but nothing is created from it. A block that 
 
 **`queue_size`**
 
-When set, decouples delivery from the action so a slow action does not block the source.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, so a source that acknowledges on successful delivery acknowledges before the work is done.
 
 **`subscriber`**
 

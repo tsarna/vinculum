@@ -613,7 +613,7 @@ Bounds how much work is outstanding at once. Zero is unlimited, which lets the b
 
 **`queue_size`**
 
-When set, decouples delivery from the action so a slow action does not block the source.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, so a source that acknowledges on successful delivery acknowledges before the work is done.
 
 **`subscriber`**
 
@@ -639,6 +639,13 @@ form the standard delivery pattern used by every block that dispatches events
 (see [subscription](config.md#subscription)). `queue_size` runs delivery in a
 background queue so a slow handler doesn't block the AMQP delivery loop; trace
 context flows across the async boundary.
+
+`queue_size` also changes when the message is acknowledged. Delivery counts as
+successful the moment the message is queued, so the receiver acks then rather
+than when the handler finishes: a handler error no longer nacks the message to
+the dead-letter exchange, and a full queue drops a message that has already
+been acked. Set it only if at-most-once delivery is acceptable, and prefer
+`prefetch` for throughput. See [delivery model](config.md#delivery-model).
 
 **Action context variables:**
 

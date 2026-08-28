@@ -329,7 +329,7 @@ Evaluated against the `decode-error` context.
 
 **`queue_size`**
 
-When set, decouples delivery from the action so a slow action does not block the source.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, so a source that acknowledges on successful delivery acknowledges before the work is done.
 
 **`subscriber`**
 
@@ -664,7 +664,7 @@ Without a cap the stream grows without bound.
 | `group` | string | yes |  | Consumer group to join. |
 | `stream` | expression | yes |  | Stream to consume from. |
 | `action` | expression (action-expression) |  |  | Expression evaluated once per message. |
-| `auto_ack` | bool |  | `true` | Acknowledge on read rather than after handling. |
+| `auto_ack` | bool |  | `true` | Acknowledge as soon as delivery returns without error. |
 | `batch_size` | number |  | `10` | Maximum entries to read at once. |
 | `block_timeout` | expression (duration) |  | `2s` | How long to wait for new entries before polling again. |
 | `consumer_name` | expression |  |  | Name identifying this consumer within the group. |
@@ -698,7 +698,7 @@ Evaluated against the `message` context.
 
 **`auto_ack`**
 
-Faster, but an entry is lost if handling fails. Turn it off to acknowledge explicitly with `redis::ack()`.
+Faster, but an entry is lost if handling fails after delivery has returned — including whenever `queue_size` is set, since delivery then returns at the moment the entry is queued. Turn it off to acknowledge explicitly with `redis::ack()`.
 
 **`consumer_name`**
 
@@ -724,7 +724,7 @@ Evaluated against the `decode-error` context.
 
 **`queue_size`**
 
-When set, decouples delivery from the action so a slow action does not block the source.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, so a source that acknowledges on successful delivery acknowledges before the work is done.
 
 **`reclaim_min_idle`**
 

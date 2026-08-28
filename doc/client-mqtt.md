@@ -495,7 +495,7 @@ Evaluated against the `decode-error` context.
 
 **`queue_size`**
 
-When set, decouples delivery from the action so a slow action does not block the source.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, so a source that acknowledges on successful delivery acknowledges before the work is done.
 
 **`shared_group`**
 

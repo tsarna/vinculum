@@ -407,6 +407,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   skew, audience mismatch, unknown signing keys, malformed and absent bearer tokens, the
   explicit `jwks_url` path that skips discovery, and the config errors above.
 
+### Documentation
+
+- **Documented what a bus's single delivery goroutine means, and what
+  `queue_size` really costs.** A new *Delivery model* section under `bus` in
+  `doc/config.md` says that one goroutine walks a bus's subscribers serially, so
+  a subscriber blocked on a network round-trip — an MQTT publish awaiting its
+  PUBACK, an SQS or SNS API call, a Redis `XADD`, a RabbitMQ sender in confirm
+  mode — holds up every other subscriber on that bus until it returns. Setting
+  `queue_size` on the `subscription` that attaches it is the answer, and
+  `server "vws"` and `server "websocket"` already do the equivalent per
+  connection.
+
+  Inbound is the opposite case, and the docs previously recommended the wrong
+  thing. `queue_size` on a client *receiver* reports delivery successful the
+  moment the message is queued, which is also the moment the receiver decides
+  whether to acknowledge — so a Kafka `receiver` commits its offset, a RabbitMQ
+  `receiver` acks, a `redis_stream` `consumer` with `auto_ack` `XACK`s, and an
+  `sqs_receiver` deletes, all before the handler has run. An error afterwards
+  can no longer reach `dlq_topic`, a dead-letter exchange, `dead_letter_after`,
+  or the visibility timeout. The shared `queue_size` description now says this,
+  and each affected receiver's page says it in its own terms.
+
+- Corrected `auto_ack` on a `redis_stream` `consumer`, which claimed to
+  acknowledge "on read rather than after handling". It acknowledges after
+  delivery returns without error, which is a different moment and the one that
+  matters.
+
 ## [0.45.1] - 2026-08-17
 
 ### Fixed

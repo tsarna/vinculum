@@ -428,7 +428,7 @@ Evaluated against the `decode-error` context.
 
 **`queue_size`**
 
-When set, decouples delivery from the action so a slow action does not block the source.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, so a source that acknowledges on successful delivery acknowledges before the work is done.
 
 **`start_offset`**
 
@@ -462,6 +462,14 @@ Optionally, `transforms = [...]` applies a transform pipeline to each message
 before delivery, and `queue_size = N` wraps delivery in an async background
 queue of depth `N` so slow handlers don't block the Kafka poll loop. Same
 semantics as the top-level [subscription](config.md#subscription) block.
+
+`queue_size` interacts with offset commits, and the interaction is not what you
+want by default: delivery counts as successful the moment the message is
+queued, so `commit_mode = "after_process"` commits the offset before the
+handler has run, an error from the handler no longer routes to `dlq_topic`, and
+a full queue drops the record after its offset is committed. Set it only if
+at-most-once delivery is acceptable. See
+[delivery model](config.md#delivery-model).
 
 #### Action context variables
 

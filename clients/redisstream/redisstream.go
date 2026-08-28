@@ -129,9 +129,11 @@ what it has acknowledged, so a consumer can resume after a restart.`,
 				"batch_size":    {Summary: "Maximum entries to read at once.", Default: "10"},
 				"block_timeout": {Summary: "How long to wait for new entries before polling again.", Hint: cfg.HintDuration, Default: "2s"},
 				"auto_ack": {
-					Summary: "Acknowledge on read rather than after handling.",
-					Doc: "Faster, but an entry is lost if handling fails. Turn it off to " +
-						"acknowledge explicitly with `redis::ack()`.",
+					Summary: "Acknowledge as soon as delivery returns without error.",
+					Doc: "Faster, but an entry is lost if handling fails after delivery has " +
+						"returned — including whenever `queue_size` is set, since delivery then " +
+						"returns at the moment the entry is queued. Turn it off to acknowledge " +
+						"explicitly with `redis::ack()`.",
 					Hint:    cfg.HintBool,
 					Default: "true",
 				},

@@ -84,7 +84,10 @@ var SubscriberSourceAttrs = map[string]AttrMeta{
 	},
 	"queue_size": {
 		Summary: "Depth of an async queue wrapping the subscriber.",
-		Doc:     "When set, decouples delivery from the action so a slow action does not block the source.",
+		Doc: "When set, delivery is handed to a background goroutine so slow work does not " +
+			"block the source. The queue is bounded: a message that arrives when it is full is " +
+			"dropped. Delivery is reported successful as soon as the message is queued, so a " +
+			"source that acknowledges on successful delivery acknowledges before the work is done.",
 	},
 }
 
