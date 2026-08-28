@@ -140,8 +140,12 @@ consume a queue and deliver what arrives to the bus or an action.`,
 			Attrs: cfg.MergeAttrs(cfg.SubscriberSourceAttrs, map[string]cfg.AttrMeta{
 				"queue": {
 					Summary: "Queue to consume from.",
-					Doc: "With no `declare` block the queue is declared passively at " +
-						"startup, so a missing queue fails immediately rather than later.",
+					Doc: "With no `declare` block the queue is declared passively when " +
+						"the client connects, so a missing queue is reported at once " +
+						"rather than on the first message. The connection is retried, " +
+						"so a queue that has not been provisioned yet leaves the client " +
+						"not ready with the broker's own error, and it recovers when the " +
+						"queue appears.",
 				},
 				"prefetch": {
 					Summary: "Unacknowledged messages the broker may have in flight.",

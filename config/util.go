@@ -261,9 +261,11 @@ var ReconnectAttrs = map[string]AttrMeta{
 		Summary: "Give up after this many attempts.",
 		Doc: "Retries forever when omitted, and also when set to zero or a " +
 			"negative number. Counts attempts to recover a *lost* connection; the " +
-			"initial connection is retried regardless. Giving up is quiet and " +
-			"final — the client logs an error and stays down, and the process keeps " +
-			"running.",
+			"initial connection is retried regardless, since a dependency that has " +
+			"not finished starting is the ordinary case at boot and giving up on it " +
+			"would be the wrong default. Giving up is quiet and final — the client " +
+			"logs an error and stays down, the process keeps running, and readiness " +
+			"reports the client as not ready for as long as that lasts.",
 	},
 }
 

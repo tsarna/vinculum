@@ -258,7 +258,7 @@ Must be greater than zero: every later wait is this one multiplied by `backoff_f
 
 **`max_retries`**
 
-Retries forever when omitted, and also when set to zero or a negative number. Counts attempts to recover a *lost* connection; the initial connection is retried regardless. Giving up is quiet and final — the client logs an error and stays down, and the process keeps running.
+Retries forever when omitted, and also when set to zero or a negative number. Counts attempts to recover a *lost* connection; the initial connection is retried regardless, since a dependency that has not finished starting is the ordinary case at boot and giving up on it would be the wrong default. Giving up is quiet and final — the client logs an error and stays down, the process keeps running, and readiness reports the client as not ready for as long as that lasts.
 
 <!-- vinculum:end block-attrs client rabbitmq reconnect -->
 
@@ -579,7 +579,7 @@ The `baggage` block is a [baggage](baggage.md) trust filter. Inbound baggage is
 
 **`queue`**
 
-With no `declare` block the queue is declared passively at startup, so a missing queue fails immediately rather than later.
+With no `declare` block the queue is declared passively when the client connects, so a missing queue is reported at once rather than on the first message. The connection is retried, so a queue that has not been provisioned yet leaves the client not ready with the broker's own error, and it recovers when the queue appears.
 
 **`action`**
 

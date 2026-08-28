@@ -35,6 +35,8 @@ makes every replica *not live* is a fleet-wide restart loop. So:
 - [Metrics and logging](#metrics-and-logging)
 - [Liveness](#liveness)
 - [When readiness is computed](#when-readiness-is-computed)
+- [Boot and shutdown](#boot-and-shutdown)
+- [Starting when a dependency is down](#starting-when-a-dependency-is-down)
 
 ---
 
@@ -769,3 +771,111 @@ from a lossy one.
 Both are one-way. Vinculum has no configuration reload, so the set of
 contributors is fixed for the life of the process and the sequence is always
 `starting → serving → shutting down`.
+
+---
+
+## Starting when a dependency is down
+
+Readiness makes a degraded process *visible*. This section is about what makes
+one *recover* — the other half, and the one that decides whether an operator has
+to do anything.
+
+### A component never waits for a dependency
+
+Components are started one after another, in dependency order. A component
+starts whatever connection machinery it owns and returns straight away; it does
+not wait for a broker or a database to answer, and it does not fail because one
+did not.
+
+That is a contract rather than an implementation detail, and two things follow
+from it:
+
+- **Boot is bounded.** No dependency can stall the sequence, so an unreachable
+  broker cannot stop an HTTP listener declared after it from binding. The
+  listener comes up and serves; `/readyz` reports the broker.
+- **A late dependency needs no restart.** A database that comes up thirty
+  seconds after the process does is connected to on the next retry. The pod
+  reports `503` for thirty seconds and then serves.
+
+The visible cost is that **a message sent before the first connection fails**
+rather than waiting for one. `trigger "start"` runs during boot, so an action
+that publishes from one can run before the connection exists:
+
+```hcl
+# Wrong: runs during boot, so it races the first connection.
+trigger "start" "announce" {
+    action = send(ctx, client.broker.sender.out, "up", "hello")
+}
+```
+
+```text
+error  start trigger: action error  name=announce_wrong
+       Call to function "send" failed: failed to send event:
+       rabbitmq sender: not yet connected.
+```
+
+Use the client's own
+[`on_connect`](client-rabbitmq.md#on_connect--on_disconnect) instead — every
+client with a connection lifecycle has one. It is evaluated once the
+connection is established and ready, and again after every reconnection, so the
+announcement survives a broker restart as well as a slow start:
+
+```hcl
+client "rabbitmq" "broker" {
+    brokers    = ["amqp://broker.example.com/"]
+    on_connect = send(ctx, client.broker.sender.out, "up", "hello")
+
+    sender "out" { exchange = "events" }
+}
+```
+
+**Prefer `on_connect` to watching `sys.ready` for this.** `trigger "watch"` on
+`sys.ready` looks equivalent and is not, because readiness is computed only when
+something asks for it. If nothing probes `/readyz` while the process is still
+connecting, the first value ever computed is `true`, that becomes the baseline,
+and no transition is ever observed — so the trigger never fires. Under Kubernetes
+a readinessProbe polls and it works; run the same configuration with no probe
+and it silently does nothing. `on_connect` has no such dependency: the client
+calls it. See [What is prompt, and what is sampled](#what-is-prompt-and-what-is-sampled).
+
+### What stops the process instead
+
+A failure that retrying cannot fix does not leave the process running and
+permanently unready — that is a crash-loop with worse diagnostics. It is logged
+naming the component, whatever already started is torn down, and the exit code
+is non-zero.
+
+Deliberately, this is a short list:
+
+| Failure | Why it is fatal |
+|---|---|
+| a port already in use | Local, and no amount of waiting frees it |
+| a SQL driver that is not registered | A build or plugin problem, not a connectivity one |
+
+Everything else is treated as recoverable, **including things that look
+permanent**: a refused connection, a rejected password, a queue the user may not
+declare. Each of those is more often a broker mid-restart, a credential
+mid-rotation, or a provisioning step that has not run yet than a permanent fact.
+
+The asymmetry is on purpose. Guessing "terminal" wrongly turns a recoverable
+outage into a crash-loop across every replica at once. Guessing "recoverable"
+wrongly costs an unready pod that says exactly why, on `/readyz`, for as long as
+it lasts. The second mistake is much cheaper, so the default leans that way and
+only a component that is *certain* declares otherwise.
+
+### Per-client behaviour
+
+Every client below reports through `/readyz` while it is connecting, and
+recovers without a restart.
+
+| Client | On an unreachable dependency at startup |
+|---|---|
+| `mqtt`, `rabbitmq`, `vws` | Retries on the `reconnect` schedule. `max_retries` bounds recovery of a *lost* connection, never the initial one |
+| `sql` | The pool is kept and `database/sql` reconnects on its own; the first ping is a diagnostic, not a gate |
+| `redis` | Reconnects lazily on the next command |
+| `kafka` | Retries in the background |
+| `otlp` | Export failures are handled by the OTel SDK |
+| `http`, `llm`, `sns`, `sqs` | Nothing to do — connections are per-request |
+
+A dependency that should not gate traffic at all is a different question, and
+has its own answer: [`readiness = false`](#opting-a-component-out).
