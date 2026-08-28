@@ -610,13 +610,18 @@ func (h *HttpServer) Start() error {
 	// nil, leaving the process up and serving nothing — invisible to anything
 	// but the log. It also has to be this way for Ready() to mean anything:
 	// "bound" is a fact only the caller of Listen knows.
+	//
+	// Terminal: a port conflict is local and does not resolve itself, so there
+	// is nothing to retry and nothing readiness could usefully report. It also
+	// closes the hole where `readiness = false` on this server would hide a
+	// failed bind entirely.
 	addr := h.Server.Addr
 	if addr == "" {
 		addr = ":http"
 	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("http server %q: %w", h.Name, err)
+		return cfg.Terminal(fmt.Errorf("http server %q: %w", h.Name, err))
 	}
 	h.setListener(ln)
 

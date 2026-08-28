@@ -42,6 +42,8 @@ func TestStartReportsABindFailure(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "address already in use")
 	assert.Contains(t, err.Error(), `"main"`, "the error should name the server")
+	assert.True(t, cfg.IsTerminal(err),
+		"a port conflict is local and does not resolve itself, so boot must not continue past it")
 
 	// And the failure is visible to a probe, not only to the log.
 	config.Health.SetBooted()
@@ -79,10 +81,17 @@ server "http" "main" {
 	require.False(t, diags.HasErrors(), "%v", diags)
 
 	srv := config.Servers["http"]["main"].(*httpserver.HttpServer)
-	require.Error(t, srv.Start(), "the bind still fails and is still reported to the caller")
+	err = srv.Start()
+	require.Error(t, err, "the bind still fails and is still reported to the caller")
 
-	// But it no longer takes the process out of rotation, which is the whole
-	// point of the attribute.
+	// The attribute takes the server out of the readiness aggregate, which is
+	// the whole point of it...
 	config.Health.SetBooted()
 	assert.Empty(t, config.Health.Failing(context.Background(), cfg.ProbeReady, true))
+
+	// ...and that is exactly why the bind failure has to be terminal. Opting
+	// out of readiness is a statement about a *dependency* not gating traffic;
+	// it cannot be allowed to mean that a listener which will never accept a
+	// connection goes unnoticed entirely.
+	assert.True(t, cfg.IsTerminal(err))
 }

@@ -124,9 +124,14 @@ func (s *MetricsServer) Start() error {
 	// Bind synchronously and report the failure. ListenAndServe inside the
 	// goroutine discarded it entirely, leaving a process that was up and
 	// scraping nothing, with not even a log line to say so.
+	//
+	// Terminal: a port conflict is local and does not resolve itself, so there
+	// is nothing to retry and nothing readiness could usefully report. It also
+	// closes the hole where `readiness = false` on this server would hide a
+	// failed bind entirely.
 	ln, err := net.Listen("tcp", s.listen)
 	if err != nil {
-		return fmt.Errorf("metrics server %q: %w", s.GetName(), err)
+		return cfg.Terminal(fmt.Errorf("metrics server %q: %w", s.GetName(), err))
 	}
 	s.setListener(ln)
 

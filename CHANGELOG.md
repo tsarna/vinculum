@@ -41,9 +41,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A server that could not bind its port came up anyway, serving nothing.** Both
   HTTP-bearing servers called `ListenAndServe` inside their own goroutine, so a bind
   failure was logged and otherwise invisible — `server "metrics"` discarded the error
-  outright. `Start` now calls `net.Listen` synchronously and returns the failure. It
-  stays non-fatal, so the process comes up and reports `503` naming the server rather
-  than exiting silently on a port conflict.
+  outright. `Start` now calls `net.Listen` synchronously, and a bind failure stops the
+  process: it is logged naming the server, whatever did start is torn down, and the
+  exit code is non-zero.
+
+  Exiting is the change from the first pass at this, which came up and reported `503`
+  instead. A port conflict is local and never resolves itself, so there is nothing to
+  retry and nothing readiness could usefully say about it — and `readiness = false` on
+  a server, which is a statement about a dependency not gating traffic, must not also
+  mean that a listener which will never accept a connection goes unnoticed. It matches
+  what the standalone health listener already did, so the three listeners now agree.
 
 - **`log::` printed a list or object as Go source.** Complex values were formatted by
   hand, falling back to cty's `GoString()`, so logging a structure emitted
