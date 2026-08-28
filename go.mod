@@ -60,7 +60,7 @@ require (
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260820024614-9b174ed31afe
 	github.com/twmb/franz-go/plugin/kotel v1.7.0
 	github.com/yosida95/uritemplate/v3 v3.0.2
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
 	go.opentelemetry.io/contrib/instrumentation/runtime v0.70.0
 	go.opentelemetry.io/contrib/processors/baggagecopy v0.16.3
 	go.opentelemetry.io/otel v1.46.0
