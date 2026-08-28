@@ -215,7 +215,7 @@ client "redis_pubsub" "rps" {
   subscriber "in" {
     # Exactly one of:
     subscriber = bus.main
-    # action   = send(ctx, bus.main, "redis/${ctx.topic}", msg)
+    # action   = send(ctx, bus.main, "redis/${ctx.topic}", ctx.msg)
 
     # Optional transform pipeline and async queue (same semantics as the
     # top-level `subscription` block — see config.md#subscription).
@@ -344,6 +344,16 @@ A list of transform functions applied in order to each message. Only transform f
 - `channel_subscription` (1..n) — One Redis channel or channel pattern to subscribe to.
 
 <!-- vinculum:end block-attrs client redis_pubsub subscriber -->
+
+A `channel_subscription`'s `vinculum_topic` reads the channel a message arrived
+on as `ctx.channel`, alongside `ctx.msg` and `ctx.fields`. There is no
+`ctx.topic`: no bus topic exists yet, since producing one is what the
+expression is for.
+
+> **Changed in 0.46.0.** The channel used to be offered here as `ctx.topic`,
+> and under no other name. It is now `ctx.channel` — the same name
+> `on_decode_error` gives it — and `ctx.topic` is gone. `vinculum_topic =
+> ctx.topic` is reported by `vinculum check` rather than failing at runtime.
 
 ### Publisher behavior
 
@@ -541,7 +551,7 @@ client "redis_stream" "rs" {
     stream         = "events"
     group          = "workers"
     consumer_name  = sys.hostname           # default: <host>-<client>-<consumer>
-    vinculum_topic = "stream/${ctx.topic}"  # optional remap
+    vinculum_topic = "stream/${ctx.stream}" # optional remap
 
     # Exactly one of:
     subscriber = bus.main
@@ -734,9 +744,9 @@ A list of transform functions applied in order to each message. Only transform f
 
 **`vinculum_topic`**
 
-Evaluated per entry, where `ctx.topic` carries the stream name rather than a bus topic — producing the bus topic is what this expression is for.
+The stream name is used when omitted. Evaluated per entry, with the stream and the entry's Redis ID readable under the same names `on_decode_error` gives them. `ctx.msg` is the entry's `payload_field` and `ctx.fields` its remaining stream fields, as `fields_mode` maps them.
 
-Evaluated against the `redis-stream-entry` context.
+Evaluated against the `inbound-message` context.
 
 ##### Blocks
 
@@ -748,26 +758,28 @@ Evaluated against the `redis-stream-entry` context.
 
 <!-- vinculum:begin block-ctx client redis_stream consumer vinculum_topic level=5 -->
 
-Fields readable as `ctx.<name>` (shape `redis-stream-entry`):
+Fields readable as `ctx.<name>` (shape `inbound-message`):
 
 | Field | Type | Description |
 |---|---|:---|
-| `ctx.topic` | string | Name of the stream the entry was read from. |
-| `ctx.message_id` | string | Redis entry ID, e.g. `1700000000000-0`. |
-| `ctx.msg` | dynamic | The entry's payload. |
-| `ctx.fields` | object | String metadata attached to the entry. |
+| `ctx.msg` | dynamic | The message payload. |
+| `ctx.fields` | object | String metadata attached to the message. |
 | `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
 | `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.stream` | string | Stream the entry was read from. *(added here)* |
+| `ctx.entry_id` | string | Redis entry ID, e.g. `1700000000000-0`. *(added here)* |
+
+*This shape is open: a particular site may carry fields beyond these.*
 
 **`ctx.msg`**
 
-Read from the `payload_field` and decoded by the client's `wire_format`.
+Already decoded by the client's `wire_format`, so its type follows the data rather than the transport — except on `client "sqs_receiver"`, which picks a topic before decoding and so passes the raw body here.
 
 **`ctx.fields`**
 
-The entry's remaining stream fields, as `fields_mode` maps them.
+Always present; an empty object when the message carries no metadata. What lands here is the transport's own metadata plus whatever the subscription's pattern captured.
 
 **`ctx.auth`**
 
@@ -782,6 +794,12 @@ Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen b
 Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
 
 <!-- vinculum:end block-ctx client redis_stream consumer vinculum_topic -->
+
+> **Changed in 0.46.0.** The stream used to be offered here as `ctx.topic` and
+> the entry ID as `ctx.message_id` — the same two values this consumer's
+> `on_decode_error` has always called `ctx.stream` and `ctx.entry_id`. The two
+> hooks now agree, and the old spellings are gone. `vinculum check` reports
+> either one rather than letting it fail at runtime.
 
 ### Entry format
 

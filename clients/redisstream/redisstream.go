@@ -107,11 +107,17 @@ what it has acknowledged, so a consumer can resume after a restart.`,
 				},
 				"vinculum_topic": {
 					Summary: "Bus topic to publish arriving entries to.",
-					Doc: "Evaluated per entry, where `ctx.topic` carries the stream name " +
-						"rather than a bus topic — producing the bus topic is what this " +
-						"expression is for.",
+					Doc: "The stream name is used when omitted. Evaluated per entry, with the " +
+						"stream and the entry's Redis ID readable under the same names " +
+						"`on_decode_error` gives them. `ctx.msg` is the entry's " +
+						"`payload_field` and `ctx.fields` its remaining stream fields, as " +
+						"`fields_mode` maps them.",
 					Hint:    cfg.HintTopicPattern,
-					Context: "redis-stream-entry",
+					Context: "inbound-message",
+					ContextFields: []cfg.ContextField{
+						{Name: "stream", Type: "string", Summary: "Stream the entry was read from."},
+						{Name: "entry_id", Type: "string", Summary: "Redis entry ID, e.g. `1700000000000-0`."},
+					},
 				},
 				"batch_size":    {Summary: "Maximum entries to read at once.", Default: "10"},
 				"block_timeout": {Summary: "How long to wait for new entries before polling again.", Hint: cfg.HintDuration, Default: "2s"},
@@ -757,53 +763,20 @@ func resolveConsumerName(config *cfg.Config, expr hcl.Expression, clientName, co
 	return fmt.Sprintf("%s-%s-%s", host, clientName, consumerName), nil
 }
 
-// The shape makeVinculumTopicFunc builds below. It is not the `message` shape:
-// an entry carries its own Redis ID, and `topic` is the stream it came from
-// rather than a bus topic, which is what the expression is computing.
-func init() {
-	cfg.RegisterContextSchema("redis-stream-entry", cfg.ContextSchema{
-		Summary: "Evaluated once per stream entry, to derive a bus topic for it.",
-		Fields: []cfg.ContextField{
-			{Name: "topic", Type: "string", Summary: "Name of the stream the entry was read from."},
-			{Name: "message_id", Type: "string", Summary: "Redis entry ID, e.g. `1700000000000-0`."},
-			{
-				Name: "msg", Type: cfg.CtxTypeDynamic,
-				Summary: "The entry's payload.",
-				Doc:     "Read from the `payload_field` and decoded by the client's `wire_format`.",
-			},
-			{
-				Name: "fields", Type: cfg.CtxTypeObject,
-				Summary: "String metadata attached to the entry.",
-				Doc:     "The entry's remaining stream fields, as `fields_mode` maps them.",
-			},
-		},
-	})
-}
-
 // makeVinculumTopicFunc builds a resolver that evaluates the HCL expression per
-// entry, against the `redis-stream-entry` shape registered above.
+// entry, against the shared `inbound-message` shape plus the stream and entry
+// ID — under the same names this receiver's `on_decode_error` uses for them.
 func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) stream.VinculumTopicFromStreamFunc {
 	return func(streamName, entryID string, msg any, fields map[string]string) (string, error) {
-		if b, ok := msg.([]byte); ok {
-			msg = string(b)
-		}
-		ctyMsg, err := go2cty2go.AnyToCty(msg)
+		ctxBuilder, err := cfg.NewInboundContext(msg, fields)
 		if err != nil {
-			return "", fmt.Errorf("convert msg: %w", err)
+			return "", fmt.Errorf("redis stream consumer: %w", err)
 		}
 
-		ctxBuilder := hclutil.NewEvalContext(context.Background()).
-			WithStringAttribute("topic", streamName).
-			WithStringAttribute("message_id", entryID).
-			WithAttribute("msg", ctyMsg)
-
-		ctyFields := make(map[string]cty.Value, len(fields))
-		for k, v := range fields {
-			ctyFields[k] = cty.StringVal(v)
-		}
-		ctxBuilder = ctxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
-
-		evalCtx, err := ctxBuilder.BuildEvalContext(config.EvalCtx())
+		evalCtx, err := ctxBuilder.
+			WithStringAttribute("stream", streamName).
+			WithStringAttribute("entry_id", entryID).
+			BuildEvalContext(config.EvalCtx())
 		if err != nil {
 			return "", err
 		}

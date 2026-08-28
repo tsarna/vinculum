@@ -198,7 +198,7 @@ client "redis_pubsub" "rps" {
         }
         channel_subscription {
             channel        = "devices.*"
-            vinculum_topic = "device/${ctx.topic}/seen"
+            vinculum_topic = "device/${ctx.channel}/seen"
         }
     }
 }

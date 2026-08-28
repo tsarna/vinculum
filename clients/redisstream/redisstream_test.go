@@ -148,7 +148,7 @@ client "redis_stream" "rs" {
         group          = "g"
         block_timeout  = "100ms"
         subscriber     = bus.main
-        vinculum_topic = "stream/${ctx.topic}"
+        vinculum_topic = "stream/${ctx.stream}/${ctx.entry_id != "" ? "has-id" : "no-id"}"
     }
 }
 `, mr.Addr())
@@ -168,7 +168,9 @@ client "redis_stream" "rs" {
 
 	select {
 	case topic := <-received:
-		assert.Equal(t, "stream/events", topic)
+		// The entry ID varies, so the topic asserts only that ctx.entry_id
+		// resolved to something — the name is what this pins.
+		assert.Equal(t, "stream/events/has-id", topic)
 	case <-time.After(3 * time.Second):
 		t.Fatal("timeout waiting for stream consumer delivery")
 	}

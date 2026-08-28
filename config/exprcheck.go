@@ -307,7 +307,7 @@ func (ck *refChecker) ctxField(attr *SchemaAttr, traversal hcl.Traversal) {
 	}
 
 	ck.report(traversal, fmt.Sprintf("Unknown ctx field %q", name),
-		fmt.Sprintf("%s is evaluated with a %q context, which has no such field. It provides: %s.",
+		fmt.Sprintf("%s is evaluated with the %q context, which has no such field. It provides: %s.",
 			attr.Name, attr.Context, joinNames(known)))
 }
 

@@ -97,11 +97,17 @@ delivery has to survive a restart.`,
 						"vinculum_topic": {
 							Summary: "Bus topic to publish arriving messages to.",
 							Doc: "The channel name is used when omitted. Evaluated per message, " +
-								"where `ctx.topic` carries the Redis channel the message arrived " +
-								"on rather than a bus topic — producing the bus topic is what " +
-								"this expression is for.",
+								"with the channel readable as `ctx.channel`.",
 							Hint:    cfg.HintTopicPattern,
-							Context: "message",
+							Context: "inbound-message",
+							ContextFields: []cfg.ContextField{
+								{
+									Name: "channel", Type: "string",
+									Summary: "Channel the message was published to.",
+									Doc: "The channel itself, not the pattern that matched it, when " +
+										"the subscription named a glob.",
+								},
+							},
 						},
 					},
 				},
@@ -410,27 +416,19 @@ func buildSubscriber(config *cfg.Config, connector redisclient.RedisConnector, c
 	return b.Build(), nil
 }
 
+// makeVinculumTopicFunc builds the per-message HCL evaluator for a
+// subscriber's `channel_subscription { vinculum_topic = ... }` expression,
+// against the shared `inbound-message` shape plus the channel it arrived on.
 func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) pubsub.VinculumTopicFunc {
 	return func(channel string, msg any, fields map[string]string) (string, error) {
-		if b, ok := msg.([]byte); ok {
-			msg = string(b)
-		}
-		ctyMsg, err := go2cty2go.AnyToCty(msg)
+		ctxBuilder, err := cfg.NewInboundContext(msg, fields)
 		if err != nil {
-			return "", fmt.Errorf("convert msg: %w", err)
+			return "", fmt.Errorf("redis pubsub subscriber: %w", err)
 		}
 
-		ctxBuilder := hclutil.NewEvalContext(context.Background()).
-			WithStringAttribute("topic", channel).
-			WithAttribute("msg", ctyMsg)
-
-		ctyFields := make(map[string]cty.Value, len(fields))
-		for k, v := range fields {
-			ctyFields[k] = cty.StringVal(v)
-		}
-		ctxBuilder = ctxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
-
-		evalCtx, err := ctxBuilder.BuildEvalContext(config.EvalCtx())
+		evalCtx, err := ctxBuilder.
+			WithStringAttribute("channel", channel).
+			BuildEvalContext(config.EvalCtx())
 		if err != nil {
 			return "", err
 		}

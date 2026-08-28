@@ -793,9 +793,9 @@ exactly one dot-delimited word, `#` matches zero or more words.
 
 **`vinculum_topic`**
 
-`default_routing_key_transform` applies when omitted. Evaluated per delivery, so it can interpolate the fields the routing-key pattern captured.
+`default_routing_key_transform` applies when omitted. Evaluated per delivery, so it can interpolate the fields the routing-key pattern captured. `ctx.fields` is the AMQP headers table merged with those captures.
 
-Evaluated against the `amqp-delivery` context.
+Evaluated against the `inbound-message` context.
 
 <!-- vinculum:end block-attrs client rabbitmq receiver subscription -->
 
@@ -803,31 +803,28 @@ Evaluated against the `amqp-delivery` context.
 
 <!-- vinculum:begin block-ctx client rabbitmq receiver subscription vinculum_topic level=4 -->
 
-Fields readable as `ctx.<name>` (shape `amqp-delivery`):
+Fields readable as `ctx.<name>` (shape `inbound-message`):
 
 | Field | Type | Description |
 |---|---|:---|
-| `ctx.routing_key` | string | Routing key the message was delivered with. |
-| `ctx.exchange` | string | Exchange the message was published to. |
-| `ctx.topic` | string | Alias for `routing_key`. |
 | `ctx.msg` | dynamic | The message payload. |
 | `ctx.fields` | object | String metadata attached to the message. |
 | `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
 | `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.routing_key` | string | Routing key the message was delivered with. *(added here)* |
+| `ctx.exchange` | string | Exchange the message was published to. *(added here)* |
 
-**`ctx.topic`**
-
-Carries the routing key, for consistency with the clients whose per-message expressions see a bus topic here. There is no bus topic yet: producing one is what this expression is for.
+*This shape is open: a particular site may carry fields beyond these.*
 
 **`ctx.msg`**
 
-Already decoded by the client's `wire_format`.
+Already decoded by the client's `wire_format`, so its type follows the data rather than the transport — except on `client "sqs_receiver"`, which picks a topic before decoding and so passes the raw body here.
 
 **`ctx.fields`**
 
-The AMQP headers table merged with the fields the routing-key pattern captured.
+Always present; an empty object when the message carries no metadata. What lands here is the transport's own metadata plus whatever the subscription's pattern captured.
 
 **`ctx.auth`**
 
@@ -842,6 +839,11 @@ Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen b
 Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
 
 <!-- vinculum:end block-ctx client rabbitmq receiver subscription vinculum_topic -->
+
+> **Changed in 0.46.0.** `ctx.topic` was an alias for `ctx.routing_key` here,
+> named for consistency with the receivers that had no better name to offer.
+> They have one now, so the alias is gone; use `ctx.routing_key`, which every
+> fixture and example already did.
 
 **Named wildcard field extraction.** Subscription labels may name captures by
 appending a field name to either wildcard:

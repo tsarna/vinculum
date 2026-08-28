@@ -540,9 +540,9 @@ receiver.
 
 **`vinculum_topic`**
 
-Evaluated per record, so it can interpolate the record's own identity and headers.
+Evaluated per record, so it can interpolate the record's own identity and headers. `ctx.fields` is populated from the record's Kafka headers.
 
-Evaluated against the `kafka-record` context.
+Evaluated against the `inbound-message` context.
 
 <!-- vinculum:end block-attrs client kafka receiver subscription -->
 
@@ -550,30 +550,28 @@ Evaluated against the `kafka-record` context.
 
 <!-- vinculum:begin block-ctx client kafka receiver subscription vinculum_topic level=4 -->
 
-Fields readable as `ctx.<name>` (shape `kafka-record`):
+Fields readable as `ctx.<name>` (shape `inbound-message`):
 
 | Field | Type | Description |
 |---|---|:---|
-| `ctx.kafka_topic` | string | Kafka topic the record was read from. |
-| `ctx.key` | string | The record's key. *(not always present)* |
-| `ctx.msg` | dynamic | The record's payload. |
-| `ctx.fields` | object | String metadata attached to the record. |
+| `ctx.msg` | dynamic | The message payload. |
+| `ctx.fields` | object | String metadata attached to the message. |
 | `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
 | `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.kafka_topic` | string | Kafka topic the record was read from. *(added here)* |
+| `ctx.key` | string | The record's key. *(added here)* *(not always present)* |
 
-**`ctx.key`**
-
-Null when the record was produced without one.
+*This shape is open: a particular site may carry fields beyond these.*
 
 **`ctx.msg`**
 
-Already decoded by the client's `wire_format`.
+Already decoded by the client's `wire_format`, so its type follows the data rather than the transport — except on `client "sqs_receiver"`, which picks a topic before decoding and so passes the raw body here.
 
 **`ctx.fields`**
 
-Populated from the record's Kafka headers.
+Always present; an empty object when the message carries no metadata. What lands here is the transport's own metadata plus whatever the subscription's pattern captured.
 
 **`ctx.auth`**
 
@@ -586,6 +584,10 @@ Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen b
 **`ctx.trace_id`**
 
 Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+**`ctx.key`**
+
+Null when the record was produced without one.
 
 <!-- vinculum:end block-ctx client kafka receiver subscription vinculum_topic -->
 

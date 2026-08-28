@@ -7,7 +7,6 @@ import (
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
-	"github.com/tsarna/go2cty2go"
 	sqsreceiver "github.com/tsarna/vinculum-sqs/receiver"
 	wire "github.com/tsarna/vinculum-wire"
 	cfg "github.com/tsarna/vinculum/config"
@@ -70,9 +69,24 @@ are deleted once handled, unless ` + "`auto_delete`" + ` says otherwise.`,
 		"vinculum_topic": {
 			Summary: "Bus topic to publish arriving messages to.",
 			Doc: "The queue's name, taken from `queue_url`, is used when omitted. " +
-				"Evaluated per message.",
+				"Evaluated per message, before the body is decoded — so `ctx.msg` is " +
+				"the raw body rather than a `wire_format` result, and is null when the " +
+				"message has none. `ctx.fields` is populated from the message's SQS " +
+				"attributes.",
 			Hint:    cfg.HintTopicPattern,
-			Context: "sqs-message",
+			Context: "inbound-message",
+			ContextFields: []cfg.ContextField{
+				{
+					Name: "queue", Type: "string",
+					Summary: "Queue the message was received from.",
+					Doc:     "The queue's name, taken from `queue_url`.",
+				},
+				{
+					Name: "message_id", Type: "string",
+					Summary: "SQS message ID.",
+					Doc:     "Empty in the unusual case that SQS returned a message without one.",
+				},
+			},
 		},
 		"wait_time": {
 			Summary: "How long a poll waits for a message before returning empty.",
@@ -288,7 +302,7 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 
 	// Vinculum topic resolution.
 	if cfg.IsExpressionProvided(def.VinculumTopic) {
-		topicFn := makeVinculumTopicFunc(config, def.VinculumTopic)
+		topicFn := makeVinculumTopicFunc(config, def.VinculumTopic, sqsreceiver.QueueNameFromURL(queueURL))
 		builder = builder.WithTopicFunc(topicFn)
 	}
 	// else: default topic = queue name (handled by builder)
@@ -316,59 +330,39 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 	return wrapper, nil
 }
 
-// makeVinculumTopicFunc builds a closure that evaluates the vinculum_topic
-// HCL expression per-message with message-specific context variables.
-// The shape makeVinculumTopicFunc builds below. An SQS message carries no
-// destination of its own — the queue is the receiver's, not the message's — so
-// there is nothing here to name a topic after, and `vinculum_topic` falls back
-// to the queue name when it is not set.
-func init() {
-	cfg.RegisterContextSchema("sqs-message", cfg.ContextSchema{
-		Summary: "Evaluated once per received message, to derive a bus topic for it.",
-		Fields: []cfg.ContextField{
-			{Name: "message_id", Type: "string", Summary: "SQS message ID."},
-			{
-				Name: "msg", Type: cfg.CtxTypeDynamic, Optional: true,
-				Summary: "The message body.",
-				Doc: "Absent when the message has no body, or when the body cannot be " +
-					"converted — the topic is chosen before the body is decoded, so this " +
-					"is the raw body rather than a `wire_format` result.",
-			},
-			{
-				Name: "fields", Type: cfg.CtxTypeObject,
-				Summary: "String metadata attached to the message.",
-				Doc:     "Populated from the message's SQS attributes.",
-			},
-		},
-	})
-}
-
-func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) sqsreceiver.TopicFunc {
+// makeVinculumTopicFunc builds the per-message HCL evaluator for a receiver's
+// `vinculum_topic` expression, against the shared `inbound-message` shape plus
+// the queue and message ID — the same two names this receiver's
+// `on_decode_error` uses.
+//
+// An SQS message carries no destination of its own — the queue is the
+// receiver's, not the message's — so `vinculum_topic` falls back to the queue
+// name when it is not set.
+//
+// ctx.msg is the *raw* body here, unlike every other receiver: the topic is
+// chosen before the body is decoded. A message with no body yields a null
+// rather than no attribute at all, so an expression can test for it instead of
+// failing to evaluate.
+func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression, queueName string) sqsreceiver.TopicFunc {
 	return func(msg sqstypes.Message, fields map[string]string) string {
-		// Build per-message eval context.
+		var body any
+		if msg.Body != nil {
+			body = *msg.Body
+		}
+		ctxBuilder, err := cfg.NewInboundContext(body, fields)
+		if err != nil {
+			return ""
+		}
+
 		var msgID string
 		if msg.MessageId != nil {
 			msgID = *msg.MessageId
 		}
 
-		ctxBuilder := hclutil.NewEvalContext(context.Background()).
-			WithStringAttribute("message_id", msgID)
-
-		ctyFields := make(map[string]cty.Value, len(fields))
-		for k, v := range fields {
-			ctyFields[k] = cty.StringVal(v)
-		}
-		ctxBuilder = ctxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
-
-		// Include deserialized body as ctx.msg if available.
-		if msg.Body != nil {
-			ctyMsg, err := go2cty2go.AnyToCty(*msg.Body)
-			if err == nil {
-				ctxBuilder = ctxBuilder.WithAttribute("msg", ctyMsg)
-			}
-		}
-
-		evalCtx, err := ctxBuilder.BuildEvalContext(config.EvalCtx())
+		evalCtx, err := ctxBuilder.
+			WithStringAttribute("queue", queueName).
+			WithStringAttribute("message_id", msgID).
+			BuildEvalContext(config.EvalCtx())
 		if err != nil {
 			return ""
 		}

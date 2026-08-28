@@ -208,9 +208,14 @@ consume a queue and deliver what arrives to the bus or an action.`,
 							Summary: "Bus topic to publish arriving messages to.",
 							Doc: "`default_routing_key_transform` applies when omitted. Evaluated " +
 								"per delivery, so it can interpolate the fields the routing-key " +
-								"pattern captured.",
+								"pattern captured. `ctx.fields` is the AMQP headers table merged " +
+								"with those captures.",
 							Hint:    cfg.HintTopicPattern,
-							Context: "amqp-delivery",
+							Context: "inbound-message",
+							ContextFields: []cfg.ContextField{
+								{Name: "routing_key", Type: "string", Summary: "Routing key the message was delivered with."},
+								{Name: "exchange", Type: "string", Summary: "Exchange the message was published to."},
+							},
 						},
 					},
 				},
@@ -1074,59 +1079,19 @@ func makeRoutingKeyFunc(config *cfg.Config, expr hcl.Expression) rmqsender.Routi
 	}
 }
 
-// The shape makeVinculumTopicFunc builds below. It is not the `message` shape:
-// two AMQP identity fields are added, and `topic` aliases the routing key rather
-// than naming a bus topic — the bus topic is what the expression is computing.
-func init() {
-	cfg.RegisterContextSchema("amqp-delivery", cfg.ContextSchema{
-		Summary: "Evaluated once per AMQP delivery, to derive a bus topic for it.",
-		Fields: []cfg.ContextField{
-			{Name: "routing_key", Type: "string", Summary: "Routing key the message was delivered with."},
-			{Name: "exchange", Type: "string", Summary: "Exchange the message was published to."},
-			{
-				Name: "topic", Type: "string",
-				Summary: "Alias for `routing_key`.",
-				Doc: "Carries the routing key, for consistency with the clients whose " +
-					"per-message expressions see a bus topic here. There is no bus topic " +
-					"yet: producing one is what this expression is for.",
-			},
-			{
-				Name: "msg", Type: cfg.CtxTypeDynamic,
-				Summary: "The message payload.",
-				Doc:     "Already decoded by the client's `wire_format`.",
-			},
-			{
-				Name: "fields", Type: cfg.CtxTypeObject,
-				Summary: "String metadata attached to the message.",
-				Doc:     "The AMQP headers table merged with the fields the routing-key pattern captured.",
-			},
-		},
-	})
-}
-
 // makeVinculumTopicFunc builds the per-message HCL evaluator for a receiver's
-// `subscription { vinculum_topic = ... }` expression, against the
-// `amqp-delivery` shape registered above.
+// `subscription { vinculum_topic = ... }` expression, against the shared
+// `inbound-message` shape plus the delivery's AMQP identity.
 func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) rmqreceiver.VinculumTopicFunc {
 	return func(routingKey, exchange string, fields map[string]string, msg any) (string, error) {
-		if b, ok := msg.([]byte); ok {
-			msg = string(b)
-		}
-		ctyMsg, err := go2cty2go.AnyToCty(msg)
+		ctxBuilder, err := cfg.NewInboundContext(msg, fields)
 		if err != nil {
-			return "", fmt.Errorf("rabbitmq receiver: convert msg: %w", err)
+			return "", fmt.Errorf("rabbitmq receiver: %w", err)
 		}
 
-		ctyFields := make(map[string]cty.Value, len(fields))
-		for k, v := range fields {
-			ctyFields[k] = cty.StringVal(v)
-		}
-		evalCtx, err := hclutil.NewEvalContext(context.Background()).
+		evalCtx, err := ctxBuilder.
 			WithStringAttribute("routing_key", routingKey).
 			WithStringAttribute("exchange", exchange).
-			WithStringAttribute("topic", routingKey).
-			WithAttribute("msg", ctyMsg).
-			WithAttribute("fields", cty.ObjectVal(ctyFields)).
 			BuildEvalContext(config.EvalCtx())
 		if err != nil {
 			return "", err

@@ -615,7 +615,7 @@ Overrides the receiver's default.
 
 The MQTT topic is used verbatim when omitted. Evaluated per message, so placeholders captured by the filter can be interpolated.
 
-Evaluated against the `message` context.
+Evaluated against the `inbound-message` context.
 
 <!-- vinculum:end block-attrs client mqtt receiver subscription -->
 
@@ -623,25 +623,27 @@ Evaluated against the `message` context.
 
 <!-- vinculum:begin block-ctx client mqtt receiver subscription vinculum_topic level=4 -->
 
-Fields readable as `ctx.<name>` (shape `message`):
+Fields readable as `ctx.<name>` (shape `inbound-message`):
 
 | Field | Type | Description |
 |---|---|:---|
-| `ctx.topic` | string | Topic the message was delivered on. |
 | `ctx.msg` | dynamic | The message payload. |
 | `ctx.fields` | object | String metadata attached to the message. |
 | `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
 | `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.mqtt_topic` | string | The MQTT topic the message arrived on. *(added here)* |
+
+*This shape is open: a particular site may carry fields beyond these.*
 
 **`ctx.msg`**
 
-Already decoded by the client's `wire_format`, so its type follows the data rather than the transport.
+Already decoded by the client's `wire_format`, so its type follows the data rather than the transport — except on `client "sqs_receiver"`, which picks a topic before decoding and so passes the raw body here.
 
 **`ctx.fields`**
 
-Always present; an empty object when the message carries no metadata.
+Always present; an empty object when the message carries no metadata. What lands here is the transport's own metadata plus whatever the subscription's pattern captured.
 
 **`ctx.auth`**
 
@@ -655,10 +657,21 @@ Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen b
 
 Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
 
+**`ctx.mqtt_topic`**
+
+The filter's literal match, with any `+` and `#` wildcards filled in by what the broker delivered.
+
 <!-- vinculum:end block-ctx client mqtt receiver subscription vinculum_topic -->
 
-Here `ctx.topic` is the incoming MQTT topic, and `ctx.fields` carries the MQTT 5
-user properties along with the segments the pattern extracted.
+> **Changed in 0.46.0.** The MQTT topic used to be offered here as `ctx.topic`,
+> and under no other name. It is now `ctx.mqtt_topic` — the same name
+> `on_decode_error` gives it — and `ctx.topic` is gone. `vinculum_topic =
+> ctx.topic` is reported by `vinculum check` rather than failing at runtime.
+
+Here `ctx.mqtt_topic` is the incoming MQTT topic, and `ctx.fields` carries the
+MQTT 5 user properties along with the segments the pattern extracted. There is
+no `ctx.topic`: no bus topic exists yet, since producing one is what this
+expression is for.
 
 **Named wildcard field extraction:** `+deviceId` in the subscription label
 extracts the matched segment into `fields["deviceId"]`. The broker subscription

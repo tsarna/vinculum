@@ -208,9 +208,18 @@ consume from Kafka topics as part of a consumer group.`,
 						"vinculum_topic": {
 							Summary: "Bus topic to publish arriving records to.",
 							Doc: "Evaluated per record, so it can interpolate the record's own " +
-								"identity and headers.",
+								"identity and headers. `ctx.fields` is populated from the " +
+								"record's Kafka headers.",
 							Hint:    cfg.HintTopicPattern,
-							Context: "kafka-record",
+							Context: "inbound-message",
+							ContextFields: []cfg.ContextField{
+								{Name: "kafka_topic", Type: "string", Summary: "Kafka topic the record was read from."},
+								{
+									Name: "key", Type: "string", Optional: true,
+									Summary: "The record's key.",
+									Doc:     "Null when the record was produced without one.",
+								},
+							},
 						},
 					},
 				},
@@ -996,65 +1005,25 @@ func buildConsumerSpec(config *cfg.Config, clientName string, def ConsumerDefini
 	return spec, nil
 }
 
-// The shape makeVinculumTopicFunc builds below. It is not the `message` shape:
-// a record identifies itself by Kafka topic and key rather than by a bus topic,
-// and the bus topic is what the expression is computing.
-func init() {
-	cfg.RegisterContextSchema("kafka-record", cfg.ContextSchema{
-		Summary: "Evaluated once per consumed record, to derive a bus topic for it.",
-		Fields: []cfg.ContextField{
-			{Name: "kafka_topic", Type: "string", Summary: "Kafka topic the record was read from."},
-			{
-				Name: "key", Type: "string", Optional: true,
-				Summary: "The record's key.",
-				Doc:     "Null when the record was produced without one.",
-			},
-			{
-				Name: "msg", Type: cfg.CtxTypeDynamic,
-				Summary: "The record's payload.",
-				Doc:     "Already decoded by the client's `wire_format`.",
-			},
-			{
-				Name: "fields", Type: cfg.CtxTypeObject,
-				Summary: "String metadata attached to the record.",
-				Doc:     "Populated from the record's Kafka headers.",
-			},
-		},
-	})
-}
-
 // makeVinculumTopicFunc builds the per-record HCL evaluator for a receiver's
-// `subscription { vinculum_topic = ... }` expression, against the `kafka-record`
-// shape registered above.
+// `subscription { vinculum_topic = ... }` expression, against the shared
+// `inbound-message` shape plus the record's Kafka identity.
 func makeVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) kconsumer.VinculumTopicFunc {
 	return func(kafkaTopic string, key *string, fields map[string]string, msg any) (string, error) {
-		if b, ok := msg.([]byte); ok {
-			msg = string(b)
-		}
-		ctyMsg, err := go2cty2go.AnyToCty(msg)
+		ctxBuilder, err := cfg.NewInboundContext(msg, fields)
 		if err != nil {
-			return "", fmt.Errorf("kafka receiver: convert msg: %w", err)
+			return "", fmt.Errorf("kafka receiver: %w", err)
 		}
 
-		var ctyKey cty.Value
-		if key == nil {
-			ctyKey = cty.NullVal(cty.String)
-		} else {
+		ctyKey := cty.NullVal(cty.String)
+		if key != nil {
 			ctyKey = cty.StringVal(*key)
 		}
 
-		ctxBuilder := hclutil.NewEvalContext(context.Background()).
+		evalCtx, err := ctxBuilder.
 			WithStringAttribute("kafka_topic", kafkaTopic).
 			WithAttribute("key", ctyKey).
-			WithAttribute("msg", ctyMsg)
-
-		ctyFields := make(map[string]cty.Value, len(fields))
-		for k, v := range fields {
-			ctyFields[k] = cty.StringVal(v)
-		}
-		ctxBuilder = ctxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
-
-		evalCtx, err := ctxBuilder.BuildEvalContext(config.EvalCtx())
+			BuildEvalContext(config.EvalCtx())
 		if err != nil {
 			return "", err
 		}

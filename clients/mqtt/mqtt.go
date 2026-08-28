@@ -147,7 +147,15 @@ subscribe to MQTT topics and deliver what arrives to the bus or an action.`,
 							Doc: "The MQTT topic is used verbatim when omitted. Evaluated per " +
 								"message, so placeholders captured by the filter can be interpolated.",
 							Hint:    cfg.HintTopicPattern,
-							Context: "message",
+							Context: "inbound-message",
+							ContextFields: []cfg.ContextField{
+								{
+									Name: "mqtt_topic", Type: "string",
+									Summary: "The MQTT topic the message arrived on.",
+									Doc: "The filter's literal match, with any `+` and `#` wildcards " +
+										"filled in by what the broker delivered.",
+								},
+							},
 						},
 						"qos": {Summary: "Quality of service for this subscription.", Doc: "Overrides the receiver's default."},
 					},
@@ -971,27 +979,19 @@ func makeMQTTTopicFunc(config *cfg.Config, expr hcl.Expression) mqttpublisher.MQ
 	}
 }
 
+// makeMQTTVinculumTopicFunc builds the per-message HCL evaluator for a
+// receiver's `subscription { vinculum_topic = ... }` expression, against the
+// shared `inbound-message` shape plus the MQTT topic the message arrived on.
 func makeMQTTVinculumTopicFunc(config *cfg.Config, expr hcl.Expression) mqttsubscriber.VinculumTopicFunc {
 	return func(mqttTopic string, fields map[string]string, msg any) (string, error) {
-		if b, ok := msg.([]byte); ok {
-			msg = string(b)
-		}
-		ctyMsg, err := go2cty2go.AnyToCty(msg)
+		ctxBuilder, err := cfg.NewInboundContext(msg, fields)
 		if err != nil {
-			return "", fmt.Errorf("mqtt subscriber: convert msg: %w", err)
+			return "", fmt.Errorf("mqtt subscriber: %w", err)
 		}
 
-		ctxBuilder := hclutil.NewEvalContext(context.Background()).
-			WithStringAttribute("topic", mqttTopic).
-			WithAttribute("msg", ctyMsg)
-
-		ctyFields := make(map[string]cty.Value, len(fields))
-		for k, v := range fields {
-			ctyFields[k] = cty.StringVal(v)
-		}
-		ctxBuilder = ctxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
-
-		evalCtx, err := ctxBuilder.BuildEvalContext(config.EvalCtx())
+		evalCtx, err := ctxBuilder.
+			WithStringAttribute("mqtt_topic", mqttTopic).
+			BuildEvalContext(config.EvalCtx())
 		if err != nil {
 			return "", err
 		}

@@ -391,9 +391,9 @@ A list of transform functions applied in order to each message. Only transform f
 
 **`vinculum_topic`**
 
-The queue's name, taken from `queue_url`, is used when omitted. Evaluated per message.
+The queue's name, taken from `queue_url`, is used when omitted. Evaluated per message, before the body is decoded — so `ctx.msg` is the raw body rather than a `wire_format` result, and is null when the message has none. `ctx.fields` is populated from the message's SQS attributes.
 
-Evaluated against the `sqs-message` context.
+Evaluated against the `inbound-message` context.
 
 **`visibility_timeout`**
 
@@ -455,25 +455,28 @@ Falls back to the trace ID extracted from inbound headers, so it is populated ev
 
 <!-- vinculum:begin block-ctx client sqs_receiver vinculum_topic level=3 -->
 
-Fields readable as `ctx.<name>` (shape `sqs-message`):
+Fields readable as `ctx.<name>` (shape `inbound-message`):
 
 | Field | Type | Description |
 |---|---|:---|
-| `ctx.message_id` | string | SQS message ID. |
-| `ctx.msg` | dynamic | The message body. *(not always present)* |
+| `ctx.msg` | dynamic | The message payload. |
 | `ctx.fields` | object | String metadata attached to the message. |
 | `ctx.auth` | object | The authenticated identity, or null. *(every `ctx` carries this)* |
 | `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.queue` | string | Queue the message was received from. *(added here)* |
+| `ctx.message_id` | string | SQS message ID. *(added here)* |
+
+*This shape is open: a particular site may carry fields beyond these.*
 
 **`ctx.msg`**
 
-Absent when the message has no body, or when the body cannot be converted — the topic is chosen before the body is decoded, so this is the raw body rather than a `wire_format` result.
+Already decoded by the client's `wire_format`, so its type follows the data rather than the transport — except on `client "sqs_receiver"`, which picks a topic before decoding and so passes the raw body here.
 
 **`ctx.fields`**
 
-Populated from the message's SQS attributes.
+Always present; an empty object when the message carries no metadata. What lands here is the transport's own metadata plus whatever the subscription's pattern captured.
 
 **`ctx.auth`**
 
@@ -487,7 +490,21 @@ Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen b
 
 Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
 
+**`ctx.queue`**
+
+The queue's name, taken from `queue_url`.
+
+**`ctx.message_id`**
+
+Empty in the unusual case that SQS returned a message without one.
+
 <!-- vinculum:end block-ctx client sqs_receiver vinculum_topic -->
+
+> **New in 0.46.0.** `ctx.queue` — the queue's name, which the expression
+> previously had no way to reach even though `on_decode_error` already offered
+> it. `ctx.msg` is also now always present, holding a null when the message has
+> no body, where it used to be missing altogether and so could not be tested
+> for.
 
 ### Decode failures
 

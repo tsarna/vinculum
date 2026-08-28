@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A receiver's `vinculum_topic` names the transport's own identifier after the
+  transport, not `topic`.** The expression's whole job is to produce a bus
+  topic, so there is no bus topic in scope while it runs — and three receivers
+  nonetheless handed it the MQTT topic, the Redis channel, or the stream name
+  under the name `ctx.topic`, with no other name to reach it by. This is the
+  second half of the rename `on_decode_error` got in 0.45.0; the two hooks on
+  one receiver now agree about what a value is called.
+
+  | Receiver | Was | Now |
+  |---|---|---|
+  | `mqtt` | `ctx.topic` | `ctx.mqtt_topic` |
+  | `redis_pubsub` | `ctx.topic` | `ctx.channel` |
+  | `redis_stream` | `ctx.topic`, `ctx.message_id` | `ctx.stream`, `ctx.entry_id` |
+  | `rabbitmq` | `ctx.topic` (alias) | `ctx.routing_key` |
+  | `kafka` | — | `ctx.kafka_topic`, `ctx.key` (unchanged) |
+  | `sqs_receiver` | — | gains `ctx.queue` |
+
+  `ctx.topic` is **gone**, not deprecated — the same call made for
+  `on_decode_error`, and for the same reason: keeping it would preserve the
+  ambiguity the rename exists to remove. `vinculum check` reports a config still
+  using it, naming the fields that receiver does provide, so the break is
+  static rather than a surprise on the first message.
+
+  Two smaller changes ride along on `sqs_receiver`: `ctx.queue` is new, and
+  `ctx.msg` is now always present — holding a null when the message has no body,
+  where it was previously absent altogether and so could not be tested for.
+
+  The four per-client `ctx` shapes this described (`amqp-delivery`,
+  `kafka-record`, `redis-stream-entry`, `sqs-message`) collapse into one open
+  shape, `inbound-message`, whose fixed fields are `msg` and `fields` and whose
+  transport identity is named per receiver.
+
 - **A dependency that is unreachable at startup no longer stops the process from
   starting, and is recovered from without a restart.** Four clients had four
   different answers to "the service I depend on is not there yet"; they now have
