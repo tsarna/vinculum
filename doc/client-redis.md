@@ -555,7 +555,7 @@ client "redis_stream" "rs" {
 
     # Exactly one of:
     subscriber = bus.main
-    # action   = [ ..., redis::ack(ctx, client.rs.consumer.in, ctx.message_id) ]
+    # action   = [ ..., redis::ack(ctx, client.rs.consumer.in, ctx.fields["$entry_id"]) ]
 
     # Optional transform pipeline and async queue (same semantics as the
     # top-level `subscription` block — see config.md#subscription).
@@ -692,7 +692,7 @@ Redis distributes a stream's entries across the members of a group.
 
 **`action`**
 
-`ctx.topic` is the message topic and `ctx.msg` the payload; a protocol that extracts metadata also provides `ctx.fields`.
+`ctx.topic` is the vinculum topic and `ctx.msg` the entry's payload. `ctx.fields` carries the entry's own fields as `fields_mode` maps them, plus `$entry_id`, the entry's Redis ID — the value `redis::ack()` takes. Fields do not cross a bus hop, so manual acknowledgement belongs in this action rather than in a `subscription` behind `subscriber`.
 
 Evaluated against the `message` context.
 
@@ -837,14 +837,40 @@ Consumers use the symmetric attributes to parse incoming entries, so a
 ### Manual ack: `redis::ack()`
 
 With `auto_ack = false`, entries stay pending until acknowledged. The
-`redis::ack` function is registered globally:
+`redis::ack` function is registered globally, and takes the entry ID the
+consumer delivered as `ctx.fields["$entry_id"]`:
 
 ```hcl
-redis::ack(ctx, client.rs.consumer.in, ctx.message_id)
+consumer "in" {
+  stream   = "events"
+  group    = "workers"
+  auto_ack = false
+
+  action = [
+    do_something(ctx, ctx.msg),
+    redis::ack(ctx, client.rs.consumer.in, ctx.fields["$entry_id"]),
+  ]
+}
 ```
 
-The entry ID is exposed on the action eval context as `ctx.message_id`
-alongside `ctx.topic`, `ctx.msg`, and `ctx.fields`.
+Acknowledge from the consumer's own `action`. `fields` do not cross a bus
+hop — a `subscription` reading a topic the consumer published to sees only
+what its own topic pattern captured — so `subscriber = bus.main` puts the
+entry ID out of reach. Use `vinculum_topic` to carry anything else the
+downstream needs.
+
+### System fields
+
+The entry ID is not a field of the entry, so the consumer adds it to every
+delivery under the `$` prefix reserved for system-generated names,
+regardless of `fields_mode`:
+
+| Vinculum field | Contents |
+| --- | --- |
+| `$entry_id` | Redis entry ID, e.g. `1700000000000-0`. What `redis::ack()` takes. |
+
+The same convention names an SQS receiver's `$receipt_handle`
+(see [client-sqs.md](client-sqs.md#system-attributes)).
 
 ### Pending recovery
 

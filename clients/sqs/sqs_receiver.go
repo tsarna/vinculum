@@ -62,6 +62,13 @@ var sqsReceiverSchema = cfg.TypeSchema{
 	Doc: `Polls an SQS queue and delivers each message to the bus or an action. Messages
 are deleted once handled, unless ` + "`auto_delete`" + ` says otherwise.`,
 	Attrs: cfg.MergeAttrs(awsClientAttrs, cfg.SubscriberSourceAttrs, map[string]cfg.AttrMeta{
+		"action": cfg.SubscriberSourceAttrs["action"].WithDoc(
+			"`ctx.topic` is the vinculum topic and `ctx.msg` the decoded body. " +
+				"`ctx.fields` carries the message's own attributes plus the " +
+				"`$`-prefixed SQS system attributes, among them " +
+				"`$receipt_handle` — the value `sqs::delete()` takes. Fields do " +
+				"not cross a bus hop, so a manual delete belongs in this action " +
+				"rather than in a `subscription` behind `subscriber`."),
 		"queue_url": {
 			Summary: "URL of the queue to receive from.",
 			Hint:    cfg.HintURL,

@@ -189,8 +189,6 @@ func (r *busRecorder) OnEvent(_ context.Context, topic string, msg any, _ map[st
 func TestRedisAckGlobalFunction(t *testing.T) {
 	mr := miniredis.RunT(t)
 	src := fmt.Sprintf(`
-bus "main" {}
-
 client "redis" "base" { address = "%s" }
 client "redis_stream" "rs" {
     connection = client.base
@@ -202,33 +200,25 @@ client "redis_stream" "rs" {
         group         = "g"
         block_timeout = "100ms"
         auto_ack      = false
-        subscriber    = bus.main
+        action        = redis::ack(ctx, client.rs.consumer.in, ctx.fields["$entry_id"])
     }
 }
-
-subscription "manual_ack" {
-    target     = bus.main
-    topics     = ["#"]
-    action     = redis::ack(ctx, client.rs.consumer.in, ctx.fields.message_id)
-}
 `, mr.Addr())
-	_ = src
-	// Note: this test exercises schema registration of redis::ack without
-	// relying on the subscription-action path (which would need the bus
-	// entry to have message_id in fields — it doesn't today). The behavior
-	// is covered in a direct call below.
 	c := buildConfig(t, src)
 	startLifecycle(t, c)
 
 	wrapper := c.Clients["redis_stream"]["rs"].(*redisstream.RedisStreamClient)
 	require.NoError(t, wrapper.OnEvent(context.Background(), "x", "hi", nil))
-	// Wait for XREADGROUP to deliver so the entry becomes pending.
-	time.Sleep(400 * time.Millisecond)
 
-	pending, err := goredis.NewClient(&goredis.Options{Addr: mr.Addr()}).
-		XPending(context.Background(), "events", "g").Result()
-	require.NoError(t, err)
-	assert.EqualValues(t, 1, pending.Count, "entry should be pending with auto_ack=false")
+	// The entry is delivered pending (auto_ack = false); the consumer's own
+	// action acks it with the entry ID the consumer put in ctx.fields.
+	rc := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	defer rc.Close()
+	require.Eventually(t, func() bool {
+		pending, err := rc.XPending(context.Background(), "events", "g").Result()
+		return err == nil && pending.Count == 0
+	}, 3*time.Second, 20*time.Millisecond,
+		`action should have acked the entry via ctx.fields["$entry_id"]`)
 }
 
 func TestDeadLetterAfterMovesEntry(t *testing.T) {

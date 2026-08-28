@@ -99,6 +99,13 @@ what it has acknowledged, so a consumer can resume after a restart.`,
 		"consumer": {
 			Summary: "Consumes a Redis stream as part of a consumer group.",
 			Attrs: cfg.MergeAttrs(cfg.SubscriberSourceAttrs, redisStreamFieldAttrs, map[string]cfg.AttrMeta{
+				"action": cfg.SubscriberSourceAttrs["action"].WithDoc(
+					"`ctx.topic` is the vinculum topic and `ctx.msg` the entry's payload. " +
+						"`ctx.fields` carries the entry's own fields as `fields_mode` maps " +
+						"them, plus `$entry_id`, the entry's Redis ID — the value " +
+						"`redis::ack()` takes. Fields do not cross a bus hop, so manual " +
+						"acknowledgement belongs in this action rather than in a " +
+						"`subscription` behind `subscriber`."),
 				"stream": {Summary: "Stream to consume from."},
 				"group":  {Summary: "Consumer group to join.", Doc: "Redis distributes a stream's entries across the members of a group."},
 				"consumer_name": {

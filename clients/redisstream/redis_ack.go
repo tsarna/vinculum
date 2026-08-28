@@ -10,7 +10,7 @@ import (
 	"github.com/zclconf/go-cty/cty/function"
 )
 
-// redisAckFunc is the HCL function `redis::ack(ctx, consumer, message_id)`.
+// redisAckFunc is the HCL function `redis::ack(ctx, consumer, entry_id)`.
 // It XACKs the given entry on the consumer's stream and group. Registered
 // globally so any action expression can reach it without a per-consumer
 // eval-context shim.
@@ -20,7 +20,7 @@ var redisAckFunc = function.New(&function.Spec{
 		// AllowDynamicType keeps the static bool return visible in reflected metadata.
 		{Name: "ctx", Type: cty.DynamicPseudoType, AllowDynamicType: true, Description: "The handler context"},
 		{Name: "consumer", Type: stream.ConsumerCapsuleType, Description: "The consumer to ack on (client.<name>.consumer.<c>)"},
-		{Name: "message_id", Type: cty.String, Description: "The entry ID to acknowledge (exposed to the action as ctx.message_id)"},
+		{Name: "entry_id", Type: cty.String, Description: `The entry ID to acknowledge (delivered to the consumer's action as ctx.fields["$entry_id"])`},
 	},
 	Type: function.StaticReturnType(cty.Bool),
 	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
@@ -33,7 +33,7 @@ var redisAckFunc = function.New(&function.Spec{
 			return cty.False, fmt.Errorf("redis::ack: %w", err)
 		}
 		if args[2].IsNull() {
-			return cty.False, fmt.Errorf("redis::ack: message_id must not be null")
+			return cty.False, fmt.Errorf("redis::ack: entry_id must not be null")
 		}
 		if err := c.Ack(goCtx, args[2].AsString()); err != nil {
 			return cty.False, err

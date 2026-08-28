@@ -335,7 +335,7 @@ The `baggage` block is a [baggage](baggage.md) trust filter. Inbound baggage is
 
 **`action`**
 
-`ctx.topic` is the message topic and `ctx.msg` the payload; a protocol that extracts metadata also provides `ctx.fields`.
+`ctx.topic` is the vinculum topic and `ctx.msg` the decoded body. `ctx.fields` carries the message's own attributes plus the `$`-prefixed SQS system attributes, among them `$receipt_handle` — the value `sqs::delete()` takes. Fields do not cross a bus hop, so a manual delete belongs in this action rather than in a `subscription` behind `subscriber`.
 
 Evaluated against the `message` context.
 
@@ -613,20 +613,20 @@ the visibility timeout for long-running processing.
 ```hcl
 client "sqs_receiver" "tasks" {
     auto_delete    = false
-    subscriber     = bus.main
     vinculum_topic = "tasks/incoming"
     ...
-}
 
-subscription "process_tasks" {
-    target = bus.main
-    topics = ["tasks/incoming"]
     action = [
         do_something(ctx, ctx.msg),
         sqs::delete(ctx, client.tasks, ctx.fields["$receipt_handle"]),
     ]
 }
 ```
+
+Delete from the receiver's own `action`. `fields` do not cross a bus hop — a
+`subscription` behind `subscriber = bus.main` sees only what its own topic
+pattern captured — so the receipt handle is out of reach there. Use
+`vinculum_topic` to carry anything else the downstream needs.
 
 See [functions.md](functions.md) for `sqs::delete()` and
 `sqs::extend_visibility()` documentation.

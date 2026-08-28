@@ -109,6 +109,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`redis::ack()` had no way to learn the entry ID it takes.** Manual
+  acknowledgement is the whole point of `auto_ack = false`, and the entry ID it
+  needs was never put anywhere a `redis_stream` consumer's `action` could read
+  it — the documented `ctx.message_id` did not exist, so every example of the
+  feature failed. A consumer now delivers the ID as `ctx.fields["$entry_id"]`,
+  matching how an `sqs_receiver` hands a manual delete its `$receipt_handle`
+  under the same `$` prefix for system-generated names:
+
+  ```hcl
+  action = redis::ack(ctx, client.rs.consumer.in, ctx.fields["$entry_id"])
+  ```
+
+  Acknowledge from the consumer's own `action`: `fields` do not cross a bus hop,
+  so the ID is out of reach of a `subscription` behind `subscriber = bus.main`.
+  Requires vinculum-redis v0.6.0.
+
 - **A server that could not bind its port came up anyway, serving nothing.** Both
   HTTP-bearing servers called `ListenAndServe` inside their own goroutine, so a bind
   failure was logged and otherwise invisible — `server "metrics"` discarded the error
