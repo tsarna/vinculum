@@ -7,6 +7,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -141,18 +142,36 @@ func TestBindParamsNullParam(t *testing.T) {
 	assert.Equal(t, []any{nil}, args)
 }
 
-// A client whose Start() never ran (or failed) has a nil *sql.DB. Calls must
-// return a clean error rather than panic on the nil dereference.
+// A client whose Start() never ran has a nil *sql.DB. Calls must return a clean
+// error rather than panic on the nil dereference.
+//
+// A Start that *failed* no longer lands here: the pool is retained through a
+// failed ping, so an unreachable server is a queued query and a not-ready
+// report rather than a nil handle.
 func TestNilDBReturnsErrorNotPanic(t *testing.T) {
 	c := newStubClient(sqlx.QUESTION) // db is nil
 
 	_, err := c.callStmt(context.Background(), "SELECT 1", nil, 0, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not connected")
+	assert.Contains(t, err.Error(), "not started")
 
 	_, err = c.getOneRow(context.Background(), "SELECT 1", nil, 0)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not connected")
+	assert.Contains(t, err.Error(), "not started")
+}
+
+// The one thing sql.Open actually rejects: a driver nobody registered. It never
+// dials, so this is not a connectivity failure at all — it is a build or a
+// plugin that did not wire up its dialect, and no number of retries registers a
+// driver. Every in-tree dialect registers its own on import, which is why this
+// needs a stub to reach.
+func TestStartIsTerminalForAnUnregisteredDriver(t *testing.T) {
+	c := newStubClient(sqlx.QUESTION)
+
+	err := c.Start()
+	require.Error(t, err)
+	assert.True(t, cfg.IsTerminal(err))
+	assert.Nil(t, c.db, "nothing to retain when the pool was never opened")
 }
 
 func TestReturnsRows(t *testing.T) {

@@ -150,7 +150,7 @@ func withTimeout(ctx context.Context, d time.Duration) (context.Context, context
 // exactly one).
 func (c *SQLClient) getOneRow(ctx context.Context, rawSQL string, params []cty.Value, timeout time.Duration) (cty.Value, error) {
 	if c.db == nil {
-		return cty.NilVal, fmt.Errorf("sql client %q is not connected", c.Name)
+		return cty.NilVal, fmt.Errorf("sql client %q is not started", c.Name)
 	}
 	bound, args, err := c.bindParams(rawSQL, params)
 	if err != nil {
@@ -187,7 +187,7 @@ func (c *SQLClient) getOneRow(ctx context.Context, rawSQL string, params []cty.V
 // when nil, inline statements are classified by their leading keyword.
 func (c *SQLClient) callStmt(ctx context.Context, rawSQL string, params []cty.Value, timeout time.Duration, forceExec *bool) (cty.Value, error) {
 	if c.db == nil {
-		return cty.NilVal, fmt.Errorf("sql client %q is not connected", c.Name)
+		return cty.NilVal, fmt.Errorf("sql client %q is not started", c.Name)
 	}
 	bound, args, err := c.bindParams(rawSQL, params)
 	if err != nil {

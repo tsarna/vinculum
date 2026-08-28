@@ -73,38 +73,56 @@ var (
 	_ cfg.Readyable = (*SQLClient)(nil)
 )
 
-// Start opens the connection pool and verifies connectivity.
+// Start opens the connection pool and reports whether the server answered.
+//
+// sql.Open does not connect, and with the drivers in tree it does not parse the
+// DSN either — pgx defers that to the first dial. What it does reject is a
+// driver nobody registered, which is a build or a plugin that did not wire up
+// its dialect rather than anything a retry could reach. Hence terminal.
+//
+// The ping is a diagnostic, not a gate. database/sql dials lazily and redials
+// on its own, so a server that is down at boot is a recoverable state: the pool
+// is kept, the failure is reported once, and Ready answers for it until it
+// comes back. Closing the pool here — which is what this used to do — threw
+// away the reconnection the standard library gives for free and left every
+// later query failing against a nil handle.
 func (c *SQLClient) Start() error {
 	db, err := sql.Open(c.dialect.DriverName(), c.dialect.DSN())
 	if err != nil {
-		return fmt.Errorf("sql client %q: open: %w", c.Name, err)
+		return cfg.Terminal(fmt.Errorf("sql client %q: open: %w", c.Name, err))
 	}
 	db.SetMaxOpenConns(c.maxOpen)
 	db.SetMaxIdleConns(c.maxIdle)
 	db.SetConnMaxLifetime(c.connMaxLife)
 	db.SetConnMaxIdleTime(c.connMaxIdle)
 
+	// Set before the ping, so a client whose server is away is "not connected"
+	// rather than "not started" — and so a query issued once it returns has a
+	// pool to be queued against.
+	c.db = db
+
 	pingCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := db.PingContext(pingCtx); err != nil {
-		db.Close()
 		return fmt.Errorf("sql client %q: connect: %w", c.Name, err)
 	}
 
-	c.db = db
 	return nil
 }
 
 // Ready implements cfg.Readyable: the pool has a usable connection.
 //
 // PingContext is what the pool itself uses to decide a connection is good, and
-// it reuses an idle one rather than opening a new connection per probe. Start
-// closes the pool and leaves db nil when its own ping fails, so an unset pool
-// is the honest "never connected" case rather than a nil dereference waiting to
-// happen.
+// it reuses an idle one rather than opening a new connection per probe. It is
+// also what makes the recovery in Start's comment observable: the same call
+// that reports the outage is the one that reports the end of it, with no
+// restart and nothing else to arrange.
+//
+// A nil pool means Start has not run yet, which a probe can only see if
+// something reaches a contributor before the process gate opens.
 func (c *SQLClient) Ready(ctx context.Context) error {
 	if c.db == nil {
-		return errors.New("not connected")
+		return errors.New("not started")
 	}
 	return c.db.PingContext(ctx)
 }
