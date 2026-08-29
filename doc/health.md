@@ -31,6 +31,7 @@ makes every replica *not live* is a fleet-wide restart loop. So:
 - [`sys.ready`](#sysready)
 - [Reacting to transitions](#reacting-to-transitions)
 - [The `check` block](#the-check-block)
+- [Backpressure as a readiness signal](#backpressure-as-a-readiness-signal)
 - [HTTP endpoints](#http-endpoints)
 - [Metrics and logging](#metrics-and-logging)
 - [Liveness](#liveness)
@@ -376,6 +377,145 @@ Falls back to the trace ID extracted from inbound headers, so it is populated ev
 - `check` › `input`
 
 <!-- vinculum:end context check -->
+
+---
+
+## Backpressure as a readiness signal
+
+Every readiness signal above is about a **dependency**: a broker connection, a
+listener, a check you wrote. None is about the process being *overwhelmed*.
+
+That is the gap this fills. A Vinculum instance whose bus queue is full is still
+connected to everything, still passing every check, still answering `/readyz`
+with 200 — and dropping messages on the floor. From outside, a process silently
+shedding load is indistinguishable from a healthy one, which is the worst shape
+a failure can have.
+
+The bus offers the numbers ([what the bus counts](config.md#what-the-bus-counts));
+this section is the composition that turns one into unreadiness, and the reasons
+it is shaped the way it is.
+
+### The composition
+
+```hcl
+var "bus_load" { value = 0 }
+
+trigger "interval" "sample_bus" {
+    delay  = "1s"
+    action = set(ctx, var.bus_load, get(bus.main, "queue_ratio"))
+}
+
+condition "threshold" "bus_saturated" {
+    input = get(var.bus_load)
+
+    on_above  = 0.9      # trip when the queue is 90% full …
+    off_below = 0.5      # … and recover only when it is back under half
+
+    activate_after   = "15s"    # sustained, not a spike
+    deactivate_after = "120s"   # much slower to come back than to leave
+}
+
+check "bus_has_headroom" {
+    input = cond(get(condition.bus_saturated),
+                 { ready = false, reason = "bus queue saturated" },
+                 true)
+}
+```
+
+**Every number in that example is a policy decision.** They are not defaults
+that suit anyone: 90% of a 4096-slot queue on a bus that normally idles at 3 is
+an emergency, and on a bus that normally runs at 3500 it is Tuesday. Vinculum
+deliberately does not pick them for you — a wrong default here takes a service
+down.
+
+### Why the sampler
+
+A `condition`'s `input` is a reactive expression: it re-evaluates when a
+watchable it names changes. **Bus depth is deliberately not watchable.** Depth
+changes on the hottest path in the system, and a health feature has no business
+adding work there — so a condition naming `get(bus.main, "queue_ratio")`
+directly would evaluate once and never again.
+
+Hence the `var` and the `trigger "interval"`: `var` *is* watchable, so the
+condition re-evaluates on each sample. One second is a reasonable cadence; the
+accessors are `len`/`cap` on a channel and cost nothing.
+
+### Why the timers are asymmetric
+
+`deactivate_after` is an order of magnitude longer than `activate_after`, on
+purpose.
+
+Backpressure is unlike every other readiness signal in one specific way: **it is
+load-dependent, and load is redistributed by the act of reporting it.** When a
+broker connection drops, every replica usually reports it together and nothing
+moves. When one replica reports a saturated queue, its traffic moves to the
+others — pushing them closer to the same threshold. If they cross it, they leave
+too, concentrating the load further. The end state is every replica out of
+rotation and no traffic served, from a condition where every replica was still
+serving most of its traffic.
+
+That is a positive feedback loop reachable from a *correct* implementation.
+Nothing about it requires a bug. A fleet in which replicas leave quickly and
+return slowly settles; one in which they return as fast as they left
+oscillates.
+
+The deadband (`0.9` / `0.5`) does the same job on the value axis that the timers
+do on the time axis. Both are wanted; neither substitutes for the other.
+
+### What Vinculum cannot do for you
+
+The third thing that bounds the loop above is **a floor on available replicas**:
+a Kubernetes PodDisruptionBudget, `maxUnavailable`, or a load balancer's
+outlier-detection floor, so that "everyone is saturated" cannot become "nobody
+serves traffic".
+
+**A single process cannot see the fleet**, so Vinculum cannot provide this and
+does not pretend to. Set the floor in your orchestrator. Reporting honestly and
+letting something else decide what to do about it is the entire job of a probe.
+
+### Readiness only. Never liveness.
+
+`probe = "live"` on a saturation check turns a load spike into a fleet-wide
+restart loop — and worse, a restarting process sheds its queue, which looks like
+recovery, which leaves it primed to restart again under the next spike.
+
+This is the same mistake as putting a dependency in a liveness check
+([Liveness](#liveness)), in a more tempting costume.
+
+### Use `cond()`, not `?:`
+
+HCL's ternary requires both branches to unify, and a `check` input's two useful
+shapes — an object carrying a reason, and a bare `true` — do not:
+
+```hcl
+# Wrong. Passes `vinculum check`, then fails on every probe with
+# "Inconsistent conditional result types: the 'true' value is object,
+#  but the 'false' value is bool."
+input = get(condition.bus_saturated) ? { ready = false, reason = "…" } : true
+
+# Right.
+input = cond(get(condition.bus_saturated), { ready = false, reason = "…" }, true)
+```
+
+### Drops as a signal
+
+Dropping is the unambiguous harm, so "unready when `dropped` is climbing" is
+tempting and simpler than a depth threshold. It is the wrong *primary* signal:
+by the time a message has been dropped the damage is done, and readiness exists
+to shed load before that. Depth is the leading indicator; drops are the
+confirmation.
+
+They are still worth watching — as a metric, for alerting, or as a check you
+write deliberately. Sample the difference between two readings, not the
+cumulative total.
+
+### Per-subscription queues
+
+A `subscription` with `queue_size` set is a second, independent backpressure
+point, and the one that catches a single slow handler rather than an overloaded
+process. Those queues count their drops, but the count is not yet readable from
+a configuration — there is no `subscription.<name>` to `get()` from. For now the
+bus-level numbers above are what a VCL composition can see.
 
 ---
 

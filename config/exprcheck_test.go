@@ -206,7 +206,9 @@ func TestDeferredReferenceUnknownCtxField(t *testing.T) {
 	assert.Contains(t, err, `"message" context`)
 	// Fields are offered in the order the shape declares them, so the ones
 	// worth reading come before the universal ones.
-	assert.Contains(t, err, "It provides: topic, msg, fields, auth, baggage, trace_id, span_id.")
+	// The site's own additions come after the universal fields, the same way
+	// they do for a receiver's on_decode_error.
+	assert.Contains(t, err, "It provides: topic, msg, fields, auth, baggage, trace_id, span_id, undeliverable_topic.")
 }
 
 // try() and can() exist to reference something that may not be there, so a

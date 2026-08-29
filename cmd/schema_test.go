@@ -968,16 +968,20 @@ func TestSchemaContexts(t *testing.T) {
 		contextFieldNames(doc.Contexts["trigger-cron"]))
 }
 
-// TestSchemaOpenContextFields covers the two shapes whose fields are a floor
-// rather than the whole list. Both are per-receiver: every on_decode_error
-// carries the same five fields and every vinculum_topic the same two, and then
-// each adds the identity of its own transport — so a consumer completing inside
-// one gets ctx.routing_key on rabbitmq and ctx.mqtt_topic on mqtt, and neither
-// on the other.
+// TestSchemaOpenContextFields covers the shapes whose fields are a floor rather
+// than the whole list. Two are per-receiver: every on_decode_error carries the
+// same five fields and every vinculum_topic the same two, and then each adds
+// the identity of its own transport — so a consumer completing inside one gets
+// ctx.routing_key on rabbitmq and ctx.mqtt_topic on mqtt, and neither on the
+// other.
 //
-// The two are checked together because the point is that one receiver's two
+// Those two are checked together because the point is that one receiver's two
 // hooks agree: a redis stream names the stream `stream` in both, having once
 // called it `topic` in one of them.
+//
+// `message` is open for a different reason: a bus delivery can carry
+// `undeliverable_topic`, which nothing but a bus can set, so a `subscription`
+// names it and the client receivers that share the shape correctly do not.
 func TestSchemaOpenContextFields(t *testing.T) {
 	doc := generateTestSchema(t, config.SchemaGenOptions{RequireDocs: true})
 
@@ -995,13 +999,17 @@ func TestSchemaOpenContextFields(t *testing.T) {
 	assert.Equal(t, []string{"msg", "fields",
 		"auth", "baggage", "trace_id", "span_id"}, contextFieldNames(inbound))
 
+	message := doc.Contexts["message"]
+	require.NotNil(t, message)
+	assert.True(t, message.OpenFields, "message must say its field list is open")
+
 	// Only an open shape may be added to, so no other shape carries additions.
 	sites := map[string]map[string][]string{}
 	forEachAttr(doc, func(path string, attr *config.SchemaAttr) {
 		if len(attr.ContextFields) == 0 {
 			return
 		}
-		if !assert.Contains(t, []string{"decode-error", "inbound-message"}, attr.Context,
+		if !assert.Contains(t, []string{"decode-error", "inbound-message", "message"}, attr.Context,
 			"%s adds fields to a shape that is not open", path) {
 			return
 		}
@@ -1039,6 +1047,12 @@ func TestSchemaOpenContextFields(t *testing.T) {
 		"client redis_stream.consumer.vinculum_topic":                        {"stream", "entry_id"},
 		"client sqs_receiver.vinculum_topic":                                 {"queue", "message_id"},
 	}, sites["inbound-message"])
+
+	// Exactly one site adds to `message`: a bus is the only thing that knows a
+	// message went unrouted, so no client receiver may claim the field.
+	assert.Equal(t, map[string][]string{
+		"subscription.action": {"undeliverable_topic"},
+	}, sites["message"])
 }
 
 func contextFieldNames(shape *config.SchemaContext) []string {

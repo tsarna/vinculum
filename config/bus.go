@@ -1,21 +1,25 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
+	richcty "github.com/tsarna/rich-cty-types"
 	bus "github.com/tsarna/vinculum-bus"
 	"github.com/zclconf/go-cty/cty"
 )
 
 type BusDefinition struct {
-	Name      string         `hcl:"name,label"`
-	Type      *string        `hcl:"type,optional"`
-	QueueSize *int           `hcl:"queue_size,optional"`
-	Metrics   hcl.Expression `hcl:"metrics,optional"`
-	Tracing   hcl.Expression `hcl:"tracing,optional"`
+	Name          string         `hcl:"name,label"`
+	Type          *string        `hcl:"type,optional"`
+	QueueSize     *int           `hcl:"queue_size,optional"`
+	Undeliverable bool           `hcl:"undeliverable,optional"`
+	Metrics       hcl.Expression `hcl:"metrics,optional"`
+	Tracing       hcl.Expression `hcl:"tracing,optional"`
 }
 
 type BusBlockHandler struct {
@@ -38,6 +42,74 @@ var EventBusCapsuleType = cty.CapsuleWithOps("eventbus", reflect.TypeOf((*any)(n
 func NewEventBusCapsule(eventBus bus.EventBus) cty.Value {
 	return cty.CapsuleVal(EventBusCapsuleType, eventBus)
 }
+
+// BusHandle is the value behind `bus.<name>`: the event bus itself, plus the
+// `get()` members that read what it is doing.
+//
+// It embeds the bus rather than wrapping it by hand, so a handle *is* an
+// EventBus and a Subscriber and everything that already accepted one still
+// does. Exactly one handle exists per bus, and it is what is stored in both
+// Config.Buses and the capsule, because a subscriber's identity is its map key
+// inside the bus.
+type BusHandle struct {
+	bus.EventBus
+
+	name string
+}
+
+// Name returns the bus's block name.
+func (h *BusHandle) Name() string { return h.name }
+
+// busMembers is the set `get(bus.<name>, …)` answers, in the order a diagnostic
+// should list them.
+var busMembers = []string{"queue_depth", "queue_capacity", "queue_ratio", "dropped", "undelivered"}
+
+// Get implements richcty.Gettable: the bus's own backpressure numbers.
+//
+// These are polled, deliberately, and the bus is not watchable on them: depth
+// changes on the hottest path in the system, and a health feature has no
+// business adding work there. A condition that wants to react to saturation
+// samples into a `var` on an interval — see doc/health.md.
+func (h *BusHandle) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
+	if len(args) == 0 {
+		return cty.NilVal, fmt.Errorf("bus get: which member? one of %s",
+			strings.Join(busMembers, ", "))
+	}
+	if args[0].Type() != cty.String {
+		return cty.NilVal, fmt.Errorf("bus get: member argument must be a string")
+	}
+
+	switch member := args[0].AsString(); member {
+	case "queue_depth":
+		return cty.NumberIntVal(int64(h.QueueDepth())), nil
+
+	case "queue_capacity":
+		return cty.NumberIntVal(int64(h.QueueCapacity())), nil
+
+	case "queue_ratio":
+		// Derived, and included because it is what a threshold is written
+		// against: unlike a depth, it is comparable across buses of different
+		// sizes. Both are offered because the absolute numbers are what an
+		// operator wants in a log line, and a ratio cannot give them back.
+		capacity := h.QueueCapacity()
+		if capacity <= 0 {
+			return cty.NumberFloatVal(0), nil
+		}
+		return cty.NumberFloatVal(float64(h.QueueDepth()) / float64(capacity)), nil
+
+	case "dropped":
+		return cty.NumberUIntVal(h.DroppedTotal()), nil
+
+	case "undelivered":
+		return cty.NumberUIntVal(h.UndeliveredTotal()), nil
+
+	default:
+		return cty.NilVal, fmt.Errorf("bus get: no member %q; expected one of %s",
+			member, strings.Join(busMembers, ", "))
+	}
+}
+
+var _ richcty.Gettable = (*BusHandle)(nil)
 
 // GetEventBusFromCapsule extracts an EventBus from a cty capsule value
 func GetEventBusFromCapsule(val cty.Value) (bus.EventBus, error) {
@@ -109,7 +181,27 @@ var busSchema = TypeSchema{
 		},
 		"queue_size": {
 			Summary: "Maximum messages queued before messages are dropped.",
-			Doc:     "Defaults to 1000.",
+			Doc: "A message published when the queue is full is discarded, and counted in " +
+				"`get(bus.<name>, \"dropped\")`.",
+			Default: "1000",
+		},
+		"undeliverable": {
+			Summary: "Republish messages no subscriber matched under `$undeliverable`.",
+			Doc: `A message that matches no subscriber is normally discarded in silence,
+which is the right default: publishing to a topic nobody wants is ordinary
+pub/sub. Set this on a bus where an unmatched message means something is wrong —
+a ` + "`topics`" + ` typo, a ` + "`vinculum_topic`" + ` expression that came out wrong, a
+subscription left ` + "`disabled`" + ` after a deploy.
+
+The message is republished under the reserved topic ` + "`$undeliverable`" + ` carrying its
+original payload and context, with the topic that failed to route available to the
+handler as ` + "`ctx.undeliverable_topic`" + `. A ` + "`$`" + `-prefixed topic is never itself
+republished, so an unhandled ` + "`$undeliverable`" + ` cannot loop.
+
+It is not free: every unmatched publish becomes a second publish on the same
+single delivery goroutine. The ` + "`undelivered`" + ` counter — always on, readable as
+` + "`get(bus.<name>, \"undelivered\")`" + ` — is the diagnostic; this is the remedy.`,
+			Default: "false",
 		},
 		"metrics": MetricsAttr,
 		"tracing": {
@@ -170,7 +262,10 @@ func (h *BusBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnost
 }
 
 func (h *BusBlockHandler) BuildEventBus(config *Config, busDef *BusDefinition, defRange *hcl.Range) hcl.Diagnostics {
-	busBuilder := bus.NewEventBus().WithLogger(config.Logger).WithName(busDef.Name)
+	busBuilder := bus.NewEventBus().
+		WithLogger(config.Logger).
+		WithName(busDef.Name).
+		WithUndeliverable(busDef.Undeliverable)
 	if busDef.QueueSize != nil {
 		busBuilder = busBuilder.WithBufferSize(*busDef.QueueSize)
 	}
@@ -203,8 +298,13 @@ func (h *BusBlockHandler) BuildEventBus(config *Config, busDef *BusDefinition, d
 		}
 	}
 
-	config.Buses[busDef.Name] = eventBus
-	config.CtyBusMap[busDef.Name] = NewEventBusCapsule(eventBus)
+	// One handle, stored everywhere the bus is reachable: a subscriber's
+	// identity inside the bus is the interface value itself, so two wrappers
+	// around one bus would be two different subscribers.
+	handle := &BusHandle{EventBus: eventBus, name: busDef.Name}
+
+	config.Buses[busDef.Name] = handle
+	config.CtyBusMap[busDef.Name] = NewEventBusCapsule(handle)
 
 	// Attributes can't be added on the fly, do we have to redefine the object to add each new bus
 	config.Constants["bus"] = cty.ObjectVal(config.CtyBusMap)

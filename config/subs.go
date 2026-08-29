@@ -188,12 +188,19 @@ client *receiver* block.`,
 			Doc:     "MQTT-style patterns: `+` matches one segment, `#` matches any number of trailing segments.",
 			Hint:    HintTopicPattern,
 		},
-		"action": {
+		"action": AttrMeta{
 			Summary: "Expression evaluated once per message.",
 			Doc:     "`ctx.topic` is the message topic, `ctx.msg` the payload, and `ctx.fields` any string metadata attached to it.",
 			Hint:    HintActionExpression,
 			Context: "message",
-		},
+		}.WithContextFields(ContextField{
+			Name: "undeliverable_topic", Type: attrTypeString, Optional: true,
+			Summary: "The topic that matched no subscriber.",
+			Doc: "Present only on a delivery of `$undeliverable`, from a `bus` with " +
+				"`undeliverable = true`. `topic` is `$undeliverable` on such a message — " +
+				"it has to be, or this subscription's own matcher could not have selected " +
+				"it — so the topic that failed to route is named after what it is.",
+		}),
 		"tracing": TracingAttr.WithDoc(
 			"A `client \"otlp\"` block. Auto-wires to the default tracing backend when omitted.\n\n" +
 				"Applies to the hop `queue_size` introduces, and so has no effect without it. " +
@@ -381,6 +388,14 @@ func (a *ActionSubscriber) OnEvent(ctx context.Context, topic string, message an
 		ctyFields[key] = cty.StringVal(value)
 	}
 	evalCtxBuilder = evalCtxBuilder.WithAttribute("fields", cty.ObjectVal(ctyFields))
+
+	// A message the bus is handing back because nothing matched it. `topic` is
+	// `$undeliverable` — it has to be, or this subscription's own matcher could
+	// not have selected it — so the topic that failed to route is named after
+	// what it is rather than shadowing `topic`.
+	if undeliverableTopic, ok := bus.UndeliverableTopicFromContext(ctx); ok {
+		evalCtxBuilder = evalCtxBuilder.WithStringAttribute("undeliverable_topic", undeliverableTopic)
+	}
 
 	evalCtx, err := evalCtxBuilder.BuildEvalContext(a.Config.evalCtx)
 	if err != nil {
@@ -674,6 +689,10 @@ func init() {
 				Doc:     "Always present; an empty object when the message carries no metadata.",
 			},
 		},
+		// Open, because a bus delivery can carry one field a client receiver's
+		// never can: `undeliverable_topic`, which only the bus knows how to set.
+		// The subscription block names it; the receivers correctly do not.
+		OpenFields: true,
 	})
 }
 

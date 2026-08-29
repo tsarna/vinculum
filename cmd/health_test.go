@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"io"
 	"net"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tsarna/vinculum/config"
+	"github.com/tsarna/vinculum/types"
+	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
 
@@ -83,6 +86,92 @@ trigger "watch" "t" {
 	require.Error(t, err)
 	assert.Contains(t, stderr, `does not have an attribute named "databse"`)
 	assert.Contains(t, stderr, `watch  = check.databse`, "the offending line should be quoted")
+}
+
+// The composition doc/health.md recommends, end to end: a saturating bus queue
+// makes the process report itself unready rather than silently shedding load.
+//
+// The sampler is driven by hand rather than by its interval trigger — what this
+// pins is the wiring from the bus's own number through the condition to the
+// probe, not the timer.
+func TestBusSaturationCanMakeAProcessUnready(t *testing.T) {
+	cfg, diags := config.NewConfig().
+		WithSources([]byte(`
+bus "main" {
+    queue_size = 4
+}
+
+var "bus_load" { value = 0 }
+
+condition "threshold" "bus_saturated" {
+    input     = get(var.bus_load)
+    on_above  = 0.9
+    off_below = 0.5
+}
+
+check "bus_has_headroom" {
+    input = cond(get(condition.bus_saturated),
+                 { ready = false, reason = "bus queue saturated" },
+                 true)
+}
+`)).
+		WithLogger(zap.NewNop()).
+		Build()
+	require.False(t, diags.HasErrors(), "%v", diags)
+
+	// The condition watches `var.bus_load`, and it is Start that subscribes it.
+	for _, s := range cfg.Startables {
+		require.NoError(t, s.Start())
+	}
+	for _, ps := range cfg.PostStartables {
+		require.NoError(t, ps.PostStart())
+	}
+	t.Cleanup(func() {
+		for i := len(cfg.Stoppables) - 1; i >= 0; i-- {
+			_ = cfg.Stoppables[i].Stop()
+		}
+	})
+	cfg.Health.SetBooted()
+
+	// force, so each sample is answered by a fresh evaluation rather than the
+	// aggregate's 5-second cache.
+	failing := func() map[string]string {
+		t.Helper()
+		out := map[string]string{}
+		for _, s := range cfg.Health.Failing(context.Background(), config.ProbeReady, true) {
+			out[s.Component] = s.Reason
+		}
+		return out
+	}
+
+	load, err := types.GetVariableFromCapsule(cfg.CtyVarMap["bus_load"])
+	require.NoError(t, err)
+
+	sample := func(ratio cty.Value) {
+		t.Helper()
+		_, err := load.Set(context.Background(), []cty.Value{ratio})
+		require.NoError(t, err)
+	}
+
+	// Whatever the real accessor says about an idle bus — this is the shape of
+	// the number the composition reads, not a stand-in for it.
+	idle, err := cfg.Buses["main"].(*config.BusHandle).
+		Get(context.Background(), []cty.Value{cty.StringVal("queue_ratio")})
+	require.NoError(t, err)
+
+	sample(idle)
+	assert.Empty(t, failing(), "an idle bus is ready")
+
+	sample(cty.NumberFloatVal(0.95))
+	assert.Equal(t, map[string]string{"check.bus_has_headroom": "bus queue saturated"}, failing())
+
+	// The deadband is the point: back under the trip point is not yet recovery,
+	// which is what keeps a fleet from oscillating.
+	sample(cty.NumberFloatVal(0.7))
+	assert.Contains(t, failing(), "check.bus_has_headroom")
+
+	sample(cty.NumberFloatVal(0.4))
+	assert.Empty(t, failing())
 }
 
 func TestStandaloneHealthListener(t *testing.T) {

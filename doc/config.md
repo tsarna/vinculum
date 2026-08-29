@@ -415,12 +415,13 @@ example, `bus "foo" {}` creates `bus.foo`.
 
 <!-- vinculum:begin block-attrs bus level=4 -->
 
-| Attribute | Type | Required | Description |
-|---|---|---|:---|
-| `metrics` | expression (metrics-ref) |  | Where to report metrics. |
-| `queue_size` | number |  | Maximum messages queued before messages are dropped. |
-| `tracing` | expression (tracing-ref) |  | Where to report bus traces. |
-| `type` | string |  | Bus implementation to use. |
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
+| `queue_size` | number |  | `1000` | Maximum messages queued before messages are dropped. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report bus traces. |
+| `type` | string |  |  | Bus implementation to use. |
+| `undeliverable` | bool |  | `false` | Republish messages no subscriber matched under `$undeliverable`. |
 
 **`metrics`**
 
@@ -428,7 +429,7 @@ A `server "metrics"` or `client "otlp"` block. Auto-wires to the default metrics
 
 **`queue_size`**
 
-Defaults to 1000.
+A message published when the queue is full is discarded, and counted in `get(bus.<name>, "dropped")`.
 
 **`tracing`**
 
@@ -437,6 +438,23 @@ A `client "otlp"` block. When set, each publish and delivery is wrapped in an OT
 **`type`**
 
 Reserved for alternative bus implementations; omit for the default in-process bus.
+
+**`undeliverable`**
+
+A message that matches no subscriber is normally discarded in silence,
+which is the right default: publishing to a topic nobody wants is ordinary
+pub/sub. Set this on a bus where an unmatched message means something is wrong —
+a `topics` typo, a `vinculum_topic` expression that came out wrong, a
+subscription left `disabled` after a deploy.
+
+The message is republished under the reserved topic `$undeliverable` carrying its
+original payload and context, with the topic that failed to route available to the
+handler as `ctx.undeliverable_topic`. A `$`-prefixed topic is never itself
+republished, so an unhandled `$undeliverable` cannot loop.
+
+It is not free: every unmatched publish becomes a second publish on the same
+single delivery goroutine. The `undelivered` counter — always on, readable as
+`get(bus.<name>, "undelivered")` — is the diagnostic; this is the remedy.
 
 <!-- vinculum:end block-attrs bus -->
 
@@ -487,6 +505,89 @@ the message. A receiver that acknowledges on successful delivery — a Kafka
 acknowledge at the moment the message is queued rather than when the work
 finishes, and an error from that work can no longer trigger redelivery or
 dead-lettering. Set it there only if at-most-once delivery is what you want.
+
+#### What the bus counts
+
+A bus keeps four numbers about itself, readable with `get()`:
+
+```hcl
+get(bus.main, "queue_depth")      # messages accepted but not yet dispatched
+get(bus.main, "queue_capacity")   # the buffer, i.e. queue_size
+get(bus.main, "queue_ratio")      # depth ÷ capacity — 0.0 to 1.0
+get(bus.main, "dropped")          # messages it could not accept
+get(bus.main, "undelivered")      # messages no subscriber matched
+```
+
+They cost nothing to read and are always kept, with or without a metrics
+backend configured. `dropped` and `undelivered` are cumulative totals since
+startup, so what a threshold wants from them is a *rate* — the difference
+between two samples — not the number itself.
+
+**`dropped`** counts what the queue refused. A message arriving at a full queue
+is discarded: the bus logs a warning and moves on. Before these counters that
+warning was the only trace of it, and a log line cannot be thresholded, alerted
+on, or read back by the process that emitted it. With metrics configured the
+same event is `messaging.client.dropped.messages`.
+
+**`undelivered`** counts what nothing wanted. It is the number that catches a
+`topics` typo, a `vinculum_topic` expression that came out wrong, or a
+subscription left `disabled = true` after a deploy — misroutings that otherwise
+look exactly like a healthy idle system. It is also nonzero for perfectly
+healthy configurations that publish to topics nobody happens to be subscribed
+to, so read it as *"is this climbing when it shouldn't be"* rather than as an
+error count. With metrics configured:
+`messaging.client.undelivered.messages`.
+
+Turning a saturating queue into a readiness signal is a whole composition, with
+some sharp edges around fleet stability: see
+[Backpressure as a readiness signal](health.md#backpressure-as-a-readiness-signal).
+
+#### Undeliverable messages
+
+`undeliverable = true` turns the `undelivered` count into something a
+configuration can act on. A message that matched no subscriber is republished on
+the same bus under the reserved topic `$undeliverable`:
+
+```hcl
+bus "main" {
+    undeliverable = true
+}
+
+subscription "unroutable" {
+    target = bus.main
+    topics = ["$undeliverable"]
+    action = log::warn("nothing consumed this", {
+        topic = ctx.undeliverable_topic,
+        msg   = ctx.msg,
+    })
+}
+```
+
+It is an ordinary bus message, so what happens next is ordinary VCL. The
+republish carries the original payload and the original context — so a handler
+can settle the inbound delivery the message came from, rejecting it with a real
+reason instead of letting it time out and be redelivered into the same hole.
+
+`ctx.topic` on that message is `$undeliverable`; it has to be, or the
+subscription's own matcher could not have selected it. The topic that failed to
+route is `ctx.undeliverable_topic`, named after what it is rather than shadowing
+`topic`.
+
+Two rules worth knowing:
+
+- **The subscription must name `$undeliverable` exactly.** A `#` subscription
+  does not match `$`-prefixed topics, by the same rule that keeps `$metrics` out
+  of a catch-all.
+- **A `$`-prefixed topic is never republished.** So an unhandled
+  `$undeliverable` — the normal state for anyone who turns the attribute on and
+  forgets the subscription — is counted and dropped rather than fed back in. The
+  climbing `undelivered` count is what says the handler is missing.
+
+Off by default, and worth leaving off unless you need it. Publishing to a topic
+nobody wants is legitimate in pub/sub, and every unmatched publish becomes a
+second publish on the same single delivery goroutine — so a config that
+misroutes a high-rate stream doubles its bus load precisely when it is already
+unhealthy. The counter is the diagnostic; this is the remedy.
 
 #### Tracing
 
@@ -992,6 +1093,9 @@ Fields readable as `ctx.<name>` (shape `message`):
 | `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+| `ctx.undeliverable_topic` | string | The topic that matched no subscriber. *(added here)* *(not always present)* |
+
+*This shape is open: a particular site may carry fields beyond these.*
 
 **`ctx.msg`**
 
@@ -1012,6 +1116,10 @@ Read, write, and delete with `get()`, `set()`, and `clear()`. Changes are seen b
 **`ctx.trace_id`**
 
 Falls back to the trace ID extracted from inbound headers, so it is populated even with no `client "otlp"` configured.
+
+**`ctx.undeliverable_topic`**
+
+Present only on a delivery of `$undeliverable`, from a `bus` with `undeliverable = true`. `topic` is `$undeliverable` on such a message — it has to be, or this subscription's own matcher could not have selected it — so the topic that failed to route is named after what it is.
 
 <!-- vinculum:end block-ctx subscription action -->
 

@@ -374,6 +374,8 @@ Fields readable as `ctx.<name>` (shape `message`):
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
 
+*This shape is open: a particular site may carry fields beyond these.*
+
 **`ctx.msg`**
 
 Already decoded by the client's `wire_format`, so its type follows the data rather than the transport.
@@ -544,6 +546,8 @@ Fields readable as `ctx.<name>` (shape `message`):
 | `ctx.baggage` | capsule | OpenTelemetry baggage riding with this context. *(every `ctx` carries this)* |
 | `ctx.trace_id` | string | Trace ID of the active span, or empty. *(every `ctx` carries this)* |
 | `ctx.span_id` | string | Span ID of the active span, or empty. *(every `ctx` carries this)* |
+
+*This shape is open: a particular site may carry fields beyond these.*
 
 **`ctx.msg`**
 

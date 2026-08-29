@@ -9,6 +9,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A bus will now tell you how full it is, and what it has thrown away.**
+  Every readiness signal Vinculum had was about a *dependency* — a broker
+  connection, a listener, a check you wrote. None was about the process being
+  overwhelmed. An instance whose bus queue is full is still connected to
+  everything, still passing every check, still answering `/readyz` with 200, and
+  dropping messages on the floor; from outside it is indistinguishable from a
+  healthy one, which is the worst shape a failure can have.
+
+  `bus.<name>` answers `get()` for five numbers:
+
+  ```hcl
+  get(bus.main, "queue_depth")      # accepted but not yet dispatched
+  get(bus.main, "queue_capacity")   # the buffer, i.e. queue_size
+  get(bus.main, "queue_ratio")      # depth ÷ capacity
+  get(bus.main, "dropped")          # messages it could not accept
+  get(bus.main, "undelivered")      # messages no subscriber matched
+  ```
+
+  They cost nothing to read and are kept with or without a metrics backend, so a
+  configuration can threshold on them. With one configured they are also
+  `messaging.client.dropped.messages` and
+  `messaging.client.undelivered.messages`.
+
+  Two of those were previously invisible by construction. A message arriving at
+  a full queue produced a log line and nothing else — and a log line cannot be
+  thresholded, alerted on, or read back by the process that emitted it. A
+  message that matched no subscriber produced *nothing at all*: no log line, no
+  metric, no error, so a `topics` typo or a subscription left `disabled` after a
+  deploy looked exactly like a healthy idle system.
+
+  Turning saturation into unreadiness is a composition rather than a switch, and
+  it has a sharp edge — a replica that leaves the rotation sends its load to its
+  neighbours, which is a feedback loop reachable from a correct implementation.
+  [`doc/health.md`](doc/health.md#backpressure-as-a-readiness-signal) has the
+  worked form, why its timers are asymmetric, why this must never be a liveness
+  check, and what your orchestrator has to do that Vinculum cannot.
+
+- **`undeliverable = true` on a `bus`, to act on a message nothing matched.**
+  The message is republished on the same bus under `$undeliverable`, carrying
+  its original payload and context, so the policy is ordinary VCL:
+
+  ```hcl
+  bus "main" {
+      undeliverable = true
+  }
+
+  subscription "unroutable" {
+      target = bus.main
+      topics = ["$undeliverable"]
+      action = log::warn("nothing consumed this", { topic = ctx.undeliverable_topic })
+  }
+  ```
+
+  The original context riding along is what makes this worth having rather than
+  merely tidy: a handler can settle the inbound delivery the message came from
+  and reject it with a real reason, instead of letting it time out and be
+  redelivered into the same hole.
+
+  `ctx.topic` on that message is `$undeliverable` — it has to be, or the
+  subscription's own matcher could not have selected it — so the topic that
+  failed to route is `ctx.undeliverable_topic`, named after what it is.
+
+  A `$`-prefixed topic is never itself republished, so an unhandled
+  `$undeliverable` is counted and dropped rather than looping. Off by default:
+  publishing to a topic nobody wants is legitimate, and every unmatched publish
+  would otherwise become a second one on the same delivery goroutine. The
+  `undelivered` counter is the diagnostic; this is the remedy.
+
 - **`subscription` accepts `tracing`, and `queue_size` no longer loses the
   trace.** `queue_size` hands delivery to a background goroutine, and the bus's
   own span ends when `OnEvent` returns — which, with a queue, is immediately
