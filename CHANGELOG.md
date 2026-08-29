@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`subscription` accepts `tracing`, and `queue_size` no longer loses the
+  trace.** `queue_size` hands delivery to a background goroutine, and the bus's
+  own span ends when `OnEvent` returns — which, with a queue, is immediately
+  after the enqueue. Nothing covered the dispatch that did the work, so turning
+  the queue on silently *cost* observability rather than adding a hop to it.
+
+  Every client receiver already passed its resolved tracer provider down this
+  path; `subscription` passed `nil`, because it was the only block in the family
+  with no `tracing` of its own to resolve. It has one now, like `bus`, `fsm`,
+  `metric`, and `trigger`, and the async dispatch emits a `SpanKindConsumer`
+  span linked back to whatever published the message.
+
+  A config with exactly one `client "otlp"` gets this without writing anything:
+  the attribute auto-wires when omitted, as it does everywhere else.
+
+  `tracing` without `queue_size` is the one way to write it and get nothing, so
+  that now warns rather than being quietly inert — there is no hop to trace, and
+  delivery is already covered by the publisher's span.
+
 - **`vinculum check` names the replacement for a renamed function or `ctx`
   field**, instead of guessing at one:
 

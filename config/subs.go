@@ -26,6 +26,7 @@ type SubscriptionDefinition struct {
 	Transforms hcl.Expression `hcl:"transforms,optional"`
 	Subscriber hcl.Expression `hcl:"subscriber,optional"`
 	ActionExpr hcl.Expression `hcl:"action,optional"`
+	Tracing    hcl.Expression `hcl:"tracing,optional"`
 	Disabled   bool           `hcl:"disabled,optional"`
 }
 
@@ -193,6 +194,12 @@ client *receiver* block.`,
 			Hint:    HintActionExpression,
 			Context: "message",
 		},
+		"tracing": TracingAttr.WithDoc(
+			"A `client \"otlp\"` block. Auto-wires to the default tracing backend when omitted.\n\n" +
+				"Applies to the hop `queue_size` introduces, and so has no effect without it. " +
+				"Delivery to a subscription is otherwise traced by the bus, under the span of " +
+				"whatever published the message; a queue hands the work to a background " +
+				"goroutine, which needs a span of its own linked back to that one."),
 		"disabled": DisabledAttr,
 	}),
 	Constraints: SubscriberSourceConstraints,
@@ -223,12 +230,39 @@ func (h *SubscriptionBlockHandler) Process(config *Config, block *hcl.Block) hcl
 		subscriptionDef.Name = block.Labels[0]
 	}
 
+	// Only reached when queue_size is set, where it is what keeps the trace
+	// alive across the hop to the background goroutine. ResolveTracerProvider
+	// answers (nil, nil) when no OTLP client is configured at all, which is the
+	// common case and has to stay quiet — so only real diagnostics return here.
+	tp, tracingDiags := config.ResolveTracerProvider(subscriptionDef.Tracing)
+	if tracingDiags.HasErrors() {
+		return tracingDiags
+	}
+
+	// The provider has one job here, so saying so is the whole of the check.
+	// Without a queue there is no hop to trace: delivery happens inside the
+	// bus's own span, which this cannot redirect.
+	//
+	// Held separately rather than appended to diags, because diags is reassigned
+	// by the next `:=` and one of the two success paths below returns nil.
+	var warnings hcl.Diagnostics
+	if IsExpressionProvided(subscriptionDef.Tracing) && subscriptionDef.QueueSize == nil {
+		warnings = warnings.Append(&hcl.Diagnostic{
+			Severity: hcl.DiagWarning,
+			Summary:  "tracing without queue_size has no effect",
+			Detail: "A subscription's tracing applies to the background dispatch queue_size introduces. " +
+				"Without it, delivery runs inside the span of whatever published the message and is " +
+				"already traced, wherever that publisher reports to.",
+			Subject: subscriptionDef.Tracing.Range().Ptr(),
+		})
+	}
+
 	subscriber, diags := SubscriberSource{
 		Subscriber: subscriptionDef.Subscriber,
 		Action:     subscriptionDef.ActionExpr,
 		Transforms: subscriptionDef.Transforms,
 		QueueSize:  subscriptionDef.QueueSize,
-	}.Resolve(config, block.DefRange, "subscription/"+subscriptionDef.Name, nil)
+	}.Resolve(config, block.DefRange, "subscription/"+subscriptionDef.Name, tp)
 	if diags.HasErrors() {
 		return diags
 	}
@@ -273,10 +307,10 @@ func (h *SubscriptionBlockHandler) Process(config *Config, block *hcl.Block) hcl
 		}
 		*/
 
-		return nil
+		return warnings
 	}
 
-	return diags
+	return diags.Extend(warnings)
 }
 
 func GetTargetFromExpression(config *Config, targetExpr hcl.Expression) (any, hcl.Diagnostics) {

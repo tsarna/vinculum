@@ -894,6 +894,7 @@ subscription "name" {
 
     transforms = [...]          # optional: transform pipeline
     queue_size = 100            # optional: async queue depth
+    tracing    = client.otlp    # optional: where the queue's spans go
     disabled   = false          # optional
 }
 ```
@@ -906,8 +907,9 @@ shared delivery-target pattern: the same four attributes, with identical
 semantics, are also accepted by every client *receiver* block
 (`client "sqs_receiver"`, `client "kafka"` and `client "rabbitmq"` receivers,
 `client "mqtt"` subscribers, `client "redis_stream"` consumers,
-`client "redis_pubsub"` subscribers). The attribute reference below applies in
-all of those contexts.
+`client "redis_pubsub"` subscribers). Those four entries in the attribute
+reference below apply in all of those contexts; `target`, `tracing`, and
+`topics` belong to this block alone.
 
 Identical semantics, but not identical consequences: `queue_size` on a
 subscription decouples a slow *outbound* path from the bus, which is what it is
@@ -927,6 +929,7 @@ setting it on a receiver.
 | `queue_size` | number |  | Depth of an async queue wrapping the subscriber. |
 | `subscriber` | expression (subscriber-ref) |  | Subscriber to forward messages to, instead of evaluating an action. |
 | `target` | expression (bus-ref) |  | Bus to subscribe to. |
+| `tracing` | expression (tracing-ref) |  | Where to report traces. |
 | `transforms` | expression (transform-pipeline) |  | Transform pipeline applied before the action or subscriber. |
 
 - Specify at most one of action or subscriber.
@@ -957,6 +960,12 @@ Anything that can receive messages: a bus, an FSM, a subscriber-implementing ser
 **`target`**
 
 A bus — `bus.main`, `bus.events`. Defaults to `bus.main`. Unlike `subscriber`, this slot resolves an event bus and nothing else.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted.
+
+Applies to the hop `queue_size` introduces, and so has no effect without it. Delivery to a subscription is otherwise traced by the bus, under the span of whatever published the message; a queue hands the work to a background goroutine, which needs a span of its own linked back to that one.
 
 **`transforms`**
 
