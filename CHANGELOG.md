@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`vinculum check` names the replacement for a renamed function or `ctx`
+  field**, instead of guessing at one:
+
+  ```text
+  There is no function named "sunrise". It was renamed "sky::sunrise" in 0.43.0.
+  ```
+
+  The nearest-match suggestion it already made is good for a rename whose
+  spelling barely moved — `randint` is one edit from `rand::int` — and useless
+  for one where the leaf name itself changed. Of the 0.43.0 namespacing's
+  renames it found 58 and missed 40, and two of the misses were worse than
+  silence: `now()` was answered "Did you mean `pow`?" and `since()` "Did you
+  mean `slice`?", each sending an upgrade to look at an unrelated function.
+
+  Those 40 are now stated as fact, and the suggester keeps the rest. A stated
+  rename replaces the guess rather than sitting beside it, so a table entry that
+  went stale would misdirect confidently — a test asserts every old name is
+  really gone from the function set and every replacement really exists, which
+  is what makes the table safe to trust and to grow.
+
+  `ctx` fields are covered by the same mechanism, scoped to the context shape
+  they were removed from: `ctx.topic` in a receiver's `vinculum_topic` now says
+  it was removed and why, above the list of what that receiver does provide,
+  while `ctx.topic` in a subscription's `action` remains entirely correct.
+
 ### Fixed
 
 - **Two plugins contributing the same function name is now a diagnostic instead

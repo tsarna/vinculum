@@ -226,6 +226,18 @@ func (ck *refChecker) functionCall(call *hclsyntax.FunctionCallExpr) {
 
 	const summary = "Call to unknown function"
 
+	// A rename is consulted before the suggester, because a fact beats a guess
+	// and because the guess is sometimes actively wrong — `now()` is nearer to
+	// `pow` than to `time::now`. It also has to come before the namespace branch
+	// below: removing the last function from a namespace leaves that branch with
+	// nothing to say but that the namespace is empty, which is exactly the
+	// moment an author most needs to be told where the function went.
+	if r, ok := renamedFunctions[call.Name]; ok {
+		ck.reportRange(call.NameRange, summary,
+			fmt.Sprintf("There is no function named %q. %s", call.Name, r.describe()))
+		return
+	}
+
 	if sep := strings.LastIndex(call.Name, "::"); sep != -1 {
 		namespace, name := call.Name[:sep+2], call.Name[sep+2:]
 
@@ -306,9 +318,22 @@ func (ck *refChecker) ctxField(attr *SchemaAttr, traversal hcl.Traversal) {
 		known = append(known, f.Name)
 	}
 
-	ck.report(traversal, fmt.Sprintf("Unknown ctx field %q", name),
-		fmt.Sprintf("%s is evaluated with the %q context, which has no such field. It provides: %s.",
-			attr.Name, attr.Context, joinNames(known)))
+	detail := fmt.Sprintf("%s is evaluated with the %q context, which has no such field. It provides: %s.",
+		attr.Name, attr.Context, joinNames(known))
+
+	// A field renamed out of this shape says so first, and explains itself last,
+	// with the fields it does have in between — because for the renames that
+	// motivated this, that list is the more useful half. A receiver's transport
+	// identifier is named per receiver, so the replacement for `ctx.topic` is in
+	// the list rather than in the table.
+	if r, ok := renamedCtxFields[ctxFieldName{attr.Context, name}]; ok {
+		detail = r.verdict() + " " + detail
+		if r.note != "" {
+			detail += " " + r.note
+		}
+	}
+
+	ck.report(traversal, fmt.Sprintf("Unknown ctx field %q", name), detail)
 }
 
 // member checks the name a reference reads out of a value that has names in it:

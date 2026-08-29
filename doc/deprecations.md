@@ -20,6 +20,20 @@ Dates are the release in which the deprecation warning was introduced; see
 These are not deprecations — the old behavior is gone. They are recorded here
 because upgrading requires a config change.
 
+A **renamed function or `ctx` field** is not listed individually below, because
+`vinculum check` names the replacement itself:
+
+```text
+There is no function named "sunrise". It was renamed "sky::sunrise" in 0.43.0.
+```
+
+It knows the renames whose spelling moved far enough that guessing could not
+find them — `now` to `time::now`, `basicauth` to `http::basic_auth`, `serialize`
+to `wire::serialize`. For the rest it offers a nearest match instead
+(`randint` → "Did you mean `rand::int`?"), which is the same answer arrived at
+differently. Either way an upgrade can be driven by running `vinculum check`
+until it is quiet, rather than by reading a list.
+
 ### Inline `auth` blocks
 
 **Removed in 0.46.0.**
