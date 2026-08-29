@@ -231,16 +231,29 @@ what it actually accepts, so `help()` and editor tooling show the true
 signature. Register the externs from the same place as the function
 plugin they describe.
 
-Note that functy checks extern names for collisions, which the
-function-plugin registry does not: two packages declaring an extern for
-the same name is an error, as is one that collides with a user's `.cty`
-function.
+Note that functy checks extern names for collisions too: two packages
+declaring an extern for the same name is an error, as is one that
+collides with a user's `.cty` function.
 
 Name contributed functions with a namespace, as Vinculum's own families
 do (`log::info`, `http::get`, `time::add`). HCL parses `a::b(x)` natively
 and resolves it as a single flat map key, so a namespaced name costs
 nothing beyond spelling the registry key that way, and the leaf name
 should not repeat the namespace.
+
+A name is claimed by exactly one plugin. Two plugins contributing the
+same function name — a plugin against a built-in, or two plugins against
+each other — is a fatal diagnostic at `Build()` time, naming both plugins
+and the function; neither implementation is used. Registration order is
+`init()` order, which is neither declared nor stable, so the alternative
+would be to let the link order decide which implementation a config
+calls. `RegisterTransformPlugin` reports collisions the same way, against
+[the built-in transforms](transforms.md) as well as other plugins.
+
+This is checked across *every* function the binary could provide, not
+just the ones the current flags expose: a function gated behind
+`--file-path` collides whether or not the flag was given, because the run
+that would notice is not the run that needs telling.
 
 `RegisteredPlugins()` reports what has been registered; it is a query,
 not a contribution point. For what plugins *cannot* do, see

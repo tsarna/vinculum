@@ -12,16 +12,19 @@ func init() {
 		if base == "" {
 			return nil
 		}
+		// Only the functions that actually read the disk are gated on
+		// --file-path. abspath, basename, dirname and pathexpand manipulate a
+		// path string and touch nothing, so stdlib registers them
+		// unconditionally — which is what doc/functions.md describes. Naming
+		// them here as well contributed the identical function value under a
+		// second plugin, making which registration won a matter of init()
+		// order; harmless while the two agreed, and a collision either way.
 		return map[string]function.Function{
-			"abspath":    filesystem.AbsPathFunc,
-			"basename":   filesystem.BasenameFunc,
-			"dirname":    filesystem.DirnameFunc,
 			"file":       filesystem.MakeFileFunc(base, false),
 			"fileexists": filesystem.MakeFileExistsFunc(base),
 			"fileset":    filesystem.MakeFileSetFunc(base),
 			"filebase64": filesystem.MakeFileFunc(base, true),
 			"filebytes":  MakeFileBytesFunc(base),
-			"pathexpand": filesystem.PathExpandFunc,
 		}
 	})
 }

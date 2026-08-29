@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Two plugins contributing the same function name is now a diagnostic instead
+  of a coin toss.** `RegisterFunctionPlugin` had no collision check at all: the
+  registry was merged with `funcs[name] = fn` in `init()` order, so a duplicate
+  silently shadowed and which implementation a config called depended on the
+  link. `RegisterTransformPlugin` has always reported this properly; functions
+  now do the same, naming both plugins and the function, and using neither.
+
+  A plugin shadowing `log::info` produced no diagnostic whatsoever — the symptom
+  was whatever the wrong implementation did, at the call site, with nothing
+  pointing at the cause.
+
+  The check runs over every function the binary *could* provide rather than the
+  ones the current flags expose, so a name that only collides behind
+  `--file-path` or `--allow-kill` is still reported. A collision is a property
+  of the binary's plugin set, and the run that would notice is not the run that
+  needs telling.
+
+  Switching it on found one in-tree: `abspath`, `basename`, `dirname` and
+  `pathexpand` were registered by both `stdlib` (unconditionally) and
+  `filesystem` (only with `--file-path`). Identical function values either way,
+  so nothing behaved wrongly — but it made which registration won an accident of
+  `init()` order. The `filesystem` plugin now contributes only the functions
+  that actually read the disk, which is what `doc/functions.md` already
+  described: those four manipulate a path string and have always been available
+  without the flag.
+
 ### Removed
 
 - **`commit_mode = "manual"` on a `client "kafka"` `receiver` is rejected at

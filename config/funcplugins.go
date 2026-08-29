@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"sort"
 
+	"github.com/hashicorp/hcl/v2"
 	"github.com/zclconf/go-cty/cty/function"
 )
 
@@ -21,9 +23,70 @@ var functionPlugins []functionPluginEntry
 
 // RegisterFunctionPlugin registers a named function plugin.
 // Sub-packages call this from their init() function.
+//
+// Names that collide with another registered plugin's produce a fatal
+// diagnostic at Build() time, naming both plugins and the conflicting function
+// name. Registration order is init() order, which is neither declared nor
+// stable, so silently letting one win would make which implementation runs an
+// accident of the link.
 func RegisterFunctionPlugin(name string, getter FunctionPlugin) {
 	recordPlugin("functions." + name)
 	functionPlugins = append(functionPlugins, functionPluginEntry{name, getter})
+}
+
+// buildPluginFunctions collects functions from every registered function
+// plugin, checks for collisions between plugins, and returns the merged map.
+//
+// The counterpart to buildTransformPluginFunctions, and deliberately shaped
+// like it, with one difference it cannot share: transforms have a built-in set
+// to check against, whereas every function reaches this map through a plugin,
+// in-tree ones included. So there is one rule here rather than two.
+//
+// Ownership is decided over the same all-features probe possibleFunctionNames
+// uses, because a collision is a property of the binary's plugin set rather
+// than of the flags it was launched with. `basename` was contributed by both
+// stdlib and filesystem for as long as both existed, but only a run with
+// --file-path could have noticed — and the run that would have noticed is not
+// the run that needs telling. The returned map still holds only what this
+// invocation actually has.
+func (c *Config) buildPluginFunctions() (map[string]function.Function, hcl.Diagnostics) {
+	var diags hcl.Diagnostics
+
+	probe := *c
+	probe.probeAllFeatures = true
+
+	owner := make(map[string]string)
+	for _, p := range functionPlugins {
+		for fname := range p.getter(&probe) {
+			if prev, exists := owner[fname]; exists {
+				diags = diags.Append(&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "Function name collides between plugins",
+					Detail: fmt.Sprintf(
+						"Function plugins %q and %q both contribute a function named %q. "+
+							"Which one a config would call would depend on init() order, so neither is used.",
+						prev, p.name, fname),
+				})
+				continue
+			}
+			owner[fname] = p.name
+		}
+	}
+
+	// Second pass for the values, since only this invocation's features decide
+	// which of them exist. Skipping the names a collision disowned keeps the
+	// map deterministic; the diagnostic is an error, so a caller reaching it at
+	// all has already failed the build.
+	merged := make(map[string]function.Function)
+	for _, p := range functionPlugins {
+		for fname, fn := range p.getter(c) {
+			if owner[fname] == p.name {
+				merged[fname] = fn
+			}
+		}
+	}
+
+	return merged, diags
 }
 
 // GetFeature returns the value associated with a named feature flag,

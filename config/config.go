@@ -549,14 +549,7 @@ func (c *Config) ExtractUserFunctions(bodies []hcl.Body) (map[string]function.Fu
 // GetFunctions builds the function map from all registered function plugins,
 // then adds user-defined functions with duplicate detection.
 func (c *Config) GetFunctions(userFuncs map[string]function.Function) (map[string]function.Function, hcl.Diagnostics) {
-	funcs := make(map[string]function.Function)
-	diags := hcl.Diagnostics{}
-
-	for _, p := range functionPlugins {
-		for name, fn := range p.getter(c) {
-			funcs[name] = fn
-		}
-	}
+	funcs, diags := c.buildPluginFunctions()
 
 	for name, fn := range userFuncs {
 		if _, exists := funcs[name]; exists {
