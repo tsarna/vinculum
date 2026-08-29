@@ -26,6 +26,7 @@ type TriggerDefinition struct {
 // Build() call; its registry is populated during FinishPreprocessing.
 type TriggerBlockHandler struct {
 	BlockHandlerBase
+	BackendDeps
 	registry map[string]TriggerRegistration // built in FinishPreprocessing; nil until then
 }
 
@@ -112,7 +113,10 @@ func (h *TriggerBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, 
 	// fires, and stop_when is evaluated after each run. Neither should create
 	// config-time dependencies (e.g. a trigger whose action sends to an FSM
 	// that references the trigger in on_entry hooks).
-	return ExtractBlockDependencies(block, "action", "stop_when"), nil
+	//
+	// A trigger that does not name its tracing backend auto-wires one, so it
+	// waits for every block that could be one.
+	return h.AddBackendDeps(ExtractBlockDependencies(block, "action", "stop_when"), block, "tracing"), nil
 }
 
 // GetBlockDependencyId returns "trigger.<name>" for trigger types that produce a

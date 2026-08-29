@@ -24,6 +24,7 @@ type BusDefinition struct {
 
 type BusBlockHandler struct {
 	BlockHandlerBase
+	BackendDeps
 
 	mainBusDefined bool
 }
@@ -216,6 +217,14 @@ single delivery goroutine. The ` + "`undelivered`" + ` counter — always on, re
 
 func (h *BusBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {
 	return "bus." + block.Labels[0], nil
+}
+
+// GetBlockDependencies adds the implicit backend dependency for a bus that does
+// not name both of its backends. A bus is the most visible case of the bug this
+// prevents: `bus "main" {}` written above the `server "metrics"` block reported
+// nothing, and the same two blocks in the other order reported everything.
+func (h *BusBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, hcl.Diagnostics) {
+	return h.AddBackendDeps(ExtractBlockDependencies(block), block, "metrics", "tracing"), nil
 }
 
 func (h *BusBlockHandler) Preprocess(block *hcl.Block) hcl.Diagnostics {

@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`condition` blocks accept `tracing`.** Every other block whose work is
+  traced could name its backend; a condition could not, because all four
+  subtypes resolved one from nothing and took whatever the default was. A
+  configuration with two `client "otlp"` blocks had no way to say which one a
+  condition's lifecycle-hook spans should go to, and writing something that was
+  not a backend at all was swallowed rather than reported.
+
+  ```hcl
+  condition "threshold" "too_hot" {
+      input       = get(var.temperature)
+      on_above    = 80
+      tracing     = client.tracer
+      on_activate = send(ctx, bus.alerts, "hot", ctx.new_value)
+  }
+  ```
+
+  As everywhere else, omitting it auto-wires the default backend. What there is
+  to trace is the hooks: each `on_init` / `on_activate` / `on_deactivate`
+  evaluation runs in a `condition.<hook>` span, so a condition with no hooks has
+  nothing to trace whatever this says.
+
 - **A bus will now tell you how full it is, and what it has thrown away.**
   Every readiness signal Vinculum had was about a *dependency* — a broker
   connection, a listener, a check you wrote. None was about the process being
@@ -122,6 +143,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   while `ctx.topic` in a subscription's `action` remains entirely correct.
 
 ### Fixed
+
+- **Whether a configuration is instrumented no longer depends on where the
+  backend block is written.** A `metrics` or `tracing` attribute that is omitted
+  auto-wires the default backend — and resolution happens as each block is
+  processed, so it found one only if the `server "metrics"` or `client "otlp"`
+  block happened to appear *above* it in the file:
+
+  ```hcl
+  bus "main" {}                                    # reported nothing
+  server "metrics" "prom" { listen = ":9090" }
+  ```
+
+  ```hcl
+  server "metrics" "prom" { listen = ":9090" }
+  bus "main" {}                                    # reported everything
+  ```
+
+  Reordering two blocks that declare no relationship to each other silently
+  decided whether the process was instrumented, and nothing said so. `metric`
+  blocks were the sole exception, having carried a private fix for this since
+  they were introduced.
+
+  Every block that auto-wires a backend now waits for every block that could
+  provide one: `bus`, `condition`, `fsm`, `metric`, `subscription`, `trigger`,
+  and every `server` and `client` type. Servers and clients take the rule
+  whatever their type rather than opting in one at a time — a client type added
+  later would otherwise silently not be told, which is this bug again.
+
+  The backends themselves are excluded, since a block that waited for every
+  backend would be waiting for itself. `server "metrics"` is the exception to
+  the exception: it resolves a `client "otlp"` of its own for tracing, and now
+  waits for those — its own instance of the same bug, and the last one.
+
+  A configuration that was quietly uninstrumented will start reporting. Nothing
+  breaks, but a backend may begin receiving data it was not receiving before.
 
 - **Two plugins contributing the same function name is now a diagnostic instead
   of a coin toss.** `RegisterFunctionPlugin` had no collision check at all: the

@@ -30,6 +30,7 @@ type ServerDefinition struct {
 
 type ServerBlockHandler struct {
 	BlockHandlerBase
+	BackendDeps
 }
 
 func NewServerBlockHandler() *ServerBlockHandler {
@@ -52,6 +53,28 @@ a ` + "`server \"http\"`" + ` block with ` + "`handler = server.<name>`" + `.`,
 
 func (h *ServerBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {
 	return "server." + block.Labels[1], nil
+}
+
+// GetBlockDependencies adds the implicit backend dependency to every server
+// block that does not name its backends, whatever its type.
+//
+// Blanket rather than declared, because this handler dispatches through a
+// registry and cannot know which types read a backend — and the failure mode of
+// asking each type to opt in is exactly the bug this prevents, one type at a
+// time, forever. Over-ordering a server that wants no backend costs a sort
+// constraint and nothing else.
+func (h *ServerBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, hcl.Diagnostics) {
+	deps := ExtractBlockDependencies(block)
+
+	if IsBackendBlock(block) {
+		// server "metrics" is a backend, and taking the blanket rule would make
+		// it wait for itself. It does consume one, though: `tracing` names a
+		// client "otlp" and auto-wires the default when omitted, so it waits
+		// for those — the root of the graph, which waits for nothing.
+		return h.AddTracingBackendDeps(deps, block, "tracing"), nil
+	}
+
+	return h.AddBackendDeps(deps, block, "metrics", "tracing"), nil
 }
 
 func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {

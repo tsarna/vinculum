@@ -53,7 +53,20 @@ func (b *BlockHandlerBase) FinishProcessing(config *Config) hcl.Diagnostics {
 // this, before the dependency sort. When the dependency applies is the
 // handler's own rule — see BackendDeps.
 type BackendDependent interface {
-	SetImplicitBackendDeps(ids []string)
+	SetImplicitBackendDeps(ids BackendBlockIDs)
+}
+
+// BackendBlockIDs names the blocks a configuration can auto-wire to, split by
+// what each one provides.
+//
+// The split exists because the backends are not peers. A `client "otlp"`
+// provides both metrics and tracing and consumes neither, which makes it the
+// root: every implicit edge in the graph can point at it without closing a
+// loop. A `server "metrics"` provides metrics but resolves an OTLP client of
+// its own for tracing, so it may wait for the root and for nothing else.
+type BackendBlockIDs struct {
+	All     []string // every backend block
+	Tracing []string // the client "otlp" blocks, the only source of a tracer
 }
 
 // BackendDeps is the storage half of BackendDependent. Embed it in a handler
@@ -61,34 +74,57 @@ type BackendDependent interface {
 // GetBlockDependencies, naming the attributes with which the block could have
 // selected a backend itself.
 type BackendDeps struct {
-	backendDeps []string
+	backends BackendBlockIDs
 }
 
 // SetImplicitBackendDeps implements BackendDependent.
-func (b *BackendDeps) SetImplicitBackendDeps(ids []string) {
-	b.backendDeps = ids
+func (b *BackendDeps) SetImplicitBackendDeps(ids BackendBlockIDs) {
+	b.backends = ids
 }
 
-// AddBackendDepsUnless appends the backend dependencies unless the block sets
-// one of attrs. A block that names its backend explicitly already depends on
-// it, through the ordinary reference extraction — and adding the implicit edge
-// anyway would order it after backends it has nothing to do with.
-func (b *BackendDeps) AddBackendDepsUnless(deps []string, block *hcl.Block, attrs ...string) []string {
+// AddBackendDeps appends a dependency on every backend block.
+func (b *BackendDeps) AddBackendDeps(deps []string, block *hcl.Block, attrs ...string) []string {
+	return b.add(deps, b.backends.All, block, attrs)
+}
+
+// AddTracingBackendDeps appends a dependency on the `client "otlp"` blocks
+// alone, for a block that consumes a tracer but not a metrics backend. Only the
+// backends themselves need this precision: for anything else the extra edges
+// are harmless, and a rule with no exceptions is worth more than a tight one.
+func (b *BackendDeps) AddTracingBackendDeps(deps []string, block *hcl.Block, attrs ...string) []string {
+	return b.add(deps, b.backends.Tracing, block, attrs)
+}
+
+// add appends ids to deps unless the block names a backend in every one of
+// attrs — every attribute with which it could have selected one. A block that
+// names its backend explicitly already depends on it, through the ordinary
+// reference extraction, so the implicit edge would only order it after backends
+// it has nothing to do with.
+//
+// Naming *some* of them is not enough: a bus with `metrics` and no `tracing`
+// still auto-wires a tracer, and skipping there would leave exactly the bug
+// this exists to fix. The cost of the other direction is one redundant edge —
+// a block waiting for a backend of a kind it already named — which constrains
+// the sort slightly and changes nothing else.
+func (b *BackendDeps) add(deps, ids []string, block *hcl.Block, attrs []string) []string {
 	if syntaxBody, ok := block.Body.(*hclsyntax.Body); ok {
+		named := 0
 		for _, attr := range attrs {
 			if _, set := syntaxBody.Attributes[attr]; set {
-				return deps
+				named++
 			}
 		}
+		if named == len(attrs) {
+			return deps
+		}
 	}
-	return append(deps, b.backendDeps...)
+	return append(deps, ids...)
 }
 
 // IsBackendBlock reports whether the block is itself a metrics or tracing
-// backend: server "metrics" or client "otlp". These provide the default that
-// everything else auto-wires to, so they must never be given a dependency on
-// one — a backend does not wait for a backend, and under a blanket rule it
-// would end up waiting for itself.
+// backend: server "metrics" or client "otlp". A backend must never be given the
+// blanket dependency every other server and client block takes — the set it
+// would wait for includes itself, which is a cycle rather than an ordering.
 func IsBackendBlock(block *hcl.Block) bool {
 	if len(block.Labels) != 2 {
 		return false
@@ -102,13 +138,24 @@ func IsBackendBlock(block *hcl.Block) bool {
 	return false
 }
 
+// IsTracingBackendBlock reports whether the block provides a tracer, which only
+// a client "otlp" does.
+func IsTracingBackendBlock(block *hcl.Block) bool {
+	return IsBackendBlock(block) && block.Type == "client"
+}
+
 // backendBlockIDs returns the dependency IDs of every backend block, in the
 // form GetBlockDependencyId gives them.
-func backendBlockIDs(blocks hcl.Blocks) []string {
-	var ids []string
+func backendBlockIDs(blocks hcl.Blocks) BackendBlockIDs {
+	var ids BackendBlockIDs
 	for _, block := range blocks {
-		if IsBackendBlock(block) {
-			ids = append(ids, block.Type+"."+block.Labels[1])
+		if !IsBackendBlock(block) {
+			continue
+		}
+		id := block.Type + "." + block.Labels[1]
+		ids.All = append(ids.All, id)
+		if IsTracingBackendBlock(block) {
+			ids.Tracing = append(ids.Tracing, id)
 		}
 	}
 	return ids

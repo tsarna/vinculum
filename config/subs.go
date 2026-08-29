@@ -159,6 +159,7 @@ func (s SubscriberSource) Resolve(
 
 type SubscriptionBlockHandler struct {
 	BlockHandlerBase
+	BackendDeps
 }
 
 func NewSubscriptionBlockHandler() *SubscriptionBlockHandler {
@@ -218,7 +219,9 @@ func (h *SubscriptionBlockHandler) GetBlockDependencyId(block *hcl.Block) (strin
 
 func (h *SubscriptionBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, hcl.Diagnostics) {
 	// Exclude "action": it is runtime-evaluated (in OnEvent) and must not create config-time deps.
-	return ExtractBlockDependencies(block, "action"), nil
+	// A subscription that does not name its tracing backend auto-wires one, so
+	// it waits for every block that could be one.
+	return h.AddBackendDeps(ExtractBlockDependencies(block, "action"), block, "tracing"), nil
 }
 
 func (h *SubscriptionBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {

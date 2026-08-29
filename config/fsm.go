@@ -32,6 +32,7 @@ type FsmTopLevel struct {
 // FsmBlockHandler processes fsm blocks.
 type FsmBlockHandler struct {
 	BlockHandlerBase
+	BackendDeps
 	instances      map[string]*fsm.Instance
 	initialStorage map[string]map[string]cty.Value // fsmName -> key -> value
 	reactiveExprs  map[string][]*ReactiveExpr      // fsmName -> reactive when exprs
@@ -218,7 +219,11 @@ func (h *FsmBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, hcl.
 			filtered = append(filtered, d)
 		}
 	}
-	return filtered, nil
+
+	// Added after the filter rather than before it: a backend is never the FSM
+	// itself, and running them through it would only invite a self-reference
+	// check that cannot fire.
+	return h.AddBackendDeps(filtered, block, "tracing"), nil
 }
 
 // Preprocess validates the block and registers the FSM name for duplicate

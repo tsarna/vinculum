@@ -27,6 +27,7 @@ type ClientDefinition struct {
 
 type ClientBlockHandler struct {
 	BlockHandlerBase
+	BackendDeps
 }
 
 func NewClientBlockHandler() *ClientBlockHandler {
@@ -59,7 +60,19 @@ func (h *ClientBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, h
 	// (e.g. an OAuth client whose auth hook calls back through
 	// http_post(ctx, client.<self>, "/token", ...), or a receiver whose
 	// on_decode_error publishes to its own dead-letter bus).
-	return ExtractBlockDependencies(block, "action", "auth", "on_decode_error"), nil
+	deps := ExtractBlockDependencies(block, "action", "auth", "on_decode_error")
+
+	// client "otlp" is the root backend: it provides both metrics and tracing
+	// and consumes neither, so it waits for nothing and every implicit edge in
+	// the graph can point at it.
+	if IsBackendBlock(block) {
+		return deps, nil
+	}
+
+	// Blanket, for the same reason as server blocks: this handler dispatches
+	// through a registry, so it cannot know which client types read a backend,
+	// and a type added later would silently not be told.
+	return h.AddBackendDeps(deps, block, "metrics", "tracing"), nil
 }
 
 func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {

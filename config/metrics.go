@@ -328,10 +328,10 @@ func (h *MetricBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl
 }
 
 // GetBlockDependencies adds the implicit backend dependency for a metric block
-// with no explicit `server` attribute, which takes the default backend and so
-// has to be processed after every block that could be one.
+// that does not name both of its backends: `server` for where the metric is
+// reported, `tracing` for the span a computed `value` polls in.
 func (h *MetricBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, hcl.Diagnostics) {
-	return h.AddBackendDepsUnless(ExtractBlockDependencies(block), block, "server"), nil
+	return h.AddBackendDeps(ExtractBlockDependencies(block), block, "server", "tracing"), nil
 }
 
 func (h *MetricBlockHandler) Preprocess(block *hcl.Block) hcl.Diagnostics {

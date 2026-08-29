@@ -88,7 +88,7 @@ func (h *ConditionBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, 
 // that does not name its tracing backend, which auto-wires to the default and
 // so has to be processed after every block that could be one.
 func (h *ConditionBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, hcl.Diagnostics) {
-	return h.AddBackendDepsUnless(ExtractBlockDependencies(block), block, "tracing"), nil
+	return h.AddBackendDeps(ExtractBlockDependencies(block), block, "tracing"), nil
 }
 
 func (h *ConditionBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {
