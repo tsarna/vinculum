@@ -382,12 +382,11 @@ func processTimerCondition(config *cfg.Config, block *hcl.Block, def *cfg.Condit
 		return diags
 	}
 
-	tp, _ := config.ResolveTracerProvider(hcl.Expression(nil))
 	t.hooks = NewHookDispatcher(def.Name, Hooks{
 		OnInit:       body.OnInit,
 		OnActivate:   body.OnActivate,
 		OnDeactivate: body.OnDeactivate,
-	}, config, tp)
+	}, config, def.TracerProvider)
 	if t.hooks != nil {
 		t.sm.Watch(t.hooks)
 	}

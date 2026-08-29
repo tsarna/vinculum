@@ -468,24 +468,10 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		}
 	}
 
-	// Collect metrics backend block IDs so metric blocks without an explicit
-	// server attribute are ordered after them in the dependency sort.
-	if mh, ok := blockHandlers["metric"].(*MetricBlockHandler); ok {
-		var backendIDs []string
-		for _, block := range blocks {
-			switch block.Type {
-			case "server":
-				if len(block.Labels) >= 1 && block.Labels[0] == "metrics" {
-					backendIDs = append(backendIDs, "server."+block.Labels[1])
-				}
-			case "client":
-				if len(block.Labels) >= 1 && block.Labels[0] == "otlp" {
-					backendIDs = append(backendIDs, "client."+block.Labels[1])
-				}
-			}
-		}
-		mh.SetImplicitBackendDeps(backendIDs)
-	}
+	// Collect the metrics and tracing backend block IDs, so that every block
+	// which auto-wires to a default backend is ordered after them in the
+	// dependency sort rather than by where its author happened to write it.
+	setImplicitBackendDeps(blockHandlers, blocks)
 
 	blocks, sortDiags := cb.SortBlocksByDependencies(blocks, blockHandlers)
 	diags = diags.Extend(sortDiags)

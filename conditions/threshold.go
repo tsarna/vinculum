@@ -480,12 +480,11 @@ func processThresholdCondition(config *cfg.Config, block *hcl.Block, def *cfg.Co
 		return diags
 	}
 
-	tp, _ := config.ResolveTracerProvider(hcl.Expression(nil))
 	c.hooks = NewHookDispatcher(def.Name, Hooks{
 		OnInit:       body.OnInit,
 		OnActivate:   body.OnActivate,
 		OnDeactivate: body.OnDeactivate,
-	}, config, tp)
+	}, config, def.TracerProvider)
 	if c.hooks != nil {
 		c.sm.Watch(c.hooks)
 	}

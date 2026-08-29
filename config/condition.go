@@ -3,17 +3,26 @@ package config
 import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ConditionDefinition is the common envelope for every condition subtype.
 // Subtype-specific attributes live in RemainingBody and are decoded by the
 // registered ConditionProcessor.
 type ConditionDefinition struct {
-	Type          string    `hcl:"type,label"`
-	Name          string    `hcl:"name,label"`
-	Disabled      bool      `hcl:"disabled,optional"`
-	DefRange      hcl.Range `hcl:",def_range"`
-	RemainingBody hcl.Body  `hcl:",remain"`
+	Type          string         `hcl:"type,label"`
+	Name          string         `hcl:"name,label"`
+	Disabled      bool           `hcl:"disabled,optional"`
+	Tracing       hcl.Expression `hcl:"tracing,optional"`
+	DefRange      hcl.Range      `hcl:",def_range"`
+	RemainingBody hcl.Body       `hcl:",remain"`
+
+	// TracerProvider is resolved from Tracing (or auto-wired) during Process()
+	// and is available to subtype processors via def.TracerProvider. Resolving
+	// it here rather than in each subtype is what makes an explicit backend
+	// possible at all: the four of them used to pass a nil expression and take
+	// whatever the default was.
+	TracerProvider trace.TracerProvider
 }
 
 // ConditionProcessor processes a single condition block of a given subtype.
@@ -41,6 +50,7 @@ func RegisterConditionSubtype(typeName string, reg ConditionRegistration, opts .
 
 type ConditionBlockHandler struct {
 	BlockHandlerBase
+	BackendDeps
 }
 
 func NewConditionBlockHandler() *ConditionBlockHandler {
@@ -72,6 +82,13 @@ func (h *ConditionBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, 
 		}
 	}
 	return "", nil
+}
+
+// GetBlockDependencies adds the implicit backend dependency for a condition
+// that does not name its tracing backend, which auto-wires to the default and
+// so has to be processed after every block that could be one.
+func (h *ConditionBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, hcl.Diagnostics) {
+	return h.AddBackendDepsUnless(ExtractBlockDependencies(block), block, "tracing"), nil
 }
 
 func (h *ConditionBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {
@@ -108,6 +125,13 @@ func (h *ConditionBlockHandler) Process(config *Config, block *hcl.Block) hcl.Di
 		// reference to it fails — the same as a disabled fsm.
 		return nil
 	}
+
+	// Resolve tracing once for every subtype (explicit tracing = or auto-wire).
+	tp, tracingDiags := config.ResolveTracerProvider(def.Tracing)
+	if tracingDiags.HasErrors() {
+		return tracingDiags
+	}
+	def.TracerProvider = tp
 
 	return reg.Process(config, block, def)
 }

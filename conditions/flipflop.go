@@ -785,12 +785,11 @@ func processFlipflopCondition(config *cfg.Config, block *hcl.Block, def *cfg.Con
 		return diags
 	}
 
-	tp, _ := config.ResolveTracerProvider(hcl.Expression(nil))
 	f.hooks = NewHookDispatcher(def.Name, Hooks{
 		OnInit:       body.OnInit,
 		OnActivate:   body.OnActivate,
 		OnDeactivate: body.OnDeactivate,
-	}, config, tp)
+	}, config, def.TracerProvider)
 	if f.hooks != nil {
 		f.sm.Watch(f.hooks)
 	}

@@ -1850,7 +1850,13 @@ var envelopeSchemas = map[string]TypeSchema{
 	"condition": {
 		Sample:  &ConditionDefinition{},
 		Summary: "Attributes every condition block accepts.",
-		Attrs:   map[string]AttrMeta{"disabled": DisabledAttr},
+		Attrs: map[string]AttrMeta{
+			"disabled": DisabledAttr,
+			"tracing": TracingAttr.WithDoc(
+				TracingAttr.Doc + " A condition is traced through its lifecycle hooks: each " +
+					"`on_init` / `on_activate` / `on_deactivate` evaluation runs in a " +
+					"`condition.<hook>` span. A condition with no hooks has nothing to trace."),
+		},
 	},
 	"editor": {
 		Sample:  &editorOuterBody{},

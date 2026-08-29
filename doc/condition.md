@@ -340,6 +340,7 @@ It is one or the other: calling `set()` on a condition that declares an
 | `retentive` | bool |  | Accumulate time toward `activate_after` across separate asserted intervals. |
 | `start_active` | bool |  | Begin in the active state at startup. |
 | `timeout` | expression (duration) |  | Auto-deactivate after this long active. |
+| `tracing` | expression (tracing-ref) |  | Where to report traces. |
 
 **`activate_after`**
 
@@ -406,6 +407,10 @@ No transition event is emitted, so `on_activate` and `trigger "watch"` fire only
 **`timeout`**
 
 The clock starts on activation and restarts whenever the input re-asserts while already active. A condition that boots active through `start_active` starts its clock at boot. Ignored when `latch = true`.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted. A condition is traced through its lifecycle hooks: each `on_init` / `on_activate` / `on_deactivate` evaluation runs in a `condition.<hook>` span. A condition with no hooks has nothing to trace.
 
 <!-- vinculum:end block-attrs condition timer -->
 
@@ -540,6 +545,7 @@ override this default.
 | `retentive` | bool |  | Accumulate time toward `activate_after` across separate asserted intervals. |
 | `start_active` | bool |  | Begin in the active state at startup. |
 | `timeout` | expression (duration) |  | Auto-deactivate after this long active. |
+| `tracing` | expression (tracing-ref) |  | Where to report traces. |
 
 - on_above and off_below must be specified together.
 - on_below and off_above must be specified together.
@@ -629,6 +635,10 @@ No transition event is emitted, so `on_activate` and `trigger "watch"` fire only
 
 The clock starts on activation and restarts whenever the input re-asserts while already active. A condition that boots active through `start_active` starts its clock at boot. Ignored when `latch = true`.
 
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted. A condition is traced through its lifecycle hooks: each `on_init` / `on_activate` / `on_deactivate` evaluation runs in a `condition.<hook>` span. A condition with no hooks has nothing to trace.
+
 <!-- vinculum:end block-attrs condition threshold -->
 
 ---
@@ -694,6 +704,7 @@ retract an in-flight count — and decrementing past empty is a no-op.
 | `rollover` | bool |  | `false` | Reset the count to `initial` on reaching `preset`. |
 | `start_active` | bool |  |  | Begin in the active state at startup. |
 | `timeout` | expression (duration) |  |  | Auto-deactivate after this long active. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
 | `window` | expression (duration) |  |  | Count only events from the last this-long. |
 
 **`preset`**
@@ -777,6 +788,10 @@ No transition event is emitted, so `on_activate` and `trigger "watch"` fire only
 **`timeout`**
 
 The clock starts on activation and restarts whenever the input re-asserts while already active. A condition that boots active through `start_active` starts its clock at boot. Ignored when `latch = true`.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted. A condition is traced through its lifecycle hooks: each `on_init` / `on_activate` / `on_deactivate` evaluation runs in a `condition.<hook>` span. A condition with no hooks has nothing to trace.
 
 **`window`**
 
@@ -963,6 +978,7 @@ behavior use `condition "timer"`.
 | `start_active` | bool |  |  | Begin in the active state at startup. |
 | `toggle_edge` | string |  | `"rising"` | Which edge of `toggle_on` fires. |
 | `toggle_on` | expression (reactive-expression) |  |  | On this wire's edge, flip the output. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
 
 - a flipflop needs at least one of set_on, reset_on, toggle_on, or set_from
 - set_from requires gate_on.
@@ -1042,6 +1058,10 @@ No transition event is emitted, so `on_activate` and `trigger "watch"` fire only
 **`toggle_edge`**
 
 One of: `rising`, `falling`, `both`.
+
+**`tracing`**
+
+A `client "otlp"` block. Auto-wires to the default tracing backend when omitted. A condition is traced through its lifecycle hooks: each `on_init` / `on_activate` / `on_deactivate` evaluation runs in a `condition.<hook>` span. A condition with no hooks has nothing to trace.
 
 <!-- vinculum:end block-attrs condition flipflop -->
 
