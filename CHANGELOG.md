@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **`commit_mode = "manual"` on a `client "kafka"` `receiver` is rejected at
+  load.** It did the opposite of what it said. The attribute's own
+  documentation promised a mode that "never commits automatically"; nothing
+  could commit explicitly either, and rather than committing nothing, the mode
+  left the Kafka client's periodic autocommit switched on. Offsets advanced on
+  a five-second timer regardless of whether processing succeeded.
+
+  `manual` was therefore `periodic` wearing the wrong label. A config author
+  who chose it to *take control* of commits silently received the weakest
+  delivery guarantee in the enum, and received it while reading documentation
+  promising the strongest — a replay bug that only shows up on the crash it was
+  selected to survive.
+
+  | You had | Use | What changes |
+  |---|---|---|
+  | `commit_mode = "manual"` | `commit_mode = "after_process"` | At-least-once: a message whose handling failed is redelivered rather than skipped. |
+  | `commit_mode = "manual"` | `commit_mode = "periodic"` | Nothing — this is what the receiver was already doing. |
+
+  Rejecting is interim, not a judgement on the feature: caller-controlled
+  settle returns as a working mode under the shared `ack` attribute, once Kafka
+  has the low-water-mark commit tracker that out-of-order settle requires.
+  Refusing the spelling now is what keeps that arrival from being a respelling
+  of a broken mode.
+
+  An unrecognized `commit_mode` now names the two modes that remain.
+
 ### Changed
 
 - **A receiver's `vinculum_topic` names the transport's own identifier after the

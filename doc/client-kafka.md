@@ -359,7 +359,7 @@ receiver "main" {
   # queue_size = 100
 
   start_offset = "stored"          # stored | earliest | latest — default: stored
-  commit_mode  = "after_process"   # after_process | periodic | manual — default: after_process
+  commit_mode  = "after_process"   # after_process | periodic — default: after_process
   dlq_topic    = "vinculum.dlq"    # optional: dead-letter queue topic
 
   baggage {                        # optional; inbound baggage stripped by default
@@ -412,9 +412,9 @@ Evaluated against the `message` context.
 
 **`commit_mode`**
 
-`after_process` commits once delivery succeeds, giving at-least-once delivery; `periodic` commits on a timer, which can lose or duplicate messages across a crash; `manual` never commits automatically and is reserved for transactional use.
+`after_process` commits once delivery succeeds, giving at-least-once delivery; `periodic` commits on a timer, which can lose or duplicate messages across a crash. A third value, `manual`, was once accepted and is now rejected — see [deprecations](deprecations.md#commit_mode--manual).
 
-One of: `after_process`, `periodic`, `manual`.
+One of: `after_process`, `periodic`.
 
 **`dlq_topic`**
 

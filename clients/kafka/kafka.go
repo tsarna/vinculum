@@ -171,9 +171,10 @@ consume from Kafka topics as part of a consumer group.`,
 					Summary: "When to commit consumed offsets.",
 					Doc: "`after_process` commits once delivery succeeds, giving at-least-once " +
 						"delivery; `periodic` commits on a timer, which can lose or duplicate " +
-						"messages across a crash; `manual` never commits automatically and is " +
-						"reserved for transactional use.",
-					Enum:    []string{"after_process", "periodic", "manual"},
+						"messages across a crash. A third value, `manual`, was once accepted " +
+						"and is now rejected — see " +
+						"[deprecations](deprecations.md#commit_mode--manual).",
+					Enum:    []string{"after_process", "periodic"},
 					Default: "after_process",
 				},
 				"dlq_topic": {
@@ -266,6 +267,7 @@ type ConsumerDefinition struct {
 	OnDecodeError hcl.Expression                `hcl:"on_decode_error,optional"`
 	QueueSize     *int                          `hcl:"queue_size,optional"`
 	CommitMode    string                        `hcl:"commit_mode,optional"`
+	CommitModeRng hcl.Range                     `hcl:"commit_mode,attr_range"`
 	DLQTopic      string                        `hcl:"dlq_topic,optional"`
 	Baggage       *hclutil.BaggageFilterConfig  `hcl:"baggage,block"`
 	Subscriptions []TopicSubscriptionDefinition `hcl:"subscription,block"`
@@ -954,13 +956,28 @@ func buildConsumerSpec(config *cfg.Config, clientName string, def ConsumerDefini
 	case "periodic":
 		spec.commitMode = kconsumer.CommitPeriodic
 	case "manual":
-		spec.commitMode = kconsumer.CommitManual
+		// Nothing can commit an offset explicitly yet, so "manual" cannot mean
+		// what it says. Left accepted it did not merely fail to commit — it
+		// fell through to the Kafka client's own periodic autocommit, making it
+		// an alias for the weakest mode in the enum while documented as the
+		// strongest. Refusing it here says so where the config is written,
+		// rather than at the first lost message. Lifted when manual settle
+		// arrives.
+		return spec, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  fmt.Sprintf("kafka receiver %q: commit_mode \"manual\" is not implemented", def.Name),
+			Detail: "There is no way to commit an offset explicitly, so this mode cannot " +
+				"do what it promises. Use \"after_process\" for at-least-once delivery, " +
+				"where the offset advances only once the message has been handled, or " +
+				"\"periodic\" to commit on a timer regardless of the outcome.",
+			Subject: &def.CommitModeRng,
+		}}
 	default:
 		return spec, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
 			Summary:  fmt.Sprintf("kafka receiver %q: invalid commit_mode", def.Name),
-			Detail:   fmt.Sprintf("%q is not valid; use after_process, periodic, or manual", def.CommitMode),
-			Subject:  &def.DefRange,
+			Detail:   fmt.Sprintf("%q is not valid; use after_process or periodic", def.CommitMode),
+			Subject:  &def.CommitModeRng,
 		}}
 	}
 

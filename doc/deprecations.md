@@ -193,3 +193,30 @@ To observe failures rather than just drop them, set
 rather than dropped, so without a dead-letter destination a malformed message
 can stall progress. Vinculum warns at config load in both cases; see the
 per-client "Decode failures" sections for details.
+
+### `commit_mode = "manual"`
+
+**Removed in 0.46.0.** On the [`kafka`](client-kafka.md) `receiver` block.
+
+`manual` was documented as never committing automatically, reserved for a
+caller-controlled commit. Nothing could perform that commit, and rather than
+committing nothing, the mode left the Kafka client's own periodic autocommit
+switched on. **Offsets advanced on a five-second timer regardless of whether
+processing succeeded** — so a config that selected `manual` to take control of
+its commits got `periodic`, the weakest guarantee in the enum, while reading
+documentation promising the strongest.
+
+It is rejected at load rather than quietly redefined, because a config that
+asked for `manual` did not ask for either surviving mode and the difference
+between them is which messages it loses:
+
+| You had | Use | What changes |
+| --- | --- | --- |
+| `commit_mode = "manual"` | `commit_mode = "after_process"` | At-least-once. The offset advances only once the message has been handled, so a failed message is redelivered rather than skipped. |
+| `commit_mode = "manual"` | `commit_mode = "periodic"` | Nothing. This is what the receiver was already doing. |
+
+`after_process` is the right choice for almost everyone, and is the default.
+Pick `periodic` only to keep the existing behavior deliberately.
+
+Caller-controlled settle is coming back as a working feature, under the shared
+`ack` attribute, once Kafka has the commit tracker it requires.
