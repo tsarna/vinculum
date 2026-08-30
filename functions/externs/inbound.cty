@@ -1,0 +1,25 @@
+//functy:extern
+
+namespace inbound
+
+// Settle functions for an inbound delivery, provided in Go by vinculum
+// (GetInboundFunctions). Signatures only — never compiled, nothing here is
+// callable.
+//
+// Only `nack` is declared. cty cannot say that a trailing parameter is
+// optional; the closest it offers is a variadic, which erases the name, the
+// type, and the default, and reflects as `*reason` — reading as "any number of
+// reasons" when at most one is accepted.
+//
+// `ack` and `keepalive` are deliberately absent: each takes one required
+// argument and returns a bool, so their cty metadata already says everything
+// true about them, and an extern would only be a second place for it to drift.
+
+// Settle the delivery as not handled. Whether the message is requeued or
+// dead-lettered is the receiver's configured policy, never the caller's choice,
+// and where `reason` ends up — a dead-letter header, a log field, or nowhere —
+// depends on the receiver too.
+func nack(
+    ctx: ctx,  // the handler context, which carries the delivery being settled
+    reason: string = "",  // why it was not handled; advisory
+) -> bool
