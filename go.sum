@@ -44,8 +44,8 @@ github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.1 h1:RmmWQPREQ
 github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.1/go.mod h1:0A3W4F+68ZnNk5XcNL/e9HFMwnP8RlEicFfy6eOEDyw=
 github.com/aws/aws-sdk-go-v2/service/signin v1.7.1 h1:mdMtSVKdQ3+mzBh+l0ogrFYZVQUCg6pJZOirA2ARsYE=
 github.com/aws/aws-sdk-go-v2/service/signin v1.7.1/go.mod h1:9IqUlsJDbUPcg6cgx3WEzXdjrbWzLDQrak0aaSqlTcI=
-github.com/aws/aws-sdk-go-v2/service/sns v1.42.7 h1:uN4m1MGl4XAbm2D0+ZuAS29PQt9qatLPAj6rabY9yUs=
-github.com/aws/aws-sdk-go-v2/service/sns v1.42.7/go.mod h1:b1u4gpEJLmL+icKTdEM9+9oC4alL+sKrVi4T/IbGrX8=
+github.com/aws/aws-sdk-go-v2/service/sns v1.44.1 h1:dMIcbUQ8fPJPbX9jZV19JtL2lCAgEh1LUNlpe6sdgqE=
+github.com/aws/aws-sdk-go-v2/service/sns v1.44.1/go.mod h1:ucBUMGW8avqGmbyQoXyoC6Cgt+WsNBrhL9DA4Bb+jN4=
 github.com/aws/aws-sdk-go-v2/service/sqs v1.48.1 h1:jXP3BdVenFa8RfLVH+D2gswrWZHJcgtygKCf22APFqo=
 github.com/aws/aws-sdk-go-v2/service/sqs v1.48.1/go.mod h1:d4DToDhLnEofHKvFu4yCF0Be65pZW267COfKOztsZOQ=
 github.com/aws/aws-sdk-go-v2/service/sso v1.35.1 h1:B6WFn91tobD6gG4724ONHaqrpKsoETGnv98LHe/yIGM=
@@ -291,8 +291,6 @@ github.com/tsarna/time-cty-funcs v0.4.0 h1:mqrX0IDqMBoGBfKqROa8cEnGeWQCmownmkM9n
 github.com/tsarna/time-cty-funcs v0.4.0/go.mod h1:eYb/epz/KpYjtnKJ3zrF5Y9xlTb48JqS7JKkVdePVIo=
 github.com/tsarna/url-cty-funcs v0.2.0 h1:RzERQlIPmhMIAstmHoHNUpMHrOloeA09/lMjWCSBRyQ=
 github.com/tsarna/url-cty-funcs v0.2.0/go.mod h1:iQ0bk6HQdRP4DMdNDAZdTzRYnEuPGTs6N7yeZypxpXo=
-github.com/tsarna/vinculum-bus v0.16.0 h1:hMHejnc6QNz1sApLYnfVwjabhGR0/uJ2gcD7rctjD+E=
-github.com/tsarna/vinculum-bus v0.16.0/go.mod h1:elBEnMxxGeSXww9ZNDTBRBS5FOUZE0tjjJS/zGUNc9o=
 github.com/tsarna/vinculum-bus v0.17.0 h1:kyIr9IFGzsrkfUEscWkqfEawbQLx0wtwhRnRUWIhWCY=
 github.com/tsarna/vinculum-bus v0.17.0/go.mod h1:aDWU03rnNrWcG4d/cC07NUeMEVatGD9Xt2UuEjLAjf8=
 github.com/tsarna/vinculum-fsm v0.5.1 h1:GJGTcDZqAtabfsfdCzzD/FlcfCKeB2l/omTdSeNYmE8=
