@@ -50,7 +50,7 @@ require (
 	github.com/tsarna/vinculum-bus v0.18.0
 	github.com/tsarna/vinculum-kafka v0.12.0
 	github.com/tsarna/vinculum-mqtt v0.12.1
-	github.com/tsarna/vinculum-rabbitmq v0.6.0
+	github.com/tsarna/vinculum-rabbitmq v0.7.0
 	github.com/tsarna/vinculum-redis v0.7.0
 	github.com/tsarna/vinculum-sns v0.3.0
 	github.com/tsarna/vinculum-sqs v0.5.0

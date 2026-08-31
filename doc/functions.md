@@ -982,13 +982,23 @@ know:
 |---|---|---|
 | `redis_stream` | Leaves the entry pending, for `reclaim_min_idle` and `dead_letter_after` | The log |
 | `sqs_receiver` | Leaves the message for its visibility timeout and the queue's redrive policy | The log |
+| `rabbitmq` | Rejects the message without requeueing it: the queue's dead-letter exchange takes it, or it is dropped | The log |
+
+**`inbound::keepalive()` extends a lease only where there is one.** A
+`redis_stream` entry is re-claimed for the same consumer, resetting its idle
+time; an `sqs_receiver` message has its visibility window extended. A `rabbitmq`
+delivery has no per-message lease at all — it is held for as long as its channel
+lives — so keepalive there returns `false` and does nothing.
 
 **A settle can arrive too late.** An SQS receipt handle expires with its
 visibility window; past it the message is back on the queue and may already be
-somewhere else. Such a settle reaches the broker not at all, returns `false`,
-and logs why. This is not merely a failed acknowledgement on every protocol —
-on RabbitMQ a stale delivery tag acknowledges a *different* message — which is
-why the check exists rather than being left to the broker to reject.
+somewhere else. A RabbitMQ delivery tag means something only on the channel that
+issued it, and AMQP renumbers tags from 1 on each new channel, so a reconnect
+retires every tag outstanding at the time. Such a settle reaches the broker not
+at all, returns `false`, and logs why — "visibility timeout expired", "channel
+reconnected". The check exists rather than being left to the broker to reject
+because a stale acknowledgement is not merely a failed one on every protocol:
+where a tag has been renumbered it names a *different* message.
 
 **`settle_timeout` is required with `ack = "manual"`.** A message nothing
 settles is costing something for as long as it is outstanding, so forgetting to

@@ -990,3 +990,122 @@ func TestRMQ_Phase3_RoundTrip(t *testing.T) {
 	assert.Equal(t, "in/out/a/b", got.topic)
 	assert.Equal(t, "hello", msgString(got.msg))
 }
+
+// Manual settle (ack = "manual")
+
+// The pairing manual settle exists for. queue_size makes delivery return at the
+// moment the message is queued, so an automatic ack would fire before the work
+// happened; here the acknowledgement is issued by a subscription on a bus, two
+// hops from the receiver, and the queue drains only because it arrived.
+func TestRMQ_Phase4_ManualAckFromASubscription(t *testing.T) {
+	e := loadEnv(t)
+	admin := dialAdmin(t, e)
+	queue := uniqueName("vinculum.test.manual")
+
+	vcl := vclConfig(e, e.brokerURL(), fmt.Sprintf(`
+  receiver "in" {
+    queue          = %q
+    subscriber     = bus.main
+    queue_size     = 16
+    ack            = "manual"
+    settle_timeout = "30s"
+    declare {
+      durable     = false
+      auto_delete = true
+    }
+    binding "manual.#" { exchange = "`+exInbound+`" }
+  }`, queue),
+		`subscription "settle" {
+  target = bus.main
+  topics = ["manual/#"]
+  action = [
+    log::info("handled", { topic = ctx.topic }),
+    inbound::ack(ctx),
+  ]
+}`)
+	c := buildCfg(t, vcl)
+	sub := observeBus(t, c, "main", "manual/#")
+	startCfg(t, c)
+
+	publishRaw(t, admin, exInbound, "manual.one", "payload", nil)
+
+	got := sub.await(t, 5*time.Second)
+	assert.Equal(t, "manual/one", got.topic)
+
+	// The ack is issued after the action runs, on the queue's worker goroutine,
+	// so the broker sees it a moment after the bus does.
+	assert.Eventually(t, func() bool { return queueDepth(t, e, queue) == 0 },
+		5*time.Second, 100*time.Millisecond,
+		"inbound::ack() from a subscription should have acknowledged the delivery")
+}
+
+// A configuration that forgets to settle stalls silently otherwise: an
+// unacknowledged AMQP delivery is held for as long as the channel lives and
+// occupies a prefetch slot. settle_timeout is the bound that makes it
+// diagnosable, and a nack without requeue is what it does about it.
+func TestRMQ_Phase4_SettleTimeoutNacks(t *testing.T) {
+	e := loadEnv(t)
+	admin := dialAdmin(t, e)
+	queue := uniqueName("vinculum.test.manual")
+
+	// Nothing settles anything here: the receiver only forwards to the bus, and
+	// the observer that reads it is not a configuration that acknowledges.
+	vcl := vclConfig(e, e.brokerURL(), fmt.Sprintf(`
+  receiver "in" {
+    queue          = %q
+    subscriber     = bus.main
+    ack            = "manual"
+    settle_timeout = "1s"
+    declare {
+      durable     = false
+      auto_delete = true
+    }
+    binding "forgot.#" { exchange = "`+exInbound+`" }
+  }`, queue), "")
+	c := buildCfg(t, vcl)
+	sub := observeBus(t, c, "main", "forgot/#")
+	startCfg(t, c)
+
+	publishRaw(t, admin, exInbound, "forgot.one", "payload", nil)
+	sub.await(t, 5*time.Second)
+
+	// Nacked without requeue once the bound expires, so the queue drains rather
+	// than the message coming back to be forgotten again.
+	assert.Eventually(t, func() bool { return queueDepth(t, e, queue) == 0 },
+		8*time.Second, 200*time.Millisecond,
+		"settle_timeout should have nacked the unsettled delivery")
+}
+
+// nack rejects without requeueing, so a message the configuration refuses is
+// gone from the queue rather than redelivered in a loop.
+func TestRMQ_Phase4_ManualNackDrainsTheQueue(t *testing.T) {
+	e := loadEnv(t)
+	admin := dialAdmin(t, e)
+	queue := uniqueName("vinculum.test.manual")
+
+	vcl := vclConfig(e, e.brokerURL(), fmt.Sprintf(`
+  receiver "in" {
+    queue          = %q
+    ack            = "manual"
+    settle_timeout = "30s"
+    action         = [
+      send(ctx, bus.main, "saw/${ctx.topic}", ctx.msg),
+      inbound::nack(ctx, "not for me"),
+    ]
+    declare {
+      durable     = false
+      auto_delete = true
+    }
+    binding "reject.#" { exchange = "`+exInbound+`" }
+  }`, queue), "")
+	c := buildCfg(t, vcl)
+	sub := observeBus(t, c, "main", "saw/#")
+	startCfg(t, c)
+
+	publishRaw(t, admin, exInbound, "reject.one", "payload", nil)
+	sub.await(t, 5*time.Second)
+
+	assert.Eventually(t, func() bool { return queueDepth(t, e, queue) == 0 },
+		5*time.Second, 100*time.Millisecond,
+		"a nacked message must not be requeued")
+}

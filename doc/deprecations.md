@@ -264,9 +264,10 @@ behaved as `ack = "auto"` by default — RabbitMQ's `auto_ack = false` included:
 
 Each type accepts only what it can honour, and its generated attribute
 reference lists exactly that: `periodic` is kafka's alone, `none` is
-rabbitmq's, and `manual` is available on `redis_stream` and `sqs_receiver`.
-Writing `ack = "manual"` on the other two is rejected at load with a diagnostic
-saying what is missing.
+rabbitmq's, and `manual` is available everywhere except `kafka`, where
+acknowledging one record is not the same as committing an offset. Writing
+`ack = "manual"` there is rejected at load with a diagnostic saying what is
+missing.
 
 Writing a retired name reports what it became rather than that the argument is
 not expected here, so an upgrade can be driven by running `vinculum check`

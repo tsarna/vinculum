@@ -163,12 +163,17 @@ consume a queue and deliver what arrives to the bus or an action.`,
 					WithDoc("`auto` acknowledges once delivery returns without error, which is "+
 						"fast but loses a message whose handling fails after that point, so it "+
 						"is refused alongside `queue_size`, which makes delivery return at the "+
-						"moment the message is queued. `none` is AMQP's own no-ack "+
-						"mode, where the *broker* treats the message as delivered the moment "+
-						"it is sent and vinculum never acknowledges at all: faster still, and "+
-						"the message is gone if handling fails or the process dies holding "+
-						"it.").
-					WithEnum(cfg.AckAuto, cfg.AckNone),
+						"moment the message is queued. `manual` acknowledges nothing until the "+
+						"configuration calls `inbound::ack()`, and requires `settle_timeout`; "+
+						"`inbound::nack()` rejects the message without requeueing it, so it "+
+						"reaches the queue's dead-letter exchange if it has one and is dropped "+
+						"if it does not, and the reason reaches the log only. `none` is AMQP's "+
+						"own no-ack mode, where the *broker* treats the message as delivered "+
+						"the moment it is sent and vinculum never acknowledges at all: faster "+
+						"still, and the message is gone if handling fails or the process dies "+
+						"holding it.").
+					WithEnum(cfg.AckAuto, cfg.AckManual, cfg.AckNone),
+				"settle_timeout": cfg.SettleTimeoutAttr,
 				"default_routing_key_transform": {
 					Summary: "How to derive a bus topic from a routing key with no `subscription` block.",
 					Doc: "`dot_to_slash` rewrites `a.b.c` as `a/b/c`, matching the bus's " +
@@ -280,6 +285,7 @@ type RMQReceiverDefinition struct {
 	Exclusive                  *bool                        `hcl:"exclusive,optional"`
 	Ack                        string                       `hcl:"ack,optional"`
 	AckRange                   hcl.Range                    `hcl:"ack,attr_range"`
+	SettleTimeout              hcl.Expression               `hcl:"settle_timeout,optional"`
 	QueueSizeRange             hcl.Range                    `hcl:"queue_size,attr_range"`
 	Baggage                    *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
 	Declare                    *RMQQueueDeclareDefinition   `hcl:"declare,block"`
@@ -327,7 +333,7 @@ type builtReceiverSpec struct {
 	defaultXform  rmqreceiver.DefaultRoutingKeyTransform
 	prefetch      int
 	exclusive     bool
-	autoAck       bool
+	ackMode       rmqreceiver.AckMode
 	declare       *rmqreceiver.Declare
 	bindings      []rmqreceiver.Binding
 	onDecodeError wire.DecodeErrorHook
@@ -470,7 +476,7 @@ func (c *RMQClientWrapper) Start() error {
 			WithDefaultTransform(spec.defaultXform).
 			WithPrefetch(spec.prefetch).
 			WithExclusive(spec.exclusive).
-			WithAutoAck(spec.autoAck).
+			WithAckMode(spec.ackMode).
 			WithWireFormat(c.wireFormat).
 			WithDecodeErrorHook(spec.onDecodeError).
 			WithMeterProvider(c.meterProvider).
@@ -859,23 +865,25 @@ func buildReceiverSpec(config *cfg.Config, clientName string, def RMQReceiverDef
 		Receiver:       fmt.Sprintf("rabbitmq client %q receiver %q", clientName, def.Name),
 		Value:          def.Ack,
 		ValueRange:     def.AckRange,
+		SettleTimeout:  def.SettleTimeout,
 		QueueSize:      def.QueueSize,
 		QueueSizeRange: def.QueueSizeRange,
 		Extra:          cfg.AckNone,
-		ManualPending: "A RabbitMQ delivery tag never leaves the receiver, and it is " +
-			"channel-scoped: a reconnect re-points it, so a settle that arrives late " +
-			"would acknowledge a different message rather than fail. Making manual " +
-			"settle safe here needs a settle handle carrying the channel's epoch, " +
-			"which is a change to the vinculum-rabbitmq library. Use \"auto\" until " +
-			"then, which acknowledges once handling has returned.",
-		DefRange: def.DefRange,
+		DefRange:       def.DefRange,
 	})
 	if ackDiags.HasErrors() {
 		return spec, ackDiags
 	}
-	// AMQP's no-ack mode: the broker considers the message delivered on send.
-	// Every other mode leaves vinculum to acknowledge after handling.
-	spec.autoAck = policy.Mode == cfg.AckNone
+	switch policy.Mode {
+	case cfg.AckNone:
+		// AMQP's no-ack mode: the broker considers the message delivered on
+		// send, and there is nothing left for anyone to settle.
+		spec.ackMode = rmqreceiver.AckNone
+	case cfg.AckManual:
+		spec.ackMode = rmqreceiver.AckManual
+	default:
+		spec.ackMode = rmqreceiver.AckAfterHandling
+	}
 
 	xform, xformDiags := parseDefaultRoutingKeyTransform(def.DefaultRoutingKeyTransform, def.Name, def.DefRange)
 	if xformDiags.HasErrors() {
@@ -896,6 +904,12 @@ func buildReceiverSpec(config *cfg.Config, clientName string, def RMQReceiverDef
 	if sDiags.HasErrors() {
 		return spec, sDiags
 	}
+
+	// Bound how long a delivery may go unsettled, outside the async queue so the
+	// clock starts when the message arrives rather than when a worker reaches
+	// it. A no-op unless ack = "manual".
+	subscriber = cfg.NewSettleTimeoutSubscriber(policy, subscriber,
+		fmt.Sprintf("rabbitmq/%s/%s", clientName, def.Name), config.UserLogger)
 
 	// Strip untrusted inbound baggage at this external boundary before it reaches
 	// the action. Secure by default: a nil baggage block strips everything; opt

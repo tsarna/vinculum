@@ -573,6 +573,7 @@ The `baggage` block is a [baggage](baggage.md) trust filter. Inbound baggage is
 | `on_decode_error` | expression (action-expression) |  |  | Evaluated when an inbound message cannot be decoded. |
 | `prefetch` | number |  | `10` | Unacknowledged messages the broker may have in flight. |
 | `queue_size` | number |  |  | Depth of an async queue wrapping the subscriber. |
+| `settle_timeout` | expression (duration) |  |  | How long a message may go unsettled before it is nacked automatically. |
 | `subscriber` | expression (subscriber-ref) |  |  | Subscriber to forward messages to, instead of evaluating an action. |
 | `transforms` | expression (transform-pipeline) |  |  | Transform pipeline applied before the action or subscriber. |
 
@@ -585,9 +586,9 @@ With no `declare` block the queue is declared passively when the client connects
 
 **`ack`**
 
-`auto` acknowledges once delivery returns without error, which is fast but loses a message whose handling fails after that point, so it is refused alongside `queue_size`, which makes delivery return at the moment the message is queued. `none` is AMQP's own no-ack mode, where the *broker* treats the message as delivered the moment it is sent and vinculum never acknowledges at all: faster still, and the message is gone if handling fails or the process dies holding it.
+`auto` acknowledges once delivery returns without error, which is fast but loses a message whose handling fails after that point, so it is refused alongside `queue_size`, which makes delivery return at the moment the message is queued. `manual` acknowledges nothing until the configuration calls `inbound::ack()`, and requires `settle_timeout`; `inbound::nack()` rejects the message without requeueing it, so it reaches the queue's dead-letter exchange if it has one and is dropped if it does not, and the reason reaches the log only. `none` is AMQP's own no-ack mode, where the *broker* treats the message as delivered the moment it is sent and vinculum never acknowledges at all: faster still, and the message is gone if handling fails or the process dies holding it.
 
-One of: `auto`, `none`.
+One of: `auto`, `manual`, `none`.
 
 **`action`**
 
@@ -619,6 +620,10 @@ Bounds how much work is outstanding at once. Zero is unlimited, which lets the b
 
 When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, which on a receiver that settles with a broker is why it is refused alongside `ack = "auto"` — the message would be settled before anything handled it.
 
+**`settle_timeout`**
+
+Required with `ack = "manual"`, and rejected without it. An unsettled message costs something for as long as it is outstanding — an SQS visibility window, a RabbitMQ prefetch slot, a Kafka partition's committable offset — and forgetting to call `inbound::ack()` should be diagnosable rather than a slow stall. On expiry the message is nacked and the failure is logged against the receiver.
+
 **`subscriber`**
 
 Anything that can receive messages: a bus, an FSM, a subscriber-implementing server or client.
@@ -648,11 +653,11 @@ context flows across the async boundary.
 Delivery counts as successful the moment the message is queued, so the receiver
 would ack then rather than when the handler finishes: a handler error would no
 longer nack the message to the dead-letter exchange, and a full queue would drop
-a message that had already been acked. A RabbitMQ receiver has no way to keep
-the queue and the acknowledgement together yet — `ack = "manual"` needs a settle
-handle carrying the channel's epoch, described under `ack` above — so the queue
-is available only under `ack = "none"`, AMQP's own no-ack mode, where nothing is
-ever acknowledged. See [delivery model](config.md#delivery-model).
+a message that had already been acked. Keep the queue with
+[`ack = "manual"`](#manual-ack-ack--manual), where the acknowledgement follows
+the work instead of the enqueue, or with `ack = "none"`, AMQP's own no-ack mode,
+where nothing is ever acknowledged. See
+[delivery model](config.md#delivery-model).
 
 **Action context variables:**
 
@@ -697,6 +702,79 @@ Falls back to the trace ID extracted from inbound headers, so it is populated ev
 `ctx.fields` carries the AMQP headers table merged with the extracted
 routing-key fields. W3C trace headers (`traceparent`, `tracestate`, `baggage`)
 are stripped.
+
+### Manual ack: `ack = "manual"`
+
+With `ack = "manual"` the receiver acknowledges nothing when handling returns.
+The message stays unacknowledged until the configuration settles it with
+[`inbound::ack()`](functions.md#acknowledging-an-inbound-message):
+
+```hcl
+receiver "in" {
+  queue          = "work"
+  ack            = "manual"
+  settle_timeout = "2m"
+
+  action = [
+    do_something(ctx, ctx.msg),
+    inbound::ack(ctx),
+  ]
+}
+```
+
+The delivery being acknowledged travels on `ctx`, not in `fields`, so the same
+expression works from a `subscription` several bus hops downstream — and, unlike
+`ack = "auto"`, it survives a `queue_size` queue, because the acknowledgement
+follows the work rather than the enqueue:
+
+```hcl
+receiver "in" {
+  queue          = "work"
+  subscriber     = bus.work
+  queue_size     = 100
+  ack            = "manual"
+  settle_timeout = "2m"
+}
+
+subscription "handle" {
+  target = bus.work
+  topics = ["work"]
+  action = [do_something(ctx, ctx.msg), inbound::ack(ctx)]
+}
+```
+
+`inbound::nack(ctx, reason)` rejects the message without requeueing it, so it
+reaches the queue's dead-letter exchange if one is configured and is dropped if
+not — which of the two happens is the queue's policy, never the caller's choice.
+The reason reaches the log and nowhere else: `basic.reject` carries no payload,
+and a dead-lettered message arrives as itself with the broker's own `x-death`
+header recording the rejection.
+
+**`settle_timeout` is required**, and it matters more here than on any other
+receiver. An unacknowledged AMQP delivery is held indefinitely — nothing lapses,
+nothing is reclaimed — and it occupies one of the `prefetch` slots (default 10),
+so ten forgotten messages stall the receiver completely. On expiry the message
+is nacked and the failure is logged, naming the receiver.
+
+`inbound::keepalive(ctx)` returns `false` and extends nothing. AMQP has no
+per-delivery lease to renew; the one clock over an unacknowledged delivery is
+the broker's own `consumer_timeout` (30 minutes by default in RabbitMQ 3.8+),
+which closes the *channel* and is server-side policy a consumer cannot extend.
+Handling that legitimately runs longer than that is a broker setting.
+
+A message that never reaches the action is still settled by the receiver, in
+manual mode exactly as in automatic: a body that fails to decode, or a routing
+key nothing matched under `default_routing_key_transform = "error"`, is nacked
+where it fails. Whatever would have handled it cannot answer for a delivery it
+never saw. A handler that returns an error is likewise nacked at once rather
+than left to `settle_timeout` — unless it had already settled the message, which
+is not overruled.
+
+A settle can also arrive too late. A delivery tag means something only on the
+channel that issued it, and AMQP renumbers tags from 1 on each new channel, so a
+settle attempted after a reconnect returns `false` and logs `channel
+reconnected` rather than acknowledging whatever now holds that tag. The message
+was never acknowledged, so the broker redelivers it.
 
 ### `on_decode_error`
 

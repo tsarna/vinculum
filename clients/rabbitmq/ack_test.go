@@ -25,33 +25,51 @@ client "rabbitmq" "events" {
 `, body)
 }
 
-// Manual settle needs a handle that outlives the receiver, and a delivery tag
-// cannot be one without knowing which channel it belongs to. Saying so at load
-// is the point: a stale tag does not fail, it acknowledges a different message.
-func TestReceiverAckManualIsNotImplementedYet(t *testing.T) {
-	_, hasErr, msg := buildSrc(t, receiverWithAck(`ack = "manual"`))
-	require.True(t, hasErr, `ack = "manual" should be rejected at load`)
-	assert.Contains(t, msg, "not implemented yet")
-	assert.Contains(t, msg, "channel-scoped")
-}
-
 func TestReceiverAckInvalidNamesTheModesThisReceiverHas(t *testing.T) {
 	_, hasErr, msg := buildSrc(t, receiverWithAck(`ack = "whenever"`))
 	require.True(t, hasErr, "an unknown ack should be rejected")
 	assert.Contains(t, msg, `"auto"`)
+	assert.Contains(t, msg, `"manual"`)
 	assert.Contains(t, msg, `"none"`)
 }
 
-// The two modes RabbitMQ has, and the default. `auto` is what `auto_ack = false`
-// did — vinculum acknowledges after handling — and `none` is what
-// `auto_ack = true` did, AMQP's own no-ack mode.
+// The three modes RabbitMQ has, and the default. `auto` is what
+// `auto_ack = false` did — vinculum acknowledges after handling — and `none` is
+// what `auto_ack = true` did, AMQP's own no-ack mode.
 func TestReceiverAckModesThisReceiverHasStillParse(t *testing.T) {
-	for _, body := range []string{`ack = "auto"`, `ack = "none"`, ``} {
+	for _, body := range []string{
+		`ack = "auto"`,
+		`ack = "none"`,
+		"ack = \"manual\"\n    settle_timeout = \"30s\"",
+		``,
+	} {
 		t.Run(body, func(t *testing.T) {
 			_, hasErr, msg := buildSrc(t, receiverWithAck(body))
 			require.False(t, hasErr, msg)
 		})
 	}
+}
+
+// Nothing settles a manual delivery until the configuration does, and an
+// unsettled AMQP delivery holds a prefetch slot indefinitely — ten of them stall
+// the receiver. There is no default bound worth choosing, so the configuration
+// states the one it can live with.
+func TestManualRequiresSettleTimeout(t *testing.T) {
+	_, hasErr, msg := buildSrc(t, receiverWithAck(`ack = "manual"`))
+	require.True(t, hasErr, `ack = "manual" without settle_timeout should be rejected`)
+	assert.Contains(t, msg, "requires settle_timeout")
+}
+
+func TestSettleTimeoutWithoutManualIsRejected(t *testing.T) {
+	_, hasErr, msg := buildSrc(t, receiverWithAck(`settle_timeout = "30s"`))
+	require.True(t, hasErr, "settle_timeout under an automatic ack should be rejected")
+	assert.Contains(t, msg, `settle_timeout applies only to ack = "manual"`)
+}
+
+func TestSettleTimeoutMustBePositive(t *testing.T) {
+	_, hasErr, msg := buildSrc(t, receiverWithAck("ack = \"manual\"\n    settle_timeout = \"0s\""))
+	require.True(t, hasErr, "a zero bound should be rejected")
+	assert.Contains(t, msg, "settle_timeout must be positive")
 }
 
 // A queue makes delivery return at the moment the message is queued, so `auto`
@@ -66,10 +84,11 @@ func TestQueueSizeIsRefusedWithAutoAck(t *testing.T) {
 			_, hasErr, msg := buildSrc(t, receiverWithAck(body))
 			require.True(t, hasErr, "queue_size with an auto ack should be rejected")
 			assert.Contains(t, msg, "queue_size cannot be combined")
-			// RabbitMQ has neither knob yet — manual settle needs a channel
-			// epoch, and prefetch does not parallelize a serial delivery loop —
-			// so the diagnostic must not name one.
-			assert.Contains(t, msg, "remove queue_size")
+			// Manual settle is the way to keep the queue, so the diagnostic
+			// names it. `concurrency` is the other answer and this receiver
+			// does not have one — a serial delivery loop is not parallelized by
+			// prefetch — so it must not be named.
+			assert.Contains(t, msg, `ack = "manual"`)
 			assert.NotContains(t, msg, "concurrency")
 		})
 	}
@@ -79,6 +98,15 @@ func TestQueueSizeIsRefusedWithAutoAck(t *testing.T) {
 // queue to acknowledge early. Left alone deliberately.
 func TestQueueSizeIsAllowedWithNoAck(t *testing.T) {
 	_, hasErr, msg := buildSrc(t, receiverWithAck("ack = \"none\"\n    queue_size = 16"))
+	require.False(t, hasErr, msg)
+}
+
+// The pairing manual settle exists for: the queue decouples the delivery loop
+// from the work, and the acknowledgement follows the work rather than the
+// enqueue, because the delivery travels on ctx.
+func TestQueueSizeIsAllowedWithManualAck(t *testing.T) {
+	_, hasErr, msg := buildSrc(t, receiverWithAck(
+		"ack = \"manual\"\n    settle_timeout = \"30s\"\n    queue_size = 16"))
 	require.False(t, hasErr, msg)
 }
 

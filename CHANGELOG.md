@@ -58,16 +58,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **A settle that arrives too late reaches the broker not at all**, returning
   `false` and logging why. An SQS receipt handle expires with its visibility
   window, and past it the message is back on the queue and may already be
-  somewhere else. This is not merely a failed acknowledgement on every
-  protocol — on RabbitMQ a stale delivery tag acknowledges a *different*
-  message — which is why the check exists rather than being left to the broker.
+  somewhere else. A RabbitMQ delivery tag means something only on the channel
+  that issued it, and AMQP renumbers tags from 1 on each new channel, so a
+  reconnect retires every tag outstanding at the time. The check exists rather
+  than being left to the broker because a stale acknowledgement is not merely a
+  failed one on every protocol: where a tag has been renumbered it names a
+  *different* message.
 
-  Available on `client "redis_stream"` consumers and `client "sqs_receiver"`.
-  RabbitMQ and Kafka reject `ack = "manual"` at load with a diagnostic saying
-  what is missing; each needs work in its own library first.
+  Available on `client "redis_stream"` consumers, `client "sqs_receiver"`, and
+  `client "rabbitmq"` receivers. Kafka rejects `ack = "manual"` at load with a
+  diagnostic saying what is missing: acknowledging one record is not the same as
+  committing an offset, and completing record 7 while 5 is outstanding needs a
+  low-water-mark tracker that its own library does not have yet.
 
-  Requires `vinculum-bus` v0.18.0, `vinculum-redis` v0.7.0, and `vinculum-sqs`
-  v0.5.0.
+  On RabbitMQ this is also what makes `queue_size` usable at all. It was
+  previously refused under every mode but `none`, because a receiver that
+  acknowledges on delivery's return has nothing to give up to a queue that makes
+  delivery return at enqueue. `inbound::nack()` there rejects the message
+  without requeueing it, so the queue's dead-letter exchange takes it, and
+  `inbound::keepalive()` returns `false` — an AMQP delivery has no per-message
+  lease, only the broker's own `consumer_timeout`, which a consumer cannot
+  extend.
+
+  Requires `vinculum-bus` v0.18.0, `vinculum-redis` v0.7.0, `vinculum-sqs`
+  v0.5.0, and `vinculum-rabbitmq` v0.7.0.
 
 - **`condition` blocks accept `tracing`.** Every other block whose work is
   traced could name its backend; a condition could not, because all four
