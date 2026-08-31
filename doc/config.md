@@ -591,9 +591,30 @@ subscription "unroutable" {
 ```
 
 It is an ordinary bus message, so what happens next is ordinary VCL. The
-republish carries the original payload and the original context — so a handler
-can settle the inbound delivery the message came from, rejecting it with a real
-reason instead of letting it time out and be redelivered into the same hole.
+republish carries the original payload and the original *context*, which is
+where an inbound delivery's acknowledgement lives — so a handler can settle the
+message the failed one came from:
+
+```hcl
+subscription "unroutable" {
+    target = bus.main
+    topics = ["$undeliverable"]
+    action = [
+        log::warn("nothing consumed this", { topic = ctx.undeliverable_topic }),
+        inbound::nack(ctx, "no matching subscription"),
+    ]
+}
+```
+
+That is worth doing on any bus a receiver publishes into. A receiver routed to a
+topic nothing consumes is a config error, and under `ack = "manual"` it is
+otherwise a slow and silent one: nothing settles the message, so it sits until
+`settle_timeout` nacks it, is redelivered, and takes the same path again — for
+as long as the receiver's own retry budget allows. Nacking here rejects it at
+once, with a reason, and dead-letters it through the receiver's configured
+policy rather than through a timeout. On a message that arrived over a transport
+with no acknowledgement, `inbound::nack()` does nothing and returns `false`, so
+the same subscription is safe on any bus.
 
 `ctx.topic` on that message is `$undeliverable`; it has to be, or the
 subscription's own matcher could not have selected it. The topic that failed to

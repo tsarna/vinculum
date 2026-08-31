@@ -303,6 +303,66 @@ client "redis_stream" "rs" {
 	assert.EqualValues(t, 1, pendingIn(t, mr.Addr()))
 }
 
+// A receiver routed into a bus nothing consumes is a config error that would
+// otherwise be silent and slow: nothing settles the message, so it sits until
+// settle_timeout nacks it, is redelivered, and takes the same path again.
+//
+// The republish under `$undeliverable` carries the original context, so the
+// settler travels with it and the policy becomes ordinary VCL — the message is
+// rejected with a real reason at once rather than after the timeout. The proof
+// is the receiver's own log line: only a nack that reached the consumer's
+// settler could have produced it.
+func TestAnUndeliverableMessageCanBeNackedAtOnce(t *testing.T) {
+	mr := miniredis.RunT(t)
+	src := fmt.Sprintf(`
+bus "main" { undeliverable = true }
+
+client "redis" "base" { address = "%s" }
+client "redis_stream" "rs" {
+    connection = client.base
+
+    producer "out" { stream = "events" }
+
+    consumer "in" {
+        stream         = "events"
+        group          = "g"
+        block_timeout  = "100ms"
+        ack            = "manual"
+        settle_timeout = "10m"
+        subscriber     = bus.main
+    }
+}
+
+# Nothing subscribes to "events", so every entry lands here instead.
+subscription "unroutable" {
+    target = bus.main
+    topics = ["$undeliverable"]
+    action = inbound::nack(ctx, "no matching subscription")
+}
+`, mr.Addr())
+
+	core, logs := observer.New(zap.InfoLevel)
+	c, diags := cfg.NewConfig().WithSources([]byte(src)).WithLogger(zap.New(core)).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	startLifecycle(t, c)
+
+	wrapper := c.Clients["redis_stream"]["rs"].(*redisstream.RedisStreamClient)
+	require.NoError(t, wrapper.OnEvent(context.Background(), "x", "hi", nil))
+
+	// settle_timeout is ten minutes, so nothing but the republished message
+	// could have settled this within the wait.
+	var nacked []observer.LoggedEntry
+	require.Eventually(t, func() bool {
+		nacked = logs.FilterMessageSnippet("entry nacked").All()
+		return len(nacked) == 1
+	}, 3*time.Second, 20*time.Millisecond,
+		"the $undeliverable handler's nack should have reached the consumer")
+	assert.Equal(t, "no matching subscription", nacked[0].ContextMap()["reason"])
+
+	assert.EqualValues(t, 1, pendingIn(t, mr.Addr()),
+		"a nacked entry stays pending for the receiver's own policy")
+}
+
 // A message that arrived over a transport with no acknowledgement settles
 // nothing and reports so. This is what makes the functions safe to call from
 // shared subscription code that does not know which receiver produced what it
@@ -411,6 +471,53 @@ client "redis_stream" "rs" {
 			WithLogger(zap.NewNop()).Build()
 		require.True(t, diags.HasErrors())
 		assert.Contains(t, diags.Error(), `applies only to ack = "manual"`)
+	})
+}
+
+// A queue makes delivery return at the moment the entry is queued, so `auto`
+// would XACK before the handler ran, and a handler error would no longer leave
+// the entry in the pending list for reclaim or dead-lettering. Refused, written
+// or defaulted — but `manual` keeps the queue, which is the combination
+// TestSettleSurvivesTheQueueAndTheBus above proves end to end.
+func TestQueueSizeIsRefusedOnlyUnderAutoAck(t *testing.T) {
+	consumer := func(body string) string {
+		return fmt.Sprintf(`
+bus "main" {}
+
+client "redis" "base" { address = "127.0.0.1:1" }
+client "redis_stream" "rs" {
+    connection = client.base
+
+    consumer "in" {
+        stream     = "events"
+        group      = "g"
+        subscriber = bus.main
+        queue_size = 16
+        %s
+    }
+}
+`, body)
+	}
+
+	for _, body := range []string{``, `ack = "auto"`} {
+		t.Run("refused with "+body, func(t *testing.T) {
+			_, diags := cfg.NewConfig().
+				WithSources([]byte(consumer(body))).
+				WithLogger(zap.NewNop()).Build()
+			require.True(t, diags.HasErrors(), "queue_size with an auto ack should be rejected")
+			msg := diags.Error()
+			assert.Contains(t, msg, "queue_size cannot be combined")
+			assert.Contains(t, msg, `ack = "manual"`)
+			// This consumer has no concurrency knob yet, so nothing may name one.
+			assert.NotContains(t, msg, "concurrency")
+		})
+	}
+
+	t.Run("kept under manual", func(t *testing.T) {
+		_, diags := cfg.NewConfig().
+			WithSources([]byte(consumer("ack = \"manual\"\n        settle_timeout = \"30s\""))).
+			WithLogger(zap.NewNop()).Build()
+		require.False(t, diags.HasErrors(), diags.Error())
 	})
 }
 
