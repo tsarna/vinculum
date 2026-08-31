@@ -68,8 +68,8 @@ client "kafka" "k" {
 	assert.Contains(t, msg, "either allow or deny")
 }
 
-// receiverWithAck is a minimal receiver parameterized on ack.
-func receiverWithAck(mode string) string {
+// receiverWithBody is a minimal receiver parameterized on its own attributes.
+func receiverWithBody(body string) string {
 	return `
 bus "main" {}
 
@@ -79,7 +79,7 @@ client "kafka" "k" {
   receiver "r" {
     group_id    = "g"
     subscriber  = bus.main
-    ack         = "` + mode + `"
+    ` + body + `
 
     subscription "kafka.topic" {
       vinculum_topic = "in/topic"
@@ -87,6 +87,11 @@ client "kafka" "k" {
   }
 }
 `
+}
+
+// receiverWithAck is a minimal receiver parameterized on ack.
+func receiverWithAck(mode string) string {
+	return receiverWithBody(`ack = "` + mode + `"`)
 }
 
 func TestReceiverAckManualIsRejected(t *testing.T) {
@@ -117,6 +122,32 @@ func TestReceiverAckModesThatWorkStillParse(t *testing.T) {
 			require.False(t, hasErr, msg)
 		})
 	}
+}
+
+// A queue makes delivery succeed at the moment the record is queued, so `auto`
+// would commit the offset before the handler ran — and an error would no longer
+// reach dlq_topic. Refused, written or defaulted.
+func TestQueueSizeIsRefusedWithAutoCommit(t *testing.T) {
+	for _, body := range []string{
+		"queue_size = 16",
+		"ack = \"auto\"\n    queue_size = 16",
+	} {
+		t.Run(body, func(t *testing.T) {
+			_, hasErr, msg := build(t, receiverWithBody(body))
+			require.True(t, hasErr, "queue_size with an auto commit should be rejected")
+			assert.Contains(t, msg, "queue_size cannot be combined")
+			// Kafka has neither knob yet, so the diagnostic must not name one.
+			assert.Contains(t, msg, "remove queue_size")
+			assert.NotContains(t, msg, "concurrency")
+		})
+	}
+}
+
+// `periodic` commits on a timer regardless of the outcome, so the queue takes
+// nothing away that the mode had not already given up. Left alone deliberately.
+func TestQueueSizeIsAllowedWithPeriodicCommit(t *testing.T) {
+	_, hasErr, msg := build(t, receiverWithBody("ack = \"periodic\"\n    queue_size = 16"))
+	require.False(t, hasErr, msg)
 }
 
 // The old spelling is met with what it became, rather than with gohcl's

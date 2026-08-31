@@ -273,7 +273,7 @@ client "sqs_receiver" "tasks" {
     # Optional transform pipeline and async queue (same semantics as the
     # top-level `subscription` block — see config.md#subscription).
     # transforms = [ jq(".payload") ]
-    # queue_size = 100
+    # queue_size = 100                    # only with ack = "manual"
 
     # Optional; inbound baggage is stripped by default. See doc/baggage.md.
     # baggage { allow = ["tenant_id"] }
@@ -307,12 +307,13 @@ The `baggage` block is a [baggage](baggage.md) trust filter. Inbound baggage is
 `passthrough`/`allow`/`deny`. See
 [Server-side trust filtering](baggage.md#server-side-trust-filtering).
 `transforms` and `queue_size` behave as they do on a
-[subscription](config.md#subscription) — but note that `queue_size` makes
-delivery succeed the moment the message is queued, so the message is deleted
-from the queue before the handler has run, and a handler error no longer leaves
-it to reappear after the visibility timeout. Use `concurrency` for throughput
-instead; set `queue_size` only if at-most-once delivery is acceptable. See
-[delivery model](config.md#delivery-model).
+[subscription](config.md#subscription) — but `queue_size` is **refused
+alongside `ack = "auto"`**, which is the default. It makes delivery succeed the
+moment the message is queued, so the message would be deleted before the
+handler had run, and a handler error would no longer leave it to reappear after
+the visibility timeout. Use `concurrency` for throughput, where each message
+still settles on its own outcome, or `ack = "manual"` to keep the queue and
+settle the message yourself. See [delivery model](config.md#delivery-model).
 
 <!-- vinculum:begin block-attrs client sqs_receiver level=3 -->
 
@@ -343,7 +344,7 @@ instead; set `queue_size` only if at-most-once delivery is acceptable. See
 
 **`ack`**
 
-`auto` deletes a message once delivery returns without error; a handler that returns an error leaves it on the queue, so it reappears after the visibility timeout and is retried. That is fast but loses a message whose handling fails after delivery returned — including whenever `queue_size` is set, since delivery then returns at the moment the message is queued. `manual` deletes nothing until the configuration calls `inbound::ack()`, and requires `settle_timeout`. `inbound::nack()` sends nothing: the message returns when its visibility timeout lapses and the queue's own redrive policy decides when it has been tried enough, and the reason reaches the log only.
+`auto` deletes a message once delivery returns without error; a handler that returns an error leaves it on the queue, so it reappears after the visibility timeout and is retried. That is fast but loses a message whose handling fails after delivery returned, so it is refused alongside `queue_size`, which makes delivery return at the moment the message is queued — use `concurrency` for throughput instead. `manual` deletes nothing until the configuration calls `inbound::ack()`, and requires `settle_timeout`. `inbound::nack()` sends nothing: the message returns when its visibility timeout lapses and the queue's own redrive policy decides when it has been tried enough, and the reason reaches the log only.
 
 One of: `auto`, `manual`.
 
@@ -381,7 +382,7 @@ Evaluated against the `decode-error` context.
 
 **`queue_size`**
 
-When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, so a source that acknowledges on successful delivery acknowledges before the work is done.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, which on a receiver that settles with a broker is why it is refused alongside `ack = "auto"` — the message would be settled before anything handled it.
 
 **`region`**
 

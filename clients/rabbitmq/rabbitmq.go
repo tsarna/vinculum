@@ -162,9 +162,9 @@ consume a queue and deliver what arrives to the bus or an action.`,
 				},
 				"ack": cfg.AckAttr.
 					WithDoc("`auto` acknowledges once delivery returns without error, which is "+
-						"fast but loses a message whose handling fails after that point — "+
-						"including whenever `queue_size` is set, since delivery then returns "+
-						"at the moment the message is queued. `none` is AMQP's own no-ack "+
+						"fast but loses a message whose handling fails after that point, so it "+
+						"is refused alongside `queue_size`, which makes delivery return at the "+
+						"moment the message is queued. `none` is AMQP's own no-ack "+
 						"mode, where the *broker* treats the message as delivered the moment "+
 						"it is sent and vinculum never acknowledges at all: faster still, and "+
 						"the message is gone if handling fails or the process dies holding "+
@@ -281,6 +281,7 @@ type RMQReceiverDefinition struct {
 	Exclusive                  *bool                        `hcl:"exclusive,optional"`
 	Ack                        string                       `hcl:"ack,optional"`
 	AckRange                   hcl.Range                    `hcl:"ack,attr_range"`
+	QueueSizeRange             hcl.Range                    `hcl:"queue_size,attr_range"`
 	Baggage                    *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
 	Declare                    *RMQQueueDeclareDefinition   `hcl:"declare,block"`
 	Bindings                   []RMQBindingDefinition       `hcl:"binding,block"`
@@ -856,10 +857,12 @@ func buildReceiverSpec(config *cfg.Config, clientName string, def RMQReceiverDef
 		spec.exclusive = *def.Exclusive
 	}
 	policy, ackDiags := config.ResolveAck(cfg.AckRequest{
-		Receiver:   fmt.Sprintf("rabbitmq client %q receiver %q", clientName, def.Name),
-		Value:      def.Ack,
-		ValueRange: def.AckRange,
-		Extra:      cfg.AckNone,
+		Receiver:       fmt.Sprintf("rabbitmq client %q receiver %q", clientName, def.Name),
+		Value:          def.Ack,
+		ValueRange:     def.AckRange,
+		QueueSize:      def.QueueSize,
+		QueueSizeRange: def.QueueSizeRange,
+		Extra:          cfg.AckNone,
 		ManualPending: "A RabbitMQ delivery tag never leaves the receiver, and it is " +
 			"channel-scoped: a reconnect re-points it, so a settle that arrives late " +
 			"would acknowledge a different message rather than fail. Making manual " +

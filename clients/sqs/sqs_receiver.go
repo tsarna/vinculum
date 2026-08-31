@@ -117,8 +117,9 @@ are deleted once handled, unless ` + "`ack`" + ` says otherwise.`,
 			"`auto` deletes a message once delivery returns without error; a handler that " +
 				"returns an error leaves it on the queue, so it reappears after the " +
 				"visibility timeout and is retried. That is fast but loses a message whose " +
-				"handling fails after delivery returned — including whenever `queue_size` " +
-				"is set, since delivery then returns at the moment the message is queued. " +
+				"handling fails after delivery returned, so it is refused alongside " +
+				"`queue_size`, which makes delivery return at the moment the message is " +
+				"queued — use `concurrency` for throughput instead. " +
 				"`manual` deletes nothing until the configuration calls `inbound::ack()`, " +
 				"and requires `settle_timeout`. `inbound::nack()` sends nothing: the " +
 				"message returns when its visibility timeout lapses and the queue's own " +
@@ -161,6 +162,7 @@ type SQSReceiverDefinition struct {
 	VisibilityTimeout hcl.Expression               `hcl:"visibility_timeout,optional"`
 	Ack               string                       `hcl:"ack,optional"`
 	AckRange          hcl.Range                    `hcl:"ack,attr_range"`
+	QueueSizeRange    hcl.Range                    `hcl:"queue_size,attr_range"`
 	SettleTimeout     hcl.Expression               `hcl:"settle_timeout,optional"`
 	Concurrency       *int                         `hcl:"concurrency,optional"`
 	WireFormat        hcl.Expression               `hcl:"wire_format,optional"`
@@ -252,11 +254,14 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 	}
 
 	policy, ackDiags := config.ResolveAck(cfg.AckRequest{
-		Receiver:      fmt.Sprintf("sqs_receiver client %q", clientName),
-		Value:         def.Ack,
-		ValueRange:    def.AckRange,
-		SettleTimeout: def.SettleTimeout,
-		DefRange:      def.DefRange,
+		Receiver:       fmt.Sprintf("sqs_receiver client %q", clientName),
+		Value:          def.Ack,
+		ValueRange:     def.AckRange,
+		SettleTimeout:  def.SettleTimeout,
+		QueueSize:      def.QueueSize,
+		QueueSizeRange: def.QueueSizeRange,
+		HasConcurrency: true,
+		DefRange:       def.DefRange,
 	})
 	if ackDiags.HasErrors() {
 		return nil, ackDiags

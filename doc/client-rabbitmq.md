@@ -512,7 +512,7 @@ receiver "main" {
   # Optional transform pipeline and async queue (same semantics as the
   # top-level subscription block — see config.md#subscription).
   # transforms = [ jq(".payload") ]
-  # queue_size = 100
+  # queue_size = 100  # only with ack = "none"
 
   prefetch  = 10     # max unacked messages in flight (default: 10; 0 = unlimited — dangerous)
   exclusive = false  # exclusive consumer (default: false)
@@ -585,7 +585,7 @@ With no `declare` block the queue is declared passively when the client connects
 
 **`ack`**
 
-`auto` acknowledges once delivery returns without error, which is fast but loses a message whose handling fails after that point — including whenever `queue_size` is set, since delivery then returns at the moment the message is queued. `none` is AMQP's own no-ack mode, where the *broker* treats the message as delivered the moment it is sent and vinculum never acknowledges at all: faster still, and the message is gone if handling fails or the process dies holding it.
+`auto` acknowledges once delivery returns without error, which is fast but loses a message whose handling fails after that point, so it is refused alongside `queue_size`, which makes delivery return at the moment the message is queued. `none` is AMQP's own no-ack mode, where the *broker* treats the message as delivered the moment it is sent and vinculum never acknowledges at all: faster still, and the message is gone if handling fails or the process dies holding it.
 
 One of: `auto`, `none`.
 
@@ -617,7 +617,7 @@ Bounds how much work is outstanding at once. Zero is unlimited, which lets the b
 
 **`queue_size`**
 
-When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, so a source that acknowledges on successful delivery acknowledges before the work is done.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, which on a receiver that settles with a broker is why it is refused alongside `ack = "auto"` — the message would be settled before anything handled it.
 
 **`subscriber`**
 
@@ -644,12 +644,15 @@ form the standard delivery pattern used by every block that dispatches events
 background queue so a slow handler doesn't block the AMQP delivery loop; trace
 context flows across the async boundary.
 
-`queue_size` also changes when the message is acknowledged. Delivery counts as
-successful the moment the message is queued, so the receiver acks then rather
-than when the handler finishes: a handler error no longer nacks the message to
-the dead-letter exchange, and a full queue drops a message that has already
-been acked. Set it only if at-most-once delivery is acceptable, and prefer
-`prefetch` for throughput. See [delivery model](config.md#delivery-model).
+**`queue_size` is refused alongside `ack = "auto"`**, which is the default.
+Delivery counts as successful the moment the message is queued, so the receiver
+would ack then rather than when the handler finishes: a handler error would no
+longer nack the message to the dead-letter exchange, and a full queue would drop
+a message that had already been acked. A RabbitMQ receiver has no way to keep
+the queue and the acknowledgement together yet — `ack = "manual"` needs a settle
+handle carrying the channel's epoch, described under `ack` above — so the queue
+is available only under `ack = "none"`, AMQP's own no-ack mode, where nothing is
+ever acknowledged. See [delivery model](config.md#delivery-model).
 
 **Action context variables:**
 

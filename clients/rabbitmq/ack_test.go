@@ -54,6 +54,34 @@ func TestReceiverAckModesThisReceiverHasStillParse(t *testing.T) {
 	}
 }
 
+// A queue makes delivery return at the moment the message is queued, so `auto`
+// would ack before the handler ran — and a handler error would no longer nack
+// the message to the dead-letter exchange. Refused, written or defaulted.
+func TestQueueSizeIsRefusedWithAutoAck(t *testing.T) {
+	for _, body := range []string{
+		"queue_size = 16",
+		"ack = \"auto\"\n    queue_size = 16",
+	} {
+		t.Run(body, func(t *testing.T) {
+			_, hasErr, msg := buildSrc(t, receiverWithAck(body))
+			require.True(t, hasErr, "queue_size with an auto ack should be rejected")
+			assert.Contains(t, msg, "queue_size cannot be combined")
+			// RabbitMQ has neither knob yet — manual settle needs a channel
+			// epoch, and prefetch does not parallelize a serial delivery loop —
+			// so the diagnostic must not name one.
+			assert.Contains(t, msg, "remove queue_size")
+			assert.NotContains(t, msg, "concurrency")
+		})
+	}
+}
+
+// AMQP's no-ack mode never acknowledges anything, so there is nothing for the
+// queue to acknowledge early. Left alone deliberately.
+func TestQueueSizeIsAllowedWithNoAck(t *testing.T) {
+	_, hasErr, msg := buildSrc(t, receiverWithAck("ack = \"none\"\n    queue_size = 16"))
+	require.False(t, hasErr, msg)
+}
+
 // The old spelling is met with what it became. It is worth spelling out here
 // because the boolean inverted on the way: `auto_ack = false` was the default
 // and is now the default `ack = "auto"`.

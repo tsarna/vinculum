@@ -358,7 +358,7 @@ receiver "main" {
   # Optional transform pipeline and async queue (same semantics as the
   # top-level `subscription` block — see config.md#subscription).
   # transforms = [ jq(".payload") ]
-  # queue_size = 100
+  # queue_size = 100              # only with ack = "periodic"
 
   start_offset = "stored"          # stored | earliest | latest — default: stored
   ack          = "auto"            # auto | periodic — default: auto
@@ -408,7 +408,7 @@ Kafka distributes each topic's partitions across the members of a group.
 
 **`ack`**
 
-`auto` commits a record's offset once delivery succeeds, giving at-least-once delivery; `periodic` commits on a timer regardless of outcome, which can lose or duplicate messages across a crash. Manual settle is not available here yet: acknowledging one record is not the same as committing an offset, and completing record 7 while 5 is still outstanding needs a low-water-mark tracker this receiver does not have.
+`auto` commits a record's offset once delivery succeeds, giving at-least-once delivery — so it is refused alongside `queue_size`, which makes delivery succeed at the moment the record is queued; `periodic` commits on a timer regardless of outcome, which can lose or duplicate messages across a crash. Manual settle is not available here yet: acknowledging one record is not the same as committing an offset, and completing record 7 while 5 is still outstanding needs a low-water-mark tracker this receiver does not have.
 
 One of: `auto`, `periodic`.
 
@@ -430,7 +430,7 @@ Evaluated against the `decode-error` context.
 
 **`queue_size`**
 
-When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, so a source that acknowledges on successful delivery acknowledges before the work is done.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, which on a receiver that settles with a broker is why it is refused alongside `ack = "auto"` — the message would be settled before anything handled it.
 
 **`start_offset`**
 
@@ -462,15 +462,17 @@ Exactly one must be specified.
 
 Optionally, `transforms = [...]` applies a transform pipeline to each message
 before delivery, and `queue_size = N` wraps delivery in an async background
-queue of depth `N` so slow handlers don't block the Kafka poll loop. Same
-semantics as the top-level [subscription](config.md#subscription) block.
+queue of depth `N`. Same semantics as the top-level
+[subscription](config.md#subscription) block.
 
-`queue_size` interacts with offset commits, and the interaction is not what you
-want by default: delivery counts as successful the moment the message is
-queued, so `ack = "auto"` commits the offset before the
-handler has run, an error from the handler no longer routes to `dlq_topic`, and
-a full queue drops the record after its offset is committed. Set it only if
-at-most-once delivery is acceptable. See
+**`queue_size` is refused alongside `ack = "auto"`**, which is the default.
+Delivery counts as successful the moment the record is queued, so the offset
+would be committed before the handler ran, an error from the handler would no
+longer route to `dlq_topic`, and a full queue would drop a record whose offset
+was already committed. A Kafka receiver has no way to keep the queue and the
+guarantee together yet — `ack = "manual"` needs the low-water-mark commit
+tracker the `ack` attribute below describes — so a slow handler here holds up
+the poll loop rather than being queued away. See
 [delivery model](config.md#delivery-model).
 
 #### Action context variables

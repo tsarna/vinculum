@@ -329,7 +329,7 @@ Evaluated against the `decode-error` context.
 
 **`queue_size`**
 
-When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, so a source that acknowledges on successful delivery acknowledges before the work is done.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, which on a receiver that settles with a broker is why it is refused alongside `ack = "auto"` — the message would be settled before anything handled it.
 
 **`subscriber`**
 
@@ -560,7 +560,7 @@ client "redis_stream" "rs" {
     # Optional transform pipeline and async queue (same semantics as the
     # top-level `subscription` block — see config.md#subscription).
     # transforms = [ jq(".payload") ]
-    # queue_size = 100
+    # queue_size = 100                    # only with ack = "manual"
 
     # Optional; inbound baggage is stripped by default. See doc/baggage.md.
     # baggage { allow = ["tenant_id"] }
@@ -693,7 +693,7 @@ Redis distributes a stream's entries across the members of a group.
 
 **`ack`**
 
-`auto` issues `XACK` as soon as delivery returns without error, which is fast but loses an entry whose handling fails after that point — including whenever `queue_size` is set, since delivery then returns at the moment the entry is queued. `manual` leaves the entry in the group's pending list until the configuration calls `inbound::ack()`, and requires `settle_timeout`. A nacked entry stays pending for `reclaim_min_idle` and `dead_letter_after` to act on, and its reason reaches the log only.
+`auto` issues `XACK` as soon as delivery returns without error, which is fast but loses an entry whose handling fails after that point, so it is refused alongside `queue_size`, which makes delivery return at the moment the entry is queued. `manual` leaves the entry in the group's pending list until the configuration calls `inbound::ack()`, and requires `settle_timeout`. A nacked entry stays pending for `reclaim_min_idle` and `dead_letter_after` to act on, and its reason reaches the log only.
 
 One of: `auto`, `manual`.
 
@@ -727,7 +727,7 @@ Evaluated against the `decode-error` context.
 
 **`queue_size`**
 
-When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, so a source that acknowledges on successful delivery acknowledges before the work is done.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, which on a receiver that settles with a broker is why it is refused alongside `ack = "auto"` — the message would be settled before anything handled it.
 
 **`reclaim_min_idle`**
 

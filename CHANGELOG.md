@@ -369,6 +369,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `auto_ack` is not expected here" — so an upgrade can be driven by running
   `vinculum check` until it is quiet.
 
+- **`queue_size` on a receiver is refused alongside `ack = "auto"`.** The
+  combination silently turned at-least-once delivery into at-most-once, and the
+  documentation recommended it.
+
+  ```
+  Error: sqs_receiver client "tasks": queue_size cannot be combined with ack = "auto"
+  ```
+
+  `queue_size` hands delivery to a background goroutine, so delivery returns —
+  successfully — at the moment the message is *queued*. `ack = "auto"` settles
+  when delivery returns. Together the broker was told the message had been
+  handled before anything had handled it: an error from the real work reached a
+  log line and nothing else, redelivery and dead-lettering became unreachable,
+  and a full queue dropped a message that was already acknowledged. Nothing
+  reported any of it, at load or at runtime.
+
+  **Keep the queue with `ack = "manual"`.** It settles when the configuration
+  says so, which is what the `inbound::` functions above are for: the delivery
+  rides `ctx` through the queue, so the acknowledgement follows the real outcome
+  however many hops later it happens. That is the migration for a receiver that
+  was using `queue_size` to keep a slow action off the poll loop, and it is the
+  one that keeps the delivery guarantee. Fire-and-forget is still available, and
+  now has to be written down: settle at the top of the action and let the work
+  run behind it.
+
+  `client "sqs_receiver"` also has `concurrency`, which runs the work in
+  parallel and settles each message on its own outcome. The diagnostic names
+  whichever of the two that receiver actually has, so it never offers a knob
+  that is not there.
+
+  The refusal is **not a statement that the combination can never work** — only
+  that it does not today, because settling is driven by delivery returning. Work
+  is designed to make the queue settle on the outcome of the work it queued,
+  which would make the combination correct and this refusal unnecessary; it is
+  refused until then rather than left silently lossy.
+
+  The modes that give nothing up to a queue are deliberately untouched:
+  `ack = "none"` on rabbitmq never acknowledges anything, and
+  `ack = "periodic"` on kafka advances the offset on a timer regardless of
+  outcome.
+
+  `queue_size` on a `subscription` is unaffected and remains the right answer
+  for a slow *outbound* sender — nothing there is acknowledging anything. That
+  asymmetry is now written down under
+  [delivery model](doc/config.md#delivery-model): inbound, the blocking is the
+  backpressure and must not be queued away; outbound, the blocking is
+  head-of-line and should be.
+
 - **A receiver's `vinculum_topic` names the transport's own identifier after the
   transport, not `topic`.** The expression's whole job is to produce a bus
   topic, so there is no bus topic in scope while it runs — and three receivers

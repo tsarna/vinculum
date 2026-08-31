@@ -131,9 +131,9 @@ what it has acknowledged, so a consumer can resume after a restart.`,
 				"block_timeout": {Summary: "How long to wait for new entries before polling again.", Hint: cfg.HintDuration, Default: "2s"},
 				"ack": cfg.AckAttr.WithDoc(
 					"`auto` issues `XACK` as soon as delivery returns without error, which is " +
-						"fast but loses an entry whose handling fails after that point — " +
-						"including whenever `queue_size` is set, since delivery then returns " +
-						"at the moment the entry is queued. `manual` leaves the entry in the " +
+						"fast but loses an entry whose handling fails after that point, so it is " +
+						"refused alongside `queue_size`, which makes delivery return at the " +
+						"moment the entry is queued. `manual` leaves the entry in the " +
 						"group's pending list until the configuration calls `inbound::ack()`, " +
 						"and requires `settle_timeout`. A nacked entry stays pending for " +
 						"`reclaim_min_idle` and `dead_letter_after` to act on, and its reason " +
@@ -203,6 +203,7 @@ type ConsumerDef struct {
 	BlockTimeout     hcl.Expression               `hcl:"block_timeout,optional"`
 	Ack              string                       `hcl:"ack,optional"`
 	AckRange         hcl.Range                    `hcl:"ack,attr_range"`
+	QueueSizeRange   hcl.Range                    `hcl:"queue_size,attr_range"`
 	SettleTimeout    hcl.Expression               `hcl:"settle_timeout,optional"`
 	GroupCreate      string                       `hcl:"group_create,optional"`
 	PayloadField     *string                      `hcl:"payload_field,optional"`
@@ -607,11 +608,13 @@ func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, cli
 	}
 
 	policy, ackDiags := config.ResolveAck(cfg.AckRequest{
-		Receiver:      fmt.Sprintf("redis_stream client %q consumer %q", clientName, def.Name),
-		Value:         def.Ack,
-		ValueRange:    def.AckRange,
-		SettleTimeout: def.SettleTimeout,
-		DefRange:      def.DefRange,
+		Receiver:       fmt.Sprintf("redis_stream client %q consumer %q", clientName, def.Name),
+		Value:          def.Ack,
+		ValueRange:     def.AckRange,
+		SettleTimeout:  def.SettleTimeout,
+		QueueSize:      def.QueueSize,
+		QueueSizeRange: def.QueueSizeRange,
+		DefRange:       def.DefRange,
 	})
 	if ackDiags.HasErrors() {
 		return nil, ackDiags

@@ -87,8 +87,9 @@ var SubscriberSourceAttrs = map[string]AttrMeta{
 		Summary: "Depth of an async queue wrapping the subscriber.",
 		Doc: "When set, delivery is handed to a background goroutine so slow work does not " +
 			"block the source. The queue is bounded: a message that arrives when it is full is " +
-			"dropped. Delivery is reported successful as soon as the message is queued, so a " +
-			"source that acknowledges on successful delivery acknowledges before the work is done.",
+			"dropped. Delivery is reported successful as soon as the message is queued, which " +
+			"on a receiver that settles with a broker is why it is refused alongside " +
+			"`ack = \"auto\"` — the message would be settled before anything handled it.",
 	},
 }
 

@@ -169,7 +169,9 @@ consume from Kafka topics as part of a consumer group.`,
 				},
 				"ack": cfg.AckAttr.
 					WithDoc("`auto` commits a record's offset once delivery succeeds, giving "+
-						"at-least-once delivery; `periodic` commits on a timer regardless of "+
+						"at-least-once delivery — so it is refused alongside `queue_size`, "+
+						"which makes delivery succeed at the moment the record is queued; "+
+						"`periodic` commits on a timer regardless of "+
 						"outcome, which can lose or duplicate messages across a crash. "+
 						"Manual settle is not available here yet: acknowledging one record is "+
 						"not the same as committing an offset, and completing record 7 while "+
@@ -257,20 +259,21 @@ type TopicSubscriptionDefinition struct {
 }
 
 type ConsumerDefinition struct {
-	Name          string                        `hcl:"name,label"`
-	GroupID       string                        `hcl:"group_id"`
-	StartOffset   string                        `hcl:"start_offset,optional"`
-	Subscriber    hcl.Expression                `hcl:"subscriber,optional"`
-	Action        hcl.Expression                `hcl:"action,optional"`
-	Transforms    hcl.Expression                `hcl:"transforms,optional"`
-	OnDecodeError hcl.Expression                `hcl:"on_decode_error,optional"`
-	QueueSize     *int                          `hcl:"queue_size,optional"`
-	Ack           string                        `hcl:"ack,optional"`
-	AckRange      hcl.Range                     `hcl:"ack,attr_range"`
-	DLQTopic      string                        `hcl:"dlq_topic,optional"`
-	Baggage       *hclutil.BaggageFilterConfig  `hcl:"baggage,block"`
-	Subscriptions []TopicSubscriptionDefinition `hcl:"subscription,block"`
-	DefRange      hcl.Range                     `hcl:",def_range"`
+	Name           string                        `hcl:"name,label"`
+	GroupID        string                        `hcl:"group_id"`
+	StartOffset    string                        `hcl:"start_offset,optional"`
+	Subscriber     hcl.Expression                `hcl:"subscriber,optional"`
+	Action         hcl.Expression                `hcl:"action,optional"`
+	Transforms     hcl.Expression                `hcl:"transforms,optional"`
+	OnDecodeError  hcl.Expression                `hcl:"on_decode_error,optional"`
+	QueueSize      *int                          `hcl:"queue_size,optional"`
+	Ack            string                        `hcl:"ack,optional"`
+	AckRange       hcl.Range                     `hcl:"ack,attr_range"`
+	QueueSizeRange hcl.Range                     `hcl:"queue_size,attr_range"`
+	DLQTopic       string                        `hcl:"dlq_topic,optional"`
+	Baggage        *hclutil.BaggageFilterConfig  `hcl:"baggage,block"`
+	Subscriptions  []TopicSubscriptionDefinition `hcl:"subscription,block"`
+	DefRange       hcl.Range                     `hcl:",def_range"`
 }
 
 type KafkaClientDefinition struct {
@@ -984,10 +987,12 @@ func buildConsumerSpec(config *cfg.Config, clientName string, def ConsumerDefini
 	// through to the Kafka client's own periodic autocommit, making it an alias
 	// for the weakest mode in the enum while documented as the strongest.
 	policy, ackDiags := config.ResolveAck(cfg.AckRequest{
-		Receiver:   fmt.Sprintf("kafka client %q receiver %q", clientName, def.Name),
-		Value:      def.Ack,
-		ValueRange: def.AckRange,
-		Extra:      cfg.AckPeriodic,
+		Receiver:       fmt.Sprintf("kafka client %q receiver %q", clientName, def.Name),
+		Value:          def.Ack,
+		ValueRange:     def.AckRange,
+		QueueSize:      def.QueueSize,
+		QueueSizeRange: def.QueueSizeRange,
+		Extra:          cfg.AckPeriodic,
 		ManualPending: "Acknowledging one record is not the same as committing an offset: " +
 			"completing record 7 while 5 is still outstanding cannot commit anything " +
 			"without a low-water-mark tracker, which this receiver does not have. Use " +

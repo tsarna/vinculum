@@ -66,6 +66,35 @@ func TestSettleTimeoutMustBePositive(t *testing.T) {
 	assert.Contains(t, msg, "must be positive")
 }
 
+// A queue makes delivery return at the moment the message is queued, so `auto`
+// would delete the message before the handler ran, and a handler error would no
+// longer leave it to reappear after the visibility timeout. Refused, written or
+// defaulted — and this receiver has the knob that was actually wanted, so the
+// diagnostic names it.
+func TestQueueSizeIsRefusedWithAutoDelete(t *testing.T) {
+	for _, body := range []string{
+		"queue_size = 16",
+		"ack = \"auto\"\n  queue_size = 16",
+	} {
+		t.Run(body, func(t *testing.T) {
+			_, hasErr, msg := build(t, receiverWith(body))
+			require.True(t, hasErr, "queue_size with an auto delete should be rejected")
+			assert.Contains(t, msg, "queue_size cannot be combined")
+			assert.Contains(t, msg, "concurrency")
+			assert.Contains(t, msg, `ack = "manual"`)
+		})
+	}
+}
+
+// Manual settle is the other way to keep the queue: nothing is deleted until
+// the configuration says so, and the delivery rides ctx through the queue, so
+// the settle follows the real outcome rather than the enqueue.
+func TestQueueSizeIsAllowedWithManualSettle(t *testing.T) {
+	_, hasErr, msg := build(t, receiverWith(
+		"ack = \"manual\"\n  settle_timeout = \"30s\"\n  queue_size = 16"))
+	require.False(t, hasErr, msg)
+}
+
 // The old spelling is met with what it became, rather than with gohcl's
 // "argument named auto_delete is not expected here".
 func TestRetiredAutoDeleteSaysWhatItBecame(t *testing.T) {

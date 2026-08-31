@@ -53,9 +53,9 @@ const (
 var AckAttr = AttrMeta{
 	Summary: "When a received message is settled with the broker.",
 	Doc: "`auto` settles as soon as delivery returns without error, which is fast but " +
-		"loses a message whose handling fails after that point — including whenever " +
-		"`queue_size` is set, since delivery then returns at the moment the message is " +
-		"queued. `manual` settles nothing until the configuration calls " +
+		"loses a message whose handling fails after that point — so it is refused " +
+		"alongside `queue_size`, which makes delivery return at the moment the message " +
+		"is queued. `manual` settles nothing until the configuration calls " +
 		"`inbound::ack()` or `inbound::nack()`, and requires `settle_timeout` to bound " +
 		"how long a message may go unsettled.",
 	Enum:    []string{AckAuto, AckManual},
@@ -107,6 +107,18 @@ type AckRequest struct {
 	// SettleTimeout is the `settle_timeout` attribute as written.
 	SettleTimeout hcl.Expression
 
+	// QueueSize and QueueSizeRange are the `queue_size` attribute as written.
+	// A queue makes delivery return at the moment the message is queued, which
+	// is incompatible with settling on delivery's outcome.
+	QueueSize      *int
+	QueueSizeRange hcl.Range
+
+	// HasConcurrency says this receiver offers `concurrency`, so the diagnostic
+	// that refuses a queue can name the knob that gets the same throughput with
+	// the guarantee intact. Only sqs_receiver has one today; the others set it
+	// when they grow one (specs/QUEUE-SIZE-SEMANTICS.md option E).
+	HasConcurrency bool
+
 	// Extra names the mode this receiver accepts beyond auto and manual —
 	// AckPeriodic on kafka, AckNone on rabbitmq — or is empty.
 	Extra string
@@ -151,6 +163,28 @@ func (c *Config) ResolveAck(req AckRequest) (AckPolicy, hcl.Diagnostics) {
 			Summary:  fmt.Sprintf("%s: invalid ack", req.Receiver),
 			Detail:   fmt.Sprintf("%q is not valid; use %s.", policy.Mode, orList(accepted)),
 			Subject:  ackSubject(req),
+		}}
+	}
+
+	// A queue makes delivery return at the moment the message is queued, and
+	// auto settles on delivery's return: together they acknowledge the message
+	// before anything has handled it, so an error can no longer redeliver or
+	// dead-letter, and a full queue drops a message the broker was already told
+	// was handled. At-least-once quietly becomes at-most-once.
+	//
+	// Only auto is refused. Under AckNone nothing is ever acknowledged, and
+	// under AckPeriodic the offset advances on a timer regardless of outcome —
+	// neither has anything left to give up to the queue.
+	if policy.Mode == AckAuto && req.QueueSize != nil {
+		return AckPolicy{}, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  fmt.Sprintf("%s: queue_size cannot be combined with ack = %q", req.Receiver, AckAuto),
+			Detail: "Delivery returns as soon as the message is queued, and ack = \"auto\" settles " +
+				"the message with the broker when delivery returns — so it would be settled " +
+				"before anything handled it. A handler error could no longer redeliver or " +
+				"dead-letter it, and a full queue would drop a message already reported " +
+				"handled. " + queueSizeRemedy(req),
+			Subject: &req.QueueSizeRange,
 		}}
 	}
 
@@ -201,6 +235,31 @@ func (c *Config) ResolveAck(req AckRequest) (AckPolicy, hcl.Diagnostics) {
 	}
 	policy.SettleTimeout = d
 	return policy, nil
+}
+
+// queueSizeRemedy names the ways this particular receiver can get what
+// queue_size was reached for. It is composed from what the request already
+// says rather than passed in, so it stays honest on its own: a receiver that
+// implements manual settle drops its ManualPending and the advice appears with
+// it, and one that grows a `concurrency` attribute sets HasConcurrency.
+func queueSizeRemedy(req AckRequest) string {
+	switch {
+	case req.HasConcurrency && req.ManualPending == "":
+		return "Use concurrency for throughput, where each message still settles on its own " +
+			"outcome, or ack = \"manual\" with settle_timeout to keep the queue and settle " +
+			"the message yourself."
+	case req.HasConcurrency:
+		return "Use concurrency for throughput instead: each message still settles on its own " +
+			"outcome."
+	case req.ManualPending == "":
+		return "Set ack = \"manual\" with settle_timeout to keep the queue — the delivery " +
+			"travels on ctx, so inbound::ack() settles it wherever the work finishes — or " +
+			"remove queue_size."
+	default:
+		// Nothing this receiver offers keeps both, so say so rather than
+		// suggest a mode that keeps the queue by giving up more.
+		return "This receiver has no way to keep it yet: remove queue_size."
+	}
 }
 
 // ackSubject points a diagnostic at the `ack` attribute, or at the block when

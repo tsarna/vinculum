@@ -502,12 +502,25 @@ how much is in flight, and what lets the receiver decide whether to acknowledge
 the message. Under the default `ack = "auto"` the receiver acknowledges when
 delivery returns, which with `queue_size` set is the moment the message is
 queued rather than when the work finishes — so an error from that work can no
-longer trigger redelivery or dead-lettering. Set it there only if at-most-once
-delivery is what you want.
+longer trigger redelivery or dead-lettering, and a full queue drops a message
+the broker was already told was handled.
 
-**Unless the settle is explicit.** A receiver with `ack = "manual"` does not
-acknowledge when delivery returns; nothing is settled until the configuration
-calls [`inbound::ack()`](functions.md#acknowledging-an-inbound-message) or
+**So the combination is refused at load**, on every receiver that settles:
+
+```
+Error: sqs_receiver client "tasks": queue_size cannot be combined with ack = "auto"
+```
+
+Two things are being asked for at once, and each has its own answer.
+Throughput is `concurrency`, where the work runs in parallel and each message
+still settles on its own outcome — `client "sqs_receiver"` has it today.
+Decoupling the poll loop from the work is the queue, and keeping it means
+saying when the message is settled.
+
+**Which is what `ack = "manual"` does**, and it is the way to keep the queue. A
+receiver in that mode does not acknowledge when delivery returns; nothing is
+settled until the configuration calls
+[`inbound::ack()`](functions.md#acknowledging-an-inbound-message) or
 `inbound::nack()`. Because the delivery being settled travels on `ctx` rather
 than in `fields`, it survives the async queue, the bus, and any number of hops:
 
@@ -527,8 +540,9 @@ subscription "handle" {
 }
 ```
 
-That is the combination `queue_size` alone gets wrong: the acknowledgement now
-follows the real outcome, several hops later, instead of following the enqueue.
+The acknowledgement now follows the real outcome, several hops later, instead
+of following the enqueue — which is the whole of what `queue_size` alone got
+wrong.
 `settle_timeout` is required with it, and bounds how long a message may go
 unsettled before it is nacked and the failure logged — because a message
 nothing settles is costing something for as long as it is outstanding.
@@ -1062,10 +1076,12 @@ reference below apply in all of those contexts; `target`, `tracing`, and
 
 Identical semantics, but not identical consequences: `queue_size` on a
 subscription decouples a slow *outbound* path from the bus, which is what it is
-for, while on a receiver under the default `ack = "auto"` it discards the
-delivery outcome the receiver needs in order to acknowledge. Pair it with
-`ack = "manual"`, which settles explicitly and so survives the hop. See
-[delivery model](#delivery-model) under `bus` before setting it on a receiver.
+for, while on a receiver it discards the delivery outcome the receiver needs in
+order to acknowledge. A receiver that settles therefore refuses it under the
+default `ack = "auto"`: pair it with `ack = "manual"`, which settles explicitly
+and so survives the hop, or reach for `concurrency` if what you wanted was
+throughput. See [delivery model](#delivery-model) under `bus` before setting it
+on a receiver.
 
 #### Attributes
 
@@ -1101,7 +1117,7 @@ The block is parsed and validated, but nothing is created from it. A block that 
 
 **`queue_size`**
 
-When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, so a source that acknowledges on successful delivery acknowledges before the work is done.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, which on a receiver that settles with a broker is why it is refused alongside `ack = "auto"` — the message would be settled before anything handled it.
 
 **`subscriber`**
 
