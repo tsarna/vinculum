@@ -53,7 +53,7 @@ require (
 	github.com/tsarna/vinculum-rabbitmq v0.6.0
 	github.com/tsarna/vinculum-redis v0.6.0
 	github.com/tsarna/vinculum-sns v0.3.0
-	github.com/tsarna/vinculum-sqs v0.4.1
+	github.com/tsarna/vinculum-sqs v0.5.0
 	github.com/tsarna/vinculum-vws v0.14.1
 	github.com/tsarna/vinculum-wire v0.5.0
 	github.com/twmb/franz-go v1.21.6
