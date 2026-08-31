@@ -12,12 +12,11 @@ import (
 // DecodeBody decodes an HCL body into a gohcl struct and then enforces the one
 // thing gohcl's own struct tags cannot: a required `hcl.Expression` attribute.
 //
-// Every block in this repository decodes through here rather than through
-// gohcl.DecodeBody directly, and a test fails the build if anything else calls
-// gohcl.DecodeBody, because the alternative is remembering — and the whole
-// reason this exists is that thirty declarations had already forgotten.
+// Every block decodes through here rather than through gohcl.DecodeBody
+// directly, and TestDecodeBodyIsTheOnlyPathToGohcl fails the build if anything
+// else does.
 //
-// # Why gohcl cannot do it
+// # The trap
 //
 // gohcl's ImpliedBodySchema (gohcl/schema.go) never marks an hcl.Expression
 // attribute required, whatever the tag says:
@@ -28,20 +27,14 @@ import (
 //	    // the field is required during decoding.
 //	    required = false
 //
-// So `hcl:"bus"` on a server, with no `,optional`, reads as required to every
-// human who opens the file and is enforced by nothing. The attribute goes
-// missing, gohcl assigns a synthetic expression evaluating to a null, and the
-// block builds. What happens next was the whole spread of the bug: sometimes a
-// hand-written check caught it, sometimes a value check downstream reported
-// "got dynamic" — naming a type where the fault was a missing argument — and
-// sometimes, as with `trigger "start"` and no `action`, the configuration was
-// simply accepted and did nothing.
+// So `hcl:"bus"` with no `,optional` reads as required to anyone who opens the
+// file, and gohcl enforces nothing: the attribute goes missing, the field gets a
+// synthetic expression evaluating to null, and the block builds. Dropping
+// `,optional` from a tag is therefore never by itself enough to make an
+// expression attribute mandatory — which is what this restores.
 //
-// # What it reports
-//
-// hclsyntax's own wording, deliberately: an author who omits a required
-// argument should see one diagnostic shape, not two that differ by whether the
-// attribute happened to be an expression.
+// Diagnostics use hclsyntax's own wording, so an omitted argument reads the same
+// whether or not the attribute happens to hold an expression.
 func DecodeBody(body hcl.Body, ctx *hcl.EvalContext, target any) hcl.Diagnostics {
 	diags := gohcl.DecodeBody(body, ctx, target)
 	if diags.HasErrors() {

@@ -104,19 +104,14 @@ func TestDecodeBodyRecursesIntoBlocks(t *testing.T) {
 }
 
 // TestDecodeBodyIsTheOnlyPathToGohcl asserts that no production code decodes a
-// block body with gohcl.DecodeBody directly.
-//
-// It exists because the bug this file fixes was not one mistake but thirty:
-// `hcl:"bus"` with no `,optional` reads as required to anyone who opens the
-// file and is enforced by nothing, so every site that wrote one believed it had
-// declared a required attribute. A rule that has to be remembered at each new
-// decode site is the same bug waiting, which is why this is a build failure
-// rather than a note in CLAUDE.md.
+// block body with gohcl.DecodeBody directly. Going around config.DecodeBody
+// silently drops `required` on every hcl.Expression attribute in that block —
+// see the doc comment there — and nothing else would report it.
 //
 // The match is on the call — "gohcl.DecodeBody(" — so the several comments that
-// discuss gohcl.DecodeBody's behaviour in prose are not offenders.
+// discuss gohcl.DecodeBody's behavior in prose are not offenders.
 //
-// Tests are exempt: a test decoding a body to check gohcl's own behaviour is
+// Tests are exempt: a test decoding a body to check gohcl's own behavior is
 // asking about gohcl, not about a block.
 func TestDecodeBodyIsTheOnlyPathToGohcl(t *testing.T) {
 	root, err := filepath.Abs("..")
