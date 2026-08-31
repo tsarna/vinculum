@@ -566,8 +566,8 @@ The `baggage` block is a [baggage](baggage.md) trust filter. Inbound baggage is
 | Attribute | Type | Required | Default | Description |
 |---|---|---|---|:---|
 | `queue` | string | yes |  | Queue to consume from. |
+| `ack` | string |  | `auto` | When a received message is settled with the broker. |
 | `action` | expression (action-expression) |  |  | Expression evaluated once per message. |
-| `auto_ack` | bool |  | `false` | Acknowledge on delivery rather than after handling. |
 | `default_routing_key_transform` | string |  | `dot_to_slash` | How to derive a bus topic from a routing key with no `subscription` block. |
 | `exclusive` | bool |  | `false` | Claim the queue exclusively for this connection. |
 | `on_decode_error` | expression (action-expression) |  |  | Evaluated when an inbound message cannot be decoded. |
@@ -583,15 +583,17 @@ The `baggage` block is a [baggage](baggage.md) trust filter. Inbound baggage is
 
 With no `declare` block the queue is declared passively when the client connects, so a missing queue is reported at once rather than on the first message. The connection is retried, so a queue that has not been provisioned yet leaves the client not ready with the broker's own error, and it recovers when the queue appears.
 
+**`ack`**
+
+`auto` acknowledges once delivery returns without error, which is fast but loses a message whose handling fails after that point — including whenever `queue_size` is set, since delivery then returns at the moment the message is queued. `none` is AMQP's own no-ack mode, where the *broker* treats the message as delivered the moment it is sent and vinculum never acknowledges at all: faster still, and the message is gone if handling fails or the process dies holding it.
+
+One of: `auto`, `none`.
+
 **`action`**
 
 `ctx.topic` is the message topic and `ctx.msg` the payload; a protocol that extracts metadata also provides `ctx.fields`.
 
 Evaluated against the `message` context.
-
-**`auto_ack`**
-
-Faster, but a message is lost if handling fails or the process dies holding it.
 
 **`default_routing_key_transform`**
 

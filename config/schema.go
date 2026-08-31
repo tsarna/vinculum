@@ -207,6 +207,21 @@ func (meta AttrMeta) WithContextFields(fields ...ContextField) AttrMeta {
 	return meta
 }
 
+// WithEnum returns a copy of meta accepting exactly the given values. Use it
+// where a shared AttrMeta names one concept whose options genuinely differ per
+// host — `ack`, where only kafka can commit periodically and only rabbitmq has
+// a broker-side no-ack mode:
+//
+//	"ack": cfg.AckAttr.WithEnum(cfg.AckAuto, cfg.AckNone),
+//
+// The rule this exists to keep is that a generated page must never name an
+// option the block would reject. A host that accepts fewer values than the
+// shared attribute describes says so here rather than in prose.
+func (meta AttrMeta) WithEnum(values ...string) AttrMeta {
+	meta.Enum = values
+	return meta
+}
+
 // WithDefault returns a copy of meta stating the given default. Use it where a
 // shared AttrMeta describes an attribute whose default is genuinely the host's
 // choice rather than the attribute's:

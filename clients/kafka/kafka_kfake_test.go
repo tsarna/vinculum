@@ -185,14 +185,14 @@ func (s *firstMessageSubscriber) OnEvent(_ context.Context, _ string, msg any, _
 	return nil
 }
 
-// firstRecordAfterFailure consumes one record under the given commit mode with
-// an action that fails, then rejoins the same consumer group with a subscriber
+// firstRecordAfterFailure consumes one record under the given ack mode with an
+// action that fails, then rejoins the same consumer group with a subscriber
 // that succeeds and asks what it is handed first.
 //
 // A marker record produced to the second consumer is what makes the answer a
 // positive assertion rather than a wait: getting the original record back means
 // its offset was never committed, and getting only the marker means it was.
-func firstRecordAfterFailure(t *testing.T, commitMode string) string {
+func firstRecordAfterFailure(t *testing.T, ackMode string) string {
 	t.Helper()
 
 	cluster, err := kfake.NewCluster(kfake.SeedTopics(1, "intopic"))
@@ -228,7 +228,7 @@ client "kafka" "k" {
   receiver "r" {
     group_id     = "g"
     start_offset = "earliest"
-    commit_mode  = %q
+    ack          = %q
 
     action = [
       send(ctx, bus.main, "seen", ctx.msg),
@@ -240,7 +240,7 @@ client "kafka" "k" {
     }
   }
 }
-`, addr, commitMode)
+`, addr, ackMode)
 
 	first, stopFirst := startConfig(t, failing)
 	seen := &firstMessageSubscriber{got: make(chan string, 1)}
@@ -293,10 +293,13 @@ client "kafka" "k" {
 	}
 }
 
-func TestKfakeAfterProcessRedeliversAFailedRecord(t *testing.T) {
+func TestKfakeAutoRedeliversAFailedRecord(t *testing.T) {
 	// At-least-once: the offset advances only once the message was handled, so
-	// a record whose action failed is still there for the next consumer.
-	assert.Equal(t, "A", firstRecordAfterFailure(t, "after_process"))
+	// a record whose action failed is still there for the next consumer. This
+	// is what `commit_mode = "after_process"` did, under the name every
+	// receiver now shares, and the assertion is unchanged — which is the point
+	// of the rename.
+	assert.Equal(t, "A", firstRecordAfterFailure(t, "auto"))
 }
 
 func TestKfakePeriodicCommitsDespiteFailure(t *testing.T) {

@@ -160,13 +160,16 @@ consume a queue and deliver what arrives to the bus or an action.`,
 					Hint:    cfg.HintBool,
 					Default: "false",
 				},
-				"auto_ack": {
-					Summary: "Acknowledge on delivery rather than after handling.",
-					Doc: "Faster, but a message is lost if handling fails or the process " +
-						"dies holding it.",
-					Hint:    cfg.HintBool,
-					Default: "false",
-				},
+				"ack": cfg.AckAttr.
+					WithDoc("`auto` acknowledges once delivery returns without error, which is "+
+						"fast but loses a message whose handling fails after that point — "+
+						"including whenever `queue_size` is set, since delivery then returns "+
+						"at the moment the message is queued. `none` is AMQP's own no-ack "+
+						"mode, where the *broker* treats the message as delivered the moment "+
+						"it is sent and vinculum never acknowledges at all: faster still, and "+
+						"the message is gone if handling fails or the process dies holding "+
+						"it.").
+					WithEnum(cfg.AckAuto, cfg.AckNone),
 				"default_routing_key_transform": {
 					Summary: "How to derive a bus topic from a routing key with no `subscription` block.",
 					Doc: "`dot_to_slash` rewrites `a.b.c` as `a/b/c`, matching the bus's " +
@@ -276,7 +279,8 @@ type RMQReceiverDefinition struct {
 	QueueSize                  *int                         `hcl:"queue_size,optional"`
 	Prefetch                   *int                         `hcl:"prefetch,optional"`
 	Exclusive                  *bool                        `hcl:"exclusive,optional"`
-	AutoAck                    *bool                        `hcl:"auto_ack,optional"`
+	Ack                        string                       `hcl:"ack,optional"`
+	AckRange                   hcl.Range                    `hcl:"ack,attr_range"`
 	Baggage                    *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
 	Declare                    *RMQQueueDeclareDefinition   `hcl:"declare,block"`
 	Bindings                   []RMQBindingDefinition       `hcl:"binding,block"`
@@ -575,7 +579,41 @@ func (c *RMQClientWrapper) OnEvent(ctx context.Context, topic string, msg any, f
 
 // ─── Process ─────────────────────────────────────────────────────────────────
 
+// renamedReceiverAttrs retires the receiver's `auto_ack`, whose boolean had to
+// carry a distinction the other receivers spelled differently — and inverted:
+// `auto_ack = false` here was vinculum-acknowledges-after-handling, the same
+// behaviour Redis spelled `auto_ack = true`.
+//
+// The descent stops at the receiver. Its nested `declare` block has an
+// `auto_delete` of its own, meaning AMQP's delete-the-queue-when-unused, and a
+// rename table that reached it would report a perfectly good attribute.
+var renamedReceiverAttrs = cfg.RenameSpec{
+	Blocks: []cfg.RenamedInBlock{{
+		Type:   "receiver",
+		Labels: []string{"name"},
+		Spec: cfg.RenameSpec{
+			Attrs: map[string]cfg.RenamedAttr{
+				"auto_ack": {
+					Now:   "ack",
+					Since: "0.46.0",
+					Note: "`auto_ack = false` was the default and meant vinculum acknowledged " +
+						"after handling — now written `ack = \"auto\"`, which is also the " +
+						"default. `auto_ack = true` was AMQP's own no-ack mode, where the " +
+						"broker considers the message delivered on send, and is now " +
+						"`ack = \"none\"`.",
+				},
+			},
+		},
+	}},
+}
+
 func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Client, hcl.Diagnostics) {
+	// Before decoding, so a configuration still saying auto_ack is told what it
+	// became rather than that the argument is not expected here.
+	if diags := cfg.CheckRenamedAttrs(remainingBody, renamedReceiverAttrs); diags.HasErrors() {
+		return nil, diags
+	}
+
 	def := RMQClientDefinition{}
 	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &def)
 	if diags.HasErrors() {
@@ -817,9 +855,25 @@ func buildReceiverSpec(config *cfg.Config, clientName string, def RMQReceiverDef
 	if def.Exclusive != nil {
 		spec.exclusive = *def.Exclusive
 	}
-	if def.AutoAck != nil {
-		spec.autoAck = *def.AutoAck
+	policy, ackDiags := config.ResolveAck(cfg.AckRequest{
+		Receiver:   fmt.Sprintf("rabbitmq client %q receiver %q", clientName, def.Name),
+		Value:      def.Ack,
+		ValueRange: def.AckRange,
+		Extra:      cfg.AckNone,
+		ManualPending: "A RabbitMQ delivery tag never leaves the receiver, and it is " +
+			"channel-scoped: a reconnect re-points it, so a settle that arrives late " +
+			"would acknowledge a different message rather than fail. Making manual " +
+			"settle safe here needs a settle handle carrying the channel's epoch, " +
+			"which is a change to the vinculum-rabbitmq library. Use \"auto\" until " +
+			"then, which acknowledges once handling has returned.",
+		DefRange: def.DefRange,
+	})
+	if ackDiags.HasErrors() {
+		return spec, ackDiags
 	}
+	// AMQP's no-ack mode: the broker considers the message delivered on send.
+	// Every other mode leaves vinculum to acknowledge after handling.
+	spec.autoAck = policy.Mode == cfg.AckNone
 
 	xform, xformDiags := parseDefaultRoutingKeyTransform(def.DefaultRoutingKeyTransform, def.Name, def.DefRange)
 	if xformDiags.HasErrors() {

@@ -167,16 +167,15 @@ consume from Kafka topics as part of a consumer group.`,
 					Enum:    []string{"stored", "earliest", "latest"},
 					Default: "stored",
 				},
-				"commit_mode": {
-					Summary: "When to commit consumed offsets.",
-					Doc: "`after_process` commits once delivery succeeds, giving at-least-once " +
-						"delivery; `periodic` commits on a timer, which can lose or duplicate " +
-						"messages across a crash. A third value, `manual`, was once accepted " +
-						"and is now rejected — see " +
-						"[deprecations](deprecations.md#commit_mode--manual).",
-					Enum:    []string{"after_process", "periodic"},
-					Default: "after_process",
-				},
+				"ack": cfg.AckAttr.
+					WithDoc("`auto` commits a record's offset once delivery succeeds, giving "+
+						"at-least-once delivery; `periodic` commits on a timer regardless of "+
+						"outcome, which can lose or duplicate messages across a crash. "+
+						"Manual settle is not available here yet: acknowledging one record is "+
+						"not the same as committing an offset, and completing record 7 while "+
+						"5 is still outstanding needs a low-water-mark tracker this receiver "+
+						"does not have.").
+					WithEnum(cfg.AckAuto, cfg.AckPeriodic),
 				"dlq_topic": {
 					Summary: "Kafka topic to publish messages that could not be handled.",
 					Doc: "The record keeps its key and value and gains `vinculum-error`, " +
@@ -266,8 +265,8 @@ type ConsumerDefinition struct {
 	Transforms    hcl.Expression                `hcl:"transforms,optional"`
 	OnDecodeError hcl.Expression                `hcl:"on_decode_error,optional"`
 	QueueSize     *int                          `hcl:"queue_size,optional"`
-	CommitMode    string                        `hcl:"commit_mode,optional"`
-	CommitModeRng hcl.Range                     `hcl:"commit_mode,attr_range"`
+	Ack           string                        `hcl:"ack,optional"`
+	AckRange      hcl.Range                     `hcl:"ack,attr_range"`
 	DLQTopic      string                        `hcl:"dlq_topic,optional"`
 	Baggage       *hclutil.BaggageFilterConfig  `hcl:"baggage,block"`
 	Subscriptions []TopicSubscriptionDefinition `hcl:"subscription,block"`
@@ -547,7 +546,37 @@ func (c *KafkaClient) OnEvent(ctx context.Context, topic string, msg any, fields
 
 // ─── Config processing ────────────────────────────────────────────────────────
 
+// renamedReceiverAttrs retires `commit_mode`, whose three values were the one
+// receiver-side settle policy under a Kafka-specific name — and whose third
+// value, `manual`, was already rejected because nothing could commit an offset
+// explicitly.
+var renamedReceiverAttrs = cfg.RenameSpec{
+	Blocks: []cfg.RenamedInBlock{{
+		Type:   "receiver",
+		Labels: []string{"name"},
+		Spec: cfg.RenameSpec{
+			Attrs: map[string]cfg.RenamedAttr{
+				"commit_mode": {
+					Now:   "ack",
+					Since: "0.46.0",
+					Note: "`commit_mode = \"after_process\"` was the default and is now the " +
+						"default `ack = \"auto\"`. `commit_mode = \"periodic\"` is " +
+						"`ack = \"periodic\"`. `commit_mode = \"manual\"` was already " +
+						"rejected and remains unavailable; see " +
+						"[deprecations](deprecations.md#commit_mode--manual).",
+				},
+			},
+		},
+	}},
+}
+
 func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Client, hcl.Diagnostics) {
+	// Before decoding, so a configuration still saying commit_mode is told what
+	// it became rather than that the argument is not expected here.
+	if diags := cfg.CheckRenamedAttrs(remainingBody, renamedReceiverAttrs); diags.HasErrors() {
+		return nil, diags
+	}
+
 	def := KafkaClientDefinition{}
 	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &def)
 	if diags.HasErrors() {
@@ -950,35 +979,30 @@ func buildConsumerSpec(config *cfg.Config, clientName string, def ConsumerDefini
 		}}
 	}
 
-	switch def.CommitMode {
-	case "", "after_process":
-		spec.commitMode = kconsumer.CommitAfterProcess
-	case "periodic":
+	// "manual" is refused rather than accepted-and-ignored, which is what the
+	// old commit_mode did: it did not merely fail to commit explicitly, it fell
+	// through to the Kafka client's own periodic autocommit, making it an alias
+	// for the weakest mode in the enum while documented as the strongest.
+	policy, ackDiags := config.ResolveAck(cfg.AckRequest{
+		Receiver:   fmt.Sprintf("kafka client %q receiver %q", clientName, def.Name),
+		Value:      def.Ack,
+		ValueRange: def.AckRange,
+		Extra:      cfg.AckPeriodic,
+		ManualPending: "Acknowledging one record is not the same as committing an offset: " +
+			"completing record 7 while 5 is still outstanding cannot commit anything " +
+			"without a low-water-mark tracker, which this receiver does not have. Use " +
+			"\"auto\" for at-least-once delivery, where the offset advances only once " +
+			"the record has been handled, or \"periodic\" to commit on a timer " +
+			"regardless of the outcome.",
+		DefRange: def.DefRange,
+	})
+	if ackDiags.HasErrors() {
+		return spec, ackDiags
+	}
+	if policy.Mode == cfg.AckPeriodic {
 		spec.commitMode = kconsumer.CommitPeriodic
-	case "manual":
-		// Nothing can commit an offset explicitly yet, so "manual" cannot mean
-		// what it says. Left accepted it did not merely fail to commit — it
-		// fell through to the Kafka client's own periodic autocommit, making it
-		// an alias for the weakest mode in the enum while documented as the
-		// strongest. Refusing it here says so where the config is written,
-		// rather than at the first lost message. Lifted when manual settle
-		// arrives.
-		return spec, hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("kafka receiver %q: commit_mode \"manual\" is not implemented", def.Name),
-			Detail: "There is no way to commit an offset explicitly, so this mode cannot " +
-				"do what it promises. Use \"after_process\" for at-least-once delivery, " +
-				"where the offset advances only once the message has been handled, or " +
-				"\"periodic\" to commit on a timer regardless of the outcome.",
-			Subject: &def.CommitModeRng,
-		}}
-	default:
-		return spec, hcl.Diagnostics{{
-			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("kafka receiver %q: invalid commit_mode", def.Name),
-			Detail:   fmt.Sprintf("%q is not valid; use after_process or periodic", def.CommitMode),
-			Subject:  &def.CommitModeRng,
-		}}
+	} else {
+		spec.commitMode = kconsumer.CommitAfterProcess
 	}
 
 	spec.dlqTopic = def.DLQTopic

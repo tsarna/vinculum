@@ -60,15 +60,15 @@ var sqsReceiverSchema = cfg.TypeSchema{
 	Summary: "Receives messages from an Amazon SQS queue.",
 	DocPage: "client-sqs.md#client-sqs_receiver-name",
 	Doc: `Polls an SQS queue and delivers each message to the bus or an action. Messages
-are deleted once handled, unless ` + "`auto_delete`" + ` says otherwise.`,
+are deleted once handled, unless ` + "`ack`" + ` says otherwise.`,
 	Attrs: cfg.MergeAttrs(awsClientAttrs, cfg.SubscriberSourceAttrs, map[string]cfg.AttrMeta{
 		"action": cfg.SubscriberSourceAttrs["action"].WithDoc(
 			"`ctx.topic` is the vinculum topic and `ctx.msg` the decoded body. " +
 				"`ctx.fields` carries the message's own attributes plus the " +
-				"`$`-prefixed SQS system attributes, among them " +
-				"`$receipt_handle` — the value `sqs::delete()` takes. Fields do " +
-				"not cross a bus hop, so a manual delete belongs in this action " +
-				"rather than in a `subscription` behind `subscriber`."),
+				"`$`-prefixed SQS system attributes. Under `ack = \"manual\"` the " +
+				"message is settled with `inbound::ack()`, which reads the delivery " +
+				"from `ctx` and so works equally well from a `subscription` behind " +
+				"`subscriber`."),
 		"queue_url": {
 			Summary: "URL of the queue to receive from.",
 			Hint:    cfg.HintURL,
@@ -113,15 +113,18 @@ are deleted once handled, unless ` + "`auto_delete`" + ` says otherwise.`,
 				"still being processed. The queue's own setting applies when omitted.",
 			Hint: cfg.HintDuration,
 		},
-		"auto_delete": {
-			Summary: "Delete a message once it has been handled successfully.",
-			Doc: "A handler that returns an error leaves the message on the queue, so it " +
-				"reappears after the visibility timeout and is retried. Turn this off to " +
-				"take over deletion yourself with `sqs::delete()`, which is what lets a " +
-				"handler defer or abandon a message deliberately.",
-			Hint:    cfg.HintBool,
-			Default: "true",
-		},
+		"ack": cfg.AckAttr.WithDoc(
+			"`auto` deletes a message once delivery returns without error; a handler that " +
+				"returns an error leaves it on the queue, so it reappears after the " +
+				"visibility timeout and is retried. That is fast but loses a message whose " +
+				"handling fails after delivery returned — including whenever `queue_size` " +
+				"is set, since delivery then returns at the moment the message is queued. " +
+				"`manual` deletes nothing until the configuration calls `inbound::ack()`, " +
+				"and requires `settle_timeout`. `inbound::nack()` sends nothing: the " +
+				"message returns when its visibility timeout lapses and the queue's own " +
+				"redrive policy decides when it has been tried enough, and the reason " +
+				"reaches the log only."),
+		"settle_timeout": cfg.SettleTimeoutAttr,
 		"concurrency": {
 			Summary: "Number of polling loops run in parallel.",
 			Doc:     "Each polls independently, so this multiplies `max_messages` in flight.",
@@ -156,7 +159,9 @@ type SQSReceiverDefinition struct {
 	WaitTime          hcl.Expression               `hcl:"wait_time,optional"`
 	MaxMessages       *int                         `hcl:"max_messages,optional"`
 	VisibilityTimeout hcl.Expression               `hcl:"visibility_timeout,optional"`
-	AutoDelete        *bool                        `hcl:"auto_delete,optional"`
+	Ack               string                       `hcl:"ack,optional"`
+	AckRange          hcl.Range                    `hcl:"ack,attr_range"`
+	SettleTimeout     hcl.Expression               `hcl:"settle_timeout,optional"`
 	Concurrency       *int                         `hcl:"concurrency,optional"`
 	WireFormat        hcl.Expression               `hcl:"wire_format,optional"`
 	Metrics           hcl.Expression               `hcl:"metrics,optional"`
@@ -184,7 +189,30 @@ func (c *SQSReceiverClient) Stop() error {
 	return c.receiver.Stop(context.Background())
 }
 
+// renamedReceiverAttrs retires `auto_delete`, which was the Redis and RabbitMQ
+// behaviour under a third name. The rename is scoped to this block rather than
+// declared globally: `auto_delete` is a perfectly good attribute of a RabbitMQ
+// receiver's `declare` block, where it means something else entirely.
+var renamedReceiverAttrs = cfg.RenameSpec{
+	Attrs: map[string]cfg.RenamedAttr{
+		"auto_delete": {
+			Now:   "ack",
+			Since: "0.46.0",
+			Note: "`auto_delete = true` is the default, now written `ack = \"auto\"`. " +
+				"`auto_delete = false` is `ack = \"manual\"`, which also requires " +
+				"`settle_timeout` and is settled with `inbound::ack()` rather than the " +
+				"removed `sqs::delete()`.",
+		},
+	},
+}
+
 func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Client, hcl.Diagnostics) {
+	// Before decoding, so a configuration still saying auto_delete is told what
+	// it became rather than that the argument is not expected here.
+	if diags := cfg.CheckRenamedAttrs(remainingBody, renamedReceiverAttrs); diags.HasErrors() {
+		return nil, diags
+	}
+
 	def := SQSReceiverDefinition{}
 	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &def)
 	if diags.HasErrors() {
@@ -229,6 +257,17 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 		return nil, baggageDiags
 	}
 
+	policy, ackDiags := config.ResolveAck(cfg.AckRequest{
+		Receiver:      fmt.Sprintf("sqs_receiver client %q", clientName),
+		Value:         def.Ack,
+		ValueRange:    def.AckRange,
+		SettleTimeout: def.SettleTimeout,
+		DefRange:      def.DefRange,
+	})
+	if ackDiags.HasErrors() {
+		return nil, ackDiags
+	}
+
 	// Resolve subscriber / action (+ optional transforms / async queue).
 	target, subDiags := cfg.SubscriberSource{
 		Subscriber: def.Subscriber,
@@ -239,6 +278,11 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 	if subDiags.HasErrors() {
 		return nil, subDiags
 	}
+
+	// Bound how long a message may go unsettled, outside the async queue so the
+	// clock starts when the message arrives rather than when a worker reaches
+	// it. A no-op unless ack = "manual".
+	target = cfg.NewSettleTimeoutSubscriber(policy, target, "sqs_receiver/"+clientName, config.UserLogger)
 
 	// Strip untrusted inbound baggage at this external boundary before it reaches
 	// the action. Secure by default: a nil baggage block strips everything; opt
@@ -300,9 +344,7 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 	if def.MaxMessages != nil {
 		builder = builder.WithMaxMessages(int32(*def.MaxMessages))
 	}
-	if def.AutoDelete != nil {
-		builder = builder.WithAutoDelete(*def.AutoDelete)
-	}
+	builder = builder.WithAutoDelete(!policy.Manual())
 	if def.Concurrency != nil {
 		builder = builder.WithConcurrency(*def.Concurrency)
 	}

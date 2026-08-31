@@ -319,8 +319,8 @@ instead; set `queue_size` only if at-most-once delivery is acceptable. See
 | Attribute | Type | Required | Default | Description |
 |---|---|---|---|:---|
 | `queue_url` | expression (url) | yes |  | URL of the queue to receive from. |
+| `ack` | string |  | `auto` | When a received message is settled with the broker. |
 | `action` | expression (action-expression) |  |  | Expression evaluated once per message. |
-| `auto_delete` | bool |  | `true` | Delete a message once it has been handled successfully. |
 | `aws` | expression (client-ref) |  |  | Shared AWS configuration to use. |
 | `concurrency` | number |  | `1` | Number of polling loops run in parallel. |
 | `disabled` | bool |  |  | Skip this block entirely. |
@@ -329,6 +329,7 @@ instead; set `queue_size` only if at-most-once delivery is acceptable. See
 | `on_decode_error` | expression (action-expression) |  |  | Evaluated when an inbound message cannot be decoded. |
 | `queue_size` | number |  |  | Depth of an async queue wrapping the subscriber. |
 | `region` | string |  |  | AWS region to operate in. |
+| `settle_timeout` | expression (duration) |  |  | How long a message may go unsettled before it is nacked automatically. |
 | `subscriber` | expression (subscriber-ref) |  |  | Subscriber to forward messages to, instead of evaluating an action. |
 | `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
 | `transforms` | expression (transform-pipeline) |  |  | Transform pipeline applied before the action or subscriber. |
@@ -340,15 +341,17 @@ instead; set `queue_size` only if at-most-once delivery is acceptable. See
 - Specify at most one of action or subscriber.
 - Specify either an action to evaluate or a subscriber to forward to.
 
+**`ack`**
+
+`auto` deletes a message once delivery returns without error; a handler that returns an error leaves it on the queue, so it reappears after the visibility timeout and is retried. That is fast but loses a message whose handling fails after delivery returned — including whenever `queue_size` is set, since delivery then returns at the moment the message is queued. `manual` deletes nothing until the configuration calls `inbound::ack()`, and requires `settle_timeout`. `inbound::nack()` sends nothing: the message returns when its visibility timeout lapses and the queue's own redrive policy decides when it has been tried enough, and the reason reaches the log only.
+
+One of: `auto`, `manual`.
+
 **`action`**
 
-`ctx.topic` is the vinculum topic and `ctx.msg` the decoded body. `ctx.fields` carries the message's own attributes plus the `$`-prefixed SQS system attributes, among them `$receipt_handle` — the value `sqs::delete()` takes. Fields do not cross a bus hop, so a manual delete belongs in this action rather than in a `subscription` behind `subscriber`.
+`ctx.topic` is the vinculum topic and `ctx.msg` the decoded body. `ctx.fields` carries the message's own attributes plus the `$`-prefixed SQS system attributes. Under `ack = "manual"` the message is settled with `inbound::ack()`, which reads the delivery from `ctx` and so works equally well from a `subscription` behind `subscriber`.
 
 Evaluated against the `message` context.
-
-**`auto_delete`**
-
-A handler that returns an error leaves the message on the queue, so it reappears after the visibility timeout and is retried. Turn this off to take over deletion yourself with `sqs::delete()`, which is what lets a handler defer or abandon a message deliberately.
 
 **`aws`**
 
@@ -383,6 +386,10 @@ When set, delivery is handed to a background goroutine so slow work does not blo
 **`region`**
 
 Overrides the region of the referenced `client "aws"` block.
+
+**`settle_timeout`**
+
+Required with `ack = "manual"`, and rejected without it. An unsettled message costs something for as long as it is outstanding — an SQS visibility window, a RabbitMQ prefetch slot, a Kafka partition's committable offset — and forgetting to call `inbound::ack()` should be diagnosable rather than a slow stall. On expiry the message is nacked and the failure is logged against the receiver.
 
 **`subscriber`**
 

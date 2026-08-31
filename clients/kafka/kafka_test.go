@@ -68,8 +68,8 @@ client "kafka" "k" {
 	assert.Contains(t, msg, "either allow or deny")
 }
 
-// receiverWithCommitMode is a minimal receiver parameterized on commit_mode.
-func receiverWithCommitMode(mode string) string {
+// receiverWithAck is a minimal receiver parameterized on ack.
+func receiverWithAck(mode string) string {
 	return `
 bus "main" {}
 
@@ -79,7 +79,7 @@ client "kafka" "k" {
   receiver "r" {
     group_id    = "g"
     subscriber  = bus.main
-    commit_mode = "` + mode + `"
+    ack         = "` + mode + `"
 
     subscription "kafka.topic" {
       vinculum_topic = "in/topic"
@@ -89,29 +89,60 @@ client "kafka" "k" {
 `
 }
 
-func TestReceiverCommitModeManualIsRejected(t *testing.T) {
-	// "manual" promised caller-controlled commits that nothing can perform.
-	// Accepted, it fell through to the Kafka client's own periodic autocommit,
-	// so it was an alias for the weakest mode in the enum while documented as
-	// the strongest. See specs/KAFKA-UNFINISHED.md §1.
-	_, hasErr, msg := build(t, receiverWithCommitMode("manual"))
-	require.True(t, hasErr, `commit_mode = "manual" should be rejected at load`)
-	assert.Contains(t, msg, "not implemented")
-	assert.Contains(t, msg, "after_process")
-	assert.Contains(t, msg, "periodic")
+func TestReceiverAckManualIsRejected(t *testing.T) {
+	// Acknowledging one record is not committing an offset: completing record 7
+	// while 5 is outstanding needs a low-water-mark tracker this receiver does
+	// not have. Its predecessor, commit_mode = "manual", promised
+	// caller-controlled commits that nothing could perform and fell through to
+	// the Kafka client's own periodic autocommit — an alias for the weakest
+	// mode in the enum while documented as the strongest. See
+	// specs/KAFKA-UNFINISHED.md §1 and specs/CONTEXT-ACK.md §6 phase 3.
+	_, hasErr, msg := build(t, receiverWithAck("manual"))
+	require.True(t, hasErr, `ack = "manual" should be rejected at load`)
+	assert.Contains(t, msg, "not implemented yet")
+	assert.Contains(t, msg, "low-water-mark")
 }
 
-func TestReceiverCommitModeInvalidNamesTheRemainingModes(t *testing.T) {
-	_, hasErr, msg := build(t, receiverWithCommitMode("whenever"))
-	require.True(t, hasErr, "an unknown commit_mode should be rejected")
-	assert.Contains(t, msg, "use after_process or periodic")
+func TestReceiverAckInvalidNamesTheModesThisReceiverHas(t *testing.T) {
+	_, hasErr, msg := build(t, receiverWithAck("whenever"))
+	require.True(t, hasErr, "an unknown ack should be rejected")
+	assert.Contains(t, msg, `"auto"`)
+	assert.Contains(t, msg, `"periodic"`)
 }
 
-func TestReceiverCommitModesThatRemainStillParse(t *testing.T) {
-	for _, mode := range []string{"after_process", "periodic"} {
+func TestReceiverAckModesThatWorkStillParse(t *testing.T) {
+	for _, mode := range []string{"auto", "periodic"} {
 		t.Run(mode, func(t *testing.T) {
-			_, hasErr, msg := build(t, receiverWithCommitMode(mode))
+			_, hasErr, msg := build(t, receiverWithAck(mode))
 			require.False(t, hasErr, msg)
 		})
 	}
+}
+
+// The old spelling is met with what it became, rather than with gohcl's
+// "argument named commit_mode is not expected here" — which is true, useless,
+// and gives an upgrading configuration nothing to search for.
+func TestRetiredCommitModeSaysWhatItBecame(t *testing.T) {
+	src := `
+bus "main" {}
+
+client "kafka" "k" {
+  brokers = ["localhost:9092"]
+
+  receiver "r" {
+    group_id    = "g"
+    subscriber  = bus.main
+    commit_mode = "after_process"
+
+    subscription "kafka.topic" {
+      vinculum_topic = "in/topic"
+    }
+  }
+}
+`
+	_, hasErr, msg := build(t, src)
+	require.True(t, hasErr, "commit_mode should no longer be accepted")
+	assert.Contains(t, msg, `"commit_mode" is now "ack"`)
+	assert.Contains(t, msg, "0.46.0")
+	assert.Contains(t, msg, `ack = "auto"`)
 }

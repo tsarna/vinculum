@@ -186,7 +186,11 @@ func (r *busRecorder) OnEvent(_ context.Context, topic string, msg any, _ map[st
 	return nil
 }
 
-func TestRedisAckGlobalFunction(t *testing.T) {
+// Manual settle from the consumer's own action. The action names neither the
+// consumer nor the entry ID — the delivery it is settling is already on ctx,
+// which is what lets the same expression work from a subscription several bus
+// hops away.
+func TestManualAckFromTheConsumerAction(t *testing.T) {
 	mr := miniredis.RunT(t)
 	src := fmt.Sprintf(`
 client "redis" "base" { address = "%s" }
@@ -196,11 +200,12 @@ client "redis_stream" "rs" {
     producer "out" { stream = "events" }
 
     consumer "in" {
-        stream        = "events"
-        group         = "g"
-        block_timeout = "100ms"
-        auto_ack      = false
-        action        = redis::ack(ctx, client.rs.consumer.in, ctx.fields["$entry_id"])
+        stream         = "events"
+        group          = "g"
+        block_timeout  = "100ms"
+        ack            = "manual"
+        settle_timeout = "30s"
+        action         = inbound::ack(ctx)
     }
 }
 `, mr.Addr())
@@ -210,15 +215,13 @@ client "redis_stream" "rs" {
 	wrapper := c.Clients["redis_stream"]["rs"].(*redisstream.RedisStreamClient)
 	require.NoError(t, wrapper.OnEvent(context.Background(), "x", "hi", nil))
 
-	// The entry is delivered pending (auto_ack = false); the consumer's own
-	// action acks it with the entry ID the consumer put in ctx.fields.
 	rc := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
 	defer rc.Close()
 	require.Eventually(t, func() bool {
 		pending, err := rc.XPending(context.Background(), "events", "g").Result()
 		return err == nil && pending.Count == 0
 	}, 3*time.Second, 20*time.Millisecond,
-		`action should have acked the entry via ctx.fields["$entry_id"]`)
+		"the action should have acked the entry through the settler on ctx")
 }
 
 func TestDeadLetterAfterMovesEntry(t *testing.T) {
@@ -236,7 +239,8 @@ client "redis_stream" "rs" {
         stream             = "events"
         group              = "g"
         block_timeout      = "100ms"
-        auto_ack           = false
+        ack                = "manual"
+        settle_timeout     = "30s"
         dead_letter_stream = "events:dlq"
         dead_letter_after  = 1
 

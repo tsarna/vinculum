@@ -390,8 +390,8 @@ consumer group semantics.
 | Attribute | Type | Required | Default | Description |
 |---|---|---|---|:---|
 | `group_id` | string | yes |  | Consumer group this receiver joins. |
+| `ack` | string |  | `auto` | When a received message is settled with the broker. |
 | `action` | expression (action-expression) |  |  | Expression evaluated once per message. |
-| `commit_mode` | string |  | `after_process` | When to commit consumed offsets. |
 | `dlq_topic` | string |  |  | Kafka topic to publish messages that could not be handled. |
 | `on_decode_error` | expression (action-expression) |  |  | Evaluated when an inbound message cannot be decoded. |
 | `queue_size` | number |  |  | Depth of an async queue wrapping the subscriber. |
@@ -406,17 +406,17 @@ consumer group semantics.
 
 Kafka distributes each topic's partitions across the members of a group.
 
+**`ack`**
+
+`auto` commits a record's offset once delivery succeeds, giving at-least-once delivery; `periodic` commits on a timer regardless of outcome, which can lose or duplicate messages across a crash. Manual settle is not available here yet: acknowledging one record is not the same as committing an offset, and completing record 7 while 5 is still outstanding needs a low-water-mark tracker this receiver does not have.
+
+One of: `auto`, `periodic`.
+
 **`action`**
 
 `ctx.topic` is the message topic and `ctx.msg` the payload; a protocol that extracts metadata also provides `ctx.fields`.
 
 Evaluated against the `message` context.
-
-**`commit_mode`**
-
-`after_process` commits once delivery succeeds, giving at-least-once delivery; `periodic` commits on a timer, which can lose or duplicate messages across a crash. A third value, `manual`, was once accepted and is now rejected — see [deprecations](deprecations.md#commit_mode--manual).
-
-One of: `after_process`, `periodic`.
 
 **`dlq_topic`**
 

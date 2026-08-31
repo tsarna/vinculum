@@ -663,8 +663,8 @@ Without a cap the stream grows without bound.
 |---|---|---|---|:---|
 | `group` | string | yes |  | Consumer group to join. |
 | `stream` | expression | yes |  | Stream to consume from. |
+| `ack` | string |  | `auto` | When a received message is settled with the broker. |
 | `action` | expression (action-expression) |  |  | Expression evaluated once per message. |
-| `auto_ack` | bool |  | `true` | Acknowledge as soon as delivery returns without error. |
 | `batch_size` | number |  | `10` | Maximum entries to read at once. |
 | `block_timeout` | expression (duration) |  | `2s` | How long to wait for new entries before polling again. |
 | `consumer_name` | expression |  |  | Name identifying this consumer within the group. |
@@ -678,6 +678,7 @@ Without a cap the stream grows without bound.
 | `queue_size` | number |  |  | Depth of an async queue wrapping the subscriber. |
 | `reclaim_min_idle` | expression (duration) |  | `5m` | How long an entry must be idle before it can be reclaimed. |
 | `reclaim_pending` | bool |  | `true` | Take over entries another consumer read but never acknowledged. |
+| `settle_timeout` | expression (duration) |  |  | How long a message may go unsettled before it is nacked automatically. |
 | `subscriber` | expression (subscriber-ref) |  |  | Subscriber to forward messages to, instead of evaluating an action. |
 | `topic_field` | string |  | `topic` | Stream field carrying the bus topic. |
 | `transforms` | expression (transform-pipeline) |  |  | Transform pipeline applied before the action or subscriber. |
@@ -690,15 +691,17 @@ Without a cap the stream grows without bound.
 
 Redis distributes a stream's entries across the members of a group.
 
+**`ack`**
+
+`auto` issues `XACK` as soon as delivery returns without error, which is fast but loses an entry whose handling fails after that point — including whenever `queue_size` is set, since delivery then returns at the moment the entry is queued. `manual` leaves the entry in the group's pending list until the configuration calls `inbound::ack()`, and requires `settle_timeout`. A nacked entry stays pending for `reclaim_min_idle` and `dead_letter_after` to act on, and its reason reaches the log only.
+
+One of: `auto`, `manual`.
+
 **`action`**
 
-`ctx.topic` is the vinculum topic and `ctx.msg` the entry's payload. `ctx.fields` carries the entry's own fields as `fields_mode` maps them, plus `$entry_id`, the entry's Redis ID — the value `redis::ack()` takes. Fields do not cross a bus hop, so manual acknowledgement belongs in this action rather than in a `subscription` behind `subscriber`.
+`ctx.topic` is the vinculum topic and `ctx.msg` the entry's payload. `ctx.fields` carries the entry's own fields as `fields_mode` maps them, plus `$entry_id`, the entry's Redis ID — useful for logging and correlation, and not needed to acknowledge anything. Under `ack = "manual"` the entry is settled with `inbound::ack()`, which reads the delivery from `ctx` and so works equally well from a `subscription` behind `subscriber`.
 
 Evaluated against the `message` context.
-
-**`auto_ack`**
-
-Faster, but an entry is lost if handling fails after delivery has returned — including whenever `queue_size` is set, since delivery then returns at the moment the entry is queued. Turn it off to acknowledge explicitly with `redis::ack()`.
 
 **`consumer_name`**
 
@@ -733,6 +736,10 @@ Long enough that a slow consumer is not mistaken for a dead one.
 **`reclaim_pending`**
 
 This is what recovers work left behind by a crashed consumer.
+
+**`settle_timeout`**
+
+Required with `ack = "manual"`, and rejected without it. An unsettled message costs something for as long as it is outstanding — an SQS visibility window, a RabbitMQ prefetch slot, a Kafka partition's committable offset — and forgetting to call `inbound::ack()` should be diagnosable rather than a slow stall. On expiry the message is nacked and the failure is logged against the receiver.
 
 **`subscriber`**
 

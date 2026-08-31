@@ -102,9 +102,10 @@ what it has acknowledged, so a consumer can resume after a restart.`,
 				"action": cfg.SubscriberSourceAttrs["action"].WithDoc(
 					"`ctx.topic` is the vinculum topic and `ctx.msg` the entry's payload. " +
 						"`ctx.fields` carries the entry's own fields as `fields_mode` maps " +
-						"them, plus `$entry_id`, the entry's Redis ID — the value " +
-						"`redis::ack()` takes. Fields do not cross a bus hop, so manual " +
-						"acknowledgement belongs in this action rather than in a " +
+						"them, plus `$entry_id`, the entry's Redis ID — useful for logging " +
+						"and correlation, and not needed to acknowledge anything. Under " +
+						"`ack = \"manual\"` the entry is settled with `inbound::ack()`, which " +
+						"reads the delivery from `ctx` and so works equally well from a " +
 						"`subscription` behind `subscriber`."),
 				"stream": {Summary: "Stream to consume from."},
 				"group":  {Summary: "Consumer group to join.", Doc: "Redis distributes a stream's entries across the members of a group."},
@@ -128,15 +129,16 @@ what it has acknowledged, so a consumer can resume after a restart.`,
 				},
 				"batch_size":    {Summary: "Maximum entries to read at once.", Default: "10"},
 				"block_timeout": {Summary: "How long to wait for new entries before polling again.", Hint: cfg.HintDuration, Default: "2s"},
-				"auto_ack": {
-					Summary: "Acknowledge as soon as delivery returns without error.",
-					Doc: "Faster, but an entry is lost if handling fails after delivery has " +
-						"returned — including whenever `queue_size` is set, since delivery then " +
-						"returns at the moment the entry is queued. Turn it off to acknowledge " +
-						"explicitly with `redis::ack()`.",
-					Hint:    cfg.HintBool,
-					Default: "true",
-				},
+				"ack": cfg.AckAttr.WithDoc(
+					"`auto` issues `XACK` as soon as delivery returns without error, which is " +
+						"fast but loses an entry whose handling fails after that point — " +
+						"including whenever `queue_size` is set, since delivery then returns " +
+						"at the moment the entry is queued. `manual` leaves the entry in the " +
+						"group's pending list until the configuration calls `inbound::ack()`, " +
+						"and requires `settle_timeout`. A nacked entry stays pending for " +
+						"`reclaim_min_idle` and `dead_letter_after` to act on, and its reason " +
+						"reaches the log only."),
+				"settle_timeout": cfg.SettleTimeoutAttr,
 				"group_create": {
 					Summary: "Where a newly created group starts reading from.",
 					Doc: "`create_if_missing` creates the group at the end of the stream, so " +
@@ -199,7 +201,9 @@ type ConsumerDef struct {
 	Baggage          *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
 	BatchSize        *int64                       `hcl:"batch_size,optional"`
 	BlockTimeout     hcl.Expression               `hcl:"block_timeout,optional"`
-	AutoAck          *bool                        `hcl:"auto_ack,optional"`
+	Ack              string                       `hcl:"ack,optional"`
+	AckRange         hcl.Range                    `hcl:"ack,attr_range"`
+	SettleTimeout    hcl.Expression               `hcl:"settle_timeout,optional"`
 	GroupCreate      string                       `hcl:"group_create,optional"`
 	PayloadField     *string                      `hcl:"payload_field,optional"`
 	TopicField       *string                      `hcl:"topic_field,optional"`
@@ -314,7 +318,36 @@ func (c *RedisStreamClient) OnEvent(ctx context.Context, topic string, msg any, 
 
 // ─── Config processing ────────────────────────────────────────────────────────
 
+// renamedConsumerAttrs retires `auto_ack`, which said in a boolean what four
+// receivers each spelled differently. It lives on the consumer block, one level
+// below where processing starts, so the descent is named explicitly rather than
+// guessed — the sibling blocks have attributes of their own to leave alone.
+var renamedConsumerAttrs = cfg.RenameSpec{
+	Blocks: []cfg.RenamedInBlock{{
+		Type:   "consumer",
+		Labels: []string{"name"},
+		Spec: cfg.RenameSpec{
+			Attrs: map[string]cfg.RenamedAttr{
+				"auto_ack": {
+					Now:   "ack",
+					Since: "0.46.0",
+					Note: "`auto_ack = true` is the default, now written `ack = \"auto\"`. " +
+						"`auto_ack = false` is `ack = \"manual\"`, which also requires " +
+						"`settle_timeout` and is settled with `inbound::ack()` rather than " +
+						"the removed `redis::ack()`.",
+				},
+			},
+		},
+	}},
+}
+
 func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Client, hcl.Diagnostics) {
+	// Before decoding, so a configuration still saying auto_ack is told what it
+	// became rather than that the argument is not expected here.
+	if diags := cfg.CheckRenamedAttrs(remainingBody, renamedConsumerAttrs); diags.HasErrors() {
+		return nil, diags
+	}
+
 	def := RedisStreamDefinition{}
 	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &def)
 	if diags.HasErrors() {
@@ -584,6 +617,17 @@ func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, cli
 		return nil, baggageDiags
 	}
 
+	policy, ackDiags := config.ResolveAck(cfg.AckRequest{
+		Receiver:      fmt.Sprintf("redis_stream client %q consumer %q", clientName, def.Name),
+		Value:         def.Ack,
+		ValueRange:    def.AckRange,
+		SettleTimeout: def.SettleTimeout,
+		DefRange:      def.DefRange,
+	})
+	if ackDiags.HasErrors() {
+		return nil, ackDiags
+	}
+
 	target, diags := cfg.SubscriberSource{
 		Subscriber: def.Subscriber,
 		Action:     def.Action,
@@ -593,6 +637,12 @@ func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, cli
 	if diags.HasErrors() {
 		return nil, diags
 	}
+
+	// Bound how long an entry may go unsettled, outside the async queue so the
+	// clock starts when the entry arrives rather than when a worker reaches it.
+	// A no-op unless ack = "manual".
+	target = cfg.NewSettleTimeoutSubscriber(policy, target,
+		fmt.Sprintf("redis_stream/%s/%s", clientName, def.Name), config.UserLogger)
 
 	// Strip untrusted inbound baggage at this external boundary before it reaches
 	// the action. Secure by default: a nil baggage block strips everything; opt
@@ -655,9 +705,7 @@ func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, cli
 		}
 		b = b.WithBlockTimeout(d)
 	}
-	if def.AutoAck != nil {
-		b = b.WithAutoAck(*def.AutoAck)
-	}
+	b = b.WithAutoAck(!policy.Manual())
 
 	switch def.GroupCreate {
 	case "", "create_if_missing":
