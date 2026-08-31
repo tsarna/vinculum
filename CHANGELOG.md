@@ -291,6 +291,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **`bus.main` is no longer implicit. Every bus is declared.** A configuration
+  that names `bus.main` must now contain:
+
+  ```hcl
+  bus "main" {}
+  ```
+
+  It was the only name in the language that existed without being written, and
+  the exception cost more than the convenience returned. Being built before any
+  block was processed, the implicit bus was permanently ahead of every
+  `server "metrics"` and `client "otlp"`, so it was the one bus that could never
+  report metrics or traces — no declaration order could put a backend in front
+  of it. It could not be configured either: `queue_size`, `metrics`, `tracing`,
+  and `undeliverable` are attributes of a block that, in that case, did not
+  exist, so it was fixed at 1000 slots with no backend and no `$undeliverable`,
+  and every attribute added to `bus` was one more setting one particular bus
+  could not have.
+
+  A configuration that declares no bus now creates none: no goroutine, no
+  1000-element channel. Three of the four shipped examples use no bus at all and
+  had been paying for one.
+
+  Naming an undeclared bus is a load-time error that names the fix — *"No bus is
+  declared by this configuration. Declare one with `bus "main" {}`."* — so this
+  cannot reach a running process.
+
 - **`redis::ack()`, `sqs::delete()`, and `sqs::extend_visibility()` are
   removed**, replaced by `inbound::ack()`, `inbound::ack()`, and
   `inbound::keepalive()` — see Added above. `vinculum check` names the
@@ -347,6 +373,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   An unrecognized `commit_mode` now names the two modes that remain.
 
 ### Changed
+
+- **`target` on `subscription`, and `bus` on `server "vws"` and
+  `server "websocket"`, are required.** All three used to fall back to
+  `bus.main`, which is no longer guaranteed to exist. An attribute that defaults
+  to a block the author must declare is not a default; it is a required
+  attribute with a worse error message.
+
+  `subscription`'s `target` is the one to check when upgrading, and the only one
+  of the three whose documented behavior ever worked in reverse: it was
+  documented as defaulting to `bus.main` and never did — omitting it failed with
+  *"expected EventBus or Client capsule, got dynamic"*. It is now honestly
+  required, and says so.
 
 - **Every receiver says when a message is settled the same way, with `ack`.**
   `auto_ack`, `auto_delete`, and `commit_mode` are removed in its favour.

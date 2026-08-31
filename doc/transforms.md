@@ -21,7 +21,7 @@ left-to-right:
 
 ```hcl
 subscription "example" {
-    bus    = bus.main
+    target = bus.main
     topics = ["sensors/#"]
 
     # single transform

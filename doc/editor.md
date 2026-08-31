@@ -486,7 +486,7 @@ editor "line" "normalize_hosts" {
 }
 
 subscription "inbound" {
-    bus    = bus.main
+    target = bus.main
     topics = ["requests/#"]
     action = send(ctx, bus.processed, ctx.topic,
                   normalize_hosts(ctx, ctx.msg.body, "example.com"))

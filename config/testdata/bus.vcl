@@ -1,5 +1,6 @@
-# if a "main" bus is not defined, one is define automatically as if this was present:
-# bus "main" {}
+# A bus named "main" is a bus like any other: it exists because it is declared
+# here, and a configuration that does not declare one does not have one.
+bus "main" {}
 
 assert "main bus" {
     condition = (bus.main != null)

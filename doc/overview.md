@@ -217,7 +217,7 @@ bus "main" {
 }
 
 subscription "logger" {
-    bus = bus.main
+    target = bus.main
     topics = ["app/#"]
     action = log::info("Received message", ctx.msg)
 }
@@ -236,7 +236,7 @@ trigger "cron" "heartbeat" {
 
 ```hcl
 subscription "data_processor" {
-    bus = bus.main
+    target = bus.main
     topics = ["raw/data/#"]
     transforms = [
         jq("select(.valid == true)"),
@@ -277,7 +277,7 @@ const {
 }
 
 subscription "event_router" {
-    bus = bus.main
+    target = bus.main
     topics = ["events/#"]
     transforms = [
         if_else_topic_pattern(

@@ -24,8 +24,6 @@ type BusDefinition struct {
 type BusBlockHandler struct {
 	BlockHandlerBase
 	BackendDeps
-
-	mainBusDefined bool
 }
 
 // EventBusCapsuleType is a cty capsule type for wrapping EventBus instances
@@ -125,22 +123,70 @@ func GetEventBusFromCapsule(val cty.Value) (bus.EventBus, error) {
 	return eventBus, nil
 }
 
+// UndeclaredBusDiags reports a `bus.<name>` that names no declared bus, in the
+// wording the deferred-reference checker uses for the same mistake.
+//
+// The checker in exprcheck.go covers only attributes evaluated at event time. A
+// bus reference is the opposite: `target` on a subscription and `bus` on a vws
+// or websocket server resolve as the block is processed, so without this they
+// get HCL's generic "This object does not have an attribute named "main"",
+// which names neither what `bus` is nor what to do about it.
+//
+// It returns nil when the expression is not a plain bus reference or when every
+// bus it names exists, so the caller falls back to the diagnostics HCL gave it.
+func UndeclaredBusDiags(config *Config, expr hcl.Expression) hcl.Diagnostics {
+	var diags hcl.Diagnostics
+
+	for _, traversal := range expr.Variables() {
+		if traversal.RootName() != "bus" {
+			continue
+		}
+		step, ok := traversal[1].(hcl.TraverseAttr)
+		if !ok {
+			continue
+		}
+		if _, found := config.Buses[step.Name]; found {
+			continue
+		}
+
+		detail := fmt.Sprintf("Declared bus names are: %s.", joinNames(sortedKeys(config.Buses)))
+		if len(config.Buses) == 0 {
+			detail = "No bus is declared by this configuration. Declare one with `bus \"" +
+				step.Name + "\" {}`."
+		}
+
+		diags = diags.Append(&hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  fmt.Sprintf("No bus named %q", step.Name),
+			Detail:   detail,
+			Subject:  traversal.SourceRange().Ptr(),
+		})
+	}
+
+	return diags
+}
+
 func GetEventBusFromExpression(config *Config, busExpr hcl.Expression) (bus.EventBus, hcl.Diagnostics) {
 	busCapsule, diags := busExpr.Value(config.evalCtx)
 	if diags.HasErrors() {
+		if better := UndeclaredBusDiags(config, busExpr); better.HasErrors() {
+			return nil, better
+		}
 		return nil, diags
 	}
 
+	// An omitted attribute never reaches here — every caller's is required, and
+	// DecodeBody reports it missing. What does reach here is an expression that
+	// evaluated to null, which is to say `bus = null` written out, or a
+	// reference to something that is.
 	if busCapsule.IsNull() {
-		if bus, ok := config.Buses["main"]; ok {
-			return bus, nil
-		} else {
-			return nil, hcl.Diagnostics{
-				&hcl.Diagnostic{
-					Severity: hcl.DiagError,
-					Summary:  "Main bus not found",
-				},
-			}
+		return nil, hcl.Diagnostics{
+			&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "No bus given",
+				Detail:   "This attribute names the bus to use, and evaluated to null. Name a declared bus, such as `bus.main`.",
+				Subject:  busExpr.Range().Ptr(),
+			},
 		}
 	}
 
@@ -173,7 +219,9 @@ var busSchema = TypeSchema{
 	Summary: "An in-process publish/subscribe event bus.",
 	Doc: `Declares an event bus, available in expressions as ` + "`bus.<name>`" + `.
 
-` + "`bus.main`" + ` always exists implicitly and does not need to be declared.`,
+Every bus is declared, ` + "`bus.main`" + ` included: the name carries no special
+meaning and nothing creates one on your behalf. A configuration that declares no
+bus has none, and starts no delivery goroutine.`,
 	Attrs: map[string]AttrMeta{
 		"type": {
 			Summary: "Bus implementation to use.",
@@ -212,8 +260,6 @@ single delivery goroutine. The ` + "`undelivered`" + ` counter — always on, re
 	},
 }
 
-// TODO: use preprocess hook to see if the main bus is defined, and automatically define it if not
-
 func (h *BusBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {
 	return "bus." + block.Labels[0], nil
 }
@@ -226,24 +272,15 @@ func (h *BusBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, hcl.
 	return h.AddBackendDeps(ExtractBlockDependencies(block), block, "metrics", "tracing"), nil
 }
 
-func (h *BusBlockHandler) Preprocess(block *hcl.Block) hcl.Diagnostics {
-	if block.Labels[0] == "main" {
-		h.mainBusDefined = true
-	}
-
-	return nil
-}
-
+// FinishPreprocessing establishes the `bus` root before any block is processed.
+//
+// It is set unconditionally, so a configuration with no bus block has an empty
+// `bus` object rather than no `bus` at all. That is the difference between
+// `bus.main` reporting "No bus is declared by this configuration" and reporting
+// that `bus` is not a name the language has.
 func (h *BusBlockHandler) FinishPreprocessing(config *Config) hcl.Diagnostics {
 	config.BusCapsuleType = EventBusCapsuleType
-
-	if !h.mainBusDefined {
-		busDef := BusDefinition{
-			Name: "main",
-		}
-
-		return h.BuildEventBus(config, &busDef, &hcl.Range{})
-	}
+	config.Constants["bus"] = cty.ObjectVal(config.CtyBusMap)
 
 	return nil
 }

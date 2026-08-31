@@ -105,7 +105,7 @@ condition "timer" "safety_fault" {
 }
 
 subscription "clear_fault" {
-    bus    = bus.main
+    target = bus.main
     topics = ["operator/reset"]
     action = clear(condition.safety_fault)
 }
@@ -280,7 +280,7 @@ condition "timer" "safety_fault" {
 }
 
 subscription "clear_fault" {
-    bus    = bus.main
+    target = bus.main
     topics = ["operator/reset"]
     action = clear(condition.safety_fault)
 }
@@ -310,7 +310,7 @@ Leave `input` out and drive it imperatively instead:
 
 ```hcl
 subscription "door_sensor" {
-    bus    = bus.main
+    target = bus.main
     topics = ["sensor/door"]
     action = set(condition.door_open, ctx.payload.open)
 }
@@ -456,13 +456,13 @@ condition "timer" "fault" {
 }
 
 subscription "fault_events" {
-    bus    = bus.main
+    target = bus.main
     topics = ["system/fault"]
     action = set(condition.fault, true)
 }
 
 subscription "ack_events" {
-    bus    = bus.main
+    target = bus.main
     topics = ["operator/ack"]
     action = clear(condition.fault)
 }
@@ -810,13 +810,13 @@ condition "counter" "fault_count" {
 }
 
 subscription "fault_events" {
-    bus    = bus.main
+    target = bus.main
     topics = ["system/fault"]
     action = increment(condition.fault_count)
 }
 
 subscription "ack_events" {
-    bus    = bus.main
+    target = bus.main
     topics = ["operator/ack"]
     action = reset(condition.fault_count)
 }
@@ -831,13 +831,13 @@ condition "counter" "room_occupied" {
 }
 
 subscription "entry_events" {
-    bus    = bus.main
+    target = bus.main
     topics = ["sensor/entry"]
     action = increment(condition.room_occupied)
 }
 
 subscription "exit_events" {
-    bus    = bus.main
+    target = bus.main
     topics = ["sensor/exit"]
     action = decrement(condition.room_occupied)
 }

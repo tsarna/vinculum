@@ -205,3 +205,66 @@ subscription "unroutable" {
 		assert.Equal(c, "senosr/typo", val.AsString())
 	}, time.Second, 5*time.Millisecond)
 }
+
+// TestNoBusIsDeclaredCreatesNoBus asserts that a configuration with no bus
+// block builds no bus, and so starts no delivery goroutine and allocates no
+// queue. A bus-free configuration is the common case — three of the four
+// shipped examples use none.
+func TestNoBusIsDeclaredCreatesNoBus(t *testing.T) {
+	config, diags := NewConfig().
+		WithSources([]byte(`const { greeting = "hi" }`)).
+		WithLogger(zap.NewNop()).
+		Build()
+	require.False(t, diags.HasErrors(), "%s", diags)
+
+	assert.Empty(t, config.Buses)
+	assert.Empty(t, config.CtyBusMap)
+
+	// The `bus` root still exists, and is empty rather than absent. That is what
+	// lets the reference checker say "No bus is declared by this configuration"
+	// instead of failing to recognise `bus` as a root at all.
+	root, ok := config.Constants["bus"]
+	require.True(t, ok, "the bus root must exist even when no bus does")
+	assert.True(t, root.Type().IsObjectType())
+	assert.Empty(t, root.Type().AttributeTypes())
+}
+
+// TestUndeclaredMainBusIsReported pins the diagnostic for the mistake an
+// upgrade produces: `bus.main` in a configuration that declares no bus fails at
+// load, naming the fix, rather than at the first event.
+func TestUndeclaredMainBusIsReported(t *testing.T) {
+	_, diags := NewConfig().
+		WithSources([]byte(`
+subscription "s" {
+    target = bus.main
+    topics = ["in"]
+    action = log::info("x")
+}
+`)).
+		WithLogger(zap.NewNop()).
+		Build()
+
+	require.True(t, diags.HasErrors())
+	assert.Contains(t, diags.Error(), `No bus named "main"`)
+	assert.Contains(t, diags.Error(), "No bus is declared by this configuration.")
+}
+
+// TestSubscriptionTargetIsRequired pins `target` as required rather than
+// defaulted, and pins the wording, since the tag alone cannot enforce it —
+// config.DecodeBody does.
+func TestSubscriptionTargetIsRequired(t *testing.T) {
+	_, diags := NewConfig().
+		WithSources([]byte(`
+bus "main" {}
+
+subscription "s" {
+    topics = ["in"]
+    action = log::info("x")
+}
+`)).
+		WithLogger(zap.NewNop()).
+		Build()
+
+	require.True(t, diags.HasErrors())
+	assert.Contains(t, diags.Error(), `The argument "target" is required`)
+}

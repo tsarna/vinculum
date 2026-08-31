@@ -59,7 +59,7 @@ Name one in a server's or route's `auth`, or a list of them to accept several. T
 
 Each bus, by name.
 
-`bus.main` always exists, even when it is not declared explicitly.
+Every bus is declared, `bus.main` included; the name carries no special meaning.
 
 *One name here for each `bus` block, so what exists is what your configuration declares.*
 
@@ -409,7 +409,18 @@ bus "name" {
 Declares an event bus. The bus is available in expressions as `bus.<name>`. For
 example, `bus "foo" {}` creates `bus.foo`.
 
-`bus.main` always exists implicitly and does not need to be declared.
+Every bus is declared, `bus.main` included. The name carries no special meaning
+and nothing creates one on your behalf: a configuration that declares no bus has
+none, and starts no delivery goroutine.
+
+Earlier versions created `bus.main` implicitly whenever a configuration did not
+declare it. Because it was built before any other block, it was also the one bus
+that could never report metrics or traces — there was no way to write a backend
+ahead of it. Declaring it is what makes it an ordinary bus:
+
+```hcl
+bus "main" {}
+```
 
 #### Attributes
 
@@ -1089,17 +1100,21 @@ on a receiver.
 
 | Attribute | Type | Required | Description |
 |---|---|---|:---|
+| `target` | expression (bus-ref) | yes | Bus to subscribe to. |
 | `topics` | list (topic-pattern) | yes | Topic patterns to subscribe to. |
 | `action` | expression (action-expression) |  | Expression evaluated once per message. |
 | `disabled` | bool |  | Skip this block entirely. |
 | `queue_size` | number |  | Depth of an async queue wrapping the subscriber. |
 | `subscriber` | expression (subscriber-ref) |  | Subscriber to forward messages to, instead of evaluating an action. |
-| `target` | expression (bus-ref) |  | Bus to subscribe to. |
 | `tracing` | expression (tracing-ref) |  | Where to report traces. |
 | `transforms` | expression (transform-pipeline) |  | Transform pipeline applied before the action or subscriber. |
 
 - Specify at most one of action or subscriber.
 - Specify either an action to evaluate or a subscriber to forward to.
+
+**`target`**
+
+A bus — `bus.main`, `bus.events`. Unlike `subscriber`, this slot resolves an event bus and nothing else.
 
 **`topics`**
 
@@ -1122,10 +1137,6 @@ When set, delivery is handed to a background goroutine so slow work does not blo
 **`subscriber`**
 
 Anything that can receive messages: a bus, an FSM, a subscriber-implementing server or client.
-
-**`target`**
-
-A bus — `bus.main`, `bus.events`. Defaults to `bus.main`. Unlike `subscriber`, this slot resolves an event bus and nothing else.
 
 **`tracing`**
 

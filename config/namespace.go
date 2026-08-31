@@ -149,7 +149,7 @@ var blockNamespaceSchemas = map[string]NamespaceSchema{
 	"bus": {
 		Block:   "bus",
 		Summary: "Each bus, by name.",
-		Doc:     "`bus.main` always exists, even when it is not declared explicitly.",
+		Doc:     "Every bus is declared, `bus.main` included; the name carries no special meaning.",
 		DocPage: "config.md#bus",
 	},
 	"check": {

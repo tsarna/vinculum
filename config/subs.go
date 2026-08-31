@@ -19,7 +19,7 @@ import (
 
 type SubscriptionDefinition struct {
 	Name       string         `hcl:"name,label"`
-	TargetExpr hcl.Expression `hcl:"target,optional"`
+	TargetExpr hcl.Expression `hcl:"target"`
 	Topics     []string       `hcl:"topics"`
 	QueueSize  *int           `hcl:"queue_size,optional"`
 	Transforms hcl.Expression `hcl:"transforms,optional"`
@@ -181,7 +181,7 @@ client *receiver* block.`,
 	Attrs: MergeAttrs(SubscriberSourceAttrs, map[string]AttrMeta{
 		"target": {
 			Summary: "Bus to subscribe to.",
-			Doc:     "A bus — `bus.main`, `bus.events`. Defaults to `bus.main`. Unlike `subscriber`, this slot resolves an event bus and nothing else.",
+			Doc:     "A bus — `bus.main`, `bus.events`. Unlike `subscriber`, this slot resolves an event bus and nothing else.",
 			Hint:    HintBusRef,
 		},
 		"topics": {
@@ -326,6 +326,9 @@ func (h *SubscriptionBlockHandler) Process(config *Config, block *hcl.Block) hcl
 func GetTargetFromExpression(config *Config, targetExpr hcl.Expression) (any, hcl.Diagnostics) {
 	targetCapsule, diags := targetExpr.Value(config.evalCtx)
 	if diags.HasErrors() {
+		if better := UndeclaredBusDiags(config, targetExpr); better.HasErrors() {
+			return nil, better
+		}
 		return nil, diags
 	}
 	if targetCapsule.Type() == EventBusCapsuleType {
@@ -361,6 +364,7 @@ func GetTargetFromExpression(config *Config, targetExpr hcl.Expression) (any, hc
 			Severity: hcl.DiagError,
 			Summary:  "Failed to get target from expression",
 			Detail:   fmt.Sprintf("expected EventBus or Client capsule, got %s", targetCapsule.Type().FriendlyName()),
+			Subject:  targetExpr.Range().Ptr(),
 		},
 	}
 }
@@ -464,19 +468,6 @@ func GetSubscriberFromExpression(config *Config, subscriberExpr hcl.Expression) 
 	subscriberCapsule, diags := subscriberExpr.Value(config.evalCtx)
 	if diags.HasErrors() {
 		return nil, diags
-	}
-
-	if subscriberCapsule.IsNull() {
-		if subscriber, ok := config.Buses["main"]; ok {
-			return subscriber, nil
-		} else {
-			return nil, hcl.Diagnostics{
-				&hcl.Diagnostic{
-					Severity: hcl.DiagError,
-					Summary:  "Main bus not found",
-				},
-			}
-		}
 	}
 
 	subscriber, err := GetSubscriberFromCapsule(subscriberCapsule)

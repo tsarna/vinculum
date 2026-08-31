@@ -1626,7 +1626,7 @@ var "sensor_reading" {}
 
 # Producer only sets the variable — no knowledge of any watchdog required.
 subscription "sensor" {
-    bus    = bus.main
+    target = bus.main
     topics = ["sensor/+"]
     action = set(var.sensor_reading, ctx.payload.value)
 }
