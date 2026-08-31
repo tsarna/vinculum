@@ -2,7 +2,6 @@ package signals
 
 import (
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 )
 
@@ -54,7 +53,7 @@ Does **not** create a ` + "`trigger.<name>`" + ` value.`,
 
 func processSignalsTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {
 	signalsDef := cfg.SignalsDefinition{}
-	diags := gohcl.DecodeBody(triggerDef.RemainingBody, config.EvalCtx(), &signalsDef)
+	diags := cfg.DecodeBody(triggerDef.RemainingBody, config.EvalCtx(), &signalsDef)
 	if diags.HasErrors() {
 		return diags
 	}

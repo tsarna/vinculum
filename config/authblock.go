@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -135,7 +134,7 @@ func authDeclID(block *hcl.Block) string {
 
 func (h *AuthBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {
 	def := AuthDefinition{}
-	diags := gohcl.DecodeBody(block.Body, config.evalCtx, &def)
+	diags := DecodeBody(block.Body, config.evalCtx, &def)
 	if diags.HasErrors() {
 		return diags
 	}

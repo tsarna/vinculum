@@ -9,7 +9,6 @@ import (
 	richcty "github.com/tsarna/rich-cty-types"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
@@ -609,7 +608,7 @@ func parseGateEdge(edge *string, defRange hcl.Range) (edgeMode, hcl.Diagnostics)
 
 func processFlipflopCondition(config *cfg.Config, block *hcl.Block, def *cfg.ConditionDefinition) hcl.Diagnostics {
 	body := flipflopBody{}
-	diags := gohcl.DecodeBody(def.RemainingBody, config.EvalCtx(), &body)
+	diags := cfg.DecodeBody(def.RemainingBody, config.EvalCtx(), &body)
 	if diags.HasErrors() {
 		return diags
 	}

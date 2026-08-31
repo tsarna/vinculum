@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	richcty "github.com/tsarna/rich-cty-types"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
@@ -231,7 +230,7 @@ func processLineEditor(config *cfg.Config, evalCtxFn func() *hcl.EvalContext, de
 	var diags hcl.Diagnostics
 
 	body := &lineEditorBody{}
-	decodeDiags := gohcl.DecodeBody(def.Body, evalCtxFn(), body)
+	decodeDiags := cfg.DecodeBody(def.Body, evalCtxFn(), body)
 	diags = diags.Extend(decodeDiags)
 	if diags.HasErrors() {
 		return function.Function{}, diags

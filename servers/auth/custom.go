@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -59,7 +58,7 @@ table, a signed query parameter. The whole request is readable as
 
 func processCustomAuth(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Authenticator, hcl.Diagnostics) {
 	def := customDefinition{}
-	if diags := gohcl.DecodeBody(body, config.EvalCtx(), &def); diags.HasErrors() {
+	if diags := cfg.DecodeBody(body, config.EvalCtx(), &def); diags.HasErrors() {
 		return nil, diags
 	}
 

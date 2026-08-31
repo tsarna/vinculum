@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	richcty "github.com/tsarna/rich-cty-types"
 	bus "github.com/tsarna/vinculum-bus"
 	"github.com/zclconf/go-cty/cty"
@@ -251,7 +250,7 @@ func (h *BusBlockHandler) FinishPreprocessing(config *Config) hcl.Diagnostics {
 
 func (h *BusBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {
 	busDef := BusDefinition{}
-	diags := gohcl.DecodeBody(block.Body, config.evalCtx, &busDef)
+	diags := DecodeBody(block.Body, config.evalCtx, &busDef)
 	if diags.HasErrors() {
 		return diags
 	}

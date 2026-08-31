@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"go.uber.org/zap"
 )
 
@@ -49,7 +48,7 @@ func (h *AssertBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl
 
 func (h *AssertBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {
 	assertion := Assert{}
-	diags := gohcl.DecodeBody(block.Body, config.evalCtx, &assertion)
+	diags := DecodeBody(block.Body, config.evalCtx, &assertion)
 	if diags.HasErrors() {
 		return diags
 	}

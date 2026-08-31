@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
@@ -79,7 +78,7 @@ func (h *ServerBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, h
 
 func (h *ServerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {
 	serverDef := ServerDefinition{}
-	diags := gohcl.DecodeBody(block.Body, config.evalCtx, &serverDef)
+	diags := DecodeBody(block.Body, config.evalCtx, &serverDef)
 	if diags.HasErrors() {
 		return diags
 	}

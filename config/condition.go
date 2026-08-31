@@ -2,7 +2,6 @@ package config
 
 import (
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -112,7 +111,7 @@ func (h *ConditionBlockHandler) Process(config *Config, block *hcl.Block) hcl.Di
 	// Decode the attributes every condition accepts, whatever its subtype,
 	// leaving the rest of the body to the subtype's own decode struct.
 	def := &ConditionDefinition{}
-	if diags := gohcl.DecodeBody(block.Body, config.evalCtx, def); diags.HasErrors() {
+	if diags := DecodeBody(block.Body, config.evalCtx, def); diags.HasErrors() {
 		return diags
 	}
 	// gohcl.DecodeBody does not populate label fields from a bare body.

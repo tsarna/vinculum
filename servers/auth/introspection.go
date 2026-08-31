@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -113,7 +112,7 @@ revocation has to take effect before the token would have expired on its own.`,
 
 func processIntrospectionAuth(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Authenticator, hcl.Diagnostics) {
 	def := introspectionDefinition{}
-	if diags := gohcl.DecodeBody(body, config.EvalCtx(), &def); diags.HasErrors() {
+	if diags := cfg.DecodeBody(body, config.EvalCtx(), &def); diags.HasErrors() {
 		return nil, diags
 	}
 

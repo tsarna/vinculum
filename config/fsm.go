@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	fsm "github.com/tsarna/vinculum-fsm"
 	"github.com/zclconf/go-cty/cty"
@@ -279,7 +278,7 @@ func (h *FsmBlockHandler) FinishPreprocessing(config *Config) hcl.Diagnostics {
 
 func (h *FsmBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {
 	var topLevel FsmTopLevel
-	diags := gohcl.DecodeBody(block.Body, config.evalCtx, &topLevel)
+	diags := DecodeBody(block.Body, config.evalCtx, &topLevel)
 	if diags.HasErrors() {
 		return diags
 	}

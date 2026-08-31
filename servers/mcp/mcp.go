@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
@@ -225,7 +224,7 @@ template — ` + "`db://records/{table}/{id}`" + ` — and each placeholder arri
 // ProcessMcpServerBlock parses an "server mcp" block and creates an McpServer.
 func ProcessMcpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Listener, hcl.Diagnostics) {
 	var def McpServerDefinition
-	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &def)
+	diags := cfg.DecodeBody(remainingBody, config.EvalCtx(), &def)
 	if diags.HasErrors() {
 		return nil, diags
 	}

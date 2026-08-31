@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	goredis "github.com/redis/go-redis/v9"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
@@ -156,7 +155,7 @@ func (c *RedisClient) Stop() error {
 
 func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Client, hcl.Diagnostics) {
 	def := RedisConnectionDefinition{}
-	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &def)
+	diags := cfg.DecodeBody(remainingBody, config.EvalCtx(), &def)
 	if diags.HasErrors() {
 		return nil, diags
 	}

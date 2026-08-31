@@ -15,7 +15,6 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/jmoiron/sqlx"
 	sqlengine "github.com/tsarna/vinculum/clients/sql"
 	cfg "github.com/tsarna/vinculum/config"
@@ -82,7 +81,7 @@ type mysqlDef struct {
 
 func process(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Client, hcl.Diagnostics) {
 	var def mysqlDef
-	diags := gohcl.DecodeBody(body, config.EvalCtx(), &def)
+	diags := cfg.DecodeBody(body, config.EvalCtx(), &def)
 	if diags.HasErrors() {
 		return nil, diags
 	}

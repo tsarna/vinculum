@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/zclconf/go-cty/cty/function"
 )
 
@@ -102,7 +101,7 @@ func extractEditorFunctions(bodies []hcl.Body, config *Config, evalCtxFn func() 
 
 			// Decode common outer attributes, leaving the rest for the type processor
 			outer := &editorOuterBody{}
-			decodeDiags := gohcl.DecodeBody(block.Body, evalCtxFn(), outer)
+			decodeDiags := DecodeBody(block.Body, evalCtxFn(), outer)
 			diags = diags.Extend(decodeDiags)
 			if decodeDiags.HasErrors() {
 				continue

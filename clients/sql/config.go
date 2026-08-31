@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 )
 
@@ -102,7 +101,7 @@ Parameters are bound positionally, so values are never interpolated into the SQL
 // hcl:",remain").
 func DecodeCommonDef(body hcl.Body, ctx *hcl.EvalContext) (*CommonDef, hcl.Diagnostics) {
 	var c CommonDef
-	diags := gohcl.DecodeBody(body, ctx, &c)
+	diags := cfg.DecodeBody(body, ctx, &c)
 	if diags.HasErrors() {
 		return nil, diags
 	}

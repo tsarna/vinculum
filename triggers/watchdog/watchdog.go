@@ -10,7 +10,6 @@ import (
 	richcty "github.com/tsarna/rich-cty-types"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	timecty "github.com/tsarna/time-cty-funcs"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
@@ -430,7 +429,7 @@ acknowledge-and-rearm flow, ` + "`set()`" + ` is the right call.`,
 
 func processWatchdogTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {
 	body := triggerWatchdogBody{}
-	diags := gohcl.DecodeBody(triggerDef.RemainingBody, config.EvalCtx(), &body)
+	diags := cfg.DecodeBody(triggerDef.RemainingBody, config.EvalCtx(), &body)
 	if diags.HasErrors() {
 		return diags
 	}

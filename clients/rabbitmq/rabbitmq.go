@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
 	bus "github.com/tsarna/vinculum-bus"
 	rmqclient "github.com/tsarna/vinculum-rabbitmq/client"
@@ -616,7 +615,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	}
 
 	def := RMQClientDefinition{}
-	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &def)
+	diags := cfg.DecodeBody(remainingBody, config.EvalCtx(), &def)
 	if diags.HasErrors() {
 		return nil, diags
 	}

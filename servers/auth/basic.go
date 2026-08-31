@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -67,7 +66,7 @@ TLS.`,
 
 func processBasicAuth(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Authenticator, hcl.Diagnostics) {
 	def := basicDefinition{}
-	if diags := gohcl.DecodeBody(body, config.EvalCtx(), &def); diags.HasErrors() {
+	if diags := cfg.DecodeBody(body, config.EvalCtx(), &def); diags.HasErrors() {
 		return nil, diags
 	}
 

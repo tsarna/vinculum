@@ -15,7 +15,6 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
 	"github.com/jmoiron/sqlx"
@@ -93,7 +92,7 @@ type postgresDef struct {
 
 func process(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Client, hcl.Diagnostics) {
 	var def postgresDef
-	diags := gohcl.DecodeBody(body, config.EvalCtx(), &def)
+	diags := cfg.DecodeBody(body, config.EvalCtx(), &def)
 	if diags.HasErrors() {
 		return nil, diags
 	}

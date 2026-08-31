@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/jmoiron/sqlx"
 	sqlite3 "github.com/mattn/go-sqlite3"
 	sqlengine "github.com/tsarna/vinculum/clients/sql"
@@ -37,7 +36,7 @@ var sqlitePoolDefaults = sqlengine.PoolDefaults{
 
 func process(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Client, hcl.Diagnostics) {
 	var def sqliteDef
-	diags := gohcl.DecodeBody(body, config.EvalCtx(), &def)
+	diags := cfg.DecodeBody(body, config.EvalCtx(), &def)
 	if diags.HasErrors() {
 		return nil, diags
 	}

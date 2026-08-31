@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
 	bus "github.com/tsarna/vinculum-bus"
 	mqttclient "github.com/tsarna/vinculum-mqtt/client"
@@ -528,7 +527,7 @@ func (c *MQTTClientWrapper) OnEvent(ctx context.Context, topic string, msg any, 
 
 func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Client, hcl.Diagnostics) {
 	def := MQTTClientDefinition{}
-	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &def)
+	diags := cfg.DecodeBody(remainingBody, config.EvalCtx(), &def)
 	if diags.HasErrors() {
 		return nil, diags
 	}

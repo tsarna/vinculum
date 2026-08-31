@@ -9,7 +9,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
 	snssender "github.com/tsarna/vinculum-sns/sender"
 	wire "github.com/tsarna/vinculum-wire"
@@ -129,7 +128,7 @@ func (c *SNSSenderClient) Stop() error {
 
 func processSender(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Client, hcl.Diagnostics) {
 	def := SNSSenderDefinition{}
-	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &def)
+	diags := cfg.DecodeBody(remainingBody, config.EvalCtx(), &def)
 	if diags.HasErrors() {
 		return nil, diags
 	}

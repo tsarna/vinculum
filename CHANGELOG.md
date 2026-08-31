@@ -204,6 +204,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A required attribute holding an expression is now actually required.**
+  Thirty attributes across the language were declared required and enforced by
+  nothing, because gohcl never marks an `hcl.Expression` attribute required
+  during decoding — it assigns a synthetic null instead and lets the caller
+  deal with it. Nobody dealt with it. What an author saw depended on what the
+  block did with the null next:
+
+  ```hcl
+  trigger "start" "boot" {}                  # accepted; the trigger did nothing
+  trigger "after" "later" { action = ... }   # "Invalid duration type ... got dynamic"
+  server "vws" "w" { queue_size = 10 }       # accepted; joined bus.main
+  ```
+
+  All three now report `Missing required argument`, naming the attribute, in
+  hclsyntax's own wording — so an omitted argument reads the same whether or not
+  the attribute happens to hold an expression. The worst of the three was
+  `trigger "start"` with no `action`: a configuration that loaded clean,
+  reported nothing at any log level, and silently did not run the thing it was
+  written to run.
+
+  Blocks nested inside a block are checked too, which is where several of the
+  thirty were: an mqtt `will` with no `topic`, a `channel_subscription` with no
+  `channel`.
+
 - **Whether a configuration is instrumented no longer depends on where the
   backend block is written.** A `metrics` or `tracing` attribute that is omitted
   auto-wires the default backend — and resolution happens as each block is

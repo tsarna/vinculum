@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -31,7 +30,7 @@ type protobufBody struct {
 // message in the set (when message is omitted).
 func Process(config *cfg.Config, block *hcl.Block, body hcl.Body) (cty.Value, hcl.Diagnostics) {
 	var decoded protobufBody
-	diags := gohcl.DecodeBody(body, config.EvalCtx(), &decoded)
+	diags := cfg.DecodeBody(body, config.EvalCtx(), &decoded)
 	if diags.HasErrors() {
 		return cty.NilVal, diags
 	}

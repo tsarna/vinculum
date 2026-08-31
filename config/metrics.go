@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/tsarna/vinculum/types"
@@ -452,7 +451,7 @@ func (h *MetricBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 	name := block.Labels[1]
 
 	def := MetricDefinition{}
-	diags := gohcl.DecodeBody(block.Body, config.evalCtx, &def)
+	diags := DecodeBody(block.Body, config.evalCtx, &def)
 	if diags.HasErrors() {
 		return diags
 	}

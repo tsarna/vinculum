@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
@@ -121,7 +120,7 @@ on demand. An error on the first call is cached and returned just the same.`,
 
 func processOnceTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {
 	body := triggerOnceBody{}
-	diags := gohcl.DecodeBody(triggerDef.RemainingBody, config.EvalCtx(), &body)
+	diags := cfg.DecodeBody(triggerDef.RemainingBody, config.EvalCtx(), &body)
 	if diags.HasErrors() {
 		return diags
 	}

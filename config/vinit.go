@@ -6,7 +6,6 @@ import (
 	"slices"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
@@ -216,7 +215,7 @@ func processPluginBlock(
 	seen map[string]hcl.Range,
 ) hcl.Diagnostics {
 	var def PluginDefinition
-	diags := gohcl.DecodeBody(block.Body, evalCtx, &def)
+	diags := DecodeBody(block.Body, evalCtx, &def)
 	if diags.HasErrors() {
 		return diags
 	}

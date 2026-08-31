@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum-vws/client"
 	cfg "github.com/tsarna/vinculum/config"
@@ -230,7 +229,7 @@ type VinculumWebsocketsClientDefinition struct {
 
 func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Client, hcl.Diagnostics) {
 	clientDef := VinculumWebsocketsClientDefinition{}
-	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &clientDef)
+	diags := cfg.DecodeBody(remainingBody, config.EvalCtx(), &clientDef)
 	if diags.HasErrors() {
 		return nil, diags
 	}

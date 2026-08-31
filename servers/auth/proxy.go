@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -84,7 +83,7 @@ checked rather than a network path trusted, so neither condition above applies.`
 
 func processProxyAuth(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Authenticator, hcl.Diagnostics) {
 	def := proxyDefinition{}
-	if diags := gohcl.DecodeBody(body, config.EvalCtx(), &def); diags.HasErrors() {
+	if diags := cfg.DecodeBody(body, config.EvalCtx(), &def); diags.HasErrors() {
 		return nil, diags
 	}
 

@@ -6,7 +6,6 @@ import (
 	"reflect"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
 	richcty "github.com/tsarna/rich-cty-types"
 	bus "github.com/tsarna/vinculum-bus"
@@ -227,7 +226,7 @@ func (h *SubscriptionBlockHandler) GetBlockDependencies(block *hcl.Block) ([]str
 
 func (h *SubscriptionBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {
 	subscriptionDef := SubscriptionDefinition{}
-	diags := gohcl.DecodeBody(block.Body, config.evalCtx, &subscriptionDef)
+	diags := DecodeBody(block.Body, config.evalCtx, &subscriptionDef)
 	if diags.HasErrors() {
 		return diags
 	}

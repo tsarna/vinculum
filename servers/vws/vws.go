@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/go2cty2go"
 	"github.com/tsarna/vinculum-bus/transform"
 	vwspkg "github.com/tsarna/vinculum-vws"
@@ -123,7 +122,7 @@ of a ` + "`server \"http\"`" + ` block with ` + "`handler = server.<name>`" + `.
 
 func ProcessVinculumWebsocketsServerBlock(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Listener, hcl.Diagnostics) {
 	serverDef := VinculumWebsocketsServerDefinition{}
-	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &serverDef)
+	diags := cfg.DecodeBody(remainingBody, config.EvalCtx(), &serverDef)
 	if diags.HasErrors() {
 		return nil, diags
 	}

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	goredis "github.com/redis/go-redis/v9"
 	bytescty "github.com/tsarna/bytes-cty-type"
 	richcty "github.com/tsarna/rich-cty-types"
@@ -344,7 +343,7 @@ func asString(v cty.Value, name string) (string, error) {
 
 func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Client, hcl.Diagnostics) {
 	def := RedisKVDefinition{}
-	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &def)
+	diags := cfg.DecodeBody(remainingBody, config.EvalCtx(), &def)
 	if diags.HasErrors() {
 		return nil, diags
 	}

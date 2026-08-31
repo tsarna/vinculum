@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
@@ -549,7 +548,7 @@ trigger; ` + "`set(trigger.<name>)`" + ` restarts using the configured ` + "`del
 
 func processIntervalTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {
 	body := triggerIntervalBody{}
-	diags := gohcl.DecodeBody(triggerDef.RemainingBody, config.EvalCtx(), &body)
+	diags := cfg.DecodeBody(triggerDef.RemainingBody, config.EvalCtx(), &body)
 	if diags.HasErrors() {
 		return diags
 	}

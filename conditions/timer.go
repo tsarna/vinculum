@@ -10,7 +10,6 @@ import (
 	richcty "github.com/tsarna/rich-cty-types"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
@@ -309,7 +308,7 @@ one-to-one; the attributes below add delay, hold, noise filtering, and latching.
 
 func processTimerCondition(config *cfg.Config, block *hcl.Block, def *cfg.ConditionDefinition) hcl.Diagnostics {
 	body := timerBody{}
-	diags := gohcl.DecodeBody(def.RemainingBody, config.EvalCtx(), &body)
+	diags := cfg.DecodeBody(def.RemainingBody, config.EvalCtx(), &body)
 	if diags.HasErrors() {
 		return diags
 	}

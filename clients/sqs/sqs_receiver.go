@@ -6,7 +6,6 @@ import (
 
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	sqsreceiver "github.com/tsarna/vinculum-sqs/receiver"
 	wire "github.com/tsarna/vinculum-wire"
 	cfg "github.com/tsarna/vinculum/config"
@@ -210,7 +209,7 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 	}
 
 	def := SQSReceiverDefinition{}
-	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &def)
+	diags := cfg.DecodeBody(remainingBody, config.EvalCtx(), &def)
 	if diags.HasErrors() {
 		return nil, diags
 	}

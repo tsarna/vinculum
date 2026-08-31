@@ -10,7 +10,6 @@ import (
 	richcty "github.com/tsarna/rich-cty-types"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/gocty"
@@ -389,7 +388,7 @@ latch. Counters have no input to re-sample, so ` + "`clear()`" + ` does the same
 
 func processCounterCondition(config *cfg.Config, block *hcl.Block, def *cfg.ConditionDefinition) hcl.Diagnostics {
 	body := counterBody{}
-	diags := gohcl.DecodeBody(def.RemainingBody, config.EvalCtx(), &body)
+	diags := cfg.DecodeBody(def.RemainingBody, config.EvalCtx(), &body)
 	if diags.HasErrors() {
 		return diags
 	}

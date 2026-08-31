@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/lestrrat-go/httprc/v3"
 	"github.com/lestrrat-go/jwx/v3/jwa"
 	"github.com/lestrrat-go/jwx/v3/jwk"
@@ -198,7 +197,7 @@ access.`,
 
 func processOIDCAuth(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Authenticator, hcl.Diagnostics) {
 	def := oidcDefinition{}
-	if diags := gohcl.DecodeBody(body, config.EvalCtx(), &def); diags.HasErrors() {
+	if diags := cfg.DecodeBody(body, config.EvalCtx(), &def); diags.HasErrors() {
 		return nil, diags
 	}
 

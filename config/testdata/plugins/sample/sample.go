@@ -5,7 +5,6 @@ package main
 
 import (
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
@@ -56,7 +55,7 @@ type sampleClient struct {
 
 func processSampleClient(cfg *config.Config, block *hcl.Block, body hcl.Body) (config.Client, hcl.Diagnostics) {
 	def := sampleClientBody{}
-	if diags := gohcl.DecodeBody(body, cfg.EvalCtx(), &def); diags.HasErrors() {
+	if diags := config.DecodeBody(body, cfg.EvalCtx(), &def); diags.HasErrors() {
 		return nil, diags
 	}
 	return &sampleClient{

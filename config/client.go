@@ -5,7 +5,6 @@ import (
 	"reflect"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	richcty "github.com/tsarna/rich-cty-types"
 	bus "github.com/tsarna/vinculum-bus"
 	"github.com/zclconf/go-cty/cty"
@@ -77,7 +76,7 @@ func (h *ClientBlockHandler) GetBlockDependencies(block *hcl.Block) ([]string, h
 
 func (h *ClientBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {
 	clientDef := ClientDefinition{}
-	diags := gohcl.DecodeBody(block.Body, config.evalCtx, &clientDef)
+	diags := DecodeBody(block.Body, config.evalCtx, &clientDef)
 	if diags.HasErrors() {
 		return diags
 	}

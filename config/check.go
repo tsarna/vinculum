@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	richcty "github.com/tsarna/rich-cty-types"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
@@ -153,7 +152,7 @@ func (h *CheckBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagno
 	name := block.Labels[0]
 
 	var body checkBody
-	diags := gohcl.DecodeBody(block.Body, config.evalCtx, &body)
+	diags := DecodeBody(block.Body, config.evalCtx, &body)
 	if diags.HasErrors() {
 		return diags
 	}

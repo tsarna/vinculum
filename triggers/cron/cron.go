@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/robfig/cron/v3"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
@@ -67,7 +66,7 @@ six-field form where the first field is seconds, or a descriptor such as
 
 func processCronTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {
 	cronDef := CronDefinition{}
-	diags := gohcl.DecodeBody(triggerDef.RemainingBody, config.EvalCtx(), &cronDef)
+	diags := cfg.DecodeBody(triggerDef.RemainingBody, config.EvalCtx(), &cronDef)
 	if diags.HasErrors() {
 		return diags
 	}

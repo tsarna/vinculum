@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	serverauth "github.com/tsarna/vinculum/servers/auth"
@@ -242,7 +241,7 @@ bytes object with its own content type, anything else as JSON, and ` + "`null`" 
 
 func ProcessHttpServerBlock(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Listener, hcl.Diagnostics) {
 	serverDef := HttpServerDefinition{}
-	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &serverDef)
+	diags := cfg.DecodeBody(remainingBody, config.EvalCtx(), &serverDef)
 	if diags.HasErrors() {
 		return nil, diags
 	}

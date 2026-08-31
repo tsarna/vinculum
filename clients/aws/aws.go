@@ -16,7 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -107,7 +106,7 @@ func (c *AWSClient) CtyValue() cty.Value {
 
 func process(cfgObj *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Client, hcl.Diagnostics) {
 	def := AWSConfigDefinition{}
-	diags := gohcl.DecodeBody(remainingBody, cfgObj.EvalCtx(), &def)
+	diags := cfg.DecodeBody(remainingBody, cfgObj.EvalCtx(), &def)
 	if diags.HasErrors() {
 		return nil, diags
 	}

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
@@ -341,7 +340,7 @@ func process(config *cfg.Config, block *hcl.Block, body hcl.Body) (cfg.Client, h
 	name := block.Labels[1]
 
 	var def otlpClientDefinition
-	diags := gohcl.DecodeBody(body, config.EvalCtx(), &def)
+	diags := cfg.DecodeBody(body, config.EvalCtx(), &def)
 	if diags.HasErrors() {
 		return nil, diags
 	}

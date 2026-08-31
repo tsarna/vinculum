@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/zclconf/go-cty/cty"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -140,7 +139,7 @@ func (h *TriggerBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hc
 
 func (h *TriggerBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnostics {
 	triggerDef := TriggerDefinition{}
-	diags := gohcl.DecodeBody(block.Body, config.evalCtx, &triggerDef)
+	diags := DecodeBody(block.Body, config.evalCtx, &triggerDef)
 	if diags.HasErrors() {
 		return diags
 	}

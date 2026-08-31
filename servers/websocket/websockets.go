@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/tsarna/vinculum-bus/transform"
 	cfg "github.com/tsarna/vinculum/config"
 )
@@ -113,7 +112,7 @@ Mount this on a route of a ` + "`server \"http\"`" + ` block with ` + "`handler 
 
 func ProcessWebsocketsServerBlock(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Listener, hcl.Diagnostics) {
 	serverDef := WebsocketsServerDefinition{}
-	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &serverDef)
+	diags := cfg.DecodeBody(remainingBody, config.EvalCtx(), &serverDef)
 	if diags.HasErrors() {
 		return nil, diags
 	}

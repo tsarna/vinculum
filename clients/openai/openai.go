@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	openailib "github.com/sashabaranov/go-openai"
 	richcty "github.com/tsarna/rich-cty-types"
 	"github.com/tsarna/vinculum/clients/llm"
@@ -110,7 +109,7 @@ type OpenAIClient struct {
 
 func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Client, hcl.Diagnostics) {
 	clientDef := OpenAIClientDefinition{}
-	diags := gohcl.DecodeBody(remainingBody, config.EvalCtx(), &clientDef)
+	diags := cfg.DecodeBody(remainingBody, config.EvalCtx(), &clientDef)
 	if diags.HasErrors() {
 		return nil, diags
 	}

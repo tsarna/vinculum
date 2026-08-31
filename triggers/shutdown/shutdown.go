@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	"go.opentelemetry.io/otel/trace"
@@ -48,7 +47,7 @@ type triggerShutdownBody struct {
 
 func processShutdownTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {
 	body := triggerShutdownBody{}
-	diags := gohcl.DecodeBody(triggerDef.RemainingBody, config.EvalCtx(), &body)
+	diags := cfg.DecodeBody(triggerDef.RemainingBody, config.EvalCtx(), &body)
 	if diags.HasErrors() {
 		return diags
 	}

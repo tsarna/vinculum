@@ -15,7 +15,6 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"
@@ -519,7 +518,7 @@ mounts — poll those with ` + "`trigger \"interval\"`" + ` instead.`,
 
 func processFileTrigger(config *cfg.Config, block *hcl.Block, triggerDef *cfg.TriggerDefinition) hcl.Diagnostics {
 	body := triggerFileBody{}
-	diags := gohcl.DecodeBody(triggerDef.RemainingBody, config.EvalCtx(), &body)
+	diags := cfg.DecodeBody(triggerDef.RemainingBody, config.EvalCtx(), &body)
 	if diags.HasErrors() {
 		return diags
 	}

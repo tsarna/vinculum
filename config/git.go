@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"go.uber.org/zap"
 )
@@ -227,7 +226,7 @@ func processGitBlock(
 	seen map[string]hcl.Range,
 ) hcl.Diagnostics {
 	var def GitDefinition
-	diags := gohcl.DecodeBody(block.Body, evalCtx, &def)
+	diags := DecodeBody(block.Body, evalCtx, &def)
 	if diags.HasErrors() {
 		return diags
 	}
