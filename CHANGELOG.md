@@ -9,6 +9,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Any subscription can acknowledge the message it handled.**
+  `inbound::ack(ctx)`, `inbound::nack(ctx, reason)`, and
+  `inbound::keepalive(ctx)` settle an inbound delivery, whatever protocol
+  produced it:
+
+  ```hcl
+  client "sqs_receiver" "tasks" {
+      queue_url      = "https://sqs.us-east-1.amazonaws.com/123456789012/tasks"
+      subscriber     = bus.work
+      queue_size     = 100
+      ack            = "manual"
+      settle_timeout = "2m"
+  }
+
+  subscription "handle" {
+      target = bus.work
+      topics = ["tasks"]
+      action = [do_something(ctx, ctx.msg), inbound::ack(ctx)]
+  }
+  ```
+
+  They take a `ctx` and nothing else — no handle, no argument naming the
+  client, no protocol in the name. That is what was impossible before:
+  acknowledgement is a property of the *delivery*, and the only channel that
+  used to carry it was `fields`, which the bus rewrites per subscription with
+  that subscription's own topic captures. So settling only ever worked from the
+  receiver's own `action`, and a configuration had to know which protocol
+  delivered a message in order to pick the right function — which defeats
+  routing through a bus. The delivery now travels on the context, which crosses
+  transforms, a `queue_size` queue, and any number of bus hops.
+
+  That also fixes the `queue_size` trap for configurations that opt in.
+  `queue_size` on a receiver makes delivery return at the moment the message is
+  queued, so an automatic acknowledgement fires before the work has happened.
+  With `ack = "manual"` the acknowledgement follows the real outcome, several
+  hops later, instead of following the enqueue.
+
+  **A delivery settles exactly once.** Two matching subscriptions both calling
+  `inbound::ack()` produce one broker acknowledgement: the first returns `true`,
+  the second `false`. An acknowledgement means "someone took responsibility",
+  not "everyone finished" — the set of matching subscribers changes at runtime,
+  and a subscription that only logs must not gate it. `ack` after `nack` is a
+  no-op rather than an error, and each function returns `false` and does
+  nothing when the message did not arrive over a transport that acknowledges,
+  so shared subscription code can call them without knowing what is underneath.
+
+  **A settle that arrives too late reaches the broker not at all**, returning
+  `false` and logging why. An SQS receipt handle expires with its visibility
+  window, and past it the message is back on the queue and may already be
+  somewhere else. This is not merely a failed acknowledgement on every
+  protocol — on RabbitMQ a stale delivery tag acknowledges a *different*
+  message — which is why the check exists rather than being left to the broker.
+
+  Available on `client "redis_stream"` consumers and `client "sqs_receiver"`.
+  RabbitMQ and Kafka reject `ack = "manual"` at load with a diagnostic saying
+  what is missing; each needs work in its own library first.
+
+  Requires `vinculum-bus` v0.18.0, `vinculum-redis` v0.7.0, and `vinculum-sqs`
+  v0.5.0.
+
 - **`condition` blocks accept `tracing`.** Every other block whose work is
   traced could name its backend; a condition could not, because all four
   subtypes resolved one from nothing and took whatever the default was. A
@@ -207,6 +267,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **`redis::ack()`, `sqs::delete()`, and `sqs::extend_visibility()` are
+  removed**, replaced by `inbound::ack()`, `inbound::ack()`, and
+  `inbound::keepalive()` — see Added above. `vinculum check` names the
+  replacement for each, which matters more than usual here: removing them
+  empties the `redis::` and `sqs::` namespaces entirely, and the checker's
+  nearest-match search only looks *within* a namespace.
+
+  | You had | Use |
+  |---|---|
+  | `redis::ack(ctx, client.rs.consumer.in, ctx.fields["$entry_id"])` | `inbound::ack(ctx)` |
+  | `sqs::delete(ctx, client.tasks, ctx.fields["$receipt_handle"])` | `inbound::ack(ctx)` |
+  | `sqs::extend_visibility(ctx, client.tasks, handle, 60)` | `inbound::keepalive(ctx)` |
+
+  Two things went with them, both of which existed only to feed them:
+
+  - **`$receipt_handle` is no longer a delivered field** on `client
+    "sqs_receiver"`. It had no use but deletion — an opaque, per-receive,
+    expiring token that is meaningless to log, correlate, or compare — and
+    keeping it would advertise saving it somewhere to settle later, which is
+    storing a *lease* rather than a value: it expires while it sits in the
+    variable. Every other `$` system attribute stays, and so does
+    `$entry_id` on `redis_stream`, because a Redis entry ID identifies the
+    entry independently of acknowledgement.
+  - **`client.<name>.consumer.<c>`** on a `redis_stream` client, and the
+    receiver capsule `client.<name>` produced on an `sqs_receiver`. The latter
+    wrapped a type that does not implement the client interface, so it was
+    already a dead end for anything else that took a client; `client.<name>` on
+    an `sqs_receiver` is now the ordinary client capsule.
+
 - **`commit_mode = "manual"` on a `client "kafka"` `receiver` is rejected at
   load.** It did the opposite of what it said. The attribute's own
   documentation promised a mode that "never commits automatically"; nothing
@@ -222,8 +311,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   | You had | Use | What changes |
   |---|---|---|
-  | `commit_mode = "manual"` | `commit_mode = "after_process"` | At-least-once: a message whose handling failed is redelivered rather than skipped. |
-  | `commit_mode = "manual"` | `commit_mode = "periodic"` | Nothing — this is what the receiver was already doing. |
+  | `commit_mode = "manual"` | `ack = "auto"` | At-least-once: a message whose handling failed is redelivered rather than skipped. |
+  | `commit_mode = "manual"` | `ack = "periodic"` | Nothing — this is what the receiver was already doing. |
 
   Rejecting is interim, not a judgement on the feature: caller-controlled
   settle returns as a working mode under the shared `ack` attribute, once Kafka
@@ -234,6 +323,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   An unrecognized `commit_mode` now names the two modes that remain.
 
 ### Changed
+
+- **Every receiver says when a message is settled the same way, with `ack`.**
+  `auto_ack`, `auto_delete`, and `commit_mode` are removed in its favour.
+
+  Four receivers spelled one concept four ways, and they disagreed worse than
+  cosmetically: `redis_stream.auto_ack` defaulted `true` and meant *vinculum*
+  acknowledges after delivery; `rabbitmq.auto_ack` defaulted `false` and meant
+  the *broker*-side no-ack mode; `sqs_receiver.auto_delete` was the Redis thing
+  under a third name; and `kafka.commit_mode` was a three-way enum none of whose
+  values was manual in the sense the other three meant it.
+
+  **No configuration changes meaning.** Every one of the four already behaved as
+  `ack = "auto"` by default, RabbitMQ's `auto_ack = false` included — which is
+  the argument for one uniform default rather than a per-protocol table to
+  memorise:
+
+  | Receiver | You had | Use |
+  |---|---|---|
+  | `redis_stream` `consumer` | `auto_ack = true` *(default)* | `ack = "auto"` *(default)* |
+  | `redis_stream` `consumer` | `auto_ack = false` | `ack = "manual"` + `settle_timeout` |
+  | `sqs_receiver` | `auto_delete = true` *(default)* | `ack = "auto"` *(default)* |
+  | `sqs_receiver` | `auto_delete = false` | `ack = "manual"` + `settle_timeout` |
+  | `rabbitmq` `receiver` | `auto_ack = false` *(default)* | `ack = "auto"` *(default)* |
+  | `rabbitmq` `receiver` | `auto_ack = true` | `ack = "none"` |
+  | `kafka` `receiver` | `commit_mode = "after_process"` *(default)* | `ack = "auto"` *(default)* |
+  | `kafka` `receiver` | `commit_mode = "periodic"` | `ack = "periodic"` |
+
+  Each type accepts only what it can honour, and its generated attribute
+  reference lists exactly that: `periodic` is kafka's alone, `none` is
+  rabbitmq's, and `manual` is `redis_stream`'s and `sqs_receiver`'s. A
+  RabbitMQ `receiver`'s `declare { auto_delete }` is untouched — that is AMQP's
+  delete-the-queue-when-unused, a different attribute in a different block.
+
+  **`settle_timeout` is new, and required with `ack = "manual"`.** A message
+  nothing settles is costing something for as long as it is outstanding — an SQS
+  visibility window, a RabbitMQ prefetch slot, a Kafka partition's committable
+  offset — so forgetting to call `inbound::ack()` should be diagnosable rather
+  than a slow stall. On expiry the message is nacked and the failure is logged,
+  naming the receiver. It has no default deliberately: too short nacks slow
+  work, too long stalls quietly, and no one value suits both a 50ms enrichment
+  and a five-minute batch.
+
+  A retired name reports what it became, rather than gohcl's "an argument named
+  `auto_ack` is not expected here" — so an upgrade can be driven by running
+  `vinculum check` until it is quiet.
 
 - **A receiver's `vinculum_topic` names the transport's own identifier after the
   transport, not `topic`.** The expression's whole job is to produce a bus

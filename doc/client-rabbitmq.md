@@ -516,7 +516,7 @@ receiver "main" {
 
   prefetch  = 10     # max unacked messages in flight (default: 10; 0 = unlimited — dangerous)
   exclusive = false  # exclusive consumer (default: false)
-  auto_ack  = false  # ack before OnEvent returns (default: false = manual ack)
+  ack       = "auto" # auto | none — default: auto (ack once handling returns)
 
   # Optional; inbound baggage is stripped by default. See doc/baggage.md.
   baggage {
@@ -1048,9 +1048,10 @@ default.
 limit the broker pushes the entire queue at once, which can exhaust memory.
 Use a value calibrated to message size and processing latency (10–100).
 
-**Auto-ack loses messages on crash.** With `auto_ack = true` a message is
-considered delivered as soon as it is written to the socket. Use the default
-manual ack for any non-trivial consumer.
+**`ack = "none"` loses messages on crash.** It is AMQP's own no-ack mode: the
+broker considers a message delivered as soon as it is written to the socket,
+and vinculum never acknowledges at all. Use the default `ack = "auto"`, which
+acknowledges once handling has returned, for any non-trivial consumer.
 
 **Topology mismatch is a hard channel error.** Declaring a queue that already
 exists with different parameters (e.g. `durable = false` on an existing durable

@@ -68,6 +68,32 @@ var renamedCtxFields = map[ctxFieldName]rename{
 // deliberately absent: the suggester finds those unaided, and listing them
 // would double the table without changing a single diagnostic.
 var renamedFunctions = map[string]rename{
+	// inbound:: — settling an inbound delivery stopped being per-protocol.
+	//
+	// These are the reason the function branch is consulted before the
+	// namespace branch. Removing them empties `redis::` and `sqs::` entirely,
+	// and the namespaced branch's nearest-match search only looks *within* a
+	// namespace — so without an entry here an upgrading configuration is told
+	// "there are no functions in namespace redis::" and left to guess.
+	"redis::ack": {
+		now: "inbound::ack", since: "0.46.0",
+		note: "It takes no consumer and no entry ID: the delivery being settled rides on " +
+			"ctx, which is what lets the same expression work from a subscription " +
+			"several bus hops away. Set ack = \"manual\" on the consumer.",
+	},
+	"sqs::delete": {
+		now: "inbound::ack", since: "0.46.0",
+		note: "It takes no receiver and no receipt handle: the delivery being settled " +
+			"rides on ctx, which is what lets the same expression work from a " +
+			"subscription several bus hops away. Set ack = \"manual\" on the receiver.",
+	},
+	"sqs::extend_visibility": {
+		now: "inbound::keepalive", since: "0.46.0",
+		note: "It takes no receiver, no receipt handle, and no timeout: the delivery is " +
+			"read from ctx and extended by the visibility window the queue actually " +
+			"uses.",
+	},
+
 	// time:: — the leaf name dropped the word "time", or gained a word.
 	"now":        {now: "time::now", since: "0.43.0"},
 	"parsetime":  {now: "time::parse", since: "0.43.0"},

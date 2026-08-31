@@ -27,6 +27,7 @@ separate, context-specific mini-DSL, not regular functions.
   - [Geographic](#geographic)
 - [Messaging and State](#messaging-and-state)
   - [Messaging](#messaging)
+  - [Acknowledging an Inbound Message](#acknowledging-an-inbound-message)
   - [Variables and Metrics](#variables-and-metrics)
   - [Conditions](#conditions)
 - [Health](#health)
@@ -926,9 +927,73 @@ length(crossings) > 0    # true if routes cross
 - `call(ctx, client, request)`: Make a synchronous request to a client and return the response. Currently supported for LLM clients (`client "openai"`). Always returns a response object — API errors are represented as `stop_reason = "error"` in the response rather than Go-level errors. See [client-llm.md](client-llm.md) for the full request/response schema.
 - `sql::must(result)`: Given a result object from `call()` against a SQL client, raise an evaluation error if its `error` field is non-null (building the message from the `driver`/`code`/`sqlstate`/`message` fields); otherwise return the result unchanged, so it composes inline — e.g. `sql::must(call(ctx, client.db, "INSERT ...")).last_insert_id`. Available in every action context (it works on any result object that carries an `error` field), so it does not require a SQL client to be configured. See [client-sql.md](client-sql.md#sqlmustresult).
 - `llm::wrap(content)`: Wrap a string in `<user_input>` XML-like delimiters as a prompt injection mitigation. Use in the `content` of user messages when the content comes from an untrusted source. The system prompt should reference the tags (e.g. `"Summarize the text in the <user_input> tags."`). Returns `"<user_input>\n{content}\n</user_input>"`.
-- `redis::ack(ctx, consumer, entry_id)`: `XACK` a Redis Streams entry on the given consumer's stream and group. Used with `client "redis_stream"` consumers configured with `auto_ack = false`; the consumer is addressed as `client.<name>.consumer.<c>` and the entry ID is available to its `action` as `ctx.fields["$entry_id"]`. Returns `true` on success. See [client-redis.md](client-redis.md#manual-ack-redisack).
-- `sqs::delete(ctx, receiver, receipt_handle)`: Delete an SQS message by receipt handle. Used with `client "sqs_receiver"` configured with `auto_delete = false`; the receiver is addressed as `client.<name>` and the receipt handle is available to its `action` as `ctx.fields["$receipt_handle"]`. Returns `true` on success. See [client-sqs.md](client-sqs.md#manual-deletion).
-- `sqs::extend_visibility(ctx, receiver, receipt_handle, timeout_seconds)`: Extend the visibility timeout for an SQS message. Used for long-running processing to prevent the message from becoming visible to other consumers before processing completes. `timeout_seconds` is a number. Returns `true` on success. See [client-sqs.md](client-sqs.md#manual-deletion).
+
+### Acknowledging an Inbound Message
+
+Some receivers consume from a broker that expects to be told what happened to
+each message. Set `ack = "manual"` on the receiver and these three functions
+settle the delivery:
+
+- `inbound::ack(ctx)`: Settle the delivery as handled, acknowledging it with whichever broker it came from. Returns whether *this call* was the one that settled it.
+- `inbound::nack(ctx, reason?)`: Settle the delivery as not handled. Whether the message is requeued or dead-lettered is the receiver's configured policy, never the caller's choice. `reason` is advisory — where it ends up depends on the receiver (see the table below). Returns whether this call settled it.
+- `inbound::keepalive(ctx)`: Extend the delivery's lease, where the protocol has one, for handling that will take longer than the broker allows by default. Does not settle, so it may be called any number of times. Returns whether a lease was extended.
+
+They take a `ctx` and nothing else. There is no handle to pass, no argument
+naming the client, and no protocol in the name, because the delivery being
+settled travels on the context — which crosses transforms, a `queue_size` queue,
+and any number of bus hops. So the same expression works in a receiver's own
+`action` and in a `subscription` three buses downstream:
+
+```hcl
+client "sqs_receiver" "tasks" {
+    queue_url      = "https://sqs.us-east-1.amazonaws.com/123456789012/tasks"
+    subscriber     = bus.work
+    ack            = "manual"
+    settle_timeout = "2m"
+}
+
+subscription "handle" {
+    target = bus.work
+    topics = ["tasks"]
+    action = [
+        log::info("working", { msg = ctx.msg }),
+        inbound::ack(ctx),
+    ]
+}
+```
+
+Each returns `false` and does nothing when the message did not arrive over a
+transport that acknowledges, so shared subscription code can call them without
+knowing what is underneath.
+
+**A delivery settles exactly once.** Two matching subscriptions both calling
+`inbound::ack()` produce one broker acknowledgement: the first call returns
+`true`, the second `false`. An acknowledgement means "someone took
+responsibility", not "everyone finished" — the set of matching subscribers
+changes at runtime, and a subscription that only logs must not gate it. `ack`
+after `nack` is a no-op rather than an error, which is what makes these safe to
+call from code that does not know what else ran.
+
+**Where `nack`'s reason goes**, per receiver, because it is not the same
+everywhere and a configuration expecting it in a dead-letter queue needs to
+know:
+
+| Receiver | What `nack` does | Where `reason` goes |
+|---|---|---|
+| `redis_stream` | Leaves the entry pending, for `reclaim_min_idle` and `dead_letter_after` | The log |
+| `sqs_receiver` | Leaves the message for its visibility timeout and the queue's redrive policy | The log |
+
+**A settle can arrive too late.** An SQS receipt handle expires with its
+visibility window; past it the message is back on the queue and may already be
+somewhere else. Such a settle reaches the broker not at all, returns `false`,
+and logs why. This is not merely a failed acknowledgement on every protocol —
+on RabbitMQ a stale delivery tag acknowledges a *different* message — which is
+why the check exists rather than being left to the broker to reject.
+
+**`settle_timeout` is required with `ack = "manual"`.** A message nothing
+settles is costing something for as long as it is outstanding, so forgetting to
+call `inbound::ack()` should be diagnosable rather than a slow stall. On expiry
+the delivery is nacked and the failure is logged, naming the receiver.
 
 ### Variables and Metrics
 

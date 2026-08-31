@@ -226,11 +226,96 @@ between them is which messages it loses:
 
 | You had | Use | What changes |
 | --- | --- | --- |
-| `commit_mode = "manual"` | `commit_mode = "after_process"` | At-least-once. The offset advances only once the message has been handled, so a failed message is redelivered rather than skipped. |
-| `commit_mode = "manual"` | `commit_mode = "periodic"` | Nothing. This is what the receiver was already doing. |
+| `commit_mode = "manual"` | `ack = "auto"` | At-least-once. The offset advances only once the message has been handled, so a failed message is redelivered rather than skipped. |
+| `commit_mode = "manual"` | `ack = "periodic"` | Nothing. This is what the receiver was already doing. |
 
-`after_process` is the right choice for almost everyone, and is the default.
+`ack = "auto"` is the right choice for almost everyone, and is the default.
 Pick `periodic` only to keep the existing behavior deliberately.
 
-Caller-controlled settle is coming back as a working feature, under the shared
-`ack` attribute, once Kafka has the commit tracker it requires.
+The attribute itself was renamed in the same release — see
+[settle attributes](#settle-attributes-auto_ack-auto_delete-commit_mode) below.
+Caller-controlled settle will come back as a working feature under `ack`, once
+Kafka has the commit tracker it requires.
+
+### Settle attributes: `auto_ack`, `auto_delete`, `commit_mode`
+
+**Removed in 0.46.0.** Replaced by a single `ack` attribute on every receiver.
+
+Four receivers spelled one concept four ways, and they disagreed worse than
+cosmetically: `redis_stream.auto_ack` defaulted true and meant *vinculum*
+acknowledges after delivery; `rabbitmq.auto_ack` defaulted false and meant the
+*broker*-side no-ack mode; `sqs_receiver.auto_delete` was the Redis thing under
+a third name; and `kafka.commit_mode` was a three-way enum none of whose values
+was manual in the sense the other three meant it.
+
+**No configuration changes meaning**, because every one of the four already
+behaved as `ack = "auto"` by default — RabbitMQ's `auto_ack = false` included:
+
+| Receiver | You had | Use |
+| --- | --- | --- |
+| `redis_stream` `consumer` | `auto_ack = true` *(default)* | `ack = "auto"` *(default)* |
+| `redis_stream` `consumer` | `auto_ack = false` | `ack = "manual"` + `settle_timeout` |
+| `sqs_receiver` | `auto_delete = true` *(default)* | `ack = "auto"` *(default)* |
+| `sqs_receiver` | `auto_delete = false` | `ack = "manual"` + `settle_timeout` |
+| `rabbitmq` `receiver` | `auto_ack = false` *(default)* | `ack = "auto"` *(default)* |
+| `rabbitmq` `receiver` | `auto_ack = true` | `ack = "none"` |
+| `kafka` `receiver` | `commit_mode = "after_process"` *(default)* | `ack = "auto"` *(default)* |
+| `kafka` `receiver` | `commit_mode = "periodic"` | `ack = "periodic"` |
+
+Each type accepts only what it can honour, and its generated attribute
+reference lists exactly that: `periodic` is kafka's alone, `none` is
+rabbitmq's, and `manual` is available on `redis_stream` and `sqs_receiver`.
+Writing `ack = "manual"` on the other two is rejected at load with a diagnostic
+saying what is missing.
+
+Writing a retired name reports what it became rather than that the argument is
+not expected here, so an upgrade can be driven by running `vinculum check`
+until it is quiet:
+
+```text
+"auto_ack" is now "ack" (since 0.46.0); `auto_ack = true` is the default, now
+written `ack = "auto"`. `auto_ack = false` is `ack = "manual"`, which also
+requires `settle_timeout` …
+```
+
+A RabbitMQ `receiver`'s `declare { auto_delete }` is untouched — that is AMQP's
+delete-the-queue-when-unused, a different attribute in a different block.
+
+### `redis::ack()`, `sqs::delete()`, `sqs::extend_visibility()`
+
+**Removed in 0.46.0.** Replaced by
+[`inbound::ack()` / `inbound::nack()` / `inbound::keepalive()`](functions.md#acknowledging-an-inbound-message).
+
+Acknowledgement is a property of the inbound delivery, not of the payload and
+not of the subscriber that handles it. The old functions each took two extra
+arguments — a client and a settle token — and the token travelled in `fields`,
+which the bus rewrites per subscription with that subscription's own topic
+captures. So settling only ever worked from the receiver's own `action`, and a
+config had to know which protocol delivered a message in order to pick the
+function, which defeats routing through a bus.
+
+The replacements take a `ctx` and nothing else, and work from anywhere
+downstream:
+
+| You had | Use |
+| --- | --- |
+| `redis::ack(ctx, client.rs.consumer.in, ctx.fields["$entry_id"])` | `inbound::ack(ctx)` |
+| `sqs::delete(ctx, client.tasks, ctx.fields["$receipt_handle"])` | `inbound::ack(ctx)` |
+| `sqs::extend_visibility(ctx, client.tasks, handle, 60)` | `inbound::keepalive(ctx)` |
+
+Set `ack = "manual"` on the receiver, with a `settle_timeout`. `vinculum check`
+names the replacement for each.
+
+Two things went with them:
+
+- **`$receipt_handle` is no longer a delivered field** on `sqs_receiver`. It had
+  no use but deletion — an opaque, per-receive, expiring token that is
+  meaningless to log, correlate, or compare — and keeping it would advertise
+  saving it somewhere to settle later, which is storing a lease rather than a
+  value: it expires while it sits in the variable. Every other `$` system
+  attribute stays. `$entry_id` on `redis_stream` also stays, because a Redis
+  entry ID identifies the entry independently of acknowledgement.
+- **`client.<name>.consumer.<c>`** on a `redis_stream` client is gone, along
+  with the receiver capsule `client.<name>` produced on an `sqs_receiver` —
+  both existed only to be passed to the removed functions. `client.<name>` on
+  an `sqs_receiver` is now the ordinary client capsule.

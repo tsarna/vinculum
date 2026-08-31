@@ -499,12 +499,39 @@ Connection-oriented servers already do this for you. `server "vws"` and
 *receivers*, where it is tempting for the same reason — don't let a slow action
 stall the poll loop. But there the blocking is doing a job: it is what bounds
 how much is in flight, and what lets the receiver decide whether to acknowledge
-the message. A receiver that acknowledges on successful delivery — a Kafka
-`receiver` with `commit_mode = "after_process"`, a RabbitMQ `receiver`, a
-`redis_stream` `consumer` with `auto_ack`, `client "sqs_receiver"` — will
-acknowledge at the moment the message is queued rather than when the work
-finishes, and an error from that work can no longer trigger redelivery or
-dead-lettering. Set it there only if at-most-once delivery is what you want.
+the message. Under the default `ack = "auto"` the receiver acknowledges when
+delivery returns, which with `queue_size` set is the moment the message is
+queued rather than when the work finishes — so an error from that work can no
+longer trigger redelivery or dead-lettering. Set it there only if at-most-once
+delivery is what you want.
+
+**Unless the settle is explicit.** A receiver with `ack = "manual"` does not
+acknowledge when delivery returns; nothing is settled until the configuration
+calls [`inbound::ack()`](functions.md#acknowledging-an-inbound-message) or
+`inbound::nack()`. Because the delivery being settled travels on `ctx` rather
+than in `fields`, it survives the async queue, the bus, and any number of hops:
+
+```hcl
+client "sqs_receiver" "tasks" {
+    queue_url      = "https://sqs.us-east-1.amazonaws.com/123456789012/tasks"
+    subscriber     = bus.work
+    queue_size     = 100
+    ack            = "manual"
+    settle_timeout = "2m"
+}
+
+subscription "handle" {
+    target = bus.work
+    topics = ["tasks"]
+    action = [do_something(ctx, ctx.msg), inbound::ack(ctx)]
+}
+```
+
+That is the combination `queue_size` alone gets wrong: the acknowledgement now
+follows the real outcome, several hops later, instead of following the enqueue.
+`settle_timeout` is required with it, and bounds how long a message may go
+unsettled before it is nacked and the failure logged — because a message
+nothing settles is costing something for as long as it is outstanding.
 
 #### What the bus counts
 
@@ -1014,9 +1041,10 @@ reference below apply in all of those contexts; `target`, `tracing`, and
 
 Identical semantics, but not identical consequences: `queue_size` on a
 subscription decouples a slow *outbound* path from the bus, which is what it is
-for, while on a receiver it discards the delivery outcome the receiver needs in
-order to acknowledge. See [delivery model](#delivery-model) under `bus` before
-setting it on a receiver.
+for, while on a receiver under the default `ack = "auto"` it discards the
+delivery outcome the receiver needs in order to acknowledge. Pair it with
+`ack = "manual"`, which settles explicitly and so survives the hop. See
+[delivery model](#delivery-model) under `bus` before setting it on a receiver.
 
 #### Attributes
 

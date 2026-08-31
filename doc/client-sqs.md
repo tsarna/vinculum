@@ -288,7 +288,7 @@ client "sqs_receiver" "tasks" {
 
     # Visibility and deletion
     # visibility_timeout = "30s"  # override queue's default
-    auto_delete = true            # delete after successful delivery (default: true)
+    ack = "auto"                  # auto | manual (manual also needs settle_timeout)
 
     # Concurrency
     concurrency = 1           # polling goroutines (default: 1)
@@ -612,7 +612,6 @@ SQS system attributes are mapped to `$`-prefixed vinculum fields:
 | SQS system attribute | Vinculum field | Notes |
 |---|---|---|
 | `MessageId` | `$message_id` | Unique SQS message ID |
-| `ReceiptHandle` | `$receipt_handle` | Needed for manual delete |
 | `ApproximateReceiveCount` | `$receive_count` | How many times delivered |
 | `SentTimestamp` | `$sent_timestamp` | Epoch millis when sent |
 | `ApproximateFirstReceiveTimestamp` | `$first_receive_timestamp` | Epoch millis |
@@ -622,30 +621,56 @@ SQS system attributes are mapped to `$`-prefixed vinculum fields:
 
 ### Manual deletion
 
-When `auto_delete = false`, messages must be explicitly deleted using the
-`sqs::delete()` function. The `sqs::extend_visibility()` function can extend
-the visibility timeout for long-running processing.
+With `ack = "manual"`, a message is deleted only when the configuration settles
+it with [`inbound::ack()`](functions.md#acknowledging-an-inbound-message):
 
 ```hcl
 client "sqs_receiver" "tasks" {
-    auto_delete    = false
     vinculum_topic = "tasks/incoming"
+    ack            = "manual"
+    settle_timeout = "2m"
     ...
 
     action = [
         do_something(ctx, ctx.msg),
-        sqs::delete(ctx, client.tasks, ctx.fields["$receipt_handle"]),
+        inbound::ack(ctx),
     ]
 }
 ```
 
-Delete from the receiver's own `action`. `fields` do not cross a bus hop — a
-`subscription` behind `subscriber = bus.main` sees only what its own topic
-pattern captured — so the receipt handle is out of reach there. Use
-`vinculum_topic` to carry anything else the downstream needs.
+The message being settled travels on `ctx`, not in `fields`, so the same
+expression works from a `subscription` several bus hops downstream — which is
+the point of routing through a bus in the first place:
 
-See [functions.md](functions.md) for `sqs::delete()` and
-`sqs::extend_visibility()` documentation.
+```hcl
+client "sqs_receiver" "tasks" {
+    queue_url      = "https://sqs.us-east-1.amazonaws.com/123456789012/tasks"
+    subscriber     = bus.work
+    ack            = "manual"
+    settle_timeout = "2m"
+}
+
+subscription "handle" {
+    target = bus.work
+    topics = ["tasks"]
+    action = [do_something(ctx, ctx.msg), inbound::ack(ctx)]
+}
+```
+
+`settle_timeout` is required, and bounds how long a message may go unsettled: on
+expiry it is nacked and the failure is logged, naming the receiver.
+`inbound::nack(ctx, reason)` sends nothing to SQS — a message is
+not-acknowledged by simply not being deleted, so it becomes visible again when
+its visibility timeout lapses and the queue's own redrive policy decides when it
+has been tried enough. The reason reaches the log and nowhere else.
+
+For work that will outlast the visibility window, `inbound::keepalive(ctx)`
+asks for another full one. The receiver reads the queue's visibility timeout
+once at startup when `visibility_timeout` does not set it — which is also what
+lets a settle that arrives after the window has lapsed be refused rather than
+sent, since by then the message is back on the queue and may already be
+somewhere else. A queue policy that denies `GetQueueAttributes` logs one warning
+and runs without either.
 
 ### Dead-letter queues
 

@@ -555,7 +555,7 @@ client "redis_stream" "rs" {
 
     # Exactly one of:
     subscriber = bus.main
-    # action   = [ ..., redis::ack(ctx, client.rs.consumer.in, ctx.fields["$entry_id"]) ]
+    # action   = [ ..., inbound::ack(ctx) ]
 
     # Optional transform pipeline and async queue (same semantics as the
     # top-level `subscription` block — see config.md#subscription).
@@ -567,7 +567,7 @@ client "redis_stream" "rs" {
 
     batch_size     = 10
     block_timeout  = "2s"
-    auto_ack       = true
+    ack            = "auto"               # auto | manual (manual also needs settle_timeout)
     group_create   = "create_if_missing"  # create_if_missing | require_existing | create_from_start
 
     reclaim_pending   = true
@@ -841,30 +841,54 @@ Consumers use the symmetric attributes to parse incoming entries, so a
 - `require_existing` — fail at `Start` if the group does not exist.
 - `create_from_start` — `XGROUP CREATE ... 0` to replay history.
 
-### Manual ack: `redis::ack()`
+### Manual ack: `ack = "manual"`
 
-With `auto_ack = false`, entries stay pending until acknowledged. The
-`redis::ack` function is registered globally, and takes the entry ID the
-consumer delivered as `ctx.fields["$entry_id"]`:
+With `ack = "manual"`, entries stay in the group's pending list until the
+configuration settles them with
+[`inbound::ack()`](functions.md#acknowledging-an-inbound-message):
 
 ```hcl
 consumer "in" {
-  stream   = "events"
-  group    = "workers"
-  auto_ack = false
+  stream         = "events"
+  group          = "workers"
+  ack            = "manual"
+  settle_timeout = "2m"
 
   action = [
     do_something(ctx, ctx.msg),
-    redis::ack(ctx, client.rs.consumer.in, ctx.fields["$entry_id"]),
+    inbound::ack(ctx),
   ]
 }
 ```
 
-Acknowledge from the consumer's own `action`. `fields` do not cross a bus
-hop — a `subscription` reading a topic the consumer published to sees only
-what its own topic pattern captured — so `subscriber = bus.main` puts the
-entry ID out of reach. Use `vinculum_topic` to carry anything else the
-downstream needs.
+The entry being acknowledged travels on `ctx`, not in `fields`, so the same
+expression works from a `subscription` several bus hops downstream — which is
+the point of routing through a bus in the first place:
+
+```hcl
+consumer "in" {
+  stream         = "events"
+  group          = "workers"
+  subscriber     = bus.work
+  ack            = "manual"
+  settle_timeout = "2m"
+}
+
+subscription "handle" {
+  target = bus.work
+  topics = ["events"]
+  action = [do_something(ctx, ctx.msg), inbound::ack(ctx)]
+}
+```
+
+`settle_timeout` is required, and bounds how long an entry may go unsettled: on
+expiry it is nacked and the failure is logged, naming the consumer. A nacked
+entry stays pending, where `reclaim_min_idle` and `dead_letter_after` decide
+what becomes of it; the reason reaches the log and nowhere else.
+
+`inbound::keepalive(ctx)` re-claims the entry for this same consumer, resetting
+its idle time — the lease Redis Streams has — for work that will outlast
+`reclaim_min_idle`.
 
 ### System fields
 
@@ -874,10 +898,12 @@ regardless of `fields_mode`:
 
 | Vinculum field | Contents |
 | --- | --- |
-| `$entry_id` | Redis entry ID, e.g. `1700000000000-0`. What `redis::ack()` takes. |
+| `$entry_id` | Redis entry ID, e.g. `1700000000000-0`. |
 
-The same convention names an SQS receiver's `$receipt_handle`
-(see [client-sqs.md](client-sqs.md#system-attributes)).
+It is not needed to acknowledge anything — a settle reads the delivery from
+`ctx`. It earns its place by identifying the entry: time-ordered, unique, and
+what `XPENDING` and every Redis console show, so it is worth having for
+logging, correlation, and deduplication.
 
 ### Pending recovery
 
@@ -1044,7 +1070,6 @@ Every block surfaces a cty object shaped to match MQTT/Kafka conventions:
 | `client.<pubsub>.publishers` | Fan-out to all publishers on the pubsub client. |
 | `client.<stream>.producer.<p>` | A single named stream producer. |
 | `client.<stream>.producers` | Fan-out to all producers. |
-| `client.<stream>.consumer.<c>` | The consumer capsule — pass to `redis::ack()`. |
 | `client.<kv>` | The KV client capsule — pass to `get()`/`set()`/`increment()`. |
 
 The wrapper for each messaging client is itself a `bus.Subscriber`, so

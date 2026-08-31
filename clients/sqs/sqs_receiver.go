@@ -175,12 +175,6 @@ type SQSReceiverClient struct {
 	receiver *sqsreceiver.SQSReceiver
 }
 
-// CtyValue exposes the receiver as a capsule so VCL functions like
-// sqs::delete() and sqs::extend_visibility() can reference it.
-func (c *SQSReceiverClient) CtyValue() cty.Value {
-	return sqsreceiver.NewReceiverCapsule(c.receiver)
-}
-
 func (c *SQSReceiverClient) Start() error {
 	return c.receiver.Start(context.Background())
 }

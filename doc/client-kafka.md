@@ -361,7 +361,7 @@ receiver "main" {
   # queue_size = 100
 
   start_offset = "stored"          # stored | earliest | latest — default: stored
-  commit_mode  = "after_process"   # after_process | periodic — default: after_process
+  ack          = "auto"            # auto | periodic — default: auto
   dlq_topic    = "vinculum.dlq"    # optional: dead-letter queue topic
 
   baggage {                        # optional; inbound baggage stripped by default
@@ -467,7 +467,7 @@ semantics as the top-level [subscription](config.md#subscription) block.
 
 `queue_size` interacts with offset commits, and the interaction is not what you
 want by default: delivery counts as successful the moment the message is
-queued, so `commit_mode = "after_process"` commits the offset before the
+queued, so `ack = "auto"` commits the offset before the
 handler has run, an error from the handler no longer routes to `dlq_topic`, and
 a full queue drops the record after its offset is committed. Set it only if
 at-most-once delivery is acceptable. See

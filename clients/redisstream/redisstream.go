@@ -238,11 +238,10 @@ type RedisStreamClient struct {
 	cfg.BaseClient
 	bus.BaseSubscriber
 
-	connector      redisclient.RedisConnector
-	producers      map[string]*stream.RedisStreamProducer
-	order          []string
-	consumers      []*stream.RedisStreamConsumer
-	consumersByKey map[string]*stream.RedisStreamConsumer
+	connector redisclient.RedisConnector
+	producers map[string]*stream.RedisStreamProducer
+	order     []string
+	consumers []*stream.RedisStreamConsumer
 }
 
 // Start brings up every configured consumer.
@@ -269,27 +268,20 @@ func (c *RedisStreamClient) Stop() error {
 	return nil
 }
 
+// CtyValue names the client's producers, which are the parts of it a
+// configuration sends to. A client with none is the plain client capsule.
 func (c *RedisStreamClient) CtyValue() cty.Value {
-	if len(c.producers) == 0 && len(c.consumersByKey) == 0 {
+	if len(c.producers) == 0 {
 		return cfg.NewClientCapsule(c)
 	}
-	fields := map[string]cty.Value{}
-	if len(c.producers) > 0 {
-		pmap := make(map[string]cty.Value, len(c.producers))
-		for name, p := range c.producers {
-			pmap[name] = cfg.NewSubscriberCapsule(p)
-		}
-		fields["producers"] = cfg.NewSubscriberCapsule(c)
-		fields["producer"] = cty.ObjectVal(pmap)
+	pmap := make(map[string]cty.Value, len(c.producers))
+	for name, p := range c.producers {
+		pmap[name] = cfg.NewSubscriberCapsule(p)
 	}
-	if len(c.consumersByKey) > 0 {
-		cmap := make(map[string]cty.Value, len(c.consumersByKey))
-		for name, cc := range c.consumersByKey {
-			cmap[name] = stream.NewConsumerCapsule(cc)
-		}
-		fields["consumer"] = cty.ObjectVal(cmap)
-	}
-	return cty.ObjectVal(fields)
+	return cty.ObjectVal(map[string]cty.Value{
+		"producers": cfg.NewSubscriberCapsule(c),
+		"producer":  cty.ObjectVal(pmap),
+	})
 }
 
 // OnEvent fans out to every producer.
@@ -431,7 +423,6 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 
 	seenC := make(map[string]struct{}, len(def.Consumers))
 	consumers := make([]*stream.RedisStreamConsumer, 0, len(def.Consumers))
-	consumersByKey := make(map[string]*stream.RedisStreamConsumer, len(def.Consumers))
 	for _, cdef := range def.Consumers {
 		if _, dup := seenC[cdef.Name]; dup {
 			return nil, hcl.Diagnostics{{
@@ -447,7 +438,6 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 			return nil, cDiags
 		}
 		consumers = append(consumers, cc)
-		consumersByKey[cdef.Name] = cc
 	}
 
 	wrapper := &RedisStreamClient{
@@ -455,11 +445,10 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 			Name:     clientName,
 			DefRange: def.DefRange,
 		},
-		connector:      connector,
-		producers:      producers,
-		order:          order,
-		consumers:      consumers,
-		consumersByKey: consumersByKey,
+		connector: connector,
+		producers: producers,
+		order:     order,
+		consumers: consumers,
 	}
 
 	if len(consumers) > 0 {
