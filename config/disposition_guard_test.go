@@ -35,7 +35,7 @@ import (
 // This finds every type under clients/ whose OnEvent delegates to something
 // else's OnEvent, and requires one of them.
 func TestForwardingSubscribersReportWhatTheyForwardTo(t *testing.T) {
-	root, err := filepath.Abs(filepath.Join("..", "clients"))
+	root, err := filepath.Abs("..")
 	require.NoError(t, err)
 
 	// delegating[type] is the file it was found in; answered is the set of
@@ -47,7 +47,14 @@ func TestForwardingSubscribersReportWhatTheyForwardTo(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "node_modules", "vendor", "testdata", "examples":
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
 
@@ -55,6 +62,40 @@ func TestForwardingSubscribersReportWhatTheyForwardTo(t *testing.T) {
 		file, err := parser.ParseFile(fset, path, nil, 0)
 		if err != nil {
 			return err
+		}
+
+		// A struct embedding the bus.Subscriber or bus.EventBus *interface*
+		// forwards every delivery to whatever is inside it, and has no OnEvent
+		// of its own for the scan below to find — the method is promoted. It
+		// does not promote DeliveryDisposition, though, because that belongs to
+		// the concrete subscriber and is not in either interface. So it answers
+		// for itself, silently, and says the work is done.
+		//
+		// Embedding bus.BaseSubscriber is the opposite case and is fine: that is
+		// a struct of no-ops, forwarding nothing.
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok {
+					continue
+				}
+				st, ok := ts.Type.(*ast.StructType)
+				if !ok || st.Fields == nil {
+					continue
+				}
+				for _, field := range st.Fields.List {
+					if len(field.Names) != 0 {
+						continue // named field, not embedded
+					}
+					if embedsForwardingInterface(field.Type) {
+						delegating[ts.Name.Name] = mustRel(t, root, path)
+					}
+				}
+			}
 		}
 
 		for _, decl := range file.Decls {
@@ -96,6 +137,26 @@ func TestForwardingSubscribersReportWhatTheyForwardTo(t *testing.T) {
 			"deferring or observing subscriber behind them is invisible to every settle "+
 			"point. Add Unwrap() bus.Subscriber, or DeliveryDisposition() for a fan-out:\n  %s",
 		strings.Join(offenders, "\n  "))
+}
+
+// embedsForwardingInterface reports whether an embedded field is one of the bus
+// interfaces whose promoted OnEvent hands the delivery to something else.
+//
+// bus.BaseSubscriber is deliberately not in this set: it is a struct of no-ops,
+// so a type embedding it forwards nothing and answering for itself is correct.
+func embedsForwardingInterface(expr ast.Expr) bool {
+	if star, ok := expr.(*ast.StarExpr); ok {
+		expr = star.X
+	}
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	if !ok || pkg.Name != "bus" {
+		return false
+	}
+	return sel.Sel.Name == "Subscriber" || sel.Sel.Name == "EventBus"
 }
 
 // receiverTypeName returns the bare type name of a method receiver, following

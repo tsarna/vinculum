@@ -58,6 +58,19 @@ type BusHandle struct {
 // Name returns the bus's block name.
 func (h *BusHandle) Name() string { return h.name }
 
+// Unwrap returns the bus this handle stands for, so a settle point asking what
+// a delivery's return will mean gets the bus's answer — deferred — rather than
+// this handle's silence.
+//
+// The embed above is why this is needed and why it is easy to miss. A handle
+// gets every method in the bus.EventBus *interface* for free, and
+// DeliveryDisposition is not one of them: it belongs to the concrete bus, so it
+// is not promoted through an embedded interface. Nothing fails to compile, and
+// the handle simply reports that its return means the work is done — so a queue
+// in front of a bus acknowledged every message at the moment it was enqueued,
+// which is the one defect this whole mechanism exists to prevent.
+func (h *BusHandle) Unwrap() bus.Subscriber { return h.EventBus }
+
 // busMembers is the set `get(bus.<name>, …)` answers, in the order a diagnostic
 // should list them.
 var busMembers = []string{"queue_depth", "queue_capacity", "queue_ratio", "dropped", "undelivered"}
