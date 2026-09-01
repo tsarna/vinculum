@@ -319,7 +319,7 @@ sender "main" {
 
 **`qos`**
 
-`0` at most once, `1` at least once, `2` exactly once.
+`0` at most once, `1` at least once, `2` exactly once. At 1 and 2 a publish waits for the broker's acknowledgement, so the send having returned means the broker has the message. At `0` there is no acknowledgement to wait for and the publish returns once the message is written to the socket — which is what QoS 0 is rather than a shortcoming, but it matters when this sender is bridging an acknowledged transport: as the subscriber of a receiver with `ack = "auto"`, a message published at `0` and then lost is one the receiver has already acknowledged upstream.
 
 #### Blocks
 

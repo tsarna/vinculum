@@ -92,7 +92,19 @@ subscribe to MQTT topics and deliver what arrives to the bus or an action.`,
 		"sender": {
 			Summary: "Publishes bus messages to MQTT topics.",
 			Attrs: map[string]cfg.AttrMeta{
-				"qos":    {Summary: "Default quality of service for published messages.", Doc: "`0` at most once, `1` at least once, `2` exactly once.", Default: "1"},
+				"qos": {
+					Summary: "Default quality of service for published messages.",
+					Doc: "`0` at most once, `1` at least once, `2` exactly once. At 1 and 2 a " +
+						"publish waits for the broker's acknowledgement, so the send having " +
+						"returned means the broker has the message. At `0` there is no " +
+						"acknowledgement to wait for and the publish returns once the message is " +
+						"written to the socket — which is what QoS 0 is rather than a " +
+						"shortcoming, but it matters when this sender is bridging an " +
+						"acknowledged transport: as the subscriber of a receiver with " +
+						"`ack = \"auto\"`, a message published at `0` and then lost is one the " +
+						"receiver has already acknowledged upstream.",
+					Default: "1",
+				},
 				"retain": {Summary: "Ask the broker to retain published messages.", Hint: cfg.HintBool, Default: "false"},
 				"default_topic_transform": {
 					Summary: "How to derive an MQTT topic from a bus topic with no `topic` block.",
