@@ -55,6 +55,50 @@ func TestTheComposedReceiverChainReportsWhatIsBehindIt(t *testing.T) {
 	assert.Equal(t, bus.Handled, bus.DispositionOf(receiverChain(t, auto, false)))
 }
 
+// The same question with a real bus at the end of the chain, which is what
+// `subscriber = bus.<name>` actually produces and what every receiver in a
+// configuration is really handed.
+//
+// This is not the same test as the one above with a different leaf. A bus does
+// not reach a configuration as a bus: it reaches it as a *BusHandle, which
+// embeds the bus.EventBus interface — and an embedded interface promotes only
+// the methods that interface declares. DeliveryDisposition is not one of them,
+// so the handle answered for itself and reported that its return meant the work
+// was done. A queue in front of a bus then acknowledged every message at the
+// moment it was enqueued.
+//
+// Nothing failed to compile and no wrapper was missing its Unwrap; the chain
+// above reports Deferred correctly and told us nothing. Only a leaf that is the
+// real thing catches this.
+func TestARealBusAtTheEndOfTheChainStillDefers(t *testing.T) {
+	config, diags := NewConfig().
+		WithSources([]byte(`bus "work" {}`)).
+		WithLogger(zap.NewNop()).
+		Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+
+	busHandle := config.Buses["work"]
+	require.NotNil(t, busHandle)
+
+	assert.Equal(t, bus.Deferred, bus.DispositionOf(busHandle),
+		"a bus accepts a message onto its own queue and returns; the subscribers "+
+			"that will handle it have not run")
+
+	// And through the wrappers a receiver builds around it, which is the shape
+	// that was actually broken: the queue asks what it wraps, and what it wraps
+	// is the handle.
+	queued := subutils.NewAsyncQueueingSubscriber(busHandle, 4).Start()
+	t.Cleanup(func() { queued.Close() })
+	chain := NewBaggageFilterSubscriber(nil,
+		NewSettleTimeoutSubscriber(AckPolicy{Mode: AckAuto}, queued, "receiver", zap.NewNop()),
+		zap.NewNop())
+
+	assert.Equal(t, bus.Deferred, bus.DispositionOf(chain))
+	assert.Equal(t, bus.Deferred, bus.DispositionOf(queued.Unwrap()),
+		"and the queue's own settle point asks the handle directly, which is "+
+			"where the acknowledgement was being made too early")
+}
+
 // send() derives a new message rather than handing the current one on, so the
 // inbound delivery's settler stays with the original. Carrying it would make an
 // author's fan-out a race for a single settle, and would give two spellings of
