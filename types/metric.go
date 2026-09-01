@@ -207,7 +207,7 @@ func (m *GaugeMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, err
 
 // --- richcty.Incrementable ---
 func (m *GaugeMetric) Increment(ctx context.Context, args []cty.Value) (cty.Value, error) {
-	delta := args[0]
+	delta := incrementDelta(args)
 	f, err := valueToFloat64(delta)
 	if err != nil {
 		return cty.NilVal, fmt.Errorf("increment: %w", err)
@@ -328,7 +328,7 @@ func (m *CounterMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, e
 
 // --- richcty.Incrementable ---
 func (m *CounterMetric) Increment(ctx context.Context, args []cty.Value) (cty.Value, error) {
-	delta := args[0]
+	delta := incrementDelta(args)
 	f, err := valueToFloat64(delta)
 	if err != nil {
 		return cty.NilVal, fmt.Errorf("increment: %w", err)
@@ -657,6 +657,15 @@ func (m *ComputedHistogramMetric) Observe(ctx context.Context, args []cty.Value)
 }
 
 // --- helpers ---
+
+// incrementDelta is how much an increment() call adds. The delta is optional —
+// `increment(var.hits)` bumps by one — so it cannot be read positionally.
+func incrementDelta(args []cty.Value) cty.Value {
+	if len(args) == 0 {
+		return cty.NumberIntVal(1)
+	}
+	return args[0]
+}
 
 func valueToFloat64(v cty.Value) (float64, error) {
 	if v.Type() != cty.Number {

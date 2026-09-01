@@ -105,10 +105,11 @@ func (v *Variable) Set(ctx context.Context, args []cty.Value) (cty.Value, error)
 	return value, nil
 }
 
-// Increment adds args[0] (delta) to the current numeric value and returns the new value.
-// Both the current value and delta must be cty.Number. Implements richcty.Incrementable.
+// Increment adds the delta to the current numeric value and returns the new
+// value. Both the current value and delta must be cty.Number. Implements
+// richcty.Incrementable.
 func (v *Variable) Increment(ctx context.Context, args []cty.Value) (cty.Value, error) {
-	delta := args[0]
+	delta := incrementDelta(args)
 	v.mu.Lock()
 	if v.value.IsNull() || v.value.Type() != cty.Number {
 		v.mu.Unlock()

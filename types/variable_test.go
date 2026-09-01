@@ -124,6 +124,17 @@ func TestVariableIncrementErrors(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// The delta is optional: `increment(var.hits)` bumps by one. Reading it
+// positionally makes the documented spelling an index out of range, which cty
+// recovers into a Go panic trace where a value should have been.
+func TestVariableIncrementDefaultsToOne(t *testing.T) {
+	v := NewVariable(cty.NumberIntVal(41))
+
+	newVal, err := v.Increment(bg, nil)
+	assert.NoError(t, err)
+	assert.True(t, newVal.RawEquals(cty.NumberIntVal(42)), "got %#v", newVal)
+}
+
 func TestVariableToggle(t *testing.T) {
 	v := NewVariable(cty.True)
 

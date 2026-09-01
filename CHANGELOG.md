@@ -273,6 +273,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`increment()` with no delta no longer fails.** The delta is documented as
+  optional — `increment(var.hits)` adds one — but a variable, a gauge and a
+  counter all read it positionally, so the documented spelling produced a Go
+  panic trace where the new value should have been. `condition "counter"` was
+  the only one that had it right.
+
 - **A required attribute holding an expression is now actually required.**
   Thirty attributes across the language were declared required and enforced by
   nothing, because gohcl never marks an `hcl.Expression` attribute required

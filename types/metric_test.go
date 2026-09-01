@@ -91,6 +91,18 @@ func TestGaugeMetric_Increment_Notifies(t *testing.T) {
 	assert.True(t, c.new.RawEquals(cty.NumberFloatVal(7)))
 }
 
+// Both metric types take the same optional delta as a variable does, and read
+// it the same way.
+func TestMetricIncrementDefaultsToOne(t *testing.T) {
+	gauge, err := newTestGaugeMetric(t).Increment(bg, nil)
+	require.NoError(t, err)
+	assert.True(t, gauge.RawEquals(cty.NumberFloatVal(1)), "gauge: got %#v", gauge)
+
+	counter, err := newTestCounterMetric(t).Increment(bg, nil)
+	require.NoError(t, err)
+	assert.True(t, counter.RawEquals(cty.NumberFloatVal(1)), "counter: got %#v", counter)
+}
+
 func TestGaugeMetric_Unwatch_StopsNotifications(t *testing.T) {
 	m := newTestGaugeMetric(t)
 	w := &testWatcher{}
