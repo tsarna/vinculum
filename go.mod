@@ -13,7 +13,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.33.2
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.2
 	github.com/aws/aws-sdk-go-v2/service/sns v1.44.1
-	github.com/aws/aws-sdk-go-v2/service/sqs v1.48.1
+	github.com/aws/aws-sdk-go-v2/service/sqs v1.50.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.48.0
 	github.com/coder/websocket v1.8.15
 	github.com/fsnotify/fsnotify v1.10.1
@@ -47,13 +47,13 @@ require (
 	github.com/tsarna/rich-cty-types v0.5.1
 	github.com/tsarna/sqid-cty-funcs v0.2.0
 	github.com/tsarna/time-cty-funcs v0.4.0
-	github.com/tsarna/vinculum-bus v0.18.0
-	github.com/tsarna/vinculum-kafka v0.12.0
+	github.com/tsarna/vinculum-bus v0.19.0
+	github.com/tsarna/vinculum-kafka v0.13.0
 	github.com/tsarna/vinculum-mqtt v0.12.1
-	github.com/tsarna/vinculum-rabbitmq v0.7.0
-	github.com/tsarna/vinculum-redis v0.7.0
+	github.com/tsarna/vinculum-rabbitmq v0.8.0
+	github.com/tsarna/vinculum-redis v0.8.0
 	github.com/tsarna/vinculum-sns v0.3.0
-	github.com/tsarna/vinculum-sqs v0.5.0
+	github.com/tsarna/vinculum-sqs v0.6.0
 	github.com/tsarna/vinculum-vws v0.14.1
 	github.com/tsarna/vinculum-wire v0.5.0
 	github.com/twmb/franz-go v1.21.6
@@ -175,7 +175,7 @@ require (
 	github.com/heimdalr/dag v1.5.1
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/tsarna/url-cty-funcs v0.2.0
-	github.com/tsarna/vinculum-fsm v0.5.1
+	github.com/tsarna/vinculum-fsm v0.6.0
 	github.com/zclconf/go-cty v1.19.0
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/mod v0.38.0 // indirect
