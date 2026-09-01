@@ -161,3 +161,17 @@ func (s *printingSubscriber) OnEvent(ctx context.Context, topic string, message 
 	fmt.Printf("%s\t%s\n", topic, string(jsonBytes))
 	return nil
 }
+
+// DeliveryDisposition reports this as an observer.
+//
+// It prints what it is given and takes no responsibility for it, which is the
+// textbook tap: reading its nil return as "handled" would let a debugging tool
+// acknowledge a message it merely printed, and reading a formatting failure as
+// a refusal would send real traffic back for redelivery. Neither can happen
+// today — this subscribes over a WebSocket, and a settler never crosses a wire
+// — but the disposition is what the type *is*, not what its current wiring
+// makes reachable, and the next thing to print messages may be attached to a
+// live bus.
+func (s *printingSubscriber) DeliveryDisposition() bus.Disposition {
+	return bus.Observed
+}

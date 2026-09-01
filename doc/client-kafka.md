@@ -478,8 +478,24 @@ the offset would be committed the moment the record was enqueued: an error from
 the handler would no longer route to `dlq_topic`, and a full queue would drop a
 record whose offset was already committed. A slow handler here holds up the
 poll loop rather than being queued away, until that tracker exists — which is
-also what `ack = "manual"` is waiting on. See
-[delivery model](config.md#delivery-model).
+also what `ack = "manual"` is waiting on.
+
+> **The same limit applies to `subscriber = bus.<name>`, and is not refused.**
+> A bus accepts a message onto its own queue and returns, so the offset is
+> committed at that hand-off rather than when the subscribers on that bus have
+> run. On the other three receivers the delivery carries a settler that closes
+> this; on Kafka there is nothing to carry.
+>
+> It is not rejected the way `queue_size` is, because routing a receiver into a
+> bus is the ordinary way to build anything and refusing it would leave the
+> Kafka receiver able to feed only a directly-attached `action`. That is a
+> deliberate asymmetry rather than a considered difference in risk: `queue_size`
+> is an explicit request for something that quietly breaks, and a bus is the
+> normal shape of a configuration. Both are closed by the same tracker. Until
+> then, a Kafka receiver whose work must not be lost wants that work in its own
+> `action`, or `dlq_topic` set so a failure has somewhere to go.
+
+See [delivery model](config.md#delivery-model).
 
 #### Action context variables
 

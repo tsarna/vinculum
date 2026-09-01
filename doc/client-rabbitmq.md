@@ -316,6 +316,16 @@ sender "main" {
 A returned message is also counted on the `rabbitmq.publisher.returned` metric —
 see [Mandatory delivery](#mandatory-delivery) below.
 
+**`confirm_mode = false` gives up more than latency when this sender is bridging
+an acknowledged transport.** Without confirms the publish is a frame on the
+wire: it returns having sent the message, not having had it accepted. If this
+sender is the subscriber of a receiver with `ack = "auto"`, that return is what
+acknowledges the *inbound* message — so a publish the broker never took would be
+acknowledged upstream and lost. The default is `true`, which waits, so the
+default is safe; this is a knob that trades a delivery guarantee for throughput
+and is worth reading as such. `client "kafka"`'s `produce_mode = "async"` is the
+same trade, and it is the reason both are called out here.
+
 <!-- vinculum:begin block-attrs client rabbitmq sender level=4 -->
 
 | Attribute | Type | Required | Default | Description |

@@ -562,6 +562,14 @@ deadlock or hook interleaving.
   `RWMutex` and do not block event processing.
 - **Queue sizing**: `queue_size` sets the buffer depth — how far the machine
   may fall behind before a `send()` blocks.
+- **Acknowledgement**: handing an event to a machine is not handling it. Where
+  the event came from a broker receiver with `ack = "auto"`, the acknowledgement
+  waits until the hooks for that event have run, rather than firing when the
+  event is queued. An event a stopped machine refuses is nacked, so the broker
+  redelivers it. A hook that fails is routed to `on_error` and does not
+  propagate, so it does not by itself nack the message — a configuration that
+  wants a hook failure to reach the broker uses `ack = "manual"` and settles
+  from the hook. See [delivery model](config.md#delivery-model).
 
 ---
 

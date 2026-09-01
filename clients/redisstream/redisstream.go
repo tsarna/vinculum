@@ -308,6 +308,19 @@ func (c *RedisStreamClient) OnEvent(ctx context.Context, topic string, msg any, 
 	return nil
 }
 
+// DeliveryDisposition reduces the producers this fans out to. One deferring
+// producer is enough to make this call's nil return mean less than "handled",
+// so it dominates — the conservative direction. Unwrap cannot express this:
+// there are N subscribers behind this one, not one.
+func (c *RedisStreamClient) DeliveryDisposition() bus.Disposition {
+	for _, name := range c.order {
+		if bus.DispositionOf(c.producers[name]) == bus.Deferred {
+			return bus.Deferred
+		}
+	}
+	return bus.Handled
+}
+
 // ─── Config processing ────────────────────────────────────────────────────────
 
 // renamedConsumerAttrs retires `auto_ack`, which said in a boolean what four

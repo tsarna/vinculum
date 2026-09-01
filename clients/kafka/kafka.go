@@ -341,6 +341,25 @@ func (p *KafkaProducerProxy) OnEvent(ctx context.Context, topic string, msg any,
 	return prod.OnEvent(ctx, topic, msg, fields)
 }
 
+// Unwrap reports the producer this stands in for, so a settle point asking what
+// a delivery's return will mean sees the producer's answer rather than this
+// proxy's silence.
+//
+// It matters here more than on most wrappers: a producer with
+// produce_mode = "async" returns before the broker has the record and says so,
+// and a proxy that swallowed that would have the inbound message acknowledged
+// at the hand-off — which is exactly the guarantee that mode is documented to
+// keep. Nil before Start, which reads correctly: there is nothing behind this
+// yet, and OnEvent above returns an error in that state anyway.
+func (p *KafkaProducerProxy) Unwrap() bus.Subscriber {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.producer == nil {
+		return nil
+	}
+	return p.producer
+}
+
 // KafkaClient manages a franz-go producer client, zero or more KafkaProducers,
 // and zero or more KafkaConsumers.
 type KafkaClient struct {
@@ -544,6 +563,26 @@ func (c *KafkaClient) OnEvent(ctx context.Context, topic string, msg any, fields
 		return fmt.Errorf("kafka client %q: multiple produce errors: %v", c.Name, errs)
 	}
 	return nil
+}
+
+// DeliveryDisposition reduces the producers this fans out to.
+//
+// One deferring producer is enough to make this whole call's nil return mean
+// less than "handled", so it dominates — the conservative direction, since
+// claiming to have handled what has only been queued is the unrecoverable
+// mistake. Unwrap cannot express this: there are N subscribers behind this one,
+// not one.
+func (c *KafkaClient) DeliveryDisposition() bus.Disposition {
+	c.mu.RLock()
+	producers := c.producers
+	c.mu.RUnlock()
+
+	for _, p := range producers {
+		if bus.DispositionOf(p) == bus.Deferred {
+			return bus.Deferred
+		}
+	}
+	return bus.Handled
 }
 
 // ─── Config processing ────────────────────────────────────────────────────────

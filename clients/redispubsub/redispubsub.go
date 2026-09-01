@@ -241,6 +241,19 @@ func (c *RedisPubSubClient) OnEvent(ctx context.Context, topic string, msg any, 
 	return nil
 }
 
+// DeliveryDisposition reduces the publishers this fans out to. One deferring
+// publisher is enough to make this call's nil return mean less than "handled",
+// so it dominates — the conservative direction. Unwrap cannot express this:
+// there are N subscribers behind this one, not one.
+func (c *RedisPubSubClient) DeliveryDisposition() bus.Disposition {
+	for _, name := range c.order {
+		if bus.DispositionOf(c.publishers[name]) == bus.Deferred {
+			return bus.Deferred
+		}
+	}
+	return bus.Handled
+}
+
 // ─── Config processing ────────────────────────────────────────────────────────
 
 func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.Client, hcl.Diagnostics) {

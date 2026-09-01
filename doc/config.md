@@ -666,6 +666,27 @@ policy rather than through a timeout. On a message that arrived over a transport
 with no acknowledgement, `inbound::nack()` does nothing and returns `false`, so
 the same subscription is safe on any bus.
 
+**The subscription decides, including by saying nothing.** A `$undeliverable`
+handler that just logs and returns *acknowledges* the message under
+`ack = "auto"` — that is how a configuration says "nothing wanted this and that
+is fine, do not send it again". The `inbound::nack()` above is how it says the
+opposite. Both are ordinary: the handler is a subscriber like any other, and it
+settles the way any subscriber settles.
+
+**With `undeliverable = false` — the default — a message nothing matched is
+acknowledged and counted.** A topic no subscription matches is a routing outcome
+the configuration chose, so it reads the same way as a sender told to ignore a
+message. Nacking it instead would turn an unsubscribed topic into a redelivery
+loop, and the `undelivered` counter above is already the signal for a topic
+pattern that was *meant* to match and does not.
+
+The one case that is nacked without asking is a `$undeliverable` that itself
+matches nothing, on a bus where the attribute is on. `$`-prefixed topics are
+never republished — otherwise a bus with the attribute set and no handler would
+feed itself — so that is the end of the line, and asking to be told about
+undeliverable messages and then not listening is a mistake rather than a
+decision.
+
 `ctx.topic` on that message is `$undeliverable`; it has to be, or the
 subscription's own matcher could not have selected it. The topic that failed to
 route is `ctx.undeliverable_topic`, named after what it is rather than shadowing

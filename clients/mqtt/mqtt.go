@@ -284,6 +284,18 @@ func (p *MQTTPublisherProxy) OnEvent(ctx context.Context, topic string, msg any,
 	return pub.OnEvent(ctx, topic, msg, fields)
 }
 
+// Unwrap reports the publisher this stands in for, so a settle point asking
+// what a delivery's return will mean sees the publisher's answer rather than
+// this proxy's silence. Nil before Start, where OnEvent above errors anyway.
+func (p *MQTTPublisherProxy) Unwrap() bus.Subscriber {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.publisher == nil {
+		return nil
+	}
+	return p.publisher
+}
+
 // MQTTClientWrapper manages an MQTTClient lifecycle and implements bus.Subscriber
 // by dispatching OnEvent to all publishers.
 type MQTTClientWrapper struct {
@@ -521,6 +533,23 @@ func (c *MQTTClientWrapper) OnEvent(ctx context.Context, topic string, msg any, 
 		return fmt.Errorf("mqtt client %q: multiple publish errors: %v", c.Name, errs)
 	}
 	return nil
+}
+
+// DeliveryDisposition reduces the publishers this fans out to. One deferring
+// publisher is enough to make this call's nil return mean less than "handled",
+// so it dominates — the conservative direction. Unwrap cannot express this:
+// there are N subscribers behind this one, not one.
+func (c *MQTTClientWrapper) DeliveryDisposition() bus.Disposition {
+	c.mu.RLock()
+	publishers := c.publishers
+	c.mu.RUnlock()
+
+	for _, p := range publishers {
+		if bus.DispositionOf(p) == bus.Deferred {
+			return bus.Deferred
+		}
+	}
+	return bus.Handled
 }
 
 // ─── Config processing ────────────────────────────────────────────────────────

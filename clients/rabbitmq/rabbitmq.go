@@ -369,6 +369,18 @@ func (p *RMQSenderProxy) OnEvent(ctx context.Context, topic string, msg any, fie
 	return s.OnEvent(ctx, topic, msg, fields)
 }
 
+// Unwrap reports the sender this stands in for, so a settle point asking what a
+// delivery's return will mean sees the sender's answer rather than this proxy's
+// silence. Nil before Start, where OnEvent above errors anyway.
+func (p *RMQSenderProxy) Unwrap() bus.Subscriber {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.sender == nil {
+		return nil
+	}
+	return p.sender
+}
+
 // ─── Client wrapper ──────────────────────────────────────────────────────────
 
 // RMQClientWrapper manages the lifecycle of a single AMQP connection and
@@ -583,6 +595,23 @@ func (c *RMQClientWrapper) OnEvent(ctx context.Context, topic string, msg any, f
 	default:
 		return fmt.Errorf("rabbitmq client %q: multiple publish errors: %v", c.Name, errs)
 	}
+}
+
+// DeliveryDisposition reduces the senders this fans out to. One deferring
+// sender is enough to make this call's nil return mean less than "handled", so
+// it dominates — the conservative direction. Unwrap cannot express this: there
+// are N subscribers behind this one, not one.
+func (c *RMQClientWrapper) DeliveryDisposition() bus.Disposition {
+	c.mu.RLock()
+	senders := c.senders
+	c.mu.RUnlock()
+
+	for _, s := range senders {
+		if bus.DispositionOf(s) == bus.Deferred {
+			return bus.Deferred
+		}
+	}
+	return bus.Handled
 }
 
 // ─── Process ─────────────────────────────────────────────────────────────────
