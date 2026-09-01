@@ -912,6 +912,48 @@ Both are one-way. Vinculum has no configuration reload, so the set of
 contributors is fixed for the life of the process and the sequence is always
 `starting → serving → shutting down`.
 
+### What a graceful shutdown does, in order
+
+1. **Readiness goes false.** Before anything is torn down, so a probe arriving
+   during the shutdown gets an honest `503` rather than a refused connection.
+2. **Listeners stop accepting** and finish the requests already in flight —
+   every `server` block, and any client that holds connections. Each applies its
+   own `shutdown_timeout` — see [`server "http"`](server-http.md).
+3. **`trigger "shutdown"` actions run**, with the whole runtime still available
+   behind the closed front door: they can publish, send, and call a client.
+4. **The message pipeline empties.** Every bus dispatches what is on its
+   channel, and every `queue_size` queue runs the backlog it is holding and
+   finishes the action it is running.
+5. **Everything stops.** Connections close, clients disconnect, timers stop.
+
+Step 4 is what keeps a queue from being a hole in the guarantee. A
+`subscription` with `queue_size = 500` can be holding five hundred messages
+when the signal arrives, and they are work that was accepted; on a path where
+nothing acknowledged them, there is no broker to redeliver them either. It runs
+*after* step 3 so that what a shutdown trigger publishes is delivered rather
+than left on a channel, and *before* step 5 because the acknowledgement for a
+message the pipeline is still carrying travels over a connection that step 5
+closes.
+
+The wait is bounded by ten seconds for the phase as a whole. What is still held
+when that expires is named in the log:
+
+```text
+warn  Shutting down with messages still in flight  {"messages": 412,
+      "holders": ["subscription/enrich=412"]}
+```
+
+Nothing new enters the pipeline during step 4 through a *listener*, since those
+closed in step 2. A client **receiver** consuming from a broker is still
+consuming, though, and a message it delivers during the wait is handled
+normally. One that arrives after the queues have closed is refused, which on an
+acknowledging transport means the broker redelivers it on the next boot.
+
+That is also the one shape in which the wait runs long: a pipeline saturated
+enough that it never momentarily empties will use the whole ten seconds before
+giving up. A pipeline that keeps up reaches zero within a sampling interval or
+two, so an ordinary shutdown is not measurably slower than it was.
+
 ---
 
 ## Starting when a dependency is down

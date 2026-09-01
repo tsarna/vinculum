@@ -630,6 +630,8 @@ Bounds how much work is outstanding at once. Zero is unlimited, which lets the b
 
 When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded, and what happens to a message that arrives when it is full depends on where it came from: one that arrived over a transport that acknowledges is nacked, so the broker redelivers it, and any other is dropped and counted. On a receiver this composes with `ack` rather than conflicting with it — the acknowledgement follows the message through the queue and arrives when the work finishes.
 
+A graceful shutdown runs the queue out rather than exiting past it: see [Boot and shutdown](health.md#boot-and-shutdown).
+
 **`settle_timeout`**
 
 Required with `ack = "manual"`, where nothing settles the message until the configuration does. Optional with `ack = "auto"`, to bound a chain the configuration does not fully trust — the acknowledgement follows the work, so a handler that never finishes leaves the message outstanding. An unsettled message costs something for as long as it is outstanding: an SQS visibility window, a RabbitMQ prefetch slot, a Kafka partition's committable offset. On expiry the message is nacked and the failure is logged against the receiver.

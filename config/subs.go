@@ -90,7 +90,9 @@ var SubscriberSourceAttrs = map[string]AttrMeta{
 			"transport that acknowledges is nacked, so the broker redelivers it, and any " +
 			"other is dropped and counted. On a receiver this composes with `ack` rather " +
 			"than conflicting with it — the acknowledgement follows the message through the " +
-			"queue and arrives when the work finishes.",
+			"queue and arrives when the work finishes.\n\n" +
+			"A graceful shutdown runs the queue out rather than exiting past it: see " +
+			"[Boot and shutdown](health.md#boot-and-shutdown).",
 	},
 }
 
@@ -154,6 +156,16 @@ func (s SubscriberSource) Resolve(
 			async = async.WithTracerProvider(tp)
 		}
 		subscriber = async.Start()
+
+		// The queue is where a message waits longest and where shutdown used to
+		// lose it: the goroutine started above dies with the process, taking
+		// whatever it had not run yet. Registering here covers every block that
+		// accepts the pattern, since this is the only place one is built.
+		config.InFlight = append(config.InFlight, InFlightHolder{
+			Name:       name,
+			QueueDepth: async.QueueDepth,
+			Close:      async.Close,
+		})
 	}
 
 	return subscriber, nil

@@ -364,6 +364,15 @@ func (h *BusBlockHandler) BuildEventBus(config *Config, busDef *BusDefinition, d
 	config.Buses[busDef.Name] = handle
 	config.CtyBusMap[busDef.Name] = NewEventBusCapsule(handle)
 
+	// A published message sits in the bus's channel until the dispatch loop
+	// reaches it, so shutdown has to wait for that channel rather than exit
+	// past it. No Close: Stop abandons what is queued instead of dispatching
+	// it, so the only way to empty a bus is to let it run.
+	config.InFlight = append(config.InFlight, InFlightHolder{
+		Name:       "bus." + busDef.Name,
+		QueueDepth: eventBus.QueueDepth,
+	})
+
 	// Attributes can't be added on the fly, do we have to redefine the object to add each new bus
 	config.Constants["bus"] = cty.ObjectVal(config.CtyBusMap)
 

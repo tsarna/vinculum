@@ -273,6 +273,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A graceful shutdown now empties the message pipeline instead of exiting
+  past it.** Nothing stopped the buses or the `queue_size` queues: their
+  goroutines died with the process, taking whatever they had accepted and not
+  yet run. A `subscription` with `queue_size = 500` could lose up to five
+  hundred messages at every shutdown, silently — and on a path where nothing
+  acknowledged them, no broker redelivers them either.
+
+  A teardown phase now waits for every bus and every queue to empty, and then
+  runs each queue out to the end of the action it is on. It sits after the
+  `trigger "shutdown"` actions, so what one of those publishes is delivered
+  rather than left on a channel, and before anything disconnects, so an
+  acknowledgement that has followed the work several hops downstream still has
+  a connection to travel over. The wait is bounded at ten seconds for the phase;
+  what is still held when that expires is named in the log.
+
 - **`increment()` with no delta no longer fails.** The delta is documented as
   optional — `increment(var.hits)` adds one — but a variable, a gauge and a
   counter all read it positionally, so the documented spelling produced a Go

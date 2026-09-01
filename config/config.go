@@ -104,9 +104,54 @@ type Drainable interface {
 	Drain(ctx context.Context) error
 }
 
+// InFlightHolder describes one place a message waits between being accepted
+// and being worked on: an event bus's dispatch channel, or the queue
+// `queue_size` puts in front of a subscriber. Teardown's third phase waits for
+// every registered holder to empty before the fourth closes the transports,
+// so an acknowledgement that follows the work still has something to travel
+// over when the work finishes.
+//
+// It is a value rather than an interface because the two things the phase needs
+// are already methods on the components — bus.EventBus.QueueDepth and
+// AsyncQueueingSubscriber.QueueDepth and Close — under names an interface would
+// only rename. What is *not* on either is the name to report, so registration
+// supplies it.
+//
+// Every holder registers, whatever the topology: the phase waits for all
+// depths to reach zero rather than emptying them in flow order, because no
+// registration order is flow order. A `subscription` names its source
+// (`target = bus.x`), so its bus is registered first and is upstream; a client
+// receiver names its destination (`subscriber = bus.main`), so its bus is
+// registered first and is downstream. Waiting is what makes both correct.
+type InFlightHolder struct {
+	// Name is what the shutdown log calls this holder if it does not empty:
+	// `bus.events`, `subscription/audit`.
+	Name string
+
+	// QueueDepth reports how many messages are waiting. Required: a holder that
+	// cannot say is one the phase cannot wait for.
+	//
+	// A depth of zero is not quite proof of quiescence — the last message may
+	// have been taken off the queue and still be running — which is why the
+	// phase samples twice and then closes what can be closed.
+	QueueDepth func() int
+
+	// Close finishes everything the holder is still carrying and returns, or is
+	// nil when the component has no such operation. An async queue's Close
+	// waits for its goroutine, so it is exact where sampling a depth is not,
+	// and it leaves the queue refusing further messages rather than accepting
+	// ones nothing will run. A bus registers none: its Stop abandons whatever
+	// is in the channel instead of dispatching it, so waiting is the only way
+	// to empty one.
+	Close func() error
+}
+
 // DefaultShutdownTimeout is how long a listener waits for in-flight work
 // before forcing its remaining connections closed, when the block does not
-// set `shutdown_timeout`.
+// set `shutdown_timeout`. It also bounds the wait for the message pipeline to
+// empty, which is one deadline for the whole phase rather than one per holder:
+// what an operator is choosing there is how long the process may take to exit,
+// and that is a property of the shutdown and not of any one queue in it.
 const DefaultShutdownTimeout = 10 * time.Second
 
 type Config struct {
@@ -142,6 +187,7 @@ type Config struct {
 	Startables       []Startable
 	PostStartables   []PostStartable
 	Drainables       []Drainable
+	InFlight         []InFlightHolder
 	PreStoppables    []PreStoppable
 	Stoppables       []Stoppable
 	BusCapsuleType   cty.Type
