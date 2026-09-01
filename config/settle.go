@@ -40,10 +40,15 @@ type settleTimeoutSubscriber struct {
 // NewSettleTimeoutSubscriber wraps inner so that a delivery nobody settles
 // within policy.SettleTimeout is nacked and logged against receiver.
 //
-// Under any mode but manual it returns inner unchanged: something else settles
-// the message when delivery returns, so there is nothing to time.
+// It wraps whenever a bound was asked for, whatever the mode. Under manual that
+// is always — a settle deadline is required there, because nothing settles the
+// message until the configuration does. Under auto it is optional and usually
+// absent: the framework settles at a known point, so a configuration that asks
+// for no bound is no worse off than it was. What makes the bound meaningful
+// under auto at all is that the settle now happens wherever the work finishes,
+// which may be several hops from here and may never happen.
 func NewSettleTimeoutSubscriber(policy AckPolicy, inner bus.Subscriber, receiver string, logger *zap.Logger) bus.Subscriber {
-	if !policy.Manual() || policy.SettleTimeout <= 0 {
+	if policy.SettleTimeout <= 0 {
 		return inner
 	}
 	return &settleTimeoutSubscriber{
@@ -115,6 +120,15 @@ func (s *settleTimeoutSubscriber) PassThrough(msg bus.EventBusMessage) error {
 	return s.inner.PassThrough(msg)
 }
 
+// Unwrap reports what this wraps, so a settle point asking what a delivery's
+// return will mean sees past the deadline to the queue or subscriber behind it.
+//
+// Forgetting this is silent and expensive: the receiver would read a chain
+// ending in an async queue as ordinary, and acknowledge every message at the
+// moment it was enqueued — which is the defect the whole arrangement exists to
+// remove, reintroduced by the wrapper that bounds it.
+func (s *settleTimeoutSubscriber) Unwrap() bus.Subscriber { return s.inner }
+
 // deadlineSettler is the settler a bounded delivery carries: the receiver's
 // own, plus the timer that will nack it if nobody does.
 //
@@ -140,6 +154,14 @@ func (d *deadlineSettler) Nack(ctx context.Context, reason string) (bool, error)
 	settled, err := d.inner.Nack(ctx, reason)
 	d.settled(settled)
 	return settled, err
+}
+
+// Auto forwards, because whether a delivery is settled by the framework or by
+// the configuration is the receiver's decision, made when it built the settler
+// underneath. Wrapping that delivery in a deadline observes it; it does not
+// change whose decision it was.
+func (d *deadlineSettler) Auto() bool {
+	return d.inner.Auto()
 }
 
 // Keepalive does not stop the clock, and that is the whole difference between

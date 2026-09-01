@@ -52,12 +52,13 @@ const (
 // would reject — so the values here are only the two every receiver has.
 var AckAttr = AttrMeta{
 	Summary: "When a received message is settled with the broker.",
-	Doc: "`auto` settles as soon as delivery returns without error, which is fast but " +
-		"loses a message whose handling fails after that point — so it is refused " +
-		"alongside `queue_size`, which makes delivery return at the moment the message " +
-		"is queued. `manual` settles nothing until the configuration calls " +
-		"`inbound::ack()` or `inbound::nack()`, and requires `settle_timeout` to bound " +
-		"how long a message may go unsettled.",
+	Doc: "`auto` settles the message for you, on the outcome of the work: the delivery " +
+		"travels on `ctx`, so the acknowledgement follows it through a `queue_size` " +
+		"queue, a bus, an `fsm`, and any number of hops, and arrives when the work " +
+		"finishes rather than when delivery returns. A handler that fails nacks instead, " +
+		"so the broker redelivers or dead-letters it. `manual` settles nothing until the " +
+		"configuration calls `inbound::ack()` or `inbound::nack()`, and requires " +
+		"`settle_timeout` to bound how long a message may go unsettled.",
 	Enum:    []string{AckAuto, AckManual},
 	Default: AckAuto,
 }
@@ -69,13 +70,21 @@ var AckAttr = AttrMeta{
 // value that is right for both a 50ms enrichment and a five-minute batch. So a
 // configuration that takes manual settle states the bound it can live with,
 // rather than inheriting one nobody chose.
+//
+// Optional under `auto` for a different reason: the framework settles at a
+// known point, so a configuration that asks for no bound is no worse off than
+// it was. Whether `auto` should derive one from the broker's own lease is left
+// to specs/SETTLE-ON-SHUTDOWN.md, which needs a bound of its own and would
+// otherwise have to agree with one chosen here.
 var SettleTimeoutAttr = AttrMeta{
 	Summary: "How long a message may go unsettled before it is nacked automatically.",
-	Doc: "Required with `ack = \"manual\"`, and rejected without it. An unsettled message " +
-		"costs something for as long as it is outstanding — an SQS visibility window, a " +
-		"RabbitMQ prefetch slot, a Kafka partition's committable offset — and forgetting " +
-		"to call `inbound::ack()` should be diagnosable rather than a slow stall. On " +
-		"expiry the message is nacked and the failure is logged against the receiver.",
+	Doc: "Required with `ack = \"manual\"`, where nothing settles the message until the " +
+		"configuration does. Optional with `ack = \"auto\"`, to bound a chain the " +
+		"configuration does not fully trust — the acknowledgement follows the work, so a " +
+		"handler that never finishes leaves the message outstanding. An unsettled message " +
+		"costs something for as long as it is outstanding: an SQS visibility window, a " +
+		"RabbitMQ prefetch slot, a Kafka partition's committable offset. On expiry the " +
+		"message is nacked and the failure is logged against the receiver.",
 	Hint: HintDuration,
 }
 
@@ -108,25 +117,29 @@ type AckRequest struct {
 	SettleTimeout hcl.Expression
 
 	// QueueSize and QueueSizeRange are the `queue_size` attribute as written.
-	// A queue makes delivery return at the moment the message is queued, which
-	// is incompatible with settling on delivery's outcome.
 	QueueSize      *int
 	QueueSizeRange hcl.Range
-
-	// HasConcurrency says this receiver offers `concurrency`, so the diagnostic
-	// that refuses a queue can name the knob that gets the same throughput with
-	// the guarantee intact. Only sqs_receiver has one today; the others set it
-	// when they grow one (specs/QUEUE-SIZE-SEMANTICS.md option E).
-	HasConcurrency bool
 
 	// Extra names the mode this receiver accepts beyond auto and manual —
 	// AckPeriodic on kafka, AckNone on rabbitmq — or is empty.
 	Extra string
 
-	// ManualPending, when non-empty, says why this receiver cannot honour
-	// manual settle yet. It becomes the detail of the diagnostic, so it should
-	// say what is missing and what to use instead.
-	ManualPending string
+	// NoSettler, when non-empty, says why this receiver cannot give a delivery
+	// a settler of its own. It becomes the detail of the diagnostics below, so
+	// it should say what is missing and what to use instead.
+	//
+	// It is one field rather than two because it is one fact with two
+	// consequences, and a receiver that gained the ability to settle one
+	// delivery would gain both at once. Without a per-delivery settler:
+	//
+	//   - `manual` has nothing for inbound::ack() to settle, and
+	//   - `auto` can only settle when delivery returns, so it is back to
+	//     acknowledging at the enqueue whenever a queue is in front of it.
+	//
+	// Only `kafka` sets it: committing an offset is not acknowledging a record,
+	// and completing record 7 while 5 is outstanding cannot commit anything
+	// without a low-water-mark tracker it does not have.
+	NoSettler string
 
 	// DefRange is the block's own range, for the diagnostic when `ack` itself
 	// was not written.
@@ -149,11 +162,11 @@ func (c *Config) ResolveAck(req AckRequest) (AckPolicy, hcl.Diagnostics) {
 	case policy.Mode == AckAuto:
 	case policy.Mode == req.Extra:
 	case policy.Mode == AckManual:
-		if req.ManualPending != "" {
+		if req.NoSettler != "" {
 			return AckPolicy{}, hcl.Diagnostics{{
 				Severity: hcl.DiagError,
 				Summary:  fmt.Sprintf("%s: ack \"manual\" is not implemented yet", req.Receiver),
-				Detail:   req.ManualPending,
+				Detail:   req.NoSettler,
 				Subject:  ackSubject(req),
 			}}
 		}
@@ -166,58 +179,85 @@ func (c *Config) ResolveAck(req AckRequest) (AckPolicy, hcl.Diagnostics) {
 		}}
 	}
 
-	// A queue makes delivery return at the moment the message is queued, and
-	// auto settles on delivery's return: together they acknowledge the message
-	// before anything has handled it, so an error can no longer redeliver or
-	// dead-letter, and a full queue drops a message the broker was already told
-	// was handled. At-least-once quietly becomes at-most-once.
+	// A queue makes delivery return at the moment the message is queued. Where a
+	// receiver can hand the delivery its own settler that is harmless — the
+	// settler travels with the message and whatever finishes the work settles
+	// it, however many hops away. Where it cannot, auto has nothing to settle on
+	// but delivery's return, so the message would be acknowledged before
+	// anything handled it: an error could no longer redeliver or dead-letter,
+	// and a full queue would drop a message the broker was already told was
+	// handled. At-least-once quietly becomes at-most-once.
 	//
-	// Only auto is refused. Under AckNone nothing is ever acknowledged, and
-	// under AckPeriodic the offset advances on a timer regardless of outcome —
-	// neither has anything left to give up to the queue.
-	if policy.Mode == AckAuto && req.QueueSize != nil {
+	// So the refusal is not about auto, it is about the receiver — which is why
+	// this reads NoSettler and the diagnostic has to say why one receiver
+	// refuses what another accepts.
+	//
+	// AckNone and AckPeriodic are unaffected either way: nothing is ever
+	// acknowledged under the first, and the offset advances on a timer
+	// regardless of outcome under the second, so neither has anything left to
+	// give up to a queue.
+	if policy.Mode == AckAuto && req.QueueSize != nil && req.NoSettler != "" {
 		return AckPolicy{}, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
 			Summary:  fmt.Sprintf("%s: queue_size cannot be combined with ack = %q", req.Receiver, AckAuto),
-			Detail: "Delivery returns as soon as the message is queued, and ack = \"auto\" settles " +
-				"the message with the broker when delivery returns — so it would be settled " +
-				"before anything handled it. A handler error could no longer redeliver or " +
-				"dead-letter it, and a full queue would drop a message already reported " +
-				"handled. " + queueSizeRemedy(req),
+			Detail: "Delivery returns as soon as the message is queued, so a receiver that cannot " +
+				"give the delivery a settler of its own has nothing left to settle on but that " +
+				"return — the message would be acknowledged before anything handled it, and a " +
+				"handler error could no longer redeliver or dead-letter it. Other receivers " +
+				"accept this combination because their deliveries carry a settler that follows " +
+				"the message to wherever the work finishes. " + req.NoSettler +
+				" Or remove queue_size.",
 			Subject: &req.QueueSizeRange,
 		}}
 	}
 
 	hasTimeout := IsExpressionProvided(req.SettleTimeout)
-	if !policy.Manual() {
-		if hasTimeout {
-			// Not merely redundant: it states a bound on something that is
-			// already settled by the time the bound could apply, so honouring
-			// it would be impossible and ignoring it would be a lie.
+
+	switch {
+	case policy.Manual():
+		if !hasTimeout {
 			return AckPolicy{}, hcl.Diagnostics{{
 				Severity: hcl.DiagError,
-				Summary:  fmt.Sprintf("%s: settle_timeout applies only to ack = \"manual\"", req.Receiver),
-				Detail: fmt.Sprintf("With ack = %q the message is settled for you when delivery "+
-					"returns, so there is no unsettled message for this to bound. Either set "+
-					"ack = \"manual\" and settle the message yourself, or remove settle_timeout.",
-					policy.Mode),
-				Subject: req.SettleTimeout.Range().Ptr(),
+				Summary:  fmt.Sprintf("%s: ack = \"manual\" requires settle_timeout", req.Receiver),
+				Detail: "Nothing settles a message until the configuration calls inbound::ack() or " +
+					"inbound::nack(), so a message that reaches an expression that forgets to " +
+					"would go unsettled indefinitely — holding a visibility window, a prefetch " +
+					"slot, or a partition's committable offset. There is no default worth " +
+					"choosing here, because no one value suits both a 50ms enrichment and a " +
+					"five-minute batch: state the bound this receiver can live with.",
+				Subject: ackSubject(req),
 			}}
 		}
-		return policy, nil
-	}
 
-	if !hasTimeout {
+	case !hasTimeout:
+		return policy, nil
+
+	// Permitted under auto, where the settle now happens wherever the work
+	// finishes rather than when delivery returns — so there is a genuinely
+	// unsettled message for a bound to apply to. Not required: the framework
+	// settles at a known point, and a configuration that does not ask for a
+	// bound is no worse off than it was.
+	case policy.Mode == AckAuto && req.NoSettler == "":
+
+	case policy.Mode == AckAuto:
 		return AckPolicy{}, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
-			Summary:  fmt.Sprintf("%s: ack = \"manual\" requires settle_timeout", req.Receiver),
-			Detail: "Nothing settles a message until the configuration calls inbound::ack() or " +
-				"inbound::nack(), so a message that reaches an expression that forgets to " +
-				"would go unsettled indefinitely — holding a visibility window, a prefetch " +
-				"slot, or a partition's committable offset. There is no default worth " +
-				"choosing here, because no one value suits both a 50ms enrichment and a " +
-				"five-minute batch: state the bound this receiver can live with.",
-			Subject: ackSubject(req),
+			Summary:  fmt.Sprintf("%s: settle_timeout is not supported by this receiver", req.Receiver),
+			Detail: "settle_timeout bounds how long one delivery may go unsettled, and this " +
+				"receiver cannot track a single delivery. " + req.NoSettler,
+			Subject: req.SettleTimeout.Range().Ptr(),
+		}}
+
+	default:
+		return AckPolicy{}, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary: fmt.Sprintf("%s: settle_timeout does not apply to ack = %q",
+				req.Receiver, policy.Mode),
+			Detail: fmt.Sprintf("With ack = %q there is no per-message acknowledgement for this "+
+				"to bound. Use ack = \"auto\" to settle on the outcome of the work, or "+
+				"ack = \"manual\" to settle it yourself, or remove settle_timeout.",
+				policy.Mode),
+			Subject: req.SettleTimeout.Range().Ptr(),
 		}}
 	}
 
@@ -235,31 +275,6 @@ func (c *Config) ResolveAck(req AckRequest) (AckPolicy, hcl.Diagnostics) {
 	}
 	policy.SettleTimeout = d
 	return policy, nil
-}
-
-// queueSizeRemedy names the ways this particular receiver can get what
-// queue_size was reached for. It is composed from what the request already
-// says rather than passed in, so it stays honest on its own: a receiver that
-// implements manual settle drops its ManualPending and the advice appears with
-// it, and one that grows a `concurrency` attribute sets HasConcurrency.
-func queueSizeRemedy(req AckRequest) string {
-	switch {
-	case req.HasConcurrency && req.ManualPending == "":
-		return "Use concurrency for throughput, where each message still settles on its own " +
-			"outcome, or ack = \"manual\" with settle_timeout to keep the queue and settle " +
-			"the message yourself."
-	case req.HasConcurrency:
-		return "Use concurrency for throughput instead: each message still settles on its own " +
-			"outcome."
-	case req.ManualPending == "":
-		return "Set ack = \"manual\" with settle_timeout to keep the queue — the delivery " +
-			"travels on ctx, so inbound::ack() settles it wherever the work finishes — or " +
-			"remove queue_size."
-	default:
-		// Nothing this receiver offers keeps both, so say so rather than
-		// suggest a mode that keeps the queue by giving up more.
-		return "This receiver has no way to keep it yet: remove queue_size."
-	}
 }
 
 // ackSubject points a diagnostic at the `ack` attribute, or at the block when

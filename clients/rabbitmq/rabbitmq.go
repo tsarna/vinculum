@@ -160,10 +160,12 @@ consume a queue and deliver what arrives to the bus or an action.`,
 					Default: "false",
 				},
 				"ack": cfg.AckAttr.
-					WithDoc("`auto` acknowledges once delivery returns without error, which is "+
-						"fast but loses a message whose handling fails after that point, so it "+
-						"is refused alongside `queue_size`, which makes delivery return at the "+
-						"moment the message is queued. `manual` acknowledges nothing until the "+
+					WithDoc("`auto` acknowledges when the work finishes: the delivery travels "+
+						"on `ctx`, so the acknowledgement follows the message through a "+
+						"`queue_size` queue, a bus, and any number of hops rather than firing "+
+						"when delivery returns. A handler that fails nacks instead, so the "+
+						"message reaches the dead-letter exchange if there is one. `manual` "+
+						"acknowledges nothing until the "+
 						"configuration calls `inbound::ack()`, and requires `settle_timeout`; "+
 						"`inbound::nack()` rejects the message without requeueing it, so it "+
 						"reaches the queue's dead-letter exchange if it has one and is dropped "+

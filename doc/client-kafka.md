@@ -408,7 +408,7 @@ Kafka distributes each topic's partitions across the members of a group.
 
 **`ack`**
 
-`auto` commits a record's offset once delivery succeeds, giving at-least-once delivery — so it is refused alongside `queue_size`, which makes delivery succeed at the moment the record is queued; `periodic` commits on a timer regardless of outcome, which can lose or duplicate messages across a crash. Manual settle is not available here yet: acknowledging one record is not the same as committing an offset, and completing record 7 while 5 is still outstanding needs a low-water-mark tracker this receiver does not have.
+`auto` commits a record's offset once delivery succeeds, giving at-least-once delivery; `periodic` commits on a timer regardless of outcome, which can lose or duplicate messages across a crash. Unlike the other receivers, this one has no per-record settler — acknowledging one record is not the same as committing an offset, and completing record 7 while 5 is still outstanding needs a low-water-mark tracker this receiver does not have. So `auto` here can only settle when delivery returns, which is why it is refused alongside `queue_size`, and why manual settle is not available yet.
 
 One of: `auto`, `periodic`.
 
@@ -430,7 +430,7 @@ Evaluated against the `decode-error` context.
 
 **`queue_size`**
 
-When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, which on a receiver that settles with a broker is why it is refused alongside `ack = "auto"` — the message would be settled before anything handled it.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded, and what happens to a message that arrives when it is full depends on where it came from: one that arrived over a transport that acknowledges is nacked, so the broker redelivers it, and any other is dropped and counted. On a receiver this composes with `ack` rather than conflicting with it — the acknowledgement follows the message through the queue and arrives when the work finishes.
 
 **`start_offset`**
 
@@ -465,14 +465,20 @@ before delivery, and `queue_size = N` wraps delivery in an async background
 queue of depth `N`. Same semantics as the top-level
 [subscription](config.md#subscription) block.
 
-**`queue_size` is refused alongside `ack = "auto"`**, which is the default.
-Delivery counts as successful the moment the record is queued, so the offset
-would be committed before the handler ran, an error from the handler would no
-longer route to `dlq_topic`, and a full queue would drop a record whose offset
-was already committed. A Kafka receiver has no way to keep the queue and the
-guarantee together yet — `ack = "manual"` needs the low-water-mark commit
-tracker the `ack` attribute below describes — so a slow handler here holds up
-the poll loop rather than being queued away. See
+**`queue_size` is refused alongside `ack = "auto"`**, which is the default —
+and this receiver is the only one that still refuses it. On the others the
+delivery carries a settler that travels with the message, so the
+acknowledgement follows the work through the queue. A Kafka record has no such
+handle: committing an offset is not acknowledging a record, and completing
+record 7 while 5 is still outstanding cannot commit anything without a
+low-water-mark tracker this receiver does not have.
+
+So `auto` here can only settle when delivery returns. With a queue in front,
+the offset would be committed the moment the record was enqueued: an error from
+the handler would no longer route to `dlq_topic`, and a full queue would drop a
+record whose offset was already committed. A slow handler here holds up the
+poll loop rather than being queued away, until that tracker exists — which is
+also what `ack = "manual"` is waiting on. See
 [delivery model](config.md#delivery-model).
 
 #### Action context variables

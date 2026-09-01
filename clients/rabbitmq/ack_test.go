@@ -60,10 +60,21 @@ func TestManualRequiresSettleTimeout(t *testing.T) {
 	assert.Contains(t, msg, "requires settle_timeout")
 }
 
-func TestSettleTimeoutWithoutManualIsRejected(t *testing.T) {
+// Permitted under `auto`, because the acknowledgement now follows the work
+// rather than delivery's return — so there is a genuinely unsettled message for
+// a bound to apply to. Not required: the framework settles at a known point.
+func TestSettleTimeoutIsAllowedWithAutoAck(t *testing.T) {
 	_, hasErr, msg := buildSrc(t, receiverWithAck(`settle_timeout = "30s"`))
-	require.True(t, hasErr, "settle_timeout under an automatic ack should be rejected")
-	assert.Contains(t, msg, `settle_timeout applies only to ack = "manual"`)
+	assert.False(t, hasErr, "settle_timeout should bound an automatic ack too: %s", msg)
+}
+
+// Rejected under AMQP's no-ack mode, where the broker treats the message as
+// delivered when it sends it. There is no per-message acknowledgement, so there
+// is nothing for a bound to bound.
+func TestSettleTimeoutIsRejectedWithNoAck(t *testing.T) {
+	_, hasErr, msg := buildSrc(t, receiverWithAck("ack = \"none\"\n    settle_timeout = \"30s\""))
+	require.True(t, hasErr, "settle_timeout under ack = \"none\" should be rejected")
+	assert.Contains(t, msg, `settle_timeout does not apply to ack = "none"`)
 }
 
 func TestSettleTimeoutMustBePositive(t *testing.T) {
@@ -72,24 +83,19 @@ func TestSettleTimeoutMustBePositive(t *testing.T) {
 	assert.Contains(t, msg, "settle_timeout must be positive")
 }
 
-// A queue makes delivery return at the moment the message is queued, so `auto`
-// would ack before the handler ran — and a handler error would no longer nack
-// the message to the dead-letter exchange. Refused, written or defaulted.
-func TestQueueSizeIsRefusedWithAutoAck(t *testing.T) {
+// A queue makes delivery return at the moment the message is queued, which used
+// to mean `auto` acknowledged before the handler ran. It no longer does: the
+// delivery carries a settler that travels with the message, so the
+// acknowledgement arrives when the work finishes, however far down the chain
+// that is. The combination is correct rather than refused.
+func TestQueueSizeIsAllowedWithAutoAck(t *testing.T) {
 	for _, body := range []string{
 		"queue_size = 16",
 		"ack = \"auto\"\n    queue_size = 16",
 	} {
 		t.Run(body, func(t *testing.T) {
 			_, hasErr, msg := buildSrc(t, receiverWithAck(body))
-			require.True(t, hasErr, "queue_size with an auto ack should be rejected")
-			assert.Contains(t, msg, "queue_size cannot be combined")
-			// Manual settle is the way to keep the queue, so the diagnostic
-			// names it. `concurrency` is the other answer and this receiver
-			// does not have one — a serial delivery loop is not parallelized by
-			// prefetch — so it must not be named.
-			assert.Contains(t, msg, `ack = "manual"`)
-			assert.NotContains(t, msg, "concurrency")
+			assert.False(t, hasErr, "queue_size with an auto ack should be accepted: %s", msg)
 		})
 	}
 }

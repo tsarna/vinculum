@@ -168,14 +168,14 @@ consume from Kafka topics as part of a consumer group.`,
 				},
 				"ack": cfg.AckAttr.
 					WithDoc("`auto` commits a record's offset once delivery succeeds, giving "+
-						"at-least-once delivery — so it is refused alongside `queue_size`, "+
-						"which makes delivery succeed at the moment the record is queued; "+
-						"`periodic` commits on a timer regardless of "+
+						"at-least-once delivery; `periodic` commits on a timer regardless of "+
 						"outcome, which can lose or duplicate messages across a crash. "+
-						"Manual settle is not available here yet: acknowledging one record is "+
-						"not the same as committing an offset, and completing record 7 while "+
-						"5 is still outstanding needs a low-water-mark tracker this receiver "+
-						"does not have.").
+						"Unlike the other receivers, this one has no per-record settler — "+
+						"acknowledging one record is not the same as committing an offset, and "+
+						"completing record 7 while 5 is still outstanding needs a low-water-mark "+
+						"tracker this receiver does not have. So `auto` here can only settle "+
+						"when delivery returns, which is why it is refused alongside "+
+						"`queue_size`, and why manual settle is not available yet.").
 					WithEnum(cfg.AckAuto, cfg.AckPeriodic),
 				"dlq_topic": {
 					Summary: "Kafka topic to publish messages that could not be handled.",
@@ -992,12 +992,12 @@ func buildConsumerSpec(config *cfg.Config, clientName string, def ConsumerDefini
 		QueueSize:      def.QueueSize,
 		QueueSizeRange: def.QueueSizeRange,
 		Extra:          cfg.AckPeriodic,
-		ManualPending: "Acknowledging one record is not the same as committing an offset: " +
+		NoSettler: "Acknowledging one record is not the same as committing an offset: " +
 			"completing record 7 while 5 is still outstanding cannot commit anything " +
 			"without a low-water-mark tracker, which this receiver does not have. Use " +
-			"\"auto\" for at-least-once delivery, where the offset advances only once " +
-			"the record has been handled, or \"periodic\" to commit on a timer " +
-			"regardless of the outcome.",
+			"\"auto\" without a queue for at-least-once delivery, where the offset " +
+			"advances only once the record has been handled, or \"periodic\" to commit " +
+			"on a timer regardless of the outcome.",
 		DefRange: def.DefRange,
 	})
 	if ackDiags.HasErrors() {

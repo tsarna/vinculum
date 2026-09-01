@@ -506,34 +506,49 @@ Connection-oriented servers already do this for you. `server "vws"` and
 `server "websocket"` give every connection its own outbound queue (their own
 `queue_size`, default 256), so one stalled client cannot hold up the bus.
 
-**Inbound is the opposite case.** `queue_size` is also accepted on client
-*receivers*, where it is tempting for the same reason — don't let a slow action
-stall the poll loop. But there the blocking is doing a job: it is what bounds
-how much is in flight, and what lets the receiver decide whether to acknowledge
-the message. Under the default `ack = "auto"` the receiver acknowledges when
-delivery returns, which with `queue_size` set is the moment the message is
-queued rather than when the work finishes — so an error from that work can no
-longer trigger redelivery or dead-lettering, and a full queue drops a message
-the broker was already told was handled.
+**Inbound is the case that has a broker on the other end.** `queue_size` is
+also accepted on client *receivers*, where it is tempting for the same reason —
+don't let a slow action stall the poll loop. There, delivery returning early
+means something more than a dropped message: the receiver has to tell the
+broker whether the message was handled.
 
-**So the combination is refused at load**, on every receiver that settles:
+**So an acknowledgement follows the work, not the hand-off.** The delivery
+being settled travels on `ctx` rather than in `fields`, so it survives the
+async queue, the bus, an `fsm`, and any number of hops — and under the default
+`ack = "auto"` the acknowledgement is sent wherever the work actually finishes:
 
+```hcl
+client "sqs_receiver" "tasks" {
+    queue_url  = "https://sqs.us-east-1.amazonaws.com/123456789012/tasks"
+    subscriber = bus.work
+    queue_size = 100          # correct: the ack waits for the work
+}
+
+subscription "handle" {
+    target = bus.work
+    topics = ["tasks"]
+    action = do_something(ctx, ctx.msg)
+}
 ```
-Error: sqs_receiver client "tasks": queue_size cannot be combined with ack = "auto"
-```
 
-Two things are being asked for at once, and each has its own answer.
-Throughput is `concurrency`, where the work runs in parallel and each message
-still settles on its own outcome — `client "sqs_receiver"` has it today.
-Decoupling the poll loop from the work is the queue, and keeping it means
-saying when the message is settled.
+If `do_something` fails, the message is nacked and the broker redelivers or
+dead-letters it. If the queue is full, the message is nacked rather than
+dropped — a full queue becomes backpressure instead of silent loss. Handing a
+message to a `bus` or an `fsm` does not count as handling it either; the
+acknowledgement waits for the subscriber at the far end.
 
-**Which is what `ack = "manual"` does**, and it is the way to keep the queue. A
-receiver in that mode does not acknowledge when delivery returns; nothing is
-settled until the configuration calls
+Where several subscribers match one message, it settles **once**: an
+acknowledgement means someone took responsibility, not that everyone finished.
+The set of matching subscribers changes at runtime, and a subscription that
+only logs must not gate a broker acknowledgement.
+
+**`ack = "manual"` is for deciding it yourself**, when "the action returned
+without error" is not the condition you want to acknowledge on — a message you
+want to acknowledge even though handling failed, say, or one whose real outcome
+is known somewhere the framework cannot see. Nothing is settled until the
+configuration calls
 [`inbound::ack()`](functions.md#acknowledging-an-inbound-message) or
-`inbound::nack()`. Because the delivery being settled travels on `ctx` rather
-than in `fields`, it survives the async queue, the bus, and any number of hops:
+`inbound::nack()`:
 
 ```hcl
 client "sqs_receiver" "tasks" {
@@ -551,12 +566,22 @@ subscription "handle" {
 }
 ```
 
-The acknowledgement now follows the real outcome, several hops later, instead
-of following the enqueue — which is the whole of what `queue_size` alone got
-wrong.
 `settle_timeout` is required with it, and bounds how long a message may go
 unsettled before it is nacked and the failure logged — because a message
-nothing settles is costing something for as long as it is outstanding.
+nothing settles is costing something for as long as it is outstanding. It is
+also *permitted* under `ack = "auto"`, to bound a chain you do not fully trust.
+
+**`send()` starts something new; `subscriber =` hands the message on.** An
+action that calls `send()` derives a *new* message, and the acknowledgement
+stays with the original — settled on that action's own outcome. If you want
+downstream work to gate the acknowledgement, route to it with `subscriber =`
+(or a `subscription` on the bus you sent to), which is what carries the
+delivery onward.
+
+**One receiver still refuses the combination.** `client "kafka"` has no
+per-record settler — committing an offset is not the same as acknowledging one
+record — so `queue_size` alongside `ack = "auto"` is rejected at load, with a
+diagnostic that says so. See [`doc/client-kafka.md`](client-kafka.md).
 
 #### What the bus counts
 
@@ -1132,7 +1157,7 @@ The block is parsed and validated, but nothing is created from it. A block that 
 
 **`queue_size`**
 
-When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, which on a receiver that settles with a broker is why it is refused alongside `ack = "auto"` — the message would be settled before anything handled it.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded, and what happens to a message that arrives when it is full depends on where it came from: one that arrived over a transport that acknowledges is nacked, so the broker redelivers it, and any other is dropped and counted. On a receiver this composes with `ack` rather than conflicting with it — the acknowledgement follows the message through the queue and arrives when the work finishes.
 
 **`subscriber`**
 

@@ -465,21 +465,25 @@ client "redis_stream" "rs" {
 		assert.Contains(t, diags.Error(), "requires settle_timeout")
 	})
 
+	// Permitted under auto, because the XACK now follows the work rather than
+	// delivery's return — so there is a genuinely unsettled entry for a bound
+	// to apply to. Not required: the framework settles at a known point, and a
+	// configuration that asks for no bound is no worse off than it was.
 	t.Run("auto with it", func(t *testing.T) {
 		_, diags := cfg.NewConfig().
 			WithSources([]byte(consumer("settle_timeout = \"30s\""))).
 			WithLogger(zap.NewNop()).Build()
-		require.True(t, diags.HasErrors())
-		assert.Contains(t, diags.Error(), `applies only to ack = "manual"`)
+		require.False(t, diags.HasErrors(), diags.Error())
 	})
 }
 
-// A queue makes delivery return at the moment the entry is queued, so `auto`
-// would XACK before the handler ran, and a handler error would no longer leave
-// the entry in the pending list for reclaim or dead-lettering. Refused, written
-// or defaulted — but `manual` keeps the queue, which is the combination
-// TestSettleSurvivesTheQueueAndTheBus above proves end to end.
-func TestQueueSizeIsRefusedOnlyUnderAutoAck(t *testing.T) {
+// A queue makes delivery return at the moment the entry is queued, which used
+// to mean `auto` XACKed before the handler ran. It no longer does: the entry
+// carries a settler that travels with it, so the XACK arrives when the work
+// finishes, however far down the chain that is. Every combination here is now
+// accepted, and vinculum-redis proves the behaviour end to end against a real
+// stream.
+func TestQueueSizeIsAllowedWithEitherAckMode(t *testing.T) {
 	consumer := func(body string) string {
 		return fmt.Sprintf(`
 bus "main" {}
@@ -500,16 +504,11 @@ client "redis_stream" "rs" {
 	}
 
 	for _, body := range []string{``, `ack = "auto"`} {
-		t.Run("refused with "+body, func(t *testing.T) {
+		t.Run("accepted with "+body, func(t *testing.T) {
 			_, diags := cfg.NewConfig().
 				WithSources([]byte(consumer(body))).
 				WithLogger(zap.NewNop()).Build()
-			require.True(t, diags.HasErrors(), "queue_size with an auto ack should be rejected")
-			msg := diags.Error()
-			assert.Contains(t, msg, "queue_size cannot be combined")
-			assert.Contains(t, msg, `ack = "manual"`)
-			// This consumer has no concurrency knob yet, so nothing may name one.
-			assert.NotContains(t, msg, "concurrency")
+			require.False(t, diags.HasErrors(), diags.Error())
 		})
 	}
 

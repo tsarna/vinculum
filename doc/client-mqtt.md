@@ -497,7 +497,7 @@ Evaluated against the `decode-error` context.
 
 **`queue_size`**
 
-When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, which on a receiver that settles with a broker is why it is refused alongside `ack = "auto"` — the message would be settled before anything handled it.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded, and what happens to a message that arrives when it is full depends on where it came from: one that arrived over a transport that acknowledges is nacked, so the broker redelivers it, and any other is dropped and counted. On a receiver this composes with `ack` rather than conflicting with it — the acknowledgement follows the message through the queue and arrives when the work finishes.
 
 **`shared_group`**
 

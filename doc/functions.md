@@ -966,6 +966,33 @@ Each returns `false` and does nothing when the message did not arrive over a
 transport that acknowledges, so shared subscription code can call them without
 knowing what is underneath.
 
+**Under `ack = "auto"` you need none of this.** The delivery is settled for you
+on the outcome of the work — wherever that work happens, however many hops
+away — so `auto` alongside `queue_size` is correct rather than a trap. These
+functions are for the cases where "the action returned without error" is not
+the condition you want to acknowledge on: a message you want to acknowledge
+*even though* handling failed, or one whose real outcome is known somewhere the
+framework cannot see. They also work under `auto`, where whichever settles
+first wins and the framework's later call is the no-op.
+
+**`send()` does not carry the delivery; `subscriber =` does.** An action that
+calls `send()` derives a *new* message, and the acknowledgement stays with the
+original — settled on that action's own outcome, not on whatever the derived
+message goes on to do:
+
+```hcl
+# The ack waits for bus.work's subscribers.
+client "sqs_receiver" "a" { ...  subscriber = bus.work }
+
+# The ack is decided by this action, and does not wait for bus.work.
+client "sqs_receiver" "b" { ...  action = send(ctx, bus.work, "t", ctx.msg) }
+```
+
+That is deliberate. One message can be sent many times, and three derived
+messages racing to settle one delivery would make the winner arbitrary. If you
+want downstream work to gate the acknowledgement, hand the delivery on with
+`subscriber =`.
+
 **A delivery settles exactly once.** Two matching subscriptions both calling
 `inbound::ack()` produce one broker acknowledgement: the first call returns
 `true`, the second `false`. An acknowledgement means "someone took

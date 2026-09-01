@@ -129,12 +129,12 @@ what it has acknowledged, so a consumer can resume after a restart.`,
 				"batch_size":    {Summary: "Maximum entries to read at once.", Default: "10"},
 				"block_timeout": {Summary: "How long to wait for new entries before polling again.", Hint: cfg.HintDuration, Default: "2s"},
 				"ack": cfg.AckAttr.WithDoc(
-					"`auto` issues `XACK` as soon as delivery returns without error, which is " +
-						"fast but loses an entry whose handling fails after that point, so it is " +
-						"refused alongside `queue_size`, which makes delivery return at the " +
-						"moment the entry is queued. `manual` leaves the entry in the " +
-						"group's pending list until the configuration calls `inbound::ack()`, " +
-						"and requires `settle_timeout`. A nacked entry stays pending for " +
+					"`auto` issues `XACK` when the work finishes: the delivery travels on " +
+						"`ctx`, so the acknowledgement follows the entry through a " +
+						"`queue_size` queue, a bus, and any number of hops rather than firing " +
+						"when delivery returns. `manual` leaves the entry in the group's " +
+						"pending list until the configuration calls `inbound::ack()`, and " +
+						"requires `settle_timeout`. A nacked entry stays pending for " +
 						"`reclaim_min_idle` and `dead_letter_after` to act on, and its reason " +
 						"reaches the log only."),
 				"settle_timeout": cfg.SettleTimeoutAttr,

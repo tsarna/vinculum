@@ -54,10 +54,12 @@ func TestManualRequiresSettleTimeout(t *testing.T) {
 
 // And it is refused where it could not apply: under auto the message is settled
 // for you when delivery returns, so there is no unsettled message to bound.
-func TestSettleTimeoutWithoutManualIsRejected(t *testing.T) {
+// Permitted under `auto`, because the deletion now follows the work rather than
+// delivery's return — so there is a genuinely unsettled message for a bound to
+// apply to. Not required: the framework settles at a known point.
+func TestSettleTimeoutIsAllowedWithAutoDelete(t *testing.T) {
 	_, hasErr, msg := build(t, receiverWith(`settle_timeout = "30s"`))
-	require.True(t, hasErr)
-	assert.Contains(t, msg, `applies only to ack = "manual"`)
+	assert.False(t, hasErr, "settle_timeout should bound an automatic delete too: %s", msg)
 }
 
 func TestSettleTimeoutMustBePositive(t *testing.T) {
@@ -66,22 +68,19 @@ func TestSettleTimeoutMustBePositive(t *testing.T) {
 	assert.Contains(t, msg, "must be positive")
 }
 
-// A queue makes delivery return at the moment the message is queued, so `auto`
-// would delete the message before the handler ran, and a handler error would no
-// longer leave it to reappear after the visibility timeout. Refused, written or
-// defaulted — and this receiver has the knob that was actually wanted, so the
-// diagnostic names it.
-func TestQueueSizeIsRefusedWithAutoDelete(t *testing.T) {
+// A queue makes delivery return at the moment the message is queued, which used
+// to mean `auto` deleted the message before the handler ran. It no longer does:
+// the delivery carries a settler that travels with the message, so the deletion
+// arrives when the work finishes, however far down the chain that is. The
+// combination is correct rather than refused.
+func TestQueueSizeIsAllowedWithAutoDelete(t *testing.T) {
 	for _, body := range []string{
 		"queue_size = 16",
 		"ack = \"auto\"\n  queue_size = 16",
 	} {
 		t.Run(body, func(t *testing.T) {
 			_, hasErr, msg := build(t, receiverWith(body))
-			require.True(t, hasErr, "queue_size with an auto delete should be rejected")
-			assert.Contains(t, msg, "queue_size cannot be combined")
-			assert.Contains(t, msg, "concurrency")
-			assert.Contains(t, msg, `ack = "manual"`)
+			assert.False(t, hasErr, "queue_size with an auto delete should be accepted: %s", msg)
 		})
 	}
 }

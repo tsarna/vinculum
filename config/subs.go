@@ -85,10 +85,12 @@ var SubscriberSourceAttrs = map[string]AttrMeta{
 	"queue_size": {
 		Summary: "Depth of an async queue wrapping the subscriber.",
 		Doc: "When set, delivery is handed to a background goroutine so slow work does not " +
-			"block the source. The queue is bounded: a message that arrives when it is full is " +
-			"dropped. Delivery is reported successful as soon as the message is queued, which " +
-			"on a receiver that settles with a broker is why it is refused alongside " +
-			"`ack = \"auto\"` — the message would be settled before anything handled it.",
+			"block the source. The queue is bounded, and what happens to a message that " +
+			"arrives when it is full depends on where it came from: one that arrived over a " +
+			"transport that acknowledges is nacked, so the broker redelivers it, and any " +
+			"other is dropped and counted. On a receiver this composes with `ack` rather " +
+			"than conflicting with it — the acknowledgement follows the message through the " +
+			"queue and arrives when the work finishes.",
 	},
 }
 
@@ -555,7 +557,25 @@ func createSendFunction(config *Config, description string, converter MessageCon
 				}
 			}
 
-			err = subscriber.OnEvent(ctx, topic, convertedMessage, fields)
+			// send() derives a *new* message; it does not hand the current one
+			// on. So the inbound delivery's settler stays with the original,
+			// which settles on this action's own outcome, and does not travel
+			// with what the action produced.
+			//
+			// Carrying it would make an author's fan-out a race: three messages
+			// derived from one delivery would be three things able to settle
+			// it, and settle-once would pick an arbitrary winner. It would also
+			// give two spellings of one topology different guarantees, since a
+			// send() inside an action is an asynchronous hand-off that nothing
+			// downstream can see. Not carrying it makes the distinction real
+			// and teachable: `subscriber = X` hands the delivery on and the
+			// acknowledgement waits for X, while send() starts something new.
+			//
+			// This is deliberately the opposite of what origin does through the
+			// same call — origin must survive send(), or a derived message
+			// could not reply. Two rules, one line, and each silently undoes
+			// the other if written without reading both.
+			err = subscriber.OnEvent(bus.WithoutSettler(ctx), topic, convertedMessage, fields)
 			if err != nil {
 				return cty.False, fmt.Errorf("failed to send event: %w", err)
 			}

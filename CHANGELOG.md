@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **An acknowledgement now follows the work, not the hand-off.** `ack = "auto"`
+  settled a message when delivery *returned*, which is the same moment the work
+  finished only while delivery is synchronous. A `queue_size` queue, a `bus`, an
+  `fsm` and the async subscriber wrapper each return as soon as the message is
+  enqueued, so the broker was told the message had been handled before anything
+  had handled it — and a failure afterwards had nothing left to redeliver.
+
+  The delivery travels on `ctx`, so whatever finishes the work is holding it.
+  The acknowledgement is now sent there, however many hops downstream that is.
+
+  **`queue_size` alongside `ack = "auto"` is no longer refused.** It was
+  rejected at load because the combination lost messages; it is now correct, so
+  the refusal is gone on `redis_stream`, `sqs_receiver` and `rabbitmq`. Nothing
+  that parses today stops parsing.
+
+  `client "kafka"` still refuses it, and its diagnostic now says why one
+  receiver refuses what another accepts: committing an offset is not
+  acknowledging a record, and completing record 7 while 5 is outstanding cannot
+  commit anything without a low-water-mark tracker that receiver does not have.
+
+  Three behaviour changes come with it, and they are changes rather than
+  relaxations:
+
+  - Delivery into a `bus` or an `fsm` no longer acknowledges the message; the
+    acknowledgement waits for the subscriber at the far end.
+  - A message a full queue, a stopped `fsm`, or a full bus refuses is **nacked**
+    rather than dropped after an acknowledgement. On an at-least-once transport
+    that converts silent loss into redelivery.
+  - A `kafka` sender with `produce_mode = "async"` no longer acknowledges the
+    inbound message before the broker has taken the outbound one.
+
+- **`settle_timeout` is permitted under `ack = "auto"`**, to bound a chain a
+  configuration does not fully trust. It is still *required* under `manual`, and
+  still rejected where there is no per-message acknowledgement to bound —
+  `ack = "none"` and `ack = "periodic"`.
+
+- **A message published with `send()` no longer carries the inbound delivery's
+  acknowledgement.** `send()` derives a new message; the acknowledgement stays
+  with the original and is settled on that action's own outcome. Where a
+  configuration relied on downstream work gating the acknowledgement, the
+  spelling for that is `subscriber =`, which hands the delivery on. This closes
+  a race rather than removing a feature: one message can be sent many times, and
+  several derived messages racing to settle one delivery produced an arbitrary
+  winner.
+
+- **A message that matched no subscriber settles according to whether anything
+  asked to hear about it.** With `undeliverable = false` on the bus — the
+  default — it is acknowledged and counted, because a topic nothing subscribes
+  to is a routing outcome the configuration chose, and nacking it would turn an
+  unsubscribed topic into a redelivery loop. With the attribute on, the
+  republished message reaches a real `$undeliverable` subscription and that
+  decides; only a `$undeliverable` which itself matches nothing is nacked.
+
 ### Added
 
 - **Any subscription can acknowledge the message it handled.**

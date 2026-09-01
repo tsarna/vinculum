@@ -113,12 +113,11 @@ are deleted once handled, unless ` + "`ack`" + ` says otherwise.`,
 			Hint: cfg.HintDuration,
 		},
 		"ack": cfg.AckAttr.WithDoc(
-			"`auto` deletes a message once delivery returns without error; a handler that " +
-				"returns an error leaves it on the queue, so it reappears after the " +
-				"visibility timeout and is retried. That is fast but loses a message whose " +
-				"handling fails after delivery returned, so it is refused alongside " +
-				"`queue_size`, which makes delivery return at the moment the message is " +
-				"queued — use `concurrency` for throughput instead. " +
+			"`auto` deletes a message when the work finishes: the delivery travels on " +
+				"`ctx`, so the deletion follows the message through a `queue_size` queue, a " +
+				"bus, and any number of hops rather than firing when delivery returns. A " +
+				"handler that fails leaves the message on the queue, so it reappears after " +
+				"the visibility timeout and is retried. " +
 				"`manual` deletes nothing until the configuration calls `inbound::ack()`, " +
 				"and requires `settle_timeout`. `inbound::nack()` sends nothing: the " +
 				"message returns when its visibility timeout lapses and the queue's own " +
@@ -259,7 +258,6 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 		SettleTimeout:  def.SettleTimeout,
 		QueueSize:      def.QueueSize,
 		QueueSizeRange: def.QueueSizeRange,
-		HasConcurrency: true,
 		DefRange:       def.DefRange,
 	})
 	if ackDiags.HasErrors() {

@@ -512,7 +512,7 @@ receiver "main" {
   # Optional transform pipeline and async queue (same semantics as the
   # top-level subscription block — see config.md#subscription).
   # transforms = [ jq(".payload") ]
-  # queue_size = 100  # only with ack = "none"
+  # queue_size = 100  # the ack waits for the work
 
   prefetch  = 10     # max unacked messages in flight (default: 10; 0 = unlimited — dangerous)
   exclusive = false  # exclusive consumer (default: false)
@@ -586,7 +586,7 @@ With no `declare` block the queue is declared passively when the client connects
 
 **`ack`**
 
-`auto` acknowledges once delivery returns without error, which is fast but loses a message whose handling fails after that point, so it is refused alongside `queue_size`, which makes delivery return at the moment the message is queued. `manual` acknowledges nothing until the configuration calls `inbound::ack()`, and requires `settle_timeout`; `inbound::nack()` rejects the message without requeueing it, so it reaches the queue's dead-letter exchange if it has one and is dropped if it does not, and the reason reaches the log only. `none` is AMQP's own no-ack mode, where the *broker* treats the message as delivered the moment it is sent and vinculum never acknowledges at all: faster still, and the message is gone if handling fails or the process dies holding it.
+`auto` acknowledges when the work finishes: the delivery travels on `ctx`, so the acknowledgement follows the message through a `queue_size` queue, a bus, and any number of hops rather than firing when delivery returns. A handler that fails nacks instead, so the message reaches the dead-letter exchange if there is one. `manual` acknowledges nothing until the configuration calls `inbound::ack()`, and requires `settle_timeout`; `inbound::nack()` rejects the message without requeueing it, so it reaches the queue's dead-letter exchange if it has one and is dropped if it does not, and the reason reaches the log only. `none` is AMQP's own no-ack mode, where the *broker* treats the message as delivered the moment it is sent and vinculum never acknowledges at all: faster still, and the message is gone if handling fails or the process dies holding it.
 
 One of: `auto`, `manual`, `none`.
 
@@ -618,11 +618,11 @@ Bounds how much work is outstanding at once. Zero is unlimited, which lets the b
 
 **`queue_size`**
 
-When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded: a message that arrives when it is full is dropped. Delivery is reported successful as soon as the message is queued, which on a receiver that settles with a broker is why it is refused alongside `ack = "auto"` — the message would be settled before anything handled it.
+When set, delivery is handed to a background goroutine so slow work does not block the source. The queue is bounded, and what happens to a message that arrives when it is full depends on where it came from: one that arrived over a transport that acknowledges is nacked, so the broker redelivers it, and any other is dropped and counted. On a receiver this composes with `ack` rather than conflicting with it — the acknowledgement follows the message through the queue and arrives when the work finishes.
 
 **`settle_timeout`**
 
-Required with `ack = "manual"`, and rejected without it. An unsettled message costs something for as long as it is outstanding — an SQS visibility window, a RabbitMQ prefetch slot, a Kafka partition's committable offset — and forgetting to call `inbound::ack()` should be diagnosable rather than a slow stall. On expiry the message is nacked and the failure is logged against the receiver.
+Required with `ack = "manual"`, where nothing settles the message until the configuration does. Optional with `ack = "auto"`, to bound a chain the configuration does not fully trust — the acknowledgement follows the work, so a handler that never finishes leaves the message outstanding. An unsettled message costs something for as long as it is outstanding: an SQS visibility window, a RabbitMQ prefetch slot, a Kafka partition's committable offset. On expiry the message is nacked and the failure is logged against the receiver.
 
 **`subscriber`**
 
@@ -649,14 +649,16 @@ form the standard delivery pattern used by every block that dispatches events
 background queue so a slow handler doesn't block the AMQP delivery loop; trace
 context flows across the async boundary.
 
-**`queue_size` is refused alongside `ack = "auto"`**, which is the default.
-Delivery counts as successful the moment the message is queued, so the receiver
-would ack then rather than when the handler finishes: a handler error would no
-longer nack the message to the dead-letter exchange, and a full queue would drop
-a message that had already been acked. Keep the queue with
-[`ack = "manual"`](#manual-ack-ack--manual), where the acknowledgement follows
-the work instead of the enqueue, or with `ack = "none"`, AMQP's own no-ack mode,
-where nothing is ever acknowledged. See
+**`queue_size` composes with `ack`** rather than conflicting with it. The
+delivery travels on `ctx`, so under the default `ack = "auto"` the
+acknowledgement is sent when the work finishes, however many hops downstream
+that happens — not when the message is queued. A handler that fails nacks, so
+the message reaches the dead-letter exchange if the queue has one, and a full
+queue nacks rather than dropping a message that had already been acked.
+
+This matters more here than on the other transports: an unsettled delivery
+holds one of `prefetch` slots and nothing on AMQP self-heals, so a message
+acknowledged early and then lost had no second chance at all. See
 [delivery model](config.md#delivery-model).
 
 **Action context variables:**

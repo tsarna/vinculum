@@ -87,3 +87,10 @@ func (s *baggageFilterSubscriber) OnUnsubscribe(ctx context.Context, topic strin
 func (s *baggageFilterSubscriber) PassThrough(msg bus.EventBusMessage) error {
 	return s.inner.PassThrough(msg)
 }
+
+// Unwrap reports what this wraps, so a settle point asking what a delivery's
+// return will mean sees past the filter to what is actually handling the
+// message. This is the outermost wrapper on every receiver, so forgetting it
+// would hide every other wrapper's answer too — silently, since a chain that
+// reports itself ordinary produces no error and no log line.
+func (s *baggageFilterSubscriber) Unwrap() bus.Subscriber { return s.inner }
