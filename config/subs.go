@@ -311,12 +311,15 @@ client *receiver* block.`,
 		},
 		"topics": {
 			Summary: "Topic patterns to subscribe to.",
-			Doc:     "MQTT-style patterns: `+` matches one segment, `#` matches any number of trailing segments.",
-			Hint:    HintTopicPattern,
+			Doc: "MQTT-style patterns: `+` matches one segment, `#` matches any number of trailing segments. " +
+				"Naming a wildcard captures the segments it matched — `data/changed/+collection/+id` — " +
+				"and the delivery target reads them as `ctx.fields.collection` and `ctx.fields.id`.",
+			Hint: HintTopicPattern,
 		},
 		"action": AttrMeta{
 			Summary: "Expression evaluated once per message.",
-			Doc:     "`ctx.topic` is the message topic, `ctx.msg` the payload, and `ctx.fields` any string metadata attached to it.",
+			Doc: "`ctx.topic` is the message topic, `ctx.msg` the payload, and `ctx.fields` any string metadata " +
+				"attached to it — including whatever the matching pattern in `topics` captured.",
 			Hint:    HintActionExpression,
 			Context: "message",
 		}.WithContextFields(ContextField{
@@ -828,7 +831,14 @@ func init() {
 			{
 				Name: "fields", Type: CtxTypeObject,
 				Summary: "String metadata attached to the message.",
-				Doc:     "Always present; an empty object when the message carries no metadata.",
+				Doc: "Always present; an empty object when the message carries no metadata. " +
+					"On a bus delivery it holds what the subscribed topic pattern captured: " +
+					"naming a wildcard — `data/changed/+collection/+id` — puts " +
+					"`ctx.fields.collection` and `ctx.fields.id` in scope for every matching " +
+					"message, so an action need not slice `ctx.topic` apart itself. On a client " +
+					"receiver it holds the metadata the transport attached instead. Either way " +
+					"these are per-delivery and do not propagate: what a publisher attaches is " +
+					"not what the next subscriber reads here.",
 			},
 		},
 		// Open, because a bus delivery can carry one field a client receiver's

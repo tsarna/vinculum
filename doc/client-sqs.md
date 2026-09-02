@@ -211,7 +211,7 @@ Already decoded by the client's `wire_format`, so its type follows the data rath
 
 **`ctx.fields`**
 
-Always present; an empty object when the message carries no metadata.
+Always present; an empty object when the message carries no metadata. On a bus delivery it holds what the subscribed topic pattern captured: naming a wildcard — `data/changed/+collection/+id` — puts `ctx.fields.collection` and `ctx.fields.id` in scope for every matching message, so an action need not slice `ctx.topic` apart itself. On a client receiver it holds the metadata the transport attached instead. Either way these are per-delivery and do not propagate: what a publisher attaches is not what the next subscriber reads here.
 
 **`ctx.auth`**
 
@@ -481,7 +481,7 @@ Already decoded by the client's `wire_format`, so its type follows the data rath
 
 **`ctx.fields`**
 
-Always present; an empty object when the message carries no metadata.
+Always present; an empty object when the message carries no metadata. On a bus delivery it holds what the subscribed topic pattern captured: naming a wildcard — `data/changed/+collection/+id` — puts `ctx.fields.collection` and `ctx.fields.id` in scope for every matching message, so an action need not slice `ctx.topic` apart itself. On a client receiver it holds the metadata the transport attached instead. Either way these are per-delivery and do not propagate: what a publisher attaches is not what the next subscriber reads here.
 
 **`ctx.auth`**
 
