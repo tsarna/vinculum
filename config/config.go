@@ -183,28 +183,29 @@ type Config struct {
 	// fixed for the life of the process.
 	Health *Health
 
-	SigActions       *SignalActionHandler
-	Startables       []Startable
-	PostStartables   []PostStartable
-	Drainables       []Drainable
-	InFlight         []InFlightHolder
-	PreStoppables    []PreStoppable
-	Stoppables       []Stoppable
-	BusCapsuleType   cty.Type
-	CtyBusMap        map[string]cty.Value
-	Buses            map[string]bus.EventBus
-	CtyClientMap     map[string]cty.Value
-	Clients          map[string]map[string]Client
-	CtyServerMap     map[string]cty.Value
-	Servers          map[string]map[string]Listener
-	CtyVarMap        map[string]cty.Value
-	CtyTriggerMap    map[string]cty.Value
-	TriggerDefRanges map[string]hcl.Range
-	CtyConditionMap  map[string]cty.Value
-	CtyCheckMap      map[string]cty.Value
-	CtyFsmMap        map[string]cty.Value
-	CtyWireFormatMap map[string]cty.Value
-	CtyAuthMap       map[string]cty.Value
+	SigActions         *SignalActionHandler
+	Startables         []Startable
+	PostStartables     []PostStartable
+	Drainables         []Drainable
+	InFlight           []InFlightHolder
+	PreStoppables      []PreStoppable
+	Stoppables         []Stoppable
+	BusCapsuleType     cty.Type
+	CtyBusMap          map[string]cty.Value
+	Buses              map[string]bus.EventBus
+	CtyClientMap       map[string]cty.Value
+	Clients            map[string]map[string]Client
+	CtyServerMap       map[string]cty.Value
+	Servers            map[string]map[string]Listener
+	CtyVarMap          map[string]cty.Value
+	CtyTriggerMap      map[string]cty.Value
+	TriggerDefRanges   map[string]hcl.Range
+	CtyConditionMap    map[string]cty.Value
+	CtyCheckMap        map[string]cty.Value
+	CtySubscriptionMap map[string]cty.Value
+	CtyFsmMap          map[string]cty.Value
+	CtyWireFormatMap   map[string]cty.Value
+	CtyAuthMap         map[string]cty.Value
 
 	// authRefs and authBlocks back CtyAuthMap: what each auth name resolves to,
 	// and the block that bound it, for the duplicate-name diagnostic.
@@ -312,30 +313,31 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	}
 
 	config := &Config{
-		Logger:           cb.logger,
-		UserLogger:       userLogger,
-		files:            cb.files,
-		Features:         cb.features,
-		BaseDir:          cb.features["readfiles"],
-		WriteDir:         cb.features["writefiles"],
-		Testing:          cb.testing,
-		Constants:        make(map[string]cty.Value),
-		Health:           NewHealth(userLogger),
-		SigActions:       NewSignalActionHandler(cb.logger, userLogger),
-		Buses:            make(map[string]bus.EventBus),
-		CtyBusMap:        make(map[string]cty.Value),
-		Clients:          make(map[string]map[string]Client),
-		CtyClientMap:     make(map[string]cty.Value),
-		Servers:          make(map[string]map[string]Listener),
-		CtyServerMap:     make(map[string]cty.Value),
-		CtyTriggerMap:    make(map[string]cty.Value),
-		CtyConditionMap:  make(map[string]cty.Value),
-		CtyCheckMap:      make(map[string]cty.Value),
-		CtyFsmMap:        make(map[string]cty.Value),
-		CtyVarMap:        make(map[string]cty.Value),
-		TriggerDefRanges: make(map[string]hcl.Range),
-		CtyWireFormatMap: make(map[string]cty.Value),
-		MetricsServers:   make(map[string]MetricsRegistrar),
+		Logger:             cb.logger,
+		UserLogger:         userLogger,
+		files:              cb.files,
+		Features:           cb.features,
+		BaseDir:            cb.features["readfiles"],
+		WriteDir:           cb.features["writefiles"],
+		Testing:            cb.testing,
+		Constants:          make(map[string]cty.Value),
+		Health:             NewHealth(userLogger),
+		SigActions:         NewSignalActionHandler(cb.logger, userLogger),
+		Buses:              make(map[string]bus.EventBus),
+		CtyBusMap:          make(map[string]cty.Value),
+		Clients:            make(map[string]map[string]Client),
+		CtyClientMap:       make(map[string]cty.Value),
+		Servers:            make(map[string]map[string]Listener),
+		CtyServerMap:       make(map[string]cty.Value),
+		CtyTriggerMap:      make(map[string]cty.Value),
+		CtyConditionMap:    make(map[string]cty.Value),
+		CtyCheckMap:        make(map[string]cty.Value),
+		CtySubscriptionMap: make(map[string]cty.Value),
+		CtyFsmMap:          make(map[string]cty.Value),
+		CtyVarMap:          make(map[string]cty.Value),
+		TriggerDefRanges:   make(map[string]hcl.Range),
+		CtyWireFormatMap:   make(map[string]cty.Value),
+		MetricsServers:     make(map[string]MetricsRegistrar),
 	}
 
 	initAuthNamespace(config)

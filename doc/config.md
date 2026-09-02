@@ -139,6 +139,16 @@ All server types share a single name namespace — you cannot have both an HTTP 
 
 - [`server`](config.md#server)
 
+#### `subscription`
+
+Each subscription, by name.
+
+Reads what that subscription's queue is doing with `get()` — its depth, its capacity, the fullest partition's ratio, and how many messages it has dropped. A subscription with no `queue_size` has no queue, and says so rather than answering zeros.
+
+*One name here for each `subscription` block, so what exists is what your configuration declares.*
+
+- [`subscription`](config.md#subscription)
+
 #### `sys`
 
 Process and host identity, and the runtime's own readiness.
@@ -1290,6 +1300,8 @@ When set, delivery is handed to a background goroutine so slow work does not blo
 
 A graceful shutdown runs the queue out rather than exiting past it: see [Boot and shutdown](health.md#boot-and-shutdown).
 
+The queue counts its own depth, capacity, and drops, and a configuration reads them as `get(subscription.<name>, "queue_ratio")` and its siblings — see [what a subscription's queue counts](config.md#what-a-subscriptions-queue-counts). A subscription without this attribute has no queue, and says so rather than reporting zeros.
+
 **`subscriber`**
 
 Anything that can receive messages: a bus, an FSM, a subscriber-implementing server or client.
@@ -1354,6 +1366,70 @@ Falls back to the trace ID extracted from inbound headers, so it is populated ev
 Present only on a delivery of `$undeliverable`, from a `bus` with `undeliverable = true`. `topic` is `$undeliverable` on such a message — it has to be, or this subscription's own matcher could not have selected it — so the topic that failed to route is named after what it is.
 
 <!-- vinculum:end block-ctx subscription action -->
+
+#### What a subscription's queue counts
+
+A subscription with `queue_size` set keeps the same kind of numbers a bus does,
+readable through `subscription.<name>`:
+
+```hcl
+get(subscription.to_broker, "queue_depth")      # messages waiting, across every partition
+get(subscription.to_broker, "queue_capacity")   # queue_size × partitions
+get(subscription.to_broker, "queue_ratio")      # the fullest partition's depth ÷ its capacity
+get(subscription.to_broker, "dropped")          # messages the queue could not accept
+get(subscription.to_broker, "partitions")       # how many queues there are
+get(subscription.to_broker, "skew")             # how lopsided: 1.0 even, up to `partitions`
+```
+
+They cost nothing to read and are always kept, with or without a metrics
+backend. There is no `undelivered`: a subscriber's queue has exactly one
+consumer, so there is no such thing as a message it matched nobody with.
+
+**`queue_capacity` is the product, not `queue_size`.** `queue_size` is *per
+partition*, so `queue_size = 500` with `partitions = 8` is 4000 messages, and a
+configuration that reads `queue_size` back out of its own source guesses wrong
+by a factor of eight.
+
+**`queue_ratio` is a maximum, not an average** — the fullest partition's depth
+over that partition's own capacity. At `partitions = 1` the two coincide, so the
+member does not change meaning when someone adds the attribute. Above one they
+diverge in the way that matters: a hot key fills its own partition and starts
+refusing messages while the others sit empty, and an average reads as
+comfortable for precisely as long as that is going on.
+
+**`skew` is a ratio, not a count of messages.** It divides the fullest
+partition's depth by the average across all of them, so it never has units and
+always lands between 1.0 and the partition count, whatever the queue holds. Four
+partitions:
+
+| Depths | Fullest | Average | `skew` |
+|---|---|---|---|
+| 50, 50, 50, 50 | 50 | 50 | **1.0** — evenly spread |
+| 100, 50, 50, 0 | 100 | 50 | **2.0** — the fullest is carrying twice its share |
+| 200, 0, 0, 0 | 200 | 50 | **4.0** — one partition is doing everything |
+
+Each row holds 200 messages. That is the point of dividing: the number says how
+the load is *distributed*, and does not move when the load merely gets heavier.
+`queue_ratio` is what says how heavy it is.
+
+It is what answers *"is my `partition_key` any good?"* — a key that does not
+vary pins every message to one partition and buys no parallelism at all, and no
+combination of the other members reveals it.
+
+**`dropped`** is a cumulative total since startup, so what a threshold wants
+from it is a *rate* — the difference between two samples. It counts two
+different fates, depending on where the message came from: on an unacknowledged
+path a message that is simply gone, and on an acknowledged one a message that
+was nacked and which the broker will send again. Which partition refused it is a
+question for a span rather than for a counter.
+
+**A subscription with no `queue_size` has no queue at all**, and reading any of
+these from it is an error naming `queue_size` rather than a zero. The name still
+resolves, so `vinculum check` can tell a typo from a subscription nobody has
+given a queue to yet.
+
+Turning a saturating queue into a readiness signal is a whole composition: see
+[Per-subscription queues](health.md#per-subscription-queues).
 
 #### Examples
 

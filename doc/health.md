@@ -512,10 +512,80 @@ cumulative total.
 ### Per-subscription queues
 
 A `subscription` with `queue_size` set is a second, independent backpressure
-point, and the one that catches a single slow handler rather than an overloaded
-process. Those queues count their drops, but the count is not yet readable from
-a configuration — there is no `subscription.<name>` to `get()` from. For now the
-bus-level numbers above are what a VCL composition can see.
+point, and it is the one that catches **a single slow handler** rather than an
+overloaded process. That is the more common shape of the two, and the bus
+numbers above cannot see it: one subscriber's queue fills and starts dropping
+while the bus it feeds from stays comfortable, because the bus handed each
+message over successfully and the trouble is entirely on the other side.
+
+Every queue answers the same way its bus does, under
+`subscription.<name>` ([what a subscription's queue
+counts](config.md#what-a-subscriptions-queue-counts)):
+
+```hcl
+subscription "to_broker" {
+    target        = bus.main
+    topics        = ["out/+device/#"]
+    subscriber    = client.iot.senders
+    queue_size    = 500
+    partitions    = 8
+    partition_key = ctx.fields.device
+}
+
+var "handler_load" { value = 0 }
+
+trigger "interval" "sample_handler" {
+    delay  = "1s"
+    action = set(ctx, var.handler_load, get(subscription.to_broker, "queue_ratio"))
+}
+
+condition "threshold" "handler_saturated" {
+    input = get(var.handler_load)
+
+    on_above  = 0.9
+    off_below = 0.5
+
+    activate_after   = "15s"
+    deactivate_after = "120s"
+}
+
+check "handler_has_headroom" {
+    input = cond(get(condition.handler_saturated),
+                 { ready = false, reason = "outbound queue saturated" },
+                 true)
+}
+```
+
+That is the bus composition above with one name changed, and deliberately so:
+the sampler, the deadband, the asymmetric timers, and *[readiness only, never
+liveness](#readiness-only-never-liveness)* are all needed here for exactly the
+reasons given there. A subscription's queue is not watchable either, and for the
+same reason — depth changes on the hottest path in the system.
+
+**`queue_ratio` is the fullest partition's, not the average.** With
+`partitions = 8`, one hot key fills its own partition and starts refusing
+messages while the other seven sit empty; an average would read as comfortable
+for exactly as long as that is happening, which is the shape of failure this
+whole section exists to catch. Thresholding the maximum means a subscription
+dropping messages reports as saturated whether the load is spread or piled up.
+
+**`skew` is how you find out the key is wrong.** It is a ratio rather than a
+count — the fullest partition's depth divided by the average across all of them
+— so it runs from 1.0, every partition equally deep, up to the partition count,
+where one partition holds everything and the other seven are empty. Eight
+partitions reading 3.0 means the fullest is carrying three times its share,
+whether that is 30 messages against an average of 10 or 3000 against 1000. A
+`partition_key` that does not vary — the
+default topic, on a receiver where every message arrives on the same one — pins
+every message to one partition and buys no parallelism at all, and skew is the
+only number that says so. Watch it in a metric or a log rather than in a
+readiness check: it is a configuration mistake, not a load condition, and
+restarting will not fix it.
+
+**A subscription without `queue_size` has no queue**, and reading one of these
+members from it is an error naming the attribute rather than a comfortable zero.
+Zeros would be indistinguishable from a healthy empty queue, which would let a
+threshold sit there watching nothing.
 
 ---
 

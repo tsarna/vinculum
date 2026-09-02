@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/tsarna/go2cty2go"
@@ -175,10 +176,31 @@ func (s SubscriberSource) Resolve(
 	name string,
 	tp trace.TracerProvider,
 ) (bus.Subscriber, hcl.Diagnostics) {
+	subscriber, _, diags := s.ResolveQueue(config, defRange, name, tp)
+	return subscriber, diags
+}
+
+// ResolveQueue is Resolve, and also hands back the queue it built, so a block
+// that publishes a name can let a configuration read what that queue is doing.
+// The queue is nil when queue_size was not set — there is no queue then, which
+// is not the same as an empty one, and SubscriptionHandle says so rather than
+// answering zeros.
+//
+// This is where the queue is available rather than in the caller, because the
+// caller only has the finished bus.Subscriber. Asserting the async type back
+// out of that would work today and fail silently the first time a wrapper is
+// added outside the queue: the subscription would report having no queue, which
+// is exactly the false negative this whole feature exists to prevent.
+func (s SubscriberSource) ResolveQueue(
+	config *Config,
+	defRange hcl.Range,
+	name string,
+	tp trace.TracerProvider,
+) (bus.Subscriber, *subutils.AsyncQueueingSubscriber, hcl.Diagnostics) {
 	hasSub := IsExpressionProvided(s.Subscriber)
 	hasAct := IsExpressionProvided(s.Action)
 	if hasSub == hasAct {
-		return nil, hcl.Diagnostics{{
+		return nil, nil, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
 			Summary:  "Exactly one of subscriber or action must be specified",
 			Subject:  &defRange,
@@ -190,7 +212,7 @@ func (s SubscriberSource) Resolve(
 	// names partitions and silently gets one is worse off than one that is told
 	// what is missing, and the schema's constraints only describe this rule.
 	if s.Partitions != nil && s.QueueSize == nil {
-		return nil, hcl.Diagnostics{{
+		return nil, nil, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
 			Summary:  "partitions requires queue_size",
 			Detail: "Each partition is a queue drained by its own goroutine, so there is nothing to " +
@@ -199,7 +221,7 @@ func (s SubscriberSource) Resolve(
 		}}
 	}
 	if IsExpressionProvided(s.PartitionKey) && s.Partitions == nil {
-		return nil, hcl.Diagnostics{{
+		return nil, nil, hcl.Diagnostics{{
 			Severity: hcl.DiagError,
 			Summary:  "partition_key requires partitions",
 			Detail: "The key decides which partition a message goes to, and with one partition every " +
@@ -214,7 +236,7 @@ func (s SubscriberSource) Resolve(
 	if hasSub {
 		subscriber, diags = GetSubscriberFromExpression(config, s.Subscriber)
 		if diags.HasErrors() {
-			return nil, diags
+			return nil, nil, diags
 		}
 	} else {
 		subscriber = NewActionSubscriber(config, s.Action)
@@ -223,11 +245,12 @@ func (s SubscriberSource) Resolve(
 	if IsExpressionProvided(s.Transforms) {
 		transforms, tDiags := config.GetMessageTransforms(s.Transforms)
 		if tDiags.HasErrors() {
-			return nil, tDiags
+			return nil, nil, tDiags
 		}
 		subscriber = subutils.NewTransformingSubscriber(subscriber, transforms...)
 	}
 
+	var queue *subutils.AsyncQueueingSubscriber
 	if s.QueueSize != nil {
 		async := subutils.NewAsyncQueueingSubscriber(subscriber, *s.QueueSize)
 		if name != "" {
@@ -239,7 +262,7 @@ func (s SubscriberSource) Resolve(
 
 		if s.Partitions != nil {
 			if *s.Partitions < 1 {
-				return nil, hcl.Diagnostics{{
+				return nil, nil, hcl.Diagnostics{{
 					Severity: hcl.DiagError,
 					Summary:  "partitions must be at least 1",
 					Detail: "Each partition is a queue and a goroutine that drains it, so fewer than one " +
@@ -253,7 +276,7 @@ func (s SubscriberSource) Resolve(
 			if IsExpressionProvided(s.PartitionKey) {
 				keyFn, keyDiags := buildPartitionKeyFunc(config, s.PartitionKey, name)
 				if keyDiags.HasErrors() {
-					return nil, keyDiags
+					return nil, nil, keyDiags
 				}
 
 				// A nil function is the literal `partition_key = null`: no
@@ -267,7 +290,8 @@ func (s SubscriberSource) Resolve(
 			}
 		}
 
-		subscriber = async.Start()
+		queue = async.Start()
+		subscriber = queue
 
 		// The queue is where a message waits longest and where shutdown used to
 		// lose it: the goroutine started above dies with the process, taking
@@ -280,7 +304,190 @@ func (s SubscriberSource) Resolve(
 		})
 	}
 
-	return subscriber, nil
+	return subscriber, queue, nil
+}
+
+// ---------------------------------------------------------------------------
+// Reading a queue
+// ---------------------------------------------------------------------------
+
+// queueMembers is the set a queue answers, in the order a diagnostic should
+// list them. It and queueMemberValue are separate from SubscriptionHandle so
+// that anything else given a readable queue — a client receiver, when one is
+// wanted as a value in its own right — answers these identically rather than
+// by transcription.
+var queueMembers = []string{"queue_depth", "queue_capacity", "queue_ratio", "dropped", "partitions", "skew"}
+
+// isQueueMember reports whether name is one of them, for the caller that has no
+// queue to ask: a name that is not a member is that mistake rather than the
+// missing-queue one, and reporting the wrong one of the two sends its author
+// looking in the wrong place.
+func isQueueMember(name string) bool {
+	for _, member := range queueMembers {
+		if member == name {
+			return true
+		}
+	}
+	return false
+}
+
+// queueSkew is how lopsidedly `total` messages are spread over `partitions`
+// queues, given that the fullest holds `max`.
+//
+// It is a **ratio, not a count of messages**: the fullest partition's depth over
+// the average across all of them, so it lands between 1 (every partition equally
+// deep) and the partition count (one partition holds everything) whatever the
+// queue holds. Depths of 100/50/50/0 are a skew of 2, and so are 10/5/5/0 — this
+// measures how the load is distributed, and `queue_ratio` measures how much of
+// it there is.
+//
+// The mean is `total ÷ partitions`, which is why this reads as
+// `max × partitions ÷ total` rather than dividing by a mean computed on its own.
+//
+// An empty queue is trivially even, so it is 1 rather than 0/0; so is any queue
+// at `partitions = 1`, where there is one partition for the maximum and the mean
+// to agree about.
+//
+// It is separate from queueMemberValue so that a test can pose the partition
+// depths a real queue cannot easily be made to hold.
+func queueSkew(max, total, partitions int) float64 {
+	if total <= 0 || partitions <= 0 {
+		return 1
+	}
+	return float64(max*partitions) / float64(total)
+}
+
+// queueMemberValue answers one member of a queue, or reports that the name is
+// not one. Partitioning is what makes three of these more than a channel's
+// len and cap: a subscriber with `partitions = 8` has eight queues, and which
+// of the eight a number is about is the whole question.
+func queueMemberValue(q *subutils.AsyncQueueingSubscriber, member string) (cty.Value, error) {
+	switch member {
+	case "queue_depth":
+		// A total, because the other thing that asks a queue its depth is
+		// shutdown, which needs to know whether *anything* is outstanding.
+		return cty.NumberIntVal(int64(q.QueueDepth())), nil
+
+	case "queue_capacity":
+		// The product: `queue_size = 500` with `partitions = 8` is 4000, and a
+		// configuration reading queue_size alone guesses wrong.
+		return cty.NumberIntVal(int64(q.QueueCapacity())), nil
+
+	case "queue_ratio":
+		// The **fullest partition's** depth over its own capacity — a maximum,
+		// not an aggregate, and a maximum at every partition count including
+		// one, where the two coincide. A configuration dropping messages on one
+		// hot key fills that key's partition while the others sit empty, and
+		// the aggregate reads as comfortable for exactly as long as that is
+		// happening. That is the partial signal a threshold must not be written
+		// against.
+		perPartition := q.QueueCapacity() / q.Partitions()
+		if perPartition <= 0 {
+			return cty.NumberFloatVal(0), nil
+		}
+		return cty.NumberFloatVal(float64(q.MaxQueueDepth()) / float64(perPartition)), nil
+
+	case "dropped":
+		// A total across partitions. Which partition refused a message is a
+		// question for a span rather than for a counter.
+		return cty.NumberUIntVal(q.DroppedTotal()), nil
+
+	case "partitions":
+		return cty.NumberIntVal(int64(q.Partitions())), nil
+
+	case "skew":
+		// It is the number that answers "is my partition key any good?" — the
+		// question the partitioning trap (a key that does not vary) leaves a
+		// reader holding, and the one thing no combination of the others
+		// reveals.
+		return cty.NumberFloatVal(queueSkew(q.MaxQueueDepth(), q.QueueDepth(), q.Partitions())), nil
+
+	default:
+		return cty.NilVal, fmt.Errorf("no member %q; expected one of %s",
+			member, strings.Join(queueMembers, ", "))
+	}
+}
+
+// SubscriptionHandle is the value behind `subscription.<name>`: what that
+// subscription's queue is doing, or an account of why there is nothing to read.
+//
+// It is a queue reader and nothing else — deliberately not a subscriber, since
+// a subscription is reached through the bus it subscribes to rather than
+// addressed directly, and not Lengthable, since `length()` and
+// `get(…, "queue_depth")` would be two spellings of one number.
+//
+// Like a bus's, these are polled: depth changes on the hottest path in the
+// system and a health feature has no business adding a notification there. A
+// condition that wants to react to saturation samples into a `var` on an
+// interval — see doc/health.md.
+type SubscriptionHandle struct {
+	name string
+
+	// queue is nil when the block set no queue_size. There is no queue then,
+	// which is not the same as an empty one: see Get.
+	queue *subutils.AsyncQueueingSubscriber
+}
+
+// Name returns the subscription's block name.
+func (h *SubscriptionHandle) Name() string { return h.name }
+
+// Get implements richcty.Gettable: the queue's own backpressure numbers.
+func (h *SubscriptionHandle) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
+	if len(args) == 0 {
+		return cty.NilVal, fmt.Errorf("subscription %q: which member? one of %s",
+			h.name, strings.Join(queueMembers, ", "))
+	}
+	if args[0].Type() != cty.String {
+		return cty.NilVal, fmt.Errorf("subscription %q: member argument must be a string", h.name)
+	}
+	member := args[0].AsString()
+
+	// A subscription without queue_size has no queue at all, and saying so is
+	// the whole point of answering. Zeros are indistinguishable from a healthy
+	// empty queue, so a threshold written against one would silently watch
+	// nothing — which is the failure this surface exists to prevent, arrived at
+	// from the other side. The name of what is missing is in the message
+	// because that is the entire fix.
+	if h.queue == nil {
+		if !isQueueMember(member) {
+			return cty.NilVal, fmt.Errorf("subscription %q: no member %q; expected one of %s",
+				h.name, member, strings.Join(queueMembers, ", "))
+		}
+		return cty.NilVal, fmt.Errorf("subscription %q has no queue: %q reads the async queue "+
+			"queue_size asks for, and this subscription set none. Set queue_size to give it one",
+			h.name, member)
+	}
+
+	val, err := queueMemberValue(h.queue, member)
+	if err != nil {
+		return cty.NilVal, fmt.Errorf("subscription %q: %w", h.name, err)
+	}
+	return val, nil
+}
+
+var _ richcty.Gettable = (*SubscriptionHandle)(nil)
+
+// SubscriptionCapsuleType is the capsule behind subscription.<name>.
+var SubscriptionCapsuleType = cty.CapsuleWithOps("subscription", reflect.TypeOf(SubscriptionHandle{}), &cty.CapsuleOps{
+	GoString:     func(val any) string { return fmt.Sprintf("subscription(%p)", val) },
+	TypeGoString: func(_ reflect.Type) string { return "SubscriptionHandle" },
+})
+
+// NewSubscriptionCapsule wraps a handle as the value of subscription.<name>.
+func NewSubscriptionCapsule(h *SubscriptionHandle) cty.Value {
+	return cty.CapsuleVal(SubscriptionCapsuleType, h)
+}
+
+// GetSubscriptionFromCapsule extracts a handle from subscription.<name>.
+func GetSubscriptionFromCapsule(val cty.Value) (*SubscriptionHandle, error) {
+	if val.Type() != SubscriptionCapsuleType {
+		return nil, fmt.Errorf("expected subscription capsule, got %s", val.Type().FriendlyName())
+	}
+	handle, ok := val.EncapsulatedValue().(*SubscriptionHandle)
+	if !ok {
+		return nil, fmt.Errorf("encapsulated value is not a SubscriptionHandle, got %T", val.EncapsulatedValue())
+	}
+	return handle, nil
 }
 
 type SubscriptionBlockHandler struct {
@@ -301,10 +508,19 @@ var subscriptionSchema = TypeSchema{
 	Doc: `Subscribes to a bus (or client) and either evaluates an ` + "`action`" + ` expression
 for each message or forwards messages to another subscriber.
 
-The ` + "`subscriber`/`action`/`transforms`/`queue_size`" + ` set is a shared delivery-target
-pattern: the same four attributes, with identical semantics, are accepted by every
-client *receiver* block.`,
+The ` + "`subscriber`/`action`/`transforms`/`queue_size`/`partitions`/`partition_key`" + ` set
+is a shared delivery-target pattern: the same six attributes, with identical semantics,
+are accepted by every client *receiver* block.
+
+A subscription is available in expressions as ` + "`subscription.<name>`" + `, which reads
+what its queue is doing with ` + "`get()`" + `.`,
 	Attrs: MergeAttrs(SubscriberSourceAttrs, map[string]AttrMeta{
+		"queue_size": SubscriberSourceAttrs["queue_size"].WithDoc(
+			SubscriberSourceAttrs["queue_size"].Doc + "\n\nThe queue counts its own depth, capacity, " +
+				"and drops, and a configuration reads them as `get(subscription.<name>, \"queue_ratio\")` " +
+				"and its siblings — see [what a subscription's queue counts]" +
+				"(config.md#what-a-subscriptions-queue-counts). A subscription without this attribute " +
+				"has no queue, and says so rather than reporting zeros."),
 		"target": {
 			Summary: "Bus to subscribe to.",
 			Doc:     "A bus — `bus.main`, `bus.events`. Unlike `subscriber`, this slot resolves an event bus and nothing else.",
@@ -342,6 +558,18 @@ client *receiver* block.`,
 	Constraints: SubscriberSourceConstraints,
 }
 
+// FinishPreprocessing establishes the `subscription` root before any block is
+// processed, for the reason bus.go's does: set unconditionally, a configuration
+// with no subscription block has an empty `subscription` object rather than no
+// `subscription` at all. That is the difference between `subscription.to_broker`
+// reporting "No subscription is declared by this configuration" and reporting
+// that `subscription` is not a name the language has.
+func (h *SubscriptionBlockHandler) FinishPreprocessing(config *Config) hcl.Diagnostics {
+	config.Constants["subscription"] = CtyObjectOrEmpty(config.CtySubscriptionMap)
+
+	return nil
+}
+
 func (h *SubscriptionBlockHandler) GetBlockDependencyId(block *hcl.Block) (string, hcl.Diagnostics) {
 	return "subscription." + block.Labels[0], nil
 }
@@ -367,6 +595,18 @@ func (h *SubscriptionBlockHandler) Process(config *Config, block *hcl.Block) hcl
 	// Manually set the name from the block label since DecodeBody doesn't handle labels
 	if len(block.Labels) > 0 {
 		subscriptionDef.Name = block.Labels[0]
+	}
+
+	// The label addresses this block's queue, so two of them is a reference with
+	// two answers and no principled way to pick between them.
+	if _, exists := config.CtySubscriptionMap[subscriptionDef.Name]; exists {
+		return hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "Duplicate subscription",
+			Detail: fmt.Sprintf("Subscription %q is already defined. Rename one, or set disabled on the "+
+				"one this configuration should not use.", subscriptionDef.Name),
+			Subject: block.DefRange.Ptr(),
+		}}
 	}
 
 	// Only reached when queue_size is set, where it is what keeps the trace
@@ -398,7 +638,7 @@ func (h *SubscriptionBlockHandler) Process(config *Config, block *hcl.Block) hcl
 
 	warnings = warnings.Extend(partitionTopicWarning(subscriptionDef))
 
-	subscriber, diags := SubscriberSource{
+	subscriber, queue, diags := SubscriberSource{
 		Subscriber:      subscriptionDef.Subscriber,
 		Action:          subscriptionDef.ActionExpr,
 		Transforms:      subscriptionDef.Transforms,
@@ -406,10 +646,20 @@ func (h *SubscriptionBlockHandler) Process(config *Config, block *hcl.Block) hcl
 		Partitions:      subscriptionDef.Partitions,
 		PartitionsRange: subscriptionDef.PartitionsRange,
 		PartitionKey:    subscriptionDef.PartitionKey,
-	}.Resolve(config, block.DefRange, "subscription/"+subscriptionDef.Name, tp)
+	}.ResolveQueue(config, block.DefRange, "subscription/"+subscriptionDef.Name, tp)
 	if diags.HasErrors() {
 		return diags
 	}
+
+	// Published whether or not there is a queue: without a name for a
+	// subscription that has none, `vinculum check` could not tell a typo from a
+	// subscription somebody has yet to give a queue_size to. What reading a
+	// member of one answers is SubscriptionHandle.Get's business.
+	config.CtySubscriptionMap[subscriptionDef.Name] = NewSubscriptionCapsule(&SubscriptionHandle{
+		name:  subscriptionDef.Name,
+		queue: queue,
+	})
+	config.Constants["subscription"] = cty.ObjectVal(config.CtySubscriptionMap)
 
 	target, diags := GetTargetFromExpression(config, subscriptionDef.TargetExpr)
 	if diags.HasErrors() {

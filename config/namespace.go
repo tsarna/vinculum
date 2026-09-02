@@ -195,6 +195,15 @@ var blockNamespaceSchemas = map[string]NamespaceSchema{
 			"server and a WebSocket server called `main`.",
 		DocPage: "config.md#server",
 	},
+	"subscription": {
+		Block:   "subscription",
+		Summary: "Each subscription, by name.",
+		Doc: "Reads what that subscription's queue is doing with `get()` — its depth, its " +
+			"capacity, the fullest partition's ratio, and how many messages it has dropped. " +
+			"A subscription with no `queue_size` has no queue, and says so rather than " +
+			"answering zeros.",
+		DocPage: "config.md#subscription",
+	},
 	"trigger": {
 		Block:   "trigger",
 		Summary: "Each trigger, by name.",

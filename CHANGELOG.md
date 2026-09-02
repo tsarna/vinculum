@@ -58,7 +58,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `client "kafka"` reaches this only under `ack = "manual"`, since `partitions`
   needs `queue_size` and that receiver still refuses the queue under `auto`.
 
+- **`subscription.<name>`: read what a subscription's queue is doing.** A bus
+  has told a configuration how full it is for a while — `get(bus.main,
+  "queue_ratio")` — but that catches an overloaded *process*, not the more
+  common shape of one slow handler whose own `queue_size` queue fills and drops
+  while the bus feeding it stays comfortable. Those queues have always counted
+  themselves; there was no name to read them from.
+
+  ```hcl
+  get(subscription.to_broker, "queue_depth")      # waiting, across every partition
+  get(subscription.to_broker, "queue_capacity")   # queue_size × partitions
+  get(subscription.to_broker, "queue_ratio")      # the fullest partition's, 0.0–1.0
+  get(subscription.to_broker, "dropped")          # messages the queue refused
+  get(subscription.to_broker, "partitions")       # how many queues there are
+  get(subscription.to_broker, "skew")             # how lopsided: 1.0 even, up to `partitions`
+  ```
+
+  Three things worth knowing:
+
+  - **`queue_ratio` is the fullest partition's, not the average.** One hot key
+    fills its own partition and starts refusing messages while the others sit
+    empty, and an average reads as comfortable for exactly as long as that is
+    happening. At `partitions = 1` the two coincide, so the member does not
+    change meaning when the attribute is added.
+  - **`skew` answers "is my `partition_key` any good?"** — a ratio rather than a
+    count: the fullest partition's depth over the average across all of them, so
+    it lands between 1.0 (evenly spread) and the partition count (everything
+    piled onto one) whatever the queue holds. A key that does not vary buys no
+    parallelism at all, and nothing else reveals it.
+  - **A subscription with no `queue_size` has no queue**, and reading one of
+    these from it is an error naming `queue_size` rather than a comfortable
+    zero, which would be indistinguishable from a healthy empty queue. The name
+    still resolves, so `vinculum check` tells a typo from a subscription nobody
+    has given a queue to yet.
+
+  See [what a subscription's queue
+  counts](doc/config.md#what-a-subscriptions-queue-counts) and
+  [per-subscription queues](doc/health.md#per-subscription-queues), which has
+  the readiness composition. Client receiver queues are not readable this way
+  yet.
+
 ### Changed
+
+- **Two `subscription` blocks may no longer share a name.** The label was
+  decorative — nothing ever looked a subscription up by it, so a duplicate went
+  undetected and both subscriptions ran. It addresses that subscription's queue
+  now, so a duplicate is a reference with two answers and is reported at load.
+  Rename one, or set `disabled` on the one the configuration should not use.
 
 - **An acknowledgement now follows the work, not the hand-off.** `ack = "auto"`
   settled a message when delivery *returned*, which is the same moment the work
