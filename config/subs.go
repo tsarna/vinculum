@@ -32,9 +32,10 @@ type SubscriptionDefinition struct {
 	Disabled        bool           `hcl:"disabled,optional"`
 }
 
-// SubscriberSource groups the four HCL attributes that together specify where a
+// SubscriberSource groups the HCL attributes that together specify where a
 // block delivers events: a destination (a named subscriber or an inline
-// action) plus an optional transform pipeline and an optional async queue.
+// action), plus an optional transform pipeline, an optional async queue, and
+// optionally how many messages that queue may work on at once.
 //
 // Every block that accepts this pattern should declare the attributes on its
 // own definition struct with these exact HCL names:

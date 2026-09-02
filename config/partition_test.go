@@ -309,6 +309,64 @@ func BenchmarkPartitionKey(b *testing.B) {
 	}
 }
 
+// The claim the cost documentation rests on, asserted rather than reasoned
+// about: a key that does not mention the payload never converts one.
+//
+// The payload here *cannot* be converted — go2cty2go refuses a channel — so a
+// key that computes anyway is proof that nothing tried. Both the fast path and
+// the general path are checked, because they decide it differently: the first
+// never builds a context at all, the second builds one without `msg` because
+// the expression was seen not to ask for it.
+func TestPartitionKeyDoesNotTouchAnUnreadPayload(t *testing.T) {
+	// The expected key is asserted rather than "not the topic", because for
+	// ctx.topic a fallback and a correct answer are the same string — there it
+	// is the absence of a log line that says nothing went wrong.
+	for _, tc := range []struct{ name, expr, want string }{
+		{"fast path", "ctx.fields.device", "abc"},
+		{"general path", `"${ctx.fields.device}-x"`, "abc-x"},
+		{"topic", "ctx.topic", "sensor/1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			core, logs := observer.New(zap.ErrorLevel)
+			cfg := newSubscriberSourceTestConfig(t, &recorderSubscriber{})
+			cfg.UserLogger = zap.New(core)
+
+			keyFn, diags := buildPartitionKeyFunc(cfg, parseExpr(t, tc.expr), "test")
+			require.False(t, diags.HasErrors())
+			require.NotNil(t, keyFn)
+
+			key := keyFn(bus.EventBusMessage{
+				Ctx:     context.Background(),
+				Topic:   "sensor/1",
+				Payload: make(chan int), // unconvertible: touching it would fail
+				Fields:  map[string]string{"device": "abc"},
+			})
+
+			assert.Equal(t, tc.want, key)
+			assert.Zero(t, logs.Len(), "converting a payload nothing reads")
+		})
+	}
+
+	// The mirror, so the test above cannot pass by the conversion having been
+	// removed altogether: a key that *does* read the payload fails on the same
+	// message, falls back to the topic, and says so.
+	core, logs := observer.New(zap.ErrorLevel)
+	cfg := newSubscriberSourceTestConfig(t, &recorderSubscriber{})
+	cfg.UserLogger = zap.New(core)
+
+	keyFn, diags := buildPartitionKeyFunc(cfg, parseExpr(t, "ctx.msg.id"), "test")
+	require.False(t, diags.HasErrors())
+
+	key := keyFn(bus.EventBusMessage{
+		Ctx:     context.Background(),
+		Topic:   "sensor/1",
+		Payload: make(chan int),
+		Fields:  map[string]string{"device": "abc"},
+	})
+	assert.Equal(t, "sensor/1", key)
+	assert.Equal(t, 1, logs.Len())
+}
+
 // A key reading the payload works, and is the case the documentation warns
 // about rather than forbids.
 func TestPartitionKeyFromPayload(t *testing.T) {
