@@ -187,16 +187,20 @@ type RedisStreamDefinition struct {
 }
 
 type ConsumerDef struct {
-	Name             string                       `hcl:"name,label"`
-	Stream           hcl.Expression               `hcl:"stream"`
-	Group            string                       `hcl:"group"`
-	ConsumerName     hcl.Expression               `hcl:"consumer_name,optional"`
-	VinculumTopic    hcl.Expression               `hcl:"vinculum_topic,optional"`
-	Subscriber       hcl.Expression               `hcl:"subscriber,optional"`
-	Action           hcl.Expression               `hcl:"action,optional"`
-	Transforms       hcl.Expression               `hcl:"transforms,optional"`
-	OnDecodeError    hcl.Expression               `hcl:"on_decode_error,optional"`
-	QueueSize        *int                         `hcl:"queue_size,optional"`
+	Name            string         `hcl:"name,label"`
+	Stream          hcl.Expression `hcl:"stream"`
+	Group           string         `hcl:"group"`
+	ConsumerName    hcl.Expression `hcl:"consumer_name,optional"`
+	VinculumTopic   hcl.Expression `hcl:"vinculum_topic,optional"`
+	Subscriber      hcl.Expression `hcl:"subscriber,optional"`
+	Action          hcl.Expression `hcl:"action,optional"`
+	Transforms      hcl.Expression `hcl:"transforms,optional"`
+	OnDecodeError   hcl.Expression `hcl:"on_decode_error,optional"`
+	QueueSize       *int           `hcl:"queue_size,optional"`
+	Partitions      *int           `hcl:"partitions,optional"`
+	PartitionsRange hcl.Range      `hcl:"partitions,attr_range"`
+	PartitionKey    hcl.Expression `hcl:"partition_key,optional"`
+
 	Baggage          *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
 	BatchSize        *int64                       `hcl:"batch_size,optional"`
 	BlockTimeout     hcl.Expression               `hcl:"block_timeout,optional"`
@@ -633,10 +637,13 @@ func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, cli
 	}
 
 	target, diags := cfg.SubscriberSource{
-		Subscriber: def.Subscriber,
-		Action:     def.Action,
-		Transforms: def.Transforms,
-		QueueSize:  def.QueueSize,
+		Subscriber:      def.Subscriber,
+		Action:          def.Action,
+		Transforms:      def.Transforms,
+		QueueSize:       def.QueueSize,
+		Partitions:      def.Partitions,
+		PartitionsRange: def.PartitionsRange,
+		PartitionKey:    def.PartitionKey,
 	}.Resolve(config, def.DefRange, "redis_stream/"+clientName+"/"+def.Name, tp)
 	if diags.HasErrors() {
 		return nil, diags

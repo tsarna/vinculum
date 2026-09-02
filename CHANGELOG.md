@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`partitions` and `partition_key`: process several messages at once, in
+  order where it matters.** `queue_size` moves work off the source's goroutine
+  but does not do more of it — one goroutine draining a queue is still one
+  message at a time. `partitions` runs several, and `partition_key` says which
+  messages must not be separated:
+
+  ```hcl
+  subscription "handle" {
+      target        = bus.work
+      topics        = ["tasks/#"]
+      queue_size    = 500
+      partitions    = 8
+      partition_key = ctx.fields.device_id
+      action        = handle(ctx, ctx.msg)
+  }
+  ```
+
+  Messages with the same key are handled by one goroutine in the order they
+  arrived; messages with different keys can be handled concurrently. Both
+  attributes belong to the shared delivery-target pattern, so they are accepted
+  by the `subscription` block and by every client receiver, with identical
+  semantics. `partitions` requires `queue_size`, and `partition_key` requires
+  `partitions`.
+
+  Four things worth knowing before turning it up:
+
+  - **Partitions do nothing until the key varies.** The default key is the
+    topic, so on a receiver where everything arrives on one topic every message
+    hashes to the same partition and nothing runs in parallel. Set
+    `partition_key`, or `partition_key = null` for no ordering at all
+    (round-robin). A `subscription` whose topics are all literal now warns at
+    load when there are fewer of them than partitions.
+  - **`queue_size` is per partition.** `queue_size = 500` with `partitions = 8`
+    is up to 4000 messages buffered, and on a receiver up to 4000
+    unacknowledged deliveries — reconcile that with a RabbitMQ `prefetch` or an
+    SQS visibility timeout.
+  - **A computed key is evaluated on the goroutine handing the message over**,
+    which is the one `queue_size` exists to keep moving. A plain
+    `ctx.fields.<name>` or `ctx.topic` is free — read straight off the message,
+    with no expression evaluated — while a template, a call or anything reading
+    `ctx.msg` is evaluated per message, the last also converting the payload.
+  - **Work that runs in parallel must tolerate it.**
+    `set(ctx, var.n, get(var.n) + 1)` in two partitions loses updates, and no
+    key prevents that. Keep such state per key, or use a `metric` or a counter
+    `condition`.
+
+  `client "kafka"` reaches this only under `ack = "manual"`, since `partitions`
+  needs `queue_size` and that receiver still refuses the queue under `auto`.
+
 ### Changed
 
 - **An acknowledgement now follows the work, not the hand-off.** `ack = "auto"`

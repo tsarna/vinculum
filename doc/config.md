@@ -506,6 +506,89 @@ Connection-oriented servers already do this for you. `server "vws"` and
 `server "websocket"` give every connection its own outbound queue (their own
 `queue_size`, default 256), so one stalled client cannot hold up the bus.
 
+#### Processing several messages at once
+
+A queue moves the work off the bus's goroutine; it does not do more of it, and
+one goroutine draining a queue is still one message at a time. `partitions`
+runs several:
+
+```hcl
+subscription "handle" {
+    target        = bus.work
+    topics        = ["tasks/#"]
+    queue_size    = 500
+    partitions    = 8
+    partition_key = ctx.fields.device_id
+    action        = handle(ctx, ctx.msg)
+}
+```
+
+That is eight queues, each drained by its own goroutine. A message picks its
+queue by hashing its **partition key**, so two messages with the same key
+always land in the same queue and are handled in the order they arrived, while
+messages with different keys are handled at once. **The key is where ordering is
+configured**; `partitions` only says how much parallelism everything else may
+use.
+
+Pick the key that names the thing order matters for — a device, an account, an
+order, a conversation. Events about one device stay in sequence; events about
+different devices no longer wait for each other.
+
+**Partitions do nothing until the key varies.** The default key is the topic,
+which is the safe default and, on a receiver where every message arrives on one
+topic, a useless one: every message hashes to the same partition and nothing
+runs in parallel. If ordering does not matter at all, say so —
+
+```hcl
+partitions    = 8
+partition_key = null    # deal messages round-robin; preserve no order
+```
+
+— and if it does, name the field that carries it. A `subscription` whose topics
+are all literal is checked at load and warns when there are fewer of them than
+partitions, but a receiver whose topic is computed per message cannot be, so
+the general answer is to set the key deliberately.
+
+Three things to know before turning it up:
+
+- **`queue_size` is per partition.** `queue_size = 500` with `partitions = 8`
+  is up to 4000 messages buffered, and on a receiver up to 4000 unacknowledged
+  deliveries — reconcile that with whatever bounds in-flight work on the source,
+  such as a RabbitMQ `prefetch` or an SQS visibility timeout.
+- **Keys that hash together share a queue.** One slow key holds up the
+  unrelated keys behind it — a share of the traffic rather than all of it,
+  which is the trade for partitions that never contend with each other.
+- **A computed key costs something, in the place it is least welcome.** The
+  expression is evaluated on the goroutine handing the message over — the poll
+  loop, or the bus's dispatch — which is the goroutine `queue_size` exists to
+  keep moving. A plain `ctx.fields.<name>` or `ctx.topic` is free: it is read
+  straight off the message and no expression is evaluated at all. Anything
+  else — a template, a function call, a concatenation — is evaluated per
+  message, and reading `ctx.msg` is the expensive case, since the payload is
+  converted for the key as well as for the work.
+
+The key also sees the message **as it arrived**, not as `transforms` will
+deliver it: a pipeline that rewrites the topic or reshapes the payload runs
+inside the queue, after the partition has been chosen. That is deliberate — a
+transform must not be able to move a message from one ordering domain to
+another — but it means `ctx.topic` in a `partition_key` and `ctx.topic` in the
+`action` are not always the same string.
+
+**Work that runs in parallel has to tolerate running in parallel.** This is the
+one thing partitions change about what an `action` may do. Reading a value,
+computing from it, and writing it back is no longer safe:
+
+```hcl
+# Wrong under partitions > 1: two partitions can read the same value,
+# and one of the two increments is lost.
+action = set(ctx, var.total, get(var.total) + 1)
+```
+
+No partition key fixes that, because the value is shared by every key. Either
+keep such state per key — where the key is also the partition key, so only one
+goroutine ever touches it — or use something built for concurrent updates, such
+as a `metric` or a counter `condition`.
+
 **Inbound is the case that has a broker on the other end.** `queue_size` is
 also accepted on client *receivers*, where it is tempting for the same reason —
 don't let a slow action stall the poll loop. There, delivery returning early
@@ -1122,41 +1205,44 @@ subscription "name" {
 Subscribes to messages from a bus (or client) and either evaluates an `action`
 expression for each message or forwards messages to another subscriber.
 
-The `subscriber`/`action`/`transforms`/`queue_size` set of attributes is a
-shared delivery-target pattern: the same four attributes, with identical
-semantics, are also accepted by every client *receiver* block
+The `subscriber`/`action`/`transforms`/`queue_size`/`partitions`/`partition_key`
+set of attributes is a shared delivery-target pattern: the same six attributes,
+with identical semantics, are also accepted by every client *receiver* block
 (`client "sqs_receiver"`, `client "kafka"` and `client "rabbitmq"` receivers,
 `client "mqtt"` subscribers, `client "redis_stream"` consumers,
-`client "redis_pubsub"` subscribers). Those four entries in the attribute
+`client "redis_pubsub"` subscribers). Those six entries in the attribute
 reference below apply in all of those contexts; `target`, `tracing`, and
 `topics` belong to this block alone.
 
-Identical semantics, but not identical consequences: `queue_size` on a
-subscription decouples a slow *outbound* path from the bus, which is what it is
-for, while on a receiver it discards the delivery outcome the receiver needs in
-order to acknowledge. A receiver that settles therefore refuses it under the
-default `ack = "auto"`: pair it with `ack = "manual"`, which settles explicitly
-and so survives the hop, or reach for `concurrency` if what you wanted was
-throughput. See [delivery model](#delivery-model) under `bus` before setting it
-on a receiver.
+Identical semantics, but not identical stakes. On a subscription, `queue_size`
+decouples a slow *outbound* path from the bus and a full queue drops. On a
+receiver, the delivery being settled travels with the message, so the
+acknowledgement follows the work through the queue and a full queue nacks
+instead — the broker keeps the message and sends it again. `partitions` then
+processes several of them at once, in whatever order `partition_key` says is
+safe. See [delivery model](#delivery-model) under `bus` for both.
 
 #### Attributes
 
 <!-- vinculum:begin block-attrs subscription level=4 -->
 
-| Attribute | Type | Required | Description |
-|---|---|---|:---|
-| `target` | expression (bus-ref) | yes | Bus to subscribe to. |
-| `topics` | list (topic-pattern) | yes | Topic patterns to subscribe to. |
-| `action` | expression (action-expression) |  | Expression evaluated once per message. |
-| `disabled` | bool |  | Skip this block entirely. |
-| `queue_size` | number |  | Depth of an async queue wrapping the subscriber. |
-| `subscriber` | expression (subscriber-ref) |  | Subscriber to forward messages to, instead of evaluating an action. |
-| `tracing` | expression (tracing-ref) |  | Where to report traces. |
-| `transforms` | expression (transform-pipeline) |  | Transform pipeline applied before the action or subscriber. |
+| Attribute | Type | Required | Default | Description |
+|---|---|---|---|:---|
+| `target` | expression (bus-ref) | yes |  | Bus to subscribe to. |
+| `topics` | list (topic-pattern) | yes |  | Topic patterns to subscribe to. |
+| `action` | expression (action-expression) |  |  | Expression evaluated once per message. |
+| `disabled` | bool |  |  | Skip this block entirely. |
+| `partition_key` | expression |  |  | Expression deciding which messages must stay in order. |
+| `partitions` | number |  | `1` | Number of messages that may be processed at once. |
+| `queue_size` | number |  |  | Depth of an async queue wrapping the subscriber. |
+| `subscriber` | expression (subscriber-ref) |  |  | Subscriber to forward messages to, instead of evaluating an action. |
+| `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
+| `transforms` | expression (transform-pipeline) |  |  | Transform pipeline applied before the action or subscriber. |
 
 - Specify at most one of action or subscriber.
 - Specify either an action to evaluate or a subscriber to forward to.
+- partitions runs one queue per partition, so it needs queue_size to say how deep each is.
+- partition_key decides which partition a message goes to, which means nothing without partitions.
 
 **`target`**
 
@@ -1175,6 +1261,28 @@ Evaluated against the `message` context.
 **`disabled`**
 
 The block is parsed and validated, but nothing is created from it. A block that would publish a name — `condition.<name>`, `client.<name>` — does not, so any expression reading that name fails to resolve. Disable the blocks that read it too, or drop the reference.
+
+**`partition_key`**
+
+Messages whose key is equal are processed in the order they arrived, by one goroutine; messages whose keys differ may be processed at once. Choose the key that names the thing order matters for — a device, an account, a conversation.
+
+Defaults to the topic. `null` asks for no ordering at all, dealing messages round-robin across every partition, which is both faster and more evenly spread than a key contrived to vary.
+
+It is evaluated on the goroutine that hands the message over — the receiver's poll loop, or the bus's dispatch — so its cost falls on the thing `queue_size` was protecting. A plain `ctx.fields.<name>` or `ctx.topic` costs nothing: it is read straight off the message, with no expression evaluated at all. Anything else is evaluated per message, and reading `ctx.msg` is the expensive case, since the payload is converted for this expression as well as for the work.
+
+The key sees the message as it arrived, not as `transforms` will deliver it: a pipeline that rewrites the topic does so after the partition has been chosen.
+
+Evaluated against the `partition-key` context.
+
+**`partitions`**
+
+Runs this many queues, each drained by its own goroutine, so that many messages are handled in parallel. Order is preserved within a partition and not across them, and `partition_key` decides which messages share one — so the key is where ordering is configured and this is only how much parallelism the rest may use.
+
+**A message picks its partition by hashing its key, so partitions do nothing until the key varies.** The default key is the topic: on a receiver where every message arrives on the same topic, every message hashes to the same partition and nothing runs in parallel. Set `partition_key`, or `partition_key = null` if no ordering is required at all.
+
+`queue_size` is per partition, so `queue_size = 500` with `partitions = 8` is up to 4000 messages buffered — reconcile that with whatever bounds in-flight messages on the source, such as a RabbitMQ `prefetch` or an SQS visibility timeout.
+
+Work that runs in parallel must tolerate running in parallel. Two partitions evaluating `set(ctx, var.n, get(var.n) + 1)` lose updates, whatever the key.
 
 **`queue_size`**
 

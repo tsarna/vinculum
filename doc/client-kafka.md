@@ -394,6 +394,8 @@ consumer group semantics.
 | `action` | expression (action-expression) |  |  | Expression evaluated once per message. |
 | `dlq_topic` | string |  |  | Kafka topic to publish messages that could not be handled. |
 | `on_decode_error` | expression (action-expression) |  |  | Evaluated when an inbound message cannot be decoded. |
+| `partition_key` | expression |  |  | Expression deciding which messages must stay in order. |
+| `partitions` | number |  | `1` | Number of messages that may be processed at once. |
 | `queue_size` | number |  |  | Depth of an async queue wrapping the subscriber. |
 | `start_offset` | string |  | `stored` | Where to start when the group has no committed offset. |
 | `subscriber` | expression (subscriber-ref) |  |  | Subscriber to forward messages to, instead of evaluating an action. |
@@ -401,6 +403,8 @@ consumer group semantics.
 
 - Specify at most one of action or subscriber.
 - Specify either an action to evaluate or a subscriber to forward to.
+- partitions runs one queue per partition, so it needs queue_size to say how deep each is.
+- partition_key decides which partition a message goes to, which means nothing without partitions.
 
 **`group_id`**
 
@@ -427,6 +431,28 @@ The record keeps its key and value and gains `vinculum-error`, `vinculum-origina
 The message is dropped rather than delivered. Use this to publish to a dead-letter destination or record the failure.
 
 Evaluated against the `decode-error` context.
+
+**`partition_key`**
+
+Messages whose key is equal are processed in the order they arrived, by one goroutine; messages whose keys differ may be processed at once. Choose the key that names the thing order matters for — a device, an account, a conversation.
+
+Defaults to the topic. `null` asks for no ordering at all, dealing messages round-robin across every partition, which is both faster and more evenly spread than a key contrived to vary.
+
+It is evaluated on the goroutine that hands the message over — the receiver's poll loop, or the bus's dispatch — so its cost falls on the thing `queue_size` was protecting. A plain `ctx.fields.<name>` or `ctx.topic` costs nothing: it is read straight off the message, with no expression evaluated at all. Anything else is evaluated per message, and reading `ctx.msg` is the expensive case, since the payload is converted for this expression as well as for the work.
+
+The key sees the message as it arrived, not as `transforms` will deliver it: a pipeline that rewrites the topic does so after the partition has been chosen.
+
+Evaluated against the `partition-key` context.
+
+**`partitions`**
+
+Runs this many queues, each drained by its own goroutine, so that many messages are handled in parallel. Order is preserved within a partition and not across them, and `partition_key` decides which messages share one — so the key is where ordering is configured and this is only how much parallelism the rest may use.
+
+**A message picks its partition by hashing its key, so partitions do nothing until the key varies.** The default key is the topic: on a receiver where every message arrives on the same topic, every message hashes to the same partition and nothing runs in parallel. Set `partition_key`, or `partition_key = null` if no ordering is required at all.
+
+`queue_size` is per partition, so `queue_size = 500` with `partitions = 8` is up to 4000 messages buffered — reconcile that with whatever bounds in-flight messages on the source, such as a RabbitMQ `prefetch` or an SQS visibility timeout.
+
+Work that runs in parallel must tolerate running in parallel. Two partitions evaluating `set(ctx, var.n, get(var.n) + 1)` lose updates, whatever the key.
 
 **`queue_size`**
 
@@ -463,9 +489,27 @@ Exactly one must be specified.
 - `action` — evaluate an HCL expression for each message. See context variables below.
 
 Optionally, `transforms = [...]` applies a transform pipeline to each message
-before delivery, and `queue_size = N` wraps delivery in an async background
-queue of depth `N`. Same semantics as the top-level
-[subscription](config.md#subscription) block.
+before delivery, `queue_size = N` wraps delivery in an async background queue of
+depth `N`, and `partitions` / `partition_key` process several messages at once.
+Same semantics as the top-level [subscription](config.md#subscription) block.
+
+**Partitioning a Kafka receiver waits on the same tracker `queue_size` does.**
+`partitions` requires `queue_size`, which this receiver refuses under the
+default `ack = "auto"` for the reason below, so partitioning here means
+`ack = "manual"` until that lands.
+
+When it does, the natural key is the record's own:
+
+```hcl
+partitions    = 8
+partition_key = ctx.fields.key    # the record key, so a key's records stay ordered
+```
+
+That reproduces per-partition-serial processing without needing to know
+Kafka's partition count. **Vinculum's hash is not Kafka's**, though: two Kafka
+partitions can land in one vinculum partition, which costs some parallelism and
+never costs ordering. Do not read `partitions = N` as a one-to-one mapping onto
+the topic's partitions.
 
 **`queue_size` is refused alongside `ack = "auto"`**, which is the default —
 and this receiver is the only one that still refuses it. On the others the

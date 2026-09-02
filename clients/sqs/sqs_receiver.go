@@ -145,14 +145,18 @@ are deleted once handled, unless ` + "`ack`" + ` says otherwise.`,
 }
 
 type SQSReceiverDefinition struct {
-	AWS               hcl.Expression               `hcl:"aws,optional"`
-	Region            string                       `hcl:"region,optional"`
-	QueueURL          hcl.Expression               `hcl:"queue_url"`
-	Subscriber        hcl.Expression               `hcl:"subscriber,optional"`
-	Action            hcl.Expression               `hcl:"action,optional"`
-	Transforms        hcl.Expression               `hcl:"transforms,optional"`
-	OnDecodeError     hcl.Expression               `hcl:"on_decode_error,optional"`
-	QueueSize         *int                         `hcl:"queue_size,optional"`
+	AWS             hcl.Expression `hcl:"aws,optional"`
+	Region          string         `hcl:"region,optional"`
+	QueueURL        hcl.Expression `hcl:"queue_url"`
+	Subscriber      hcl.Expression `hcl:"subscriber,optional"`
+	Action          hcl.Expression `hcl:"action,optional"`
+	Transforms      hcl.Expression `hcl:"transforms,optional"`
+	OnDecodeError   hcl.Expression `hcl:"on_decode_error,optional"`
+	QueueSize       *int           `hcl:"queue_size,optional"`
+	Partitions      *int           `hcl:"partitions,optional"`
+	PartitionsRange hcl.Range      `hcl:"partitions,attr_range"`
+	PartitionKey    hcl.Expression `hcl:"partition_key,optional"`
+
 	Baggage           *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
 	VinculumTopic     hcl.Expression               `hcl:"vinculum_topic,optional"`
 	WaitTime          hcl.Expression               `hcl:"wait_time,optional"`
@@ -266,10 +270,13 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 
 	// Resolve subscriber / action (+ optional transforms / async queue).
 	target, subDiags := cfg.SubscriberSource{
-		Subscriber: def.Subscriber,
-		Action:     def.Action,
-		Transforms: def.Transforms,
-		QueueSize:  def.QueueSize,
+		Subscriber:      def.Subscriber,
+		Action:          def.Action,
+		Transforms:      def.Transforms,
+		QueueSize:       def.QueueSize,
+		Partitions:      def.Partitions,
+		PartitionsRange: def.PartitionsRange,
+		PartitionKey:    def.PartitionKey,
 	}.Resolve(config, def.DefRange, "sqs_receiver/"+clientName, tp)
 	if subDiags.HasErrors() {
 		return nil, subDiags

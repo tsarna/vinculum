@@ -638,12 +638,13 @@ func TestSchemaTwoPassBodies(t *testing.T) {
 	assert.NotNil(t, findAttr(doc.Blocks["client"].Variants["sqlite"], "path"))
 }
 
-// TestSchemaDeliveryQuartet covers the subscriber/action/transforms/queue_size
-// pattern shared by the subscription block and every client receiver: it is
-// curated once and folded in wherever it appears.
-func TestSchemaDeliveryQuartet(t *testing.T) {
+// TestSchemaDeliveryPattern covers the
+// subscriber/action/transforms/queue_size/partitions/partition_key pattern
+// shared by the subscription block and every client receiver: it is curated
+// once and folded in wherever it appears.
+func TestSchemaDeliveryPattern(t *testing.T) {
 	doc := generateTestSchema(t, config.SchemaGenOptions{})
-	quartet := []string{"subscriber", "action", "transforms", "queue_size"}
+	shared := []string{"subscriber", "action", "transforms", "queue_size", "partitions", "partition_key"}
 
 	receivers := map[string]*config.SchemaNestedBlock{
 		"mqtt":         doc.Blocks["client"].Variants["mqtt"].Blocks["receiver"],
@@ -654,20 +655,23 @@ func TestSchemaDeliveryQuartet(t *testing.T) {
 	}
 	for name, receiver := range receivers {
 		require.NotNil(t, receiver, "client %q has no receiver block", name)
-		for _, attr := range quartet {
+		for _, attr := range shared {
 			meta := findAttr(&receiver.SchemaBody, attr)
 			require.NotNil(t, meta, "client %q receiver is missing %q", name, attr)
 			assert.NotEmpty(t, meta.Summary)
 		}
 		assert.Equal(t, config.HintSubscriberRef, findAttr(&receiver.SchemaBody, "subscriber").Hint)
 		assert.Equal(t, config.HintTransformPipeline, findAttr(&receiver.SchemaBody, "transforms").Hint)
-		assert.Len(t, receiver.Constraints, 2, "client %q receiver: action XOR subscriber", name)
+
+		// action XOR subscriber, and each half of partitioning needing the half
+		// beneath it.
+		assert.Len(t, receiver.Constraints, 4, "client %q receiver: the shared constraints", name)
 	}
 
 	// The subscription block uses the same wording for the same attributes.
 	sub := doc.Blocks["subscription"].Body
 	mqttReceiver := &receivers["mqtt"].SchemaBody
-	for _, attr := range []string{"subscriber", "transforms", "queue_size"} {
+	for _, attr := range []string{"subscriber", "transforms", "queue_size", "partitions", "partition_key"} {
 		assert.Equal(t, findAttr(sub, attr).Summary, findAttr(mqttReceiver, attr).Summary,
 			"%q is described differently in a subscription and a receiver", attr)
 	}

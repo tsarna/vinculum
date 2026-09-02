@@ -25,6 +25,18 @@ var transformPlugins []transformPluginEntry
 // Names that collide with a built-in transform or with another registered
 // transform plugin produce a fatal diagnostic at Build() time, naming the
 // offending plugin and the conflicting function name.
+//
+// # A transform must be safe to run concurrently
+//
+// The pipeline runs inside the queue rather than in front of it, so a
+// subscriber with `partitions` set applies its transforms on as many goroutines
+// as it has partitions, to different messages at once. A transform holding
+// state across messages is therefore a data race, and one that nothing
+// diagnoses: every built-in transform is a pure function of the message it is
+// given, and a plugin's must be too.
+//
+// State that belongs to a stream rather than to a message belongs in a
+// subscriber, where the queue has already decided what may run at once.
 func RegisterTransformPlugin(name string, getter FunctionPlugin) {
 	recordPlugin("transforms." + name)
 	transformPlugins = append(transformPlugins, transformPluginEntry{name, getter})

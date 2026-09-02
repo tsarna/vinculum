@@ -230,12 +230,16 @@ type MQTTTopicMappingDef struct {
 }
 
 type MQTTSubscriberDef struct {
-	Name           string                       `hcl:"name,label"`
-	Subscriber     hcl.Expression               `hcl:"subscriber,optional"`
-	Action         hcl.Expression               `hcl:"action,optional"`
-	Transforms     hcl.Expression               `hcl:"transforms,optional"`
-	OnDecodeError  hcl.Expression               `hcl:"on_decode_error,optional"`
-	QueueSize      *int                         `hcl:"queue_size,optional"`
+	Name            string         `hcl:"name,label"`
+	Subscriber      hcl.Expression `hcl:"subscriber,optional"`
+	Action          hcl.Expression `hcl:"action,optional"`
+	Transforms      hcl.Expression `hcl:"transforms,optional"`
+	OnDecodeError   hcl.Expression `hcl:"on_decode_error,optional"`
+	QueueSize       *int           `hcl:"queue_size,optional"`
+	Partitions      *int           `hcl:"partitions,optional"`
+	PartitionsRange hcl.Range      `hcl:"partitions,attr_range"`
+	PartitionKey    hcl.Expression `hcl:"partition_key,optional"`
+
 	QoS            *int                         `hcl:"qos,optional"`
 	HandleRetained *bool                        `hcl:"handle_retained,optional"`
 	SharedGroup    string                       `hcl:"shared_group,optional"`
@@ -935,10 +939,13 @@ func buildSubscriberSpec(config *cfg.Config, clientName string, def MQTTSubscrib
 	}
 
 	subscriber, diags := cfg.SubscriberSource{
-		Subscriber: def.Subscriber,
-		Action:     def.Action,
-		Transforms: def.Transforms,
-		QueueSize:  def.QueueSize,
+		Subscriber:      def.Subscriber,
+		Action:          def.Action,
+		Transforms:      def.Transforms,
+		QueueSize:       def.QueueSize,
+		Partitions:      def.Partitions,
+		PartitionsRange: def.PartitionsRange,
+		PartitionKey:    def.PartitionKey,
 	}.Resolve(config, def.DefRange, "mqtt/"+clientName+"/"+def.Name, tp)
 	if diags.HasErrors() {
 		return spec, diags

@@ -18,46 +18,60 @@ import (
 )
 
 type SubscriptionDefinition struct {
-	Name       string         `hcl:"name,label"`
-	TargetExpr hcl.Expression `hcl:"target"`
-	Topics     []string       `hcl:"topics"`
-	QueueSize  *int           `hcl:"queue_size,optional"`
-	Transforms hcl.Expression `hcl:"transforms,optional"`
-	Subscriber hcl.Expression `hcl:"subscriber,optional"`
-	ActionExpr hcl.Expression `hcl:"action,optional"`
-	Tracing    hcl.Expression `hcl:"tracing,optional"`
-	Disabled   bool           `hcl:"disabled,optional"`
+	Name            string         `hcl:"name,label"`
+	TargetExpr      hcl.Expression `hcl:"target"`
+	Topics          []string       `hcl:"topics"`
+	QueueSize       *int           `hcl:"queue_size,optional"`
+	Partitions      *int           `hcl:"partitions,optional"`
+	PartitionsRange hcl.Range      `hcl:"partitions,attr_range"`
+	PartitionKey    hcl.Expression `hcl:"partition_key,optional"`
+	Transforms      hcl.Expression `hcl:"transforms,optional"`
+	Subscriber      hcl.Expression `hcl:"subscriber,optional"`
+	ActionExpr      hcl.Expression `hcl:"action,optional"`
+	Tracing         hcl.Expression `hcl:"tracing,optional"`
+	Disabled        bool           `hcl:"disabled,optional"`
 }
 
 // SubscriberSource groups the four HCL attributes that together specify where a
 // block delivers events: a destination (a named subscriber or an inline
 // action) plus an optional transform pipeline and an optional async queue.
 //
-// Every block that accepts this pattern should declare the four attributes on
-// its own definition struct with these exact HCL names:
+// Every block that accepts this pattern should declare the attributes on its
+// own definition struct with these exact HCL names:
 //
-//	Subscriber hcl.Expression `hcl:"subscriber,optional"`
-//	Action     hcl.Expression `hcl:"action,optional"`
-//	Transforms hcl.Expression `hcl:"transforms,optional"`
-//	QueueSize  *int           `hcl:"queue_size,optional"`
+//	Subscriber   hcl.Expression `hcl:"subscriber,optional"`
+//	Action       hcl.Expression `hcl:"action,optional"`
+//	Transforms   hcl.Expression `hcl:"transforms,optional"`
+//	QueueSize    *int           `hcl:"queue_size,optional"`
+//	Partitions   *int           `hcl:"partitions,optional"`
+//	PartitionKey hcl.Expression `hcl:"partition_key,optional"`
 //
 // After decoding, populate a SubscriberSource from those fields and call
 // Resolve to obtain the final bus.Subscriber.
 //
 // Example VCL:
 //
-//	subscriber = bus.main                    // XOR
-//	action     = log_info(topic, msg)
-//	transforms = [ jq(".payload") ]          // optional
-//	queue_size = 100                         // optional — enables async queue
+//	subscriber    = bus.main                 // XOR
+//	action        = log_info(topic, msg)
+//	transforms    = [ jq(".payload") ]       // optional
+//	queue_size    = 100                      // optional — enables async queue
+//	partitions    = 8                        // optional — needs queue_size
+//	partition_key = ctx.fields.device_id     // optional — needs partitions
 type SubscriberSource struct {
-	Subscriber hcl.Expression
-	Action     hcl.Expression
-	Transforms hcl.Expression
-	QueueSize  *int
+	Subscriber   hcl.Expression
+	Action       hcl.Expression
+	Transforms   hcl.Expression
+	QueueSize    *int
+	Partitions   *int
+	PartitionKey hcl.Expression
+
+	// PartitionsRange is the `partitions` attribute's own source range, so a
+	// value the queue cannot use is reported against the number rather than
+	// against the block. Optional: a zero range falls back to defRange.
+	PartitionsRange hcl.Range
 }
 
-// SubscriberSourceAttrs documents the four attributes of a SubscriberSource,
+// SubscriberSourceAttrs documents the attributes of a SubscriberSource,
 // for every block that accepts the pattern — the subscription block and every
 // client receiver. Fold it into a block's own attributes with MergeAttrs, and
 // pair it with SubscriberSourceConstraints.
@@ -94,14 +108,56 @@ var SubscriberSourceAttrs = map[string]AttrMeta{
 			"A graceful shutdown runs the queue out rather than exiting past it: see " +
 			"[Boot and shutdown](health.md#boot-and-shutdown).",
 	},
+	"partitions": {
+		Summary: "Number of messages that may be processed at once.",
+		Doc: "Runs this many queues, each drained by its own goroutine, so that many messages " +
+			"are handled in parallel. Order is preserved within a partition and not across " +
+			"them, and `partition_key` decides which messages share one — so the key is where " +
+			"ordering is configured and this is only how much parallelism the rest may use.\n\n" +
+			"**A message picks its partition by hashing its key, so partitions do nothing " +
+			"until the key varies.** The default key is the topic: on a receiver where every " +
+			"message arrives on the same topic, every message hashes to the same partition and " +
+			"nothing runs in parallel. Set `partition_key`, or `partition_key = null` if no " +
+			"ordering is required at all.\n\n" +
+			"`queue_size` is per partition, so `queue_size = 500` with `partitions = 8` is up " +
+			"to 4000 messages buffered — reconcile that with whatever bounds in-flight " +
+			"messages on the source, such as a RabbitMQ `prefetch` or an SQS visibility " +
+			"timeout.\n\n" +
+			"Work that runs in parallel must tolerate running in parallel. Two partitions " +
+			"evaluating `set(ctx, var.n, get(var.n) + 1)` lose updates, whatever the key.",
+		Default: "1",
+	},
+	"partition_key": {
+		Summary: "Expression deciding which messages must stay in order.",
+		Doc: "Messages whose key is equal are processed in the order they arrived, by one " +
+			"goroutine; messages whose keys differ may be processed at once. Choose the key " +
+			"that names the thing order matters for — a device, an account, a conversation.\n\n" +
+			"Defaults to the topic. `null` asks for no ordering at all, dealing messages " +
+			"round-robin across every partition, which is both faster and more evenly spread " +
+			"than a key contrived to vary.\n\n" +
+			"It is evaluated on the goroutine that hands the message over — the receiver's " +
+			"poll loop, or the bus's dispatch — so its cost falls on the thing `queue_size` " +
+			"was protecting. A plain `ctx.fields.<name>` or `ctx.topic` costs nothing: it is " +
+			"read straight off the message, with no expression evaluated at all. Anything " +
+			"else is evaluated per message, and reading `ctx.msg` is the expensive case, " +
+			"since the payload is converted for this expression as well as for the work.\n\n" +
+			"The key sees the message as it arrived, not as `transforms` will deliver it: a " +
+			"pipeline that rewrites the topic does so after the partition has been chosen.",
+		Hint:    HintExpression,
+		Context: "partition-key",
+	},
 }
 
-// SubscriberSourceConstraints states the rule Resolve enforces: exactly one of
-// subscriber or action.
+// SubscriberSourceConstraints states the rules Resolve enforces: exactly one of
+// subscriber or action, and each half of partitioning needs the half beneath it.
 var SubscriberSourceConstraints = []Constraint{
 	MutuallyExclusive("action", "subscriber"),
 	AtLeastOneOf("action", "subscriber").
 		WithMessage("Specify either an action to evaluate or a subscriber to forward to."),
+	Requires("partitions", "queue_size").
+		WithMessage("partitions runs one queue per partition, so it needs queue_size to say how deep each is."),
+	Requires("partition_key", "partitions").
+		WithMessage("partition_key decides which partition a message goes to, which means nothing without partitions."),
 }
 
 // Resolve produces the bus.Subscriber specified by the source. Wrappers are
@@ -125,6 +181,30 @@ func (s SubscriberSource) Resolve(
 			Severity: hcl.DiagError,
 			Summary:  "Exactly one of subscriber or action must be specified",
 			Subject:  &defRange,
+		}}
+	}
+
+	// Partitioning is two attributes over the queue, and each is inert without
+	// what is beneath it. Refused rather than ignored: a configuration that
+	// names partitions and silently gets one is worse off than one that is told
+	// what is missing, and the schema's constraints only describe this rule.
+	if s.Partitions != nil && s.QueueSize == nil {
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "partitions requires queue_size",
+			Detail: "Each partition is a queue drained by its own goroutine, so there is nothing to " +
+				"partition without one. Set queue_size to the depth each partition should have.",
+			Subject: s.partitionsSubject(defRange),
+		}}
+	}
+	if IsExpressionProvided(s.PartitionKey) && s.Partitions == nil {
+		return nil, hcl.Diagnostics{{
+			Severity: hcl.DiagError,
+			Summary:  "partition_key requires partitions",
+			Detail: "The key decides which partition a message goes to, and with one partition every " +
+				"message is already processed in order by a single goroutine. Set partitions to " +
+				"how many messages may be handled at once.",
+			Subject: s.PartitionKey.Range().Ptr(),
 		}}
 	}
 
@@ -155,6 +235,37 @@ func (s SubscriberSource) Resolve(
 		if tp != nil {
 			async = async.WithTracerProvider(tp)
 		}
+
+		if s.Partitions != nil {
+			if *s.Partitions < 1 {
+				return nil, hcl.Diagnostics{{
+					Severity: hcl.DiagError,
+					Summary:  "partitions must be at least 1",
+					Detail: "Each partition is a queue and a goroutine that drains it, so fewer than one " +
+						"leaves nothing to process the messages. Omit the attribute for the default of 1.",
+					Subject: s.partitionsSubject(defRange),
+				}}
+			}
+
+			async = async.WithPartitions(*s.Partitions)
+
+			if IsExpressionProvided(s.PartitionKey) {
+				keyFn, keyDiags := buildPartitionKeyFunc(config, s.PartitionKey, name)
+				if keyDiags.HasErrors() {
+					return nil, keyDiags
+				}
+
+				// A nil function is the literal `partition_key = null`: no
+				// ordering wanted, so deal messages round-robin rather than
+				// hashing a key that says nothing.
+				if keyFn == nil {
+					async = async.WithoutOrdering()
+				} else {
+					async = async.WithPartitionKey(keyFn)
+				}
+			}
+		}
+
 		subscriber = async.Start()
 
 		// The queue is where a message waits longest and where shutdown used to
@@ -281,11 +392,16 @@ func (h *SubscriptionBlockHandler) Process(config *Config, block *hcl.Block) hcl
 		})
 	}
 
+	warnings = warnings.Extend(partitionTopicWarning(subscriptionDef))
+
 	subscriber, diags := SubscriberSource{
-		Subscriber: subscriptionDef.Subscriber,
-		Action:     subscriptionDef.ActionExpr,
-		Transforms: subscriptionDef.Transforms,
-		QueueSize:  subscriptionDef.QueueSize,
+		Subscriber:      subscriptionDef.Subscriber,
+		Action:          subscriptionDef.ActionExpr,
+		Transforms:      subscriptionDef.Transforms,
+		QueueSize:       subscriptionDef.QueueSize,
+		Partitions:      subscriptionDef.Partitions,
+		PartitionsRange: subscriptionDef.PartitionsRange,
+		PartitionKey:    subscriptionDef.PartitionKey,
 	}.Resolve(config, block.DefRange, "subscription/"+subscriptionDef.Name, tp)
 	if diags.HasErrors() {
 		return diags
