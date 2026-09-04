@@ -314,8 +314,33 @@ subscription "to_broker" {
 }
 `
 
+// queueDepthOf reads queue_depth without the testing hooks, for a polling
+// condition — testify runs those on their own goroutine, where the require
+// inside getMember would call t.FailNow from outside the test. A failed read
+// answers -1, which is not the zero the caller is waiting for.
+func queueDepthOf(h *SubscriptionHandle) int64 {
+	var gettable richcty.Gettable = h
+	val, err := gettable.Get(context.Background(), []cty.Value{cty.StringVal("queue_depth")})
+	if err != nil {
+		return -1
+	}
+	n, _ := val.AsBigFloat().Int64()
+	return n
+}
+
 func TestSubscriptionIsGettable(t *testing.T) {
 	handle := subscriptionHandleFor(t, partitionedSubscription, "to_broker")
+
+	// The numbers below are what an *idle* queue reads, and subscribing is
+	// itself work the queue carries: OnSubscribe is queued like an event and
+	// partitioned on its topic, so one operation sits in one of the eight
+	// partitions until that partition's goroutine has run. Reading before then
+	// finds depth 1, and a skew of 8 that says so — accurately, since one
+	// partition really does hold everything there is. The queue has to be
+	// allowed to settle before "idle" is the thing being described.
+	require.Eventually(t, func() bool { return queueDepthOf(handle) == 0 },
+		3*time.Second, 5*time.Millisecond,
+		"the subscribe should drain before idle numbers mean anything")
 
 	assert.True(t, getMember(t, handle, "queue_depth").RawEquals(cty.NumberIntVal(0)))
 	assert.True(t, getMember(t, handle, "dropped").RawEquals(cty.NumberIntVal(0)))

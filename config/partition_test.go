@@ -479,8 +479,17 @@ func TestPartitions_StatefulActionsUnderRace(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Drain the queue the way shutdown does, so what follows is asserted against
-	// work that has finished rather than work still in flight.
+	// Drain the way shutdown does — and shutdown does both halves. Publish only
+	// hands the message to the bus, which dispatches it to the subscriber's
+	// queue on its own goroutine, so closing the queues while the bus still
+	// holds messages abandons every one of them: the dispatch that follows
+	// finds a closed queue and the work is never done. That is what quiesce()
+	// waits for before it closes anything, and why this waits for the bus to
+	// empty first.
+	require.Eventually(t, func() bool { return main.QueueDepth() == 0 },
+		10*time.Second, 5*time.Millisecond,
+		"the bus should dispatch everything before the queues behind it close")
+
 	for _, holder := range config.InFlight {
 		if holder.Close != nil {
 			require.NoError(t, holder.Close())
