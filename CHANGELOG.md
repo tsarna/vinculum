@@ -1064,6 +1064,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **`server "vws"` now filters inbound baggage, and strips it by default.** A connected
+  client could inject arbitrary OTel baggage entries, which reached `ctx.baggage` in every
+  handler the message touched and were re-propagated on outbound calls made from those
+  handlers — HTTP requests, MQTT and Kafka publishes, further VWS hops. Every other
+  inbound surface already filtered; this one did not, and had no `baggage {}` block to
+  opt into filtering with.
+
+  It was easy to miss because `vinculum-vws` implements no baggage handling of its own.
+  It does not have to: it propagates through the *global* OTel propagator, which a
+  configured `client "otlp"` sets to trace context plus baggage. So with any `client
+  "otlp"` present, baggage crossed a VWS hop in both directions and nothing looked at it.
+
+  `server "vws"` now takes a `baggage {}` block on the same terms as `server "http"`, and
+  the filter is installed whether or not the block is written — so omitting it is safe
+  rather than merely undeclared. The filter applies **per inbound frame**, because that
+  is where a VWS client's headers arrive; mounting the server on a `server "http"` route
+  does not inherit that server's filter.
+
+  **This changes behaviour for a configuration that was relying on baggage crossing a VWS
+  hop**, which now needs `baggage { passthrough = true }`, or an `allow` list naming the
+  keys it reads. `doc/baggage.md` listed the surfaces that filter and attributed every
+  omission to transports that cannot carry baggage at all; VWS can, and does, so that page
+  read "nothing to filter" where the truth was "filtering not implemented".
+
 - **`auth "oidc"` now enforces `algorithms`.** The attribute was parsed, validated as a
   list of strings, and stored — and then never consulted, so `algorithms = ["RS256"]`
   restricted nothing and an operator who narrowed the list got none of the narrowing they

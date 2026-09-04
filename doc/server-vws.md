@@ -61,6 +61,10 @@ How far one slow client may fall behind before its messages start being dropped.
 
 On shutdown, connected clients are closed before the buses and clients they depend on are stopped, and this bounds the wait for them to go away. Applies whether or not the hosting `server "http"` block sets its own — an upgraded WebSocket is invisible to that block's drain. `0` waits indefinitely.
 
+### Blocks
+
+- `baggage` (optional) — Which inbound baggage keys to trust.
+
 <!-- vinculum:end block-attrs server vws -->
 
 The transform pipelines are described in [transforms.md](transforms.md).
@@ -76,6 +80,32 @@ allow_send = true               # allow all inbound publishes
 allow_send = "sensors/#"        # allow publishes matching this MQTT pattern only
 allow_send = ctx.topic != "..." # evaluated per message
 ```
+
+### `baggage`
+
+A connected client is an untrusted peer, and every frame it sends carries its
+own headers — including the `baggage` header, which the trace propagator reads
+into `ctx.baggage`. Anything a peer writes there would otherwise reach every
+handler the message touches and be re-injected on outbound calls made from
+those handlers.
+
+So inbound baggage is **stripped by default**. The block exists only to loosen
+that for peers you trust:
+
+```hcl
+server "vws" "pubsub" {
+    bus = bus.main
+
+    baggage {
+        allow = ["tenant_id"]   # trust only this; the rest is dropped
+    }
+}
+```
+
+The filter applies per frame rather than per connection, and mounting this
+server on a `server "http"` route does **not** inherit that server's filter:
+the HTTP one applies to the upgrade request, and every frame after it arrives
+with headers of its own. See [baggage](baggage.md#server-side-trust-filtering).
 
 ### Example
 

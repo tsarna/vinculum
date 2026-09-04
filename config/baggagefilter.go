@@ -94,3 +94,46 @@ func (s *baggageFilterSubscriber) PassThrough(msg bus.EventBusMessage) error {
 // would hide every other wrapper's answer too — silently, since a chain that
 // reports itself ordinary produces no error and no log line.
 func (s *baggageFilterSubscriber) Unwrap() bus.Subscriber { return s.inner }
+
+// baggageFilterEventBus is the same trust boundary for a surface that *publishes*
+// rather than one that is delivered to.
+//
+// A client receiver hands each message to a subscriber, so filtering it means
+// wrapping the subscriber. A `server "vws"` connection does the opposite: it
+// derives a context from the frame's own headers and calls Publish on the bus.
+// There is no subscriber in the middle to wrap — the untrusted context is
+// created inside the connection and handed straight to the bus — so the filter
+// has to sit on the bus handle the server was given.
+//
+// It filters Publish and PublishSync and nothing else. Subscribe carries the
+// connection's own context rather than a frame's, and the promoted OnEvent is
+// the bus-to-bus path, whose baggage is already trusted.
+type baggageFilterEventBus struct {
+	bus.EventBus
+	filter *hclutil.BaggageFilterConfig
+	logger *zap.Logger
+}
+
+// NewBaggageFilterEventBus wraps inner so that the context of each published
+// message has its baggage filtered per filter. A nil filter applies the secure
+// default (strip all inbound baggage), so this should be installed
+// unconditionally on a surface that publishes on behalf of an untrusted peer.
+func NewBaggageFilterEventBus(filter *hclutil.BaggageFilterConfig, inner bus.EventBus, logger *zap.Logger) bus.EventBus {
+	return &baggageFilterEventBus{EventBus: inner, filter: filter, logger: logger}
+}
+
+func (b *baggageFilterEventBus) Publish(ctx context.Context, topic string, payload any) error {
+	return b.EventBus.Publish(b.filter.FilterContext(ctx, b.logger), topic, payload)
+}
+
+func (b *baggageFilterEventBus) PublishSync(ctx context.Context, topic string, payload any) error {
+	return b.EventBus.PublishSync(b.filter.FilterContext(ctx, b.logger), topic, payload)
+}
+
+// Unwrap answers for the bus behind the filter. Embedding the bus.EventBus
+// interface promotes OnEvent without promoting DeliveryDisposition, so without
+// this the wrapper would report itself an ordinary synchronous subscriber and
+// hide whatever the real bus is — which is the defect TestForwardingSubscribers-
+// ReportWhatTheyForwardTo exists to prevent, and the reason it flags an embedded
+// interface rather than waiting for a hand-written OnEvent.
+func (b *baggageFilterEventBus) Unwrap() bus.Subscriber { return b.EventBus }

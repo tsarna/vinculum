@@ -32,8 +32,11 @@ import (
 //   - DeliveryDisposition() bus.Disposition, for a fan-out, where there are N
 //     subscribers behind this one and a single-valued Unwrap cannot say so.
 //
-// This finds every type under clients/ whose OnEvent delegates to something
-// else's OnEvent, and requires one of them.
+// This walks the whole repository — every package, not just clients/ — and
+// finds each type whose OnEvent delegates to something else's, or which embeds
+// a bus interface that forwards for it. Each must declare one of the two
+// answers. A wrapper is worth writing wherever it is useful, so the scan goes
+// wherever one might live.
 func TestForwardingSubscribersReportWhatTheyForwardTo(t *testing.T) {
 	root, err := filepath.Abs("..")
 	require.NoError(t, err)

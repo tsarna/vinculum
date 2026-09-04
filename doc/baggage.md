@@ -186,15 +186,25 @@ on these inbound surfaces, each taking the same `baggage {}` block:
 |-------------------------------------------------------|---------------------------------------------------------------|
 | [`server "http"`](server-http.md)                     | per server                                                    |
 | [`server "mcp"`](server-mcp.md)                       | per server (mounted under HTTP inherits that server's filter) |
+| [`server "vws"`](server-vws.md)                       | per server                                                    |
 | [`client "kafka"`](client-kafka.md) `receiver`        | per receiver                                                  |
 | [`client "rabbitmq"`](client-rabbitmq.md) `receiver`  | per receiver                                                  |
 | [`client "mqtt"`](client-mqtt.md) `receiver`          | per receiver                                                  |
 | [`client "sqs_receiver"`](client-sqs.md)              | per client                                                    |
 | [`client "redis_stream"`](client-redis.md) `consumer` | per consumer                                                  |
 
+A `server "vws"` filters **per inbound frame**, not per connection. Its clients
+carry trace context in each message's own headers, so the trust decision belongs
+to the message rather than to the WebSocket that delivered it. Mounting it on a
+route of a `server "http"` block does not inherit that server's filter, unlike
+`server "mcp"`: the HTTP filter applies to the upgrade request, and every frame
+after it arrives with headers of its own.
+
 Transports without a header/metadata mechanism cannot carry baggage at all, so
 there is nothing to filter and no `baggage {}` block applies — notably
-[`client "redis_pubsub"`](client-redis.md) (Redis pub/sub has no headers).
+[`client "redis_pubsub"`](client-redis.md) (Redis pub/sub has no headers). Being
+absent from the table above means that and nothing else: a surface that *can*
+carry baggage always filters it.
 
 A public edge needs **no block at all** to be safe — the default already strips
 everything. Add a block only to *loosen* the default for trusted peers:

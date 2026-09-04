@@ -47,17 +47,18 @@ func (s *VinculumWebsocketServer) Drain(ctx context.Context) error {
 }
 
 type VinculumWebsocketsServerDefinition struct {
-	Bus                  hcl.Expression `hcl:"bus"`
-	QueueSize            *int           `hcl:"queue_size,optional"`
-	PingInterval         hcl.Expression `hcl:"ping_interval,optional"`
-	WriteTimeout         hcl.Expression `hcl:"write_timeout,optional"`
-	AllowSend            hcl.Expression `hcl:"allow_send,optional"`
-	InitialSubscriptions []string       `hcl:"initial_subscriptions,optional"`
-	OutboundTransforms   hcl.Expression `hcl:"outbound_transforms,optional"`
-	InboundTransforms    hcl.Expression `hcl:"inbound_transforms,optional"`
-	Metrics              hcl.Expression `hcl:"metrics,optional"`
-	ShutdownTimeout      hcl.Expression `hcl:"shutdown_timeout,optional"`
-	DefRange             hcl.Range      `hcl:",def_range"`
+	Bus                  hcl.Expression               `hcl:"bus"`
+	Baggage              *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
+	QueueSize            *int                         `hcl:"queue_size,optional"`
+	PingInterval         hcl.Expression               `hcl:"ping_interval,optional"`
+	WriteTimeout         hcl.Expression               `hcl:"write_timeout,optional"`
+	AllowSend            hcl.Expression               `hcl:"allow_send,optional"`
+	InitialSubscriptions []string                     `hcl:"initial_subscriptions,optional"`
+	OutboundTransforms   hcl.Expression               `hcl:"outbound_transforms,optional"`
+	InboundTransforms    hcl.Expression               `hcl:"inbound_transforms,optional"`
+	Metrics              hcl.Expression               `hcl:"metrics,optional"`
+	ShutdownTimeout      hcl.Expression               `hcl:"shutdown_timeout,optional"`
+	DefRange             hcl.Range                    `hcl:",def_range"`
 }
 
 func init() {
@@ -146,10 +147,25 @@ func ProcessVinculumWebsocketsServerBlock(config *cfg.Config, block *hcl.Block, 
 		}
 	}
 
+	if baggageDiags := serverDef.Baggage.Validate(); baggageDiags.HasErrors() {
+		return nil, baggageDiags
+	}
+
 	bus, diags := cfg.GetEventBusFromExpression(config, serverDef.Bus)
 	if diags.HasErrors() {
 		return nil, diags
 	}
+
+	// Connected clients are untrusted, and each inbound frame carries its own
+	// headers: the connection extracts trace context from them per message, so
+	// baggage a peer writes reaches ctx.baggage in every handler the message
+	// touches and is re-propagated on outbound calls made from there.
+	//
+	// The filter is installed unconditionally — a nil Baggage is the secure
+	// default, stripping everything — so omitting the block is safe rather than
+	// merely undeclared. That is what the rest of the language promises, and
+	// this server was the one inbound surface not keeping it.
+	bus = cfg.NewBaggageFilterEventBus(serverDef.Baggage, bus, config.Logger)
 
 	listenerBuilder := server.NewListener().WithEventBus(bus).WithLogger(config.Logger).WithServerName(block.Labels[1])
 
