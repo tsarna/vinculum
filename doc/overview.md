@@ -192,9 +192,9 @@ A `server` block accepts inbound connections or requests over a particular proto
 | [Prometheus](server-metrics.md) | — | [Yes](server-metrics.md) | Prometheus / OpenMetrics exposition endpoint, standalone or mounted into an existing HTTP server |
 | [RabbitMQ](client-rabbitmq.md) | [Yes](client-rabbitmq.md) | — | AMQP 0-9-1 sender and receiver with exchanges, routing keys, queue topology, publisher confirms, and two-level recovery |
 | [Redis](client-redis.md) | [Yes](client-redis.md)[^infra] | — | Redis/Valkey connection manager; standalone, cluster, and sentinel modes |
-| [Redis KV](client-redis.md#client-redis_kv) | [Yes](client-redis.md#client-redis_kv) | — | Redis GET/SET/INCR/HGET/HSET behind the generic `get()`/`set()`/`increment()` interface |
-| [Redis Pub/Sub](client-redis.md#client-redis_pubsub) | [Yes](client-redis.md#client-redis_pubsub) | — | Redis channel PUBLISH/SUBSCRIBE/PSUBSCRIBE — MQTT-style fire-and-forget |
-| [Redis Streams](client-redis.md#client-redis_stream) | [Yes](client-redis.md#client-redis_stream) | — | Redis Streams XADD/XREADGROUP with consumer groups, manual ack, reclaim, and dead-letter |
+| [Redis KV](client-redis.md#client-redis_kv-name) | [Yes](client-redis.md#client-redis_kv-name) | — | Redis GET/SET/INCR/HGET/HSET behind the generic `get()`/`set()`/`increment()` interface |
+| [Redis Pub/Sub](client-redis.md#client-redis_pubsub-name) | [Yes](client-redis.md#client-redis_pubsub-name) | — | Redis channel PUBLISH/SUBSCRIBE/PSUBSCRIBE — MQTT-style fire-and-forget |
+| [Redis Streams](client-redis.md#client-redis_stream-name) | [Yes](client-redis.md#client-redis_stream-name) | — | Redis Streams XADD/XREADGROUP with consumer groups, manual ack, reclaim, and dead-letter |
 | [SNS](client-sns.md) | [Sender](client-sns.md#client-sns_sender-name) | — | Publish bus events to an SNS topic, target ARN, or phone number; FIFO support |
 | [SQL](client-sql.md) | [SQLite](client-sql.md#client-sqlite-name)[^cgo] / [Postgres](client-sql.md#client-postgres-name) / [MySQL](client-sql.md#client-mysql-name) | — | Run SQL via `get()`/`call()` with named queries, parameters, and result objects |
 | [SQS](client-sqs.md) | [Sender](client-sqs.md#client-sqs_sender-name) / [Receiver](client-sqs.md#client-sqs_receiver-name) | — | Send bus events to an SQS queue or poll a queue and dispatch to the bus; FIFO support |

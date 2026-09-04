@@ -1495,7 +1495,7 @@ Unlike `const`, variables are not static — their value can be changed at runti
 from concurrent subscription handlers and cron jobs.
 
 Use `get()`, `set()`, and `increment()` to access and modify variables at runtime;
-see [functions.md](functions.md#variables) for details. The `type` attribute uses the
+see [functions.md](functions.md#variables-and-metrics) for details. The `type` attribute uses the
 [functy type grammar](functy.md#types).
 
 #### Attributes

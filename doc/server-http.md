@@ -427,7 +427,7 @@ Optional: `path`, `domain`, `expires` (`time` capsule, `duration` capsule, or RF
 
 HTTP status code constants are available as `http_status.<Name>` (PascalCase, matching
 Go's `net/http` constants). Also provides `http_status.bycode["404"]` → `"NotFound"` for
-reverse lookup. See [config.md](config.md#ambient-variables) for the full list.
+reverse lookup. See [config.md](config.md#built-in-variables) for the full list.
 
 ---
 

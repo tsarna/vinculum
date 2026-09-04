@@ -17,7 +17,7 @@ fsm "name" {
 Every FSM instance implements the [Watchable](trigger.md#watchables)
 interface — watchers are notified on every state transition with old and
 new state names as `cty.StringVal`. It also implements
-[Subscriber](overview.md#subscriptions), so it can be wired to a bus or
+[Subscriber](overview.md#subscribers), so it can be wired to a bus or
 driven by `send()`.
 
 ---
