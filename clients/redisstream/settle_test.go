@@ -66,6 +66,27 @@ func pendingIn(t *testing.T, addr string) int64 {
 	return pending.Count
 }
 
+// pendingCount is pendingIn for a polling condition, where pendingIn must not
+// be used: testify runs an Eventually or Never condition on its own goroutine,
+// and require there calls t.FailNow off the test goroutine — which is
+// runtime.Goexit from somewhere the testing package is not expecting it. The
+// last poll can also outlive the test and find miniredis already closed by
+// t.Cleanup, which turns an ordinary shutdown into a failure in whatever test
+// runs next.
+//
+// A read that fails answers -1, which is neither "drained" nor "one pending",
+// so a condition written against either keeps waiting rather than resolving on
+// the strength of an error.
+func pendingCount(addr string) int64 {
+	rc := goredis.NewClient(&goredis.Options{Addr: addr})
+	defer rc.Close()
+	pending, err := rc.XPending(context.Background(), "events", "g").Result()
+	if err != nil {
+		return -1
+	}
+	return pending.Count
+}
+
 // Two subscriptions match one topic and both take responsibility for the entry.
 // Exactly one of them settled it, and the broker heard about it once.
 //
@@ -128,7 +149,7 @@ subscription "second" {
 	}
 	assert.Equal(t, 1, settled, "exactly one subscription should report that it settled the entry, got %v", got)
 
-	assert.Eventually(t, func() bool { return pendingIn(t, mr.Addr()) == 0 }, 3*time.Second, 20*time.Millisecond,
+	assert.Eventually(t, func() bool { return pendingCount(mr.Addr()) == 0 }, 3*time.Second, 20*time.Millisecond,
 		"the entry should have been acked")
 }
 
@@ -183,7 +204,7 @@ subscription "worker" {
 		require.Eventually(t, func() bool { return rec.count() == 1 }, 3*time.Second, 20*time.Millisecond,
 			"the subscription should have run")
 		assert.Equal(t, []bool{true}, rec.values())
-		assert.Eventually(t, func() bool { return pendingIn(t, mr.Addr()) == 0 }, 3*time.Second, 20*time.Millisecond,
+		assert.Eventually(t, func() bool { return pendingCount(mr.Addr()) == 0 }, 3*time.Second, 20*time.Millisecond,
 			"the entry should be acked once the action that handled it says so")
 	})
 
@@ -202,7 +223,7 @@ subscription "worker" {
 			"the subscription should have run")
 		// The defect this design removes: the entry would already be acked here,
 		// because delivery returned nil at the moment it was queued.
-		assert.Never(t, func() bool { return pendingIn(t, mr.Addr()) != 1 }, 500*time.Millisecond, 50*time.Millisecond,
+		assert.Never(t, func() bool { return pendingCount(mr.Addr()) != 1 }, 500*time.Millisecond, 50*time.Millisecond,
 			"nothing settled the entry, so it must still be pending")
 	})
 }
@@ -430,7 +451,7 @@ client "redis_stream" "rs" {
 			wrapper := c.Clients["redis_stream"]["rs"].(*redisstream.RedisStreamClient)
 			require.NoError(t, wrapper.OnEvent(context.Background(), "x", "hi", nil))
 
-			assert.Eventually(t, func() bool { return pendingIn(t, mr.Addr()) == 0 }, 3*time.Second, 20*time.Millisecond,
+			assert.Eventually(t, func() bool { return pendingCount(mr.Addr()) == 0 }, 3*time.Second, 20*time.Millisecond,
 				"the entry should be acked once delivery returns without error")
 		})
 	}

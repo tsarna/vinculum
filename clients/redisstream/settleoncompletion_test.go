@@ -66,7 +66,7 @@ subscription "worker" {
 				wrapper := c.Clients["redis_stream"]["rs"].(*redisstream.RedisStreamClient)
 				require.NoError(t, wrapper.OnEvent(context.Background(), "x", "hi", nil))
 
-				assert.Eventually(t, func() bool { return pendingIn(t, mr.Addr()) == 0 },
+				assert.Eventually(t, func() bool { return pendingCount(mr.Addr()) == 0 },
 					3*time.Second, 20*time.Millisecond,
 					"the acknowledgement should follow the action, two hops downstream")
 			})
@@ -82,10 +82,22 @@ subscription "worker" {
 				wrapper := c.Clients["redis_stream"]["rs"].(*redisstream.RedisStreamClient)
 				require.NoError(t, wrapper.OnEvent(context.Background(), "x", "hi", nil))
 
+				// The entry has to reach the consumer's pending list before "it
+				// stays there" means anything. OnEvent only XADDs; the consumer
+				// picks the entry up on its own schedule, so a Never that starts
+				// polling straight away can see the zero that *precedes*
+				// delivery and read it as the zero that would follow a wrongful
+				// ack. The sibling test above gets this barrier for free by
+				// waiting on a recorder — this action throws, so there is
+				// nothing to record and the pending list is the only signal.
+				require.Eventually(t, func() bool { return pendingCount(mr.Addr()) == 1 },
+					3*time.Second, 20*time.Millisecond,
+					"the entry should reach the consumer before we assert it stays put")
+
 				// This is the defect. Before, the entry was XACKed at the moment it
 				// entered the queue, so the failure below had nothing left to
 				// redeliver and the message was simply gone.
-				assert.Never(t, func() bool { return pendingIn(t, mr.Addr()) == 0 },
+				assert.Never(t, func() bool { return pendingCount(mr.Addr()) == 0 },
 					1*time.Second, 50*time.Millisecond,
 					"a failed action must leave the entry pending for another consumer")
 			})
@@ -136,7 +148,7 @@ client "redis_stream" "rs" {
 	wrapper := c.Clients["redis_stream"]["rs"].(*redisstream.RedisStreamClient)
 	require.NoError(t, wrapper.OnEvent(context.Background(), "x", "hi", nil))
 
-	assert.Eventually(t, func() bool { return pendingIn(t, mr.Addr()) == 0 },
+	assert.Eventually(t, func() bool { return pendingCount(mr.Addr()) == 0 },
 		3*time.Second, 20*time.Millisecond,
 		"nothing wanted it and nothing asked to be told, so it is acknowledged")
 
