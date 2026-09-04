@@ -9,6 +9,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`client "kafka"` settles one record at a time, so `ack = "manual"`,
+  `queue_size` and `partitions` all work there.** This receiver committed a
+  record's offset when delivery returned and had no way to settle a single
+  record, which is why `commit_mode` never had a working `manual` and why a
+  queue in front of it would have acknowledged at the enqueue.
+
+  The obstacle was real rather than incidental. A Kafka commit is an assertion
+  about a *prefix* — committing offset N says everything below N is done — so
+  completing record 7 while 5 is outstanding cannot commit anything. The
+  receiver now keeps a per-partition **low-water mark**: the offset of the
+  oldest record that has not completed, advanced over every contiguous
+  completion above it, and it is the only thing ever committed. An offset never
+  passes a record still in flight, whatever order the work finishes in.
+
+  ```hcl
+  receiver "main" {
+    group_id      = "vinculum-prod"
+    ack           = "auto"
+    queue_size    = 500
+    partitions    = 8
+    partition_key = ctx.topic
+
+    action = handle(ctx, ctx.msg)
+
+    subscription "sensor.readings" {
+      vinculum_topic = "sensor/${ctx.key}"   # routes the key into the topic
+    }
+  }
+  ```
+
+  Three things to know, because Kafka's shape shows through:
+
+  - **A record nothing settles stops its partition's committed offset.**
+    Records after it keep being processed; nothing past the gap is committed,
+    and everything from it onwards is handled again by whoever next owns the
+    partition. That is what a nack means when there is nowhere to put the
+    record — set `dlq_topic` and the mark moves past it instead. A partition
+    stuck this way stops being fetched rather than growing, with a log line
+    naming the topic, partition and offset.
+  - **`partition_key` cannot see the record key.** `ctx.fields` holds the
+    record's *headers*; the key reaches `vinculum_topic` as `ctx.key` and no
+    further. Route it into the topic and partition on `ctx.topic`, as above.
+  - **Vinculum's hash is not Kafka's.** Two Kafka partitions can land in one
+    vinculum partition, which costs some parallelism and never costs ordering.
+    `partitions = N` is not a mapping onto the topic's partitions.
+
+  Requires `vinculum-kafka` v0.14.0. See
+  [how offsets are committed](doc/client-kafka.md#how-offsets-are-committed).
+
 - **`partitions` and `partition_key`: process several messages at once, in
   order where it matters.** `queue_size` moves work off the source's goroutine
   but does not do more of it — one goroutine draining a queue is still one
@@ -55,8 +104,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     key prevents that. Keep such state per key, or use a `metric` or a counter
     `condition`.
 
-  `client "kafka"` reaches this only under `ack = "manual"`, since `partitions`
-  needs `queue_size` and that receiver still refuses the queue under `auto`.
+  `client "kafka"` can do this too, on the low-water-mark tracker described
+  above — but handling a partition's records out of order has a cost there that
+  it does not have elsewhere, so read that entry before reaching for it.
 
 - **`subscription.<name>`: read what a subscription's queue is doing.** A bus
   has told a configuration how full it is for a while — `get(bus.main,
@@ -98,69 +148,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the readiness composition. Client receiver queues are not readable this way
   yet.
 
-### Changed
-
-- **Two `subscription` blocks may no longer share a name.** The label was
-  decorative — nothing ever looked a subscription up by it, so a duplicate went
-  undetected and both subscriptions ran. It addresses that subscription's queue
-  now, so a duplicate is a reference with two answers and is reported at load.
-  Rename one, or set `disabled` on the one the configuration should not use.
-
-- **An acknowledgement now follows the work, not the hand-off.** `ack = "auto"`
-  settled a message when delivery *returned*, which is the same moment the work
-  finished only while delivery is synchronous. A `queue_size` queue, a `bus`, an
-  `fsm` and the async subscriber wrapper each return as soon as the message is
-  enqueued, so the broker was told the message had been handled before anything
-  had handled it — and a failure afterwards had nothing left to redeliver.
-
-  The delivery travels on `ctx`, so whatever finishes the work is holding it.
-  The acknowledgement is now sent there, however many hops downstream that is.
-
-  **`queue_size` alongside `ack = "auto"` is no longer refused.** It was
-  rejected at load because the combination lost messages; it is now correct, so
-  the refusal is gone on `redis_stream`, `sqs_receiver` and `rabbitmq`. Nothing
-  that parses today stops parsing.
-
-  `client "kafka"` still refuses it, and its diagnostic now says why one
-  receiver refuses what another accepts: committing an offset is not
-  acknowledging a record, and completing record 7 while 5 is outstanding cannot
-  commit anything without a low-water-mark tracker that receiver does not have.
-
-  Three behaviour changes come with it, and they are changes rather than
-  relaxations:
-
-  - Delivery into a `bus` or an `fsm` no longer acknowledges the message; the
-    acknowledgement waits for the subscriber at the far end.
-  - A message a full queue, a stopped `fsm`, or a full bus refuses is **nacked**
-    rather than dropped after an acknowledgement. On an at-least-once transport
-    that converts silent loss into redelivery.
-  - A `kafka` sender with `produce_mode = "async"` no longer acknowledges the
-    inbound message before the broker has taken the outbound one.
-
-- **`settle_timeout` is permitted under `ack = "auto"`**, to bound a chain a
-  configuration does not fully trust. It is still *required* under `manual`, and
-  still rejected where there is no per-message acknowledgement to bound —
-  `ack = "none"` and `ack = "periodic"`.
-
-- **A message published with `send()` no longer carries the inbound delivery's
-  acknowledgement.** `send()` derives a new message; the acknowledgement stays
-  with the original and is settled on that action's own outcome. Where a
-  configuration relied on downstream work gating the acknowledgement, the
-  spelling for that is `subscriber =`, which hands the delivery on. This closes
-  a race rather than removing a feature: one message can be sent many times, and
-  several derived messages racing to settle one delivery produced an arbitrary
-  winner.
-
-- **A message that matched no subscriber settles according to whether anything
-  asked to hear about it.** With `undeliverable = false` on the bus — the
-  default — it is acknowledged and counted, because a topic nothing subscribes
-  to is a routing outcome the configuration chose, and nacking it would turn an
-  unsubscribed topic into a redelivery loop. With the attribute on, the
-  republished message reaches a real `$undeliverable` subscription and that
-  decides; only a `$undeliverable` which itself matches nothing is nacked.
-
-### Added
-
 - **Any subscription can acknowledge the message it handled.**
   `inbound::ack(ctx)`, `inbound::nack(ctx, reason)`, and
   `inbound::keepalive(ctx)` settle an inbound delivery, whatever protocol
@@ -192,11 +179,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   routing through a bus. The delivery now travels on the context, which crosses
   transforms, a `queue_size` queue, and any number of bus hops.
 
-  That also fixes the `queue_size` trap for configurations that opt in.
-  `queue_size` on a receiver makes delivery return at the moment the message is
-  queued, so an automatic acknowledgement fires before the work has happened.
-  With `ack = "manual"` the acknowledgement follows the real outcome, several
-  hops later, instead of following the enqueue.
+  It is the same context channel that lets `ack = "auto"` settle where the work
+  finishes rather than where delivery returned — see *An acknowledgement now
+  follows the work* under Changed. `manual` is for the cases `auto` cannot express:
+  acknowledging before the work, acknowledging despite a failure, or deciding
+  per message.
 
   **A delivery settles exactly once.** Two matching subscriptions both calling
   `inbound::ack()` produce one broker acknowledgement: the first returns `true`,
@@ -212,28 +199,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   window, and past it the message is back on the queue and may already be
   somewhere else. A RabbitMQ delivery tag means something only on the channel
   that issued it, and AMQP renumbers tags from 1 on each new channel, so a
-  reconnect retires every tag outstanding at the time. The check exists rather
-  than being left to the broker because a stale acknowledgement is not merely a
-  failed one on every protocol: where a tag has been renumbered it names a
-  *different* message.
+  reconnect retires every tag outstanding at the time. A Kafka partition can be
+  revoked to another member of the group, which is then reprocessing from the
+  last committed offset. The check exists rather than being left to the broker
+  because a stale acknowledgement is not merely a failed one on every protocol:
+  where a tag has been renumbered it names a *different* message, and where a
+  partition has moved the offset it would advance is someone else's.
 
-  Available on `client "redis_stream"` consumers, `client "sqs_receiver"`, and
-  `client "rabbitmq"` receivers. Kafka rejects `ack = "manual"` at load with a
-  diagnostic saying what is missing: acknowledging one record is not the same as
-  committing an offset, and completing record 7 while 5 is outstanding needs a
-  low-water-mark tracker that its own library does not have yet.
+  Available on every receiver that acknowledges: `client "redis_stream"`
+  consumers, `client "sqs_receiver"`, `client "rabbitmq"` receivers, and
+  `client "kafka"` receivers — the last on the low-water-mark tracker described
+  above, where a settle marks one record complete and the partition's committed
+  offset follows the completions.
 
-  On RabbitMQ this is also what makes `queue_size` usable at all. It was
-  previously refused under every mode but `none`, because a receiver that
-  acknowledges on delivery's return has nothing to give up to a queue that makes
-  delivery return at enqueue. `inbound::nack()` there rejects the message
-  without requeueing it, so the queue's dead-letter exchange takes it, and
-  `inbound::keepalive()` returns `false` — an AMQP delivery has no per-message
-  lease, only the broker's own `consumer_timeout`, which a consumer cannot
-  extend.
+  What a settle does is the protocol's own business, so the vocabulary is
+  uniform and the effect is not. `inbound::nack()` on RabbitMQ rejects the
+  message without requeueing it, so the queue's dead-letter exchange takes it;
+  on Kafka it dead-letters to `dlq_topic`, or stops the partition's committed
+  offset at the record when there is none. `inbound::keepalive()` extends an SQS
+  visibility window and re-claims a Redis entry, and returns `false` on RabbitMQ
+  and Kafka, neither of which has a per-message lease to extend.
 
   Requires `vinculum-bus` v0.18.0, `vinculum-redis` v0.7.0, `vinculum-sqs`
-  v0.5.0, and `vinculum-rabbitmq` v0.7.0.
+  v0.5.0, `vinculum-rabbitmq` v0.7.0, and `vinculum-kafka` v0.14.0.
 
 - **`condition` blocks accept `tracing`.** Every other block whose work is
   traced could name its backend; a condition could not, because all four
@@ -368,465 +356,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it was removed and why, above the list of what that receiver does provide,
   while `ctx.topic` in a subscription's `action` remains entirely correct.
 
-### Fixed
-
-- **A graceful shutdown now empties the message pipeline instead of exiting
-  past it.** Nothing stopped the buses or the `queue_size` queues: their
-  goroutines died with the process, taking whatever they had accepted and not
-  yet run. A `subscription` with `queue_size = 500` could lose up to five
-  hundred messages at every shutdown, silently — and on a path where nothing
-  acknowledged them, no broker redelivers them either.
-
-  A teardown phase now waits for every bus and every queue to empty, and then
-  runs each queue out to the end of the action it is on. It sits after the
-  `trigger "shutdown"` actions, so what one of those publishes is delivered
-  rather than left on a channel, and before anything disconnects, so an
-  acknowledgement that has followed the work several hops downstream still has
-  a connection to travel over. The wait is bounded at ten seconds for the phase;
-  what is still held when that expires is named in the log.
-
-- **`increment()` with no delta no longer fails.** The delta is documented as
-  optional — `increment(var.hits)` adds one — but a variable, a gauge and a
-  counter all read it positionally, so the documented spelling produced a Go
-  panic trace where the new value should have been. `condition "counter"` was
-  the only one that had it right.
-
-- **A required attribute holding an expression is now actually required.**
-  Thirty attributes across the language were declared required and enforced by
-  nothing, because gohcl never marks an `hcl.Expression` attribute required
-  during decoding — it assigns a synthetic null instead and lets the caller
-  deal with it. Nobody dealt with it. What an author saw depended on what the
-  block did with the null next:
-
-  ```hcl
-  trigger "start" "boot" {}                  # accepted; the trigger did nothing
-  trigger "after" "later" { action = ... }   # "Invalid duration type ... got dynamic"
-  server "vws" "w" { queue_size = 10 }       # accepted; joined bus.main
-  ```
-
-  All three now report `Missing required argument`, naming the attribute, in
-  hclsyntax's own wording — so an omitted argument reads the same whether or not
-  the attribute happens to hold an expression. The worst of the three was
-  `trigger "start"` with no `action`: a configuration that loaded clean,
-  reported nothing at any log level, and silently did not run the thing it was
-  written to run.
-
-  Blocks nested inside a block are checked too, which is where several of the
-  thirty were: an mqtt `will` with no `topic`, a `channel_subscription` with no
-  `channel`.
-
-- **Whether a configuration is instrumented no longer depends on where the
-  backend block is written.** A `metrics` or `tracing` attribute that is omitted
-  auto-wires the default backend — and resolution happens as each block is
-  processed, so it found one only if the `server "metrics"` or `client "otlp"`
-  block happened to appear *above* it in the file:
-
-  ```hcl
-  bus "main" {}                                    # reported nothing
-  server "metrics" "prom" { listen = ":9090" }
-  ```
-
-  ```hcl
-  server "metrics" "prom" { listen = ":9090" }
-  bus "main" {}                                    # reported everything
-  ```
-
-  Reordering two blocks that declare no relationship to each other silently
-  decided whether the process was instrumented, and nothing said so. `metric`
-  blocks were the sole exception, having carried a private fix for this since
-  they were introduced.
-
-  Every block that auto-wires a backend now waits for every block that could
-  provide one: `bus`, `condition`, `fsm`, `metric`, `subscription`, `trigger`,
-  and every `server` and `client` type. Servers and clients take the rule
-  whatever their type rather than opting in one at a time — a client type added
-  later would otherwise silently not be told, which is this bug again.
-
-  The backends themselves are excluded, since a block that waited for every
-  backend would be waiting for itself. `server "metrics"` is the exception to
-  the exception: it resolves a `client "otlp"` of its own for tracing, and now
-  waits for those — its own instance of the same bug, and the last one.
-
-  A configuration that was quietly uninstrumented will start reporting. Nothing
-  breaks, but a backend may begin receiving data it was not receiving before.
-
-- **Two plugins contributing the same function name is now a diagnostic instead
-  of a coin toss.** `RegisterFunctionPlugin` had no collision check at all: the
-  registry was merged with `funcs[name] = fn` in `init()` order, so a duplicate
-  silently shadowed and which implementation a config called depended on the
-  link. `RegisterTransformPlugin` has always reported this properly; functions
-  now do the same, naming both plugins and the function, and using neither.
-
-  A plugin shadowing `log::info` produced no diagnostic whatsoever — the symptom
-  was whatever the wrong implementation did, at the call site, with nothing
-  pointing at the cause.
-
-  The check runs over every function the binary *could* provide rather than the
-  ones the current flags expose, so a name that only collides behind
-  `--file-path` or `--allow-kill` is still reported. A collision is a property
-  of the binary's plugin set, and the run that would notice is not the run that
-  needs telling.
-
-  Switching it on found one in-tree: `abspath`, `basename`, `dirname` and
-  `pathexpand` were registered by both `stdlib` (unconditionally) and
-  `filesystem` (only with `--file-path`). Identical function values either way,
-  so nothing behaved wrongly — but it made which registration won an accident of
-  `init()` order. The `filesystem` plugin now contributes only the functions
-  that actually read the disk, which is what `doc/functions.md` already
-  described: those four manipulate a path string and have always been available
-  without the flag.
-
-### Removed
-
-- **`bus.main` is no longer implicit. Every bus is declared.** A configuration
-  that names `bus.main` must now contain:
-
-  ```hcl
-  bus "main" {}
-  ```
-
-  It was the only name in the language that existed without being written, and
-  the exception cost more than the convenience returned. Being built before any
-  block was processed, the implicit bus was permanently ahead of every
-  `server "metrics"` and `client "otlp"`, so it was the one bus that could never
-  report metrics or traces — no declaration order could put a backend in front
-  of it. It could not be configured either: `queue_size`, `metrics`, `tracing`,
-  and `undeliverable` are attributes of a block that, in that case, did not
-  exist, so it was fixed at 1000 slots with no backend and no `$undeliverable`,
-  and every attribute added to `bus` was one more setting one particular bus
-  could not have.
-
-  A configuration that declares no bus now creates none: no goroutine, no
-  1000-element channel. Three of the four shipped examples use no bus at all and
-  had been paying for one.
-
-  Naming an undeclared bus is a load-time error that names the fix — *"No bus is
-  declared by this configuration. Declare one with `bus "main" {}`."* — so this
-  cannot reach a running process.
-
-- **`redis::ack()`, `sqs::delete()`, and `sqs::extend_visibility()` are
-  removed**, replaced by `inbound::ack()`, `inbound::ack()`, and
-  `inbound::keepalive()` — see Added above. `vinculum check` names the
-  replacement for each, which matters more than usual here: removing them
-  empties the `redis::` and `sqs::` namespaces entirely, and the checker's
-  nearest-match search only looks *within* a namespace.
-
-  | You had | Use |
-  |---|---|
-  | `redis::ack(ctx, client.rs.consumer.in, ctx.fields["$entry_id"])` | `inbound::ack(ctx)` |
-  | `sqs::delete(ctx, client.tasks, ctx.fields["$receipt_handle"])` | `inbound::ack(ctx)` |
-  | `sqs::extend_visibility(ctx, client.tasks, handle, 60)` | `inbound::keepalive(ctx)` |
-
-  Two things went with them, both of which existed only to feed them:
-
-  - **`$receipt_handle` is no longer a delivered field** on `client
-    "sqs_receiver"`. It had no use but deletion — an opaque, per-receive,
-    expiring token that is meaningless to log, correlate, or compare — and
-    keeping it would advertise saving it somewhere to settle later, which is
-    storing a *lease* rather than a value: it expires while it sits in the
-    variable. Every other `$` system attribute stays, and so does
-    `$entry_id` on `redis_stream`, because a Redis entry ID identifies the
-    entry independently of acknowledgement.
-  - **`client.<name>.consumer.<c>`** on a `redis_stream` client, and the
-    receiver capsule `client.<name>` produced on an `sqs_receiver`. The latter
-    wrapped a type that does not implement the client interface, so it was
-    already a dead end for anything else that took a client; `client.<name>` on
-    an `sqs_receiver` is now the ordinary client capsule.
-
-- **`commit_mode = "manual"` on a `client "kafka"` `receiver` is rejected at
-  load.** It did the opposite of what it said. The attribute's own
-  documentation promised a mode that "never commits automatically"; nothing
-  could commit explicitly either, and rather than committing nothing, the mode
-  left the Kafka client's periodic autocommit switched on. Offsets advanced on
-  a five-second timer regardless of whether processing succeeded.
-
-  `manual` was therefore `periodic` wearing the wrong label. A config author
-  who chose it to *take control* of commits silently received the weakest
-  delivery guarantee in the enum, and received it while reading documentation
-  promising the strongest — a replay bug that only shows up on the crash it was
-  selected to survive.
-
-  | You had | Use | What changes |
-  |---|---|---|
-  | `commit_mode = "manual"` | `ack = "auto"` | At-least-once: a message whose handling failed is redelivered rather than skipped. |
-  | `commit_mode = "manual"` | `ack = "periodic"` | Nothing — this is what the receiver was already doing. |
-
-  Rejecting is interim, not a judgement on the feature: caller-controlled
-  settle returns as a working mode under the shared `ack` attribute, once Kafka
-  has the low-water-mark commit tracker that out-of-order settle requires.
-  Refusing the spelling now is what keeps that arrival from being a respelling
-  of a broken mode.
-
-  An unrecognized `commit_mode` now names the two modes that remain.
-
-### Changed
-
-- **`target` on `subscription`, and `bus` on `server "vws"` and
-  `server "websocket"`, are required.** All three used to fall back to
-  `bus.main`, which is no longer guaranteed to exist. An attribute that defaults
-  to a block the author must declare is not a default; it is a required
-  attribute with a worse error message.
-
-  `subscription`'s `target` is the one to check when upgrading, and the only one
-  of the three whose documented behavior ever worked in reverse: it was
-  documented as defaulting to `bus.main` and never did — omitting it failed with
-  *"expected EventBus or Client capsule, got dynamic"*. It is now honestly
-  required, and says so.
-
-- **Every receiver says when a message is settled the same way, with `ack`.**
-  `auto_ack`, `auto_delete`, and `commit_mode` are removed in its favour.
-
-  Four receivers spelled one concept four ways, and they disagreed worse than
-  cosmetically: `redis_stream.auto_ack` defaulted `true` and meant *vinculum*
-  acknowledges after delivery; `rabbitmq.auto_ack` defaulted `false` and meant
-  the *broker*-side no-ack mode; `sqs_receiver.auto_delete` was the Redis thing
-  under a third name; and `kafka.commit_mode` was a three-way enum none of whose
-  values was manual in the sense the other three meant it.
-
-  **No configuration changes meaning.** Every one of the four already behaved as
-  `ack = "auto"` by default, RabbitMQ's `auto_ack = false` included — which is
-  the argument for one uniform default rather than a per-protocol table to
-  memorise:
-
-  | Receiver | You had | Use |
-  |---|---|---|
-  | `redis_stream` `consumer` | `auto_ack = true` *(default)* | `ack = "auto"` *(default)* |
-  | `redis_stream` `consumer` | `auto_ack = false` | `ack = "manual"` + `settle_timeout` |
-  | `sqs_receiver` | `auto_delete = true` *(default)* | `ack = "auto"` *(default)* |
-  | `sqs_receiver` | `auto_delete = false` | `ack = "manual"` + `settle_timeout` |
-  | `rabbitmq` `receiver` | `auto_ack = false` *(default)* | `ack = "auto"` *(default)* |
-  | `rabbitmq` `receiver` | `auto_ack = true` | `ack = "none"` |
-  | `kafka` `receiver` | `commit_mode = "after_process"` *(default)* | `ack = "auto"` *(default)* |
-  | `kafka` `receiver` | `commit_mode = "periodic"` | `ack = "periodic"` |
-
-  Each type accepts only what it can honour, and its generated attribute
-  reference lists exactly that: `periodic` is kafka's alone, `none` is
-  rabbitmq's, and `manual` is `redis_stream`'s and `sqs_receiver`'s. A
-  RabbitMQ `receiver`'s `declare { auto_delete }` is untouched — that is AMQP's
-  delete-the-queue-when-unused, a different attribute in a different block.
-
-  **`settle_timeout` is new, and required with `ack = "manual"`.** A message
-  nothing settles is costing something for as long as it is outstanding — an SQS
-  visibility window, a RabbitMQ prefetch slot, a Kafka partition's committable
-  offset — so forgetting to call `inbound::ack()` should be diagnosable rather
-  than a slow stall. On expiry the message is nacked and the failure is logged,
-  naming the receiver. It has no default deliberately: too short nacks slow
-  work, too long stalls quietly, and no one value suits both a 50ms enrichment
-  and a five-minute batch.
-
-  A retired name reports what it became, rather than gohcl's "an argument named
-  `auto_ack` is not expected here" — so an upgrade can be driven by running
-  `vinculum check` until it is quiet.
-
-- **`queue_size` on a receiver is refused alongside `ack = "auto"`.** The
-  combination silently turned at-least-once delivery into at-most-once, and the
-  documentation recommended it.
-
-  ```
-  Error: sqs_receiver client "tasks": queue_size cannot be combined with ack = "auto"
-  ```
-
-  `queue_size` hands delivery to a background goroutine, so delivery returns —
-  successfully — at the moment the message is *queued*. `ack = "auto"` settles
-  when delivery returns. Together the broker was told the message had been
-  handled before anything had handled it: an error from the real work reached a
-  log line and nothing else, redelivery and dead-lettering became unreachable,
-  and a full queue dropped a message that was already acknowledged. Nothing
-  reported any of it, at load or at runtime.
-
-  **Keep the queue with `ack = "manual"`.** It settles when the configuration
-  says so, which is what the `inbound::` functions above are for: the delivery
-  rides `ctx` through the queue, so the acknowledgement follows the real outcome
-  however many hops later it happens. That is the migration for a receiver that
-  was using `queue_size` to keep a slow action off the poll loop, and it is the
-  one that keeps the delivery guarantee. Fire-and-forget is still available, and
-  now has to be written down: settle at the top of the action and let the work
-  run behind it.
-
-  `client "sqs_receiver"` also has `concurrency`, which runs the work in
-  parallel and settles each message on its own outcome. The diagnostic names
-  whichever of the two that receiver actually has, so it never offers a knob
-  that is not there.
-
-  The refusal is **not a statement that the combination can never work** — only
-  that it does not today, because settling is driven by delivery returning. Work
-  is designed to make the queue settle on the outcome of the work it queued,
-  which would make the combination correct and this refusal unnecessary; it is
-  refused until then rather than left silently lossy.
-
-  The modes that give nothing up to a queue are deliberately untouched:
-  `ack = "none"` on rabbitmq never acknowledges anything, and
-  `ack = "periodic"` on kafka advances the offset on a timer regardless of
-  outcome.
-
-  `queue_size` on a `subscription` is unaffected and remains the right answer
-  for a slow *outbound* sender — nothing there is acknowledging anything. That
-  asymmetry is now written down under
-  [delivery model](doc/config.md#delivery-model): inbound, the blocking is the
-  backpressure and must not be queued away; outbound, the blocking is
-  head-of-line and should be.
-
-- **A receiver's `vinculum_topic` names the transport's own identifier after the
-  transport, not `topic`.** The expression's whole job is to produce a bus
-  topic, so there is no bus topic in scope while it runs — and three receivers
-  nonetheless handed it the MQTT topic, the Redis channel, or the stream name
-  under the name `ctx.topic`, with no other name to reach it by. This is the
-  second half of the rename `on_decode_error` got in 0.45.0; the two hooks on
-  one receiver now agree about what a value is called.
-
-  | Receiver | Was | Now |
-  |---|---|---|
-  | `mqtt` | `ctx.topic` | `ctx.mqtt_topic` |
-  | `redis_pubsub` | `ctx.topic` | `ctx.channel` |
-  | `redis_stream` | `ctx.topic`, `ctx.message_id` | `ctx.stream`, `ctx.entry_id` |
-  | `rabbitmq` | `ctx.topic` (alias) | `ctx.routing_key` |
-  | `kafka` | — | `ctx.kafka_topic`, `ctx.key` (unchanged) |
-  | `sqs_receiver` | — | gains `ctx.queue` |
-
-  `ctx.topic` is **gone**, not deprecated — the same call made for
-  `on_decode_error`, and for the same reason: keeping it would preserve the
-  ambiguity the rename exists to remove. `vinculum check` reports a config still
-  using it, naming the fields that receiver does provide, so the break is
-  static rather than a surprise on the first message.
-
-  Two smaller changes ride along on `sqs_receiver`: `ctx.queue` is new, and
-  `ctx.msg` is now always present — holding a null when the message has no body,
-  where it was previously absent altogether and so could not be tested for.
-
-  The four per-client `ctx` shapes this described (`amqp-delivery`,
-  `kafka-record`, `redis-stream-entry`, `sqs-message`) collapse into one open
-  shape, `inbound-message`, whose fixed fields are `msg` and `fields` and whose
-  transport identity is named per receiver.
-
-- **A dependency that is unreachable at startup no longer stops the process from
-  starting, and is recovered from without a restart.** Four clients had four
-  different answers to "the service I depend on is not there yet"; they now have
-  one. `Start` launches whatever connection machinery it owns and returns
-  promptly, reporting its state through `/readyz` until it connects.
-
-  - `client "mqtt"` blocked until the broker answered. Because components start
-    one after another, a single unreachable broker prevented everything declared
-    after it from starting at all — including HTTP listeners with nothing to do
-    with MQTT.
-  - `client "rabbitmq"` was worse: a failed first connection killed the client
-    for the life of the process. The retry schedule the `reconnect` block
-    configures never ran, because it was only ever armed after a first success.
-    Fixed upstream in vinculum-rabbitmq v0.6.0.
-  - `client "sql"` closed its connection pool on a failed ping, throwing away
-    the reconnection `database/sql` performs on its own and leaving every later
-    query to fail against nothing.
-  - `client "redis"`, `"kafka"` and `"otlp"` already behaved this way.
-
-  A pod whose database or broker comes up thirty seconds after it does now
-  reports `503` for thirty seconds and then serves, rather than needing a
-  restart to notice.
-
-  **The trade is that a message sent before the first connection now fails
-  instead of waiting for one.** Previously an mqtt or rabbitmq client had
-  connected by the time anything could send; now a `trigger "start"` action that
-  publishes immediately can run first and get "not connected". Gate on
-  readiness — `check`, `sys.ready`, or `health::ready(ctx)` — if a send must not
-  be attempted before the connection is up.
-
-- **A component that cannot work at all now stops the process** instead of
-  leaving it running and permanently unready, which is a crash-loop with worse
-  diagnostics. This covers a port already in use and a SQL driver that is not
-  registered. Everything else is treated as recoverable, deliberately: a refused
-  connection or a rejected password is far more often a broker mid-restart or a
-  credential mid-rotation than a permanent fact, and guessing wrong in that
-  direction turns an outage into a crash-loop across every replica. Guessing
-  wrong the other way costs an unready pod that says why.
-
-- **Authentication is now a named top-level `auth` block.** It was an anonymous
-  `auth "<mode>" { … }` block written inside each server or route; it is now
-  `auth "<type>" "<name>"` at the top level, referenced with `auth = auth.<name>` from
-  `server "http"` (and its `handle` and `files` blocks) and `server "metrics"`. The
-  transform is mechanical — hoist the block, name it, reference it; `auth "none" {}`
-  becomes `auth = auth.anonymous`. See [doc/deprecations.md](doc/deprecations.md) for
-  before/after and [doc/auth.md](doc/auth.md) for the full reference.
-
-  Naming it is what the rest rests on. An anonymous block was rebuilt at every site
-  that inherited it, so one `auth "oidc"` on a server with eight routes opened eight
-  connections to the issuer and ran eight background key refreshers. A named block is
-  built once, however many routes name it.
-
-  Each mechanism now has its own attributes rather than sharing one struct, so
-  `auth "basic" "x" { issuer = … }` is an error instead of being silently ignored, and
-  a plugin can register a mechanism the way it can already register a server or client
-  type. `doc/server-auth.md` is now `doc/auth.md`, since it documents a block of its
-  own rather than part of `server`.
-
-- **`auth "oauth2"` is renamed `auth "introspection"`.** The old name claimed a whole
-  framework but implemented one corner of it — RFC 7662 token introspection. `oidc` is
-  equally OAuth2-based, so the pair implied the two were alternatives at the same
-  level, when both take bearer tokens and differ only in how the token is checked.
-  Worse, the familiar name invited the reading that this was the interactive login
-  flow, which Vinculum does not implement at all. Every attribute is unchanged; only
-  the block label moves. `ctx.auth.method` reports `"introspection"` to match.
-
-### Fixed
-
-- **`redis::ack()` had no way to learn the entry ID it takes.** Manual
-  acknowledgement is the whole point of `auto_ack = false`, and the entry ID it
-  needs was never put anywhere a `redis_stream` consumer's `action` could read
-  it — the documented `ctx.message_id` did not exist, so every example of the
-  feature failed. A consumer now delivers the ID as `ctx.fields["$entry_id"]`,
-  matching how an `sqs_receiver` hands a manual delete its `$receipt_handle`
-  under the same `$` prefix for system-generated names:
-
-  ```hcl
-  action = redis::ack(ctx, client.rs.consumer.in, ctx.fields["$entry_id"])
-  ```
-
-  Acknowledge from the consumer's own `action`: `fields` do not cross a bus hop,
-  so the ID is out of reach of a `subscription` behind `subscriber = bus.main`.
-  Requires vinculum-redis v0.6.0.
-
-- **A server that could not bind its port came up anyway, serving nothing.** Both
-  HTTP-bearing servers called `ListenAndServe` inside their own goroutine, so a bind
-  failure was logged and otherwise invisible — `server "metrics"` discarded the error
-  outright. `Start` now calls `net.Listen` synchronously, and a bind failure stops the
-  process: it is logged naming the server, whatever did start is torn down, and the
-  exit code is non-zero.
-
-  Exiting is the change from the first pass at this, which came up and reported `503`
-  instead. A port conflict is local and never resolves itself, so there is nothing to
-  retry and nothing readiness could usefully say about it — and `readiness = false` on
-  a server, which is a statement about a dependency not gating traffic, must not also
-  mean that a listener which will never accept a connection goes unnoticed. It matches
-  what the standalone health listener already did, so the three listeners now agree.
-
-- **`log::` printed a list or object as Go source.** Complex values were formatted by
-  hand, falling back to cty's `GoString()`, so logging a structure emitted
-  `[cty.ObjectVal(map[string]cty.Value{"component":cty.StringVal(…` — neither readable
-  nor JSON. Structures now reach the log as real arrays and objects, a `time` logs as a
-  timestamp rather than an opaque handle, and an empty list logs as `[]` rather than
-  `null`. Scalars are unchanged and keep their types, so a number is still a number.
-
-- **Overriding a container image's command silently disabled file functions and
-  plugins.** The images carried `-f /data`, `-w /data/write`, and
-  `--plugin-path /plugins` in `CMD`, and Docker replaces the entire `CMD` as soon as
-  the user passes arguments — so `docker run … serve /myconf` dropped all three, and a
-  config calling `file()` failed with "no function named file" for no visible reason.
-  The three are now `ENV` (`VINCULUM_FILE_PATH`, `VINCULUM_WRITE_PATH`,
-  `VINCULUM_PLUGIN_PATH`) and `CMD` is `["serve", "/conf"]`, so they survive a command
-  the user supplies and each is separately overridable with `-e`.
-
-  `docker run … vinculum` with no arguments is unchanged. Where a command *was*
-  overridden, file functions become enabled rooted at `/data` where they had been
-  silently off, and `docker run … check /conf` now validates the configuration under
-  the same capabilities `serve` will give it.
-
-- **Two servers of different types sharing a name crashed config processing.**
-  `server "http" "x"` alongside `server "mcp" "x"` panicked instead of reporting the
-  conflict: server names are global — `server.x` names one server whatever its type —
-  but the check looked the colliding block up in its own type's bucket, which is the
-  one place a cross-type collision cannot be. Both `server` and `client` now report it
-  cleanly and say that the namespace is global. Declaring two same-named blocks and
-  using `disabled` to select between them is unaffected.
-
-### Added
-
 - **Readiness and liveness.** Vinculum now knows whether it is able to do its job, and
   will tell you. A process whose broker connection is down is running but not serving,
   and the difference matters to anything routing traffic at it.
@@ -953,7 +482,337 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   key: an `auth "custom"` action returning an object that sets it is now an error
   rather than having its value silently overwritten.
 
+### Changed
+
+- **Two `subscription` blocks may no longer share a name.** The label was
+  decorative — nothing ever looked a subscription up by it, so a duplicate went
+  undetected and both subscriptions ran. It addresses that subscription's queue
+  now, so a duplicate is a reference with two answers and is reported at load.
+  Rename one, or set `disabled` on the one the configuration should not use.
+
+- **An acknowledgement now follows the work, not the hand-off.** A receiver
+  settled a message when delivery *returned*, which is the same moment the work
+  finished only while delivery is synchronous. A `queue_size` queue, a `bus`, an
+  `fsm` and the async subscriber wrapper each return as soon as the message is
+  enqueued, so the broker was told the message had been handled before anything
+  had handled it — and a failure afterwards had nothing left to redeliver.
+
+  The delivery travels on `ctx`, so whatever finishes the work is holding it.
+  Under `ack = "auto"` the acknowledgement is now sent there, however many hops
+  downstream that is, on all four receivers — `redis_stream`, `sqs_receiver`,
+  `rabbitmq` and `kafka`. Nothing that parses today stops parsing.
+
+  `queue_size` in front of a receiver was the sharpest version of the old
+  behaviour: an error from the real work reached a log line and nothing else,
+  and a full queue dropped a message that was already acknowledged. Nothing
+  reported any of it, at load or at runtime. It keeps the delivery guarantee now.
+
+  Three behaviour changes come with it, and they are changes rather than
+  relaxations:
+
+  - Delivery into a `bus` or an `fsm` no longer acknowledges the message; the
+    acknowledgement waits for the subscriber at the far end.
+  - A message a full queue, a stopped `fsm`, or a full bus refuses is **nacked**
+    rather than dropped after an acknowledgement. On an at-least-once transport
+    that converts silent loss into redelivery.
+  - A `kafka` sender with `produce_mode = "async"` no longer acknowledges the
+    inbound message before the broker has taken the outbound one.
+
+- **A message published with `send()` no longer carries the inbound delivery's
+  acknowledgement.** `send()` derives a new message; the acknowledgement stays
+  with the original and is settled on that action's own outcome. Where a
+  configuration relied on downstream work gating the acknowledgement, the
+  spelling for that is `subscriber =`, which hands the delivery on. This closes
+  a race rather than removing a feature: one message can be sent many times, and
+  several derived messages racing to settle one delivery produced an arbitrary
+  winner.
+
+- **A message that matched no subscriber settles according to whether anything
+  asked to hear about it.** With `undeliverable = false` on the bus — the
+  default — it is acknowledged and counted, because a topic nothing subscribes
+  to is a routing outcome the configuration chose, and nacking it would turn an
+  unsubscribed topic into a redelivery loop. With the attribute on, the
+  republished message reaches a real `$undeliverable` subscription and that
+  decides; only a `$undeliverable` which itself matches nothing is nacked.
+
+- **`target` on `subscription`, and `bus` on `server "vws"` and
+  `server "websocket"`, are required.** All three used to fall back to
+  `bus.main`, which is no longer guaranteed to exist. An attribute that defaults
+  to a block the author must declare is not a default; it is a required
+  attribute with a worse error message.
+
+  `subscription`'s `target` is the one to check when upgrading, and the only one
+  of the three whose documented behavior ever worked in reverse: it was
+  documented as defaulting to `bus.main` and never did — omitting it failed with
+  *"expected EventBus or Client capsule, got dynamic"*. It is now honestly
+  required, and says so.
+
+- **Every receiver says when a message is settled the same way, with `ack`.**
+  `auto_ack`, `auto_delete`, and `commit_mode` are removed in its favour.
+
+  Four receivers spelled one concept four ways, and they disagreed worse than
+  cosmetically: `redis_stream.auto_ack` defaulted `true` and meant *vinculum*
+  acknowledges after delivery; `rabbitmq.auto_ack` defaulted `false` and meant
+  the *broker*-side no-ack mode; `sqs_receiver.auto_delete` was the Redis thing
+  under a third name; and `kafka.commit_mode` was a three-way enum none of whose
+  values was manual in the sense the other three meant it.
+
+  **No configuration changes meaning.** Every one of the four already behaved as
+  `ack = "auto"` by default, RabbitMQ's `auto_ack = false` included — which is
+  the argument for one uniform default rather than a per-protocol table to
+  memorise:
+
+  | Receiver | You had | Use |
+  |---|---|---|
+  | `redis_stream` `consumer` | `auto_ack = true` *(default)* | `ack = "auto"` *(default)* |
+  | `redis_stream` `consumer` | `auto_ack = false` | `ack = "manual"` + `settle_timeout` |
+  | `sqs_receiver` | `auto_delete = true` *(default)* | `ack = "auto"` *(default)* |
+  | `sqs_receiver` | `auto_delete = false` | `ack = "manual"` + `settle_timeout` |
+  | `rabbitmq` `receiver` | `auto_ack = false` *(default)* | `ack = "auto"` *(default)* |
+  | `rabbitmq` `receiver` | `auto_ack = true` | `ack = "none"` |
+  | `kafka` `receiver` | `commit_mode = "after_process"` *(default)* | `ack = "auto"` *(default)* |
+  | `kafka` `receiver` | `commit_mode = "periodic"` | `ack = "periodic"` |
+  | `kafka` `receiver` | `commit_mode = "manual"` | `ack = "manual"` + `settle_timeout` |
+
+  Each type accepts only what it can honour, and its generated attribute
+  reference lists exactly that: `auto` and `manual` are common to all four,
+  `periodic` is kafka's alone, and `none` is rabbitmq's. A
+  RabbitMQ `receiver`'s `declare { auto_delete }` is untouched — that is AMQP's
+  delete-the-queue-when-unused, a different attribute in a different block.
+
+  **`settle_timeout` is new, and required with `ack = "manual"`.** A message
+  nothing settles is costing something for as long as it is outstanding — an SQS
+  visibility window, a RabbitMQ prefetch slot, a Kafka partition's committable
+  offset — so forgetting to call `inbound::ack()` should be diagnosable rather
+  than a slow stall. On expiry the message is nacked and the failure is logged,
+  naming the receiver. It has no default deliberately: too short nacks slow
+  work, too long stalls quietly, and no one value suits both a 50ms enrichment
+  and a five-minute batch.
+
+  It is also accepted, and optional, under `ack = "auto"`, to bound a chain the
+  configuration does not fully trust — the acknowledgement follows the work, so
+  a handler that never finishes leaves the message outstanding. It is rejected
+  under `ack = "none"` and `ack = "periodic"`, where there is no per-message
+  acknowledgement for it to bound.
+
+  **Fire-and-forget behind a `queue_size` queue is still available, and now has
+  to be written down**: `ack = "manual"`, settling at the top of the action and
+  letting the work run behind it. Under `auto` the acknowledgement waits for the
+  work — which is the change, and the reason the old spelling was lossy.
+
+  `queue_size` on a `subscription` is unaffected and remains the right answer
+  for a slow *outbound* sender — nothing there is acknowledging anything. That
+  asymmetry is now written down under
+  [delivery model](doc/config.md#delivery-model): inbound, the blocking is the
+  backpressure and must not be queued away; outbound, the blocking is
+  head-of-line and should be.
+
+  A retired name reports what it became, rather than gohcl's "an argument named
+  `auto_ack` is not expected here" — so an upgrade can be driven by running
+  `vinculum check` until it is quiet.
+
+- **A receiver's `vinculum_topic` names the transport's own identifier after the
+  transport, not `topic`.** The expression's whole job is to produce a bus
+  topic, so there is no bus topic in scope while it runs — and three receivers
+  nonetheless handed it the MQTT topic, the Redis channel, or the stream name
+  under the name `ctx.topic`, with no other name to reach it by. This is the
+  second half of the rename `on_decode_error` got in 0.45.0; the two hooks on
+  one receiver now agree about what a value is called.
+
+  | Receiver | Was | Now |
+  |---|---|---|
+  | `mqtt` | `ctx.topic` | `ctx.mqtt_topic` |
+  | `redis_pubsub` | `ctx.topic` | `ctx.channel` |
+  | `redis_stream` | `ctx.topic`, `ctx.message_id` | `ctx.stream`, `ctx.entry_id` |
+  | `rabbitmq` | `ctx.topic` (alias) | `ctx.routing_key` |
+  | `kafka` | — | `ctx.kafka_topic`, `ctx.key` (unchanged) |
+  | `sqs_receiver` | — | gains `ctx.queue` |
+
+  `ctx.topic` is **gone**, not deprecated — the same call made for
+  `on_decode_error`, and for the same reason: keeping it would preserve the
+  ambiguity the rename exists to remove. `vinculum check` reports a config still
+  using it, naming the fields that receiver does provide, so the break is
+  static rather than a surprise on the first message.
+
+  Two smaller changes ride along on `sqs_receiver`: `ctx.queue` is new, and
+  `ctx.msg` is now always present — holding a null when the message has no body,
+  where it was previously absent altogether and so could not be tested for.
+
+  The four per-client `ctx` shapes this described (`amqp-delivery`,
+  `kafka-record`, `redis-stream-entry`, `sqs-message`) collapse into one open
+  shape, `inbound-message`, whose fixed fields are `msg` and `fields` and whose
+  transport identity is named per receiver.
+
+- **A dependency that is unreachable at startup no longer stops the process from
+  starting, and is recovered from without a restart.** Four clients had four
+  different answers to "the service I depend on is not there yet"; they now have
+  one. `Start` launches whatever connection machinery it owns and returns
+  promptly, reporting its state through `/readyz` until it connects.
+
+  - `client "mqtt"` blocked until the broker answered. Because components start
+    one after another, a single unreachable broker prevented everything declared
+    after it from starting at all — including HTTP listeners with nothing to do
+    with MQTT.
+  - `client "rabbitmq"` was worse: a failed first connection killed the client
+    for the life of the process. The retry schedule the `reconnect` block
+    configures never ran, because it was only ever armed after a first success.
+    Fixed upstream in vinculum-rabbitmq v0.6.0.
+  - `client "sql"` closed its connection pool on a failed ping, throwing away
+    the reconnection `database/sql` performs on its own and leaving every later
+    query to fail against nothing.
+  - `client "redis"`, `"kafka"` and `"otlp"` already behaved this way.
+
+  A pod whose database or broker comes up thirty seconds after it does now
+  reports `503` for thirty seconds and then serves, rather than needing a
+  restart to notice.
+
+  **The trade is that a message sent before the first connection now fails
+  instead of waiting for one.** Previously an mqtt or rabbitmq client had
+  connected by the time anything could send; now a `trigger "start"` action that
+  publishes immediately can run first and get "not connected". Gate on
+  readiness — `check`, `sys.ready`, or `health::ready(ctx)` — if a send must not
+  be attempted before the connection is up.
+
+- **A component that cannot work at all now stops the process** instead of
+  leaving it running and permanently unready, which is a crash-loop with worse
+  diagnostics. This covers a port already in use and a SQL driver that is not
+  registered. Everything else is treated as recoverable, deliberately: a refused
+  connection or a rejected password is far more often a broker mid-restart or a
+  credential mid-rotation than a permanent fact, and guessing wrong in that
+  direction turns an outage into a crash-loop across every replica. Guessing
+  wrong the other way costs an unready pod that says why.
+
+- **Authentication is now a named top-level `auth` block.** It was an anonymous
+  `auth "<mode>" { … }` block written inside each server or route; it is now
+  `auth "<type>" "<name>"` at the top level, referenced with `auth = auth.<name>` from
+  `server "http"` (and its `handle` and `files` blocks) and `server "metrics"`. The
+  transform is mechanical — hoist the block, name it, reference it; `auth "none" {}`
+  becomes `auth = auth.anonymous`. See [doc/deprecations.md](doc/deprecations.md) for
+  before/after and [doc/auth.md](doc/auth.md) for the full reference.
+
+  Naming it is what the rest rests on. An anonymous block was rebuilt at every site
+  that inherited it, so one `auth "oidc"` on a server with eight routes opened eight
+  connections to the issuer and ran eight background key refreshers. A named block is
+  built once, however many routes name it.
+
+  Each mechanism now has its own attributes rather than sharing one struct, so
+  `auth "basic" "x" { issuer = … }` is an error instead of being silently ignored, and
+  a plugin can register a mechanism the way it can already register a server or client
+  type. `doc/server-auth.md` is now `doc/auth.md`, since it documents a block of its
+  own rather than part of `server`.
+
+- **`auth "oauth2"` is renamed `auth "introspection"`.** The old name claimed a whole
+  framework but implemented one corner of it — RFC 7662 token introspection. `oidc` is
+  equally OAuth2-based, so the pair implied the two were alternatives at the same
+  level, when both take bearer tokens and differ only in how the token is checked.
+  Worse, the familiar name invited the reading that this was the interactive login
+  flow, which Vinculum does not implement at all. Every attribute is unchanged; only
+  the block label moves. `ctx.auth.method` reports `"introspection"` to match.
+
+- **`auth "oidc"` rejects a bad `algorithms` list at config load** instead of ignoring it.
+  Unrecognized algorithm names, an empty list, and `"none"` are now errors. This can fail a
+  config that loaded before: a misspelled name such as `["RSA256"]` was previously accepted
+  and — like the rest of the list — discarded, so the typo was invisible. It now names the
+  offending value at startup.
+- **JWT handling moved from `github.com/lestrrat-go/jwx` v2 to v3.** The v2 line is no
+  longer maintained. Nothing about `auth "oidc"` changes for a config author beyond the
+  `algorithms` entry above and the algorithm-enforcement fix under Security; the JWKS cache
+  still refreshes in the background on the same interval and still re-fetches once on an
+  unknown `kid` to ride out a key rotation.
+
+  This stops at v3 rather than going on to v4. jwx v4
+  requires `encoding/json/v2`, still gated behind `GOEXPERIMENT=jsonv2` as of Go 1.26 — so
+  adopting it would mean setting that flag for every build of vinculum, including CI,
+  GoReleaser, all three images, the plugin-build image, and every plugin author's own
+  build.
+
+  The `auth "oidc"` code path had no test coverage of its own before this port. It now has
+  tests covering the claim mapping onto `ctx.auth`, algorithm enforcement, expiry and clock
+  skew, audience mismatch, unknown signing keys, malformed and absent bearer tokens, the
+  explicit `jwks_url` path that skips discovery, and the config errors above.
+
 ### Removed
+
+- **`bus.main` is no longer implicit. Every bus is declared.** A configuration
+  that names `bus.main` must now contain:
+
+  ```hcl
+  bus "main" {}
+  ```
+
+  It was the only name in the language that existed without being written, and
+  the exception cost more than the convenience returned. Being built before any
+  block was processed, the implicit bus was permanently ahead of every
+  `server "metrics"` and `client "otlp"`, so it was the one bus that could never
+  report metrics or traces — no declaration order could put a backend in front
+  of it. It could not be configured either: `queue_size`, `metrics`, `tracing`,
+  and `undeliverable` are attributes of a block that, in that case, did not
+  exist, so it was fixed at 1000 slots with no backend and no `$undeliverable`,
+  and every attribute added to `bus` was one more setting one particular bus
+  could not have.
+
+  A configuration that declares no bus now creates none: no goroutine, no
+  1000-element channel. Three of the four shipped examples use no bus at all and
+  had been paying for one.
+
+  Naming an undeclared bus is a load-time error that names the fix — *"No bus is
+  declared by this configuration. Declare one with `bus "main" {}`."* — so this
+  cannot reach a running process.
+
+- **`redis::ack()`, `sqs::delete()`, and `sqs::extend_visibility()` are
+  removed**, replaced by `inbound::ack()`, `inbound::ack()`, and
+  `inbound::keepalive()` — see Added above. `vinculum check` names the
+  replacement for each, which matters more than usual here: removing them
+  empties the `redis::` and `sqs::` namespaces entirely, and the checker's
+  nearest-match search only looks *within* a namespace.
+
+  | You had | Use |
+  |---|---|
+  | `redis::ack(ctx, client.rs.consumer.in, ctx.fields["$entry_id"])` | `inbound::ack(ctx)` |
+  | `sqs::delete(ctx, client.tasks, ctx.fields["$receipt_handle"])` | `inbound::ack(ctx)` |
+  | `sqs::extend_visibility(ctx, client.tasks, handle, 60)` | `inbound::keepalive(ctx)` |
+
+  Two things went with them, both of which existed only to feed them:
+
+  - **`$receipt_handle` is no longer a delivered field** on `client
+    "sqs_receiver"`. It had no use but deletion — an opaque, per-receive,
+    expiring token that is meaningless to log, correlate, or compare — and
+    keeping it would advertise saving it somewhere to settle later, which is
+    storing a *lease* rather than a value: it expires while it sits in the
+    variable. Every other `$` system attribute stays, and so does
+    `$entry_id` on `redis_stream`, because a Redis entry ID identifies the
+    entry independently of acknowledgement.
+  - **`client.<name>.consumer.<c>`** on a `redis_stream` client, and the
+    receiver capsule `client.<name>` produced on an `sqs_receiver`. The latter
+    wrapped a type that does not implement the client interface, so it was
+    already a dead end for anything else that took a client; `client.<name>` on
+    an `sqs_receiver` is now the ordinary client capsule.
+
+- **`commit_mode = "manual"` on a `client "kafka"` `receiver` is rejected at
+  load.** It did the opposite of what it said. The attribute's own
+  documentation promised a mode that "never commits automatically"; nothing
+  could commit explicitly either, and rather than committing nothing, the mode
+  left the Kafka client's periodic autocommit switched on. Offsets advanced on
+  a five-second timer regardless of whether processing succeeded.
+
+  `manual` was therefore `periodic` wearing the wrong label. A config author
+  who chose it to *take control* of commits silently received the weakest
+  delivery guarantee in the enum, and received it while reading documentation
+  promising the strongest — a replay bug that only shows up on the crash it was
+  selected to survive.
+
+  | You had | Use | What changes |
+  |---|---|---|
+  | `commit_mode = "manual"` | `ack = "manual"` + `settle_timeout` | What the name always promised: nothing is committed until the configuration calls `inbound::ack()` or `inbound::nack()`. |
+  | `commit_mode = "manual"` | `ack = "auto"` | At-least-once: a message whose handling failed is redelivered rather than skipped. |
+  | `commit_mode = "manual"` | `ack = "periodic"` | Nothing — this is what the receiver was already doing. |
+
+  `ack = "manual"` is caller-controlled settle for real, on the low-water-mark
+  commit tracker it always required — see the kafka entry under Added. The old
+  spelling is refused rather than quietly remapped onto it, because a config
+  that wrote `manual` was getting `periodic`, and the two differ in which
+  messages they lose: silently promoting one to the other would change the
+  delivery guarantee of a running configuration without saying so.
 
 - **Standalone `server "mcp"`.** An MCP server is now always mounted on a route of a
   `server "http"` block, so the attributes belonging to a listener it no longer owns —
@@ -982,6 +841,171 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hosting `server "http"` block.
 
 ### Fixed
+
+- **A graceful shutdown now empties the message pipeline instead of exiting
+  past it.** Nothing stopped the buses or the `queue_size` queues: their
+  goroutines died with the process, taking whatever they had accepted and not
+  yet run. A `subscription` with `queue_size = 500` could lose up to five
+  hundred messages at every shutdown, silently — and on a path where nothing
+  acknowledged them, no broker redelivers them either.
+
+  A teardown phase now waits for every bus and every queue to empty, and then
+  runs each queue out to the end of the action it is on. It sits after the
+  `trigger "shutdown"` actions, so what one of those publishes is delivered
+  rather than left on a channel, and before anything disconnects, so an
+  acknowledgement that has followed the work several hops downstream still has
+  a connection to travel over. The wait is bounded at ten seconds for the phase;
+  what is still held when that expires is named in the log.
+
+- **`increment()` with no delta no longer fails.** The delta is documented as
+  optional — `increment(var.hits)` adds one — but a variable, a gauge and a
+  counter all read it positionally, so the documented spelling produced a Go
+  panic trace where the new value should have been. `condition "counter"` was
+  the only one that had it right.
+
+- **A required attribute holding an expression is now actually required.**
+  Thirty attributes across the language were declared required and enforced by
+  nothing, because gohcl never marks an `hcl.Expression` attribute required
+  during decoding — it assigns a synthetic null instead and lets the caller
+  deal with it. Nobody dealt with it. What an author saw depended on what the
+  block did with the null next:
+
+  ```hcl
+  trigger "start" "boot" {}                  # accepted; the trigger did nothing
+  trigger "after" "later" { action = ... }   # "Invalid duration type ... got dynamic"
+  server "vws" "w" { queue_size = 10 }       # accepted; joined bus.main
+  ```
+
+  All three now report `Missing required argument`, naming the attribute, in
+  hclsyntax's own wording — so an omitted argument reads the same whether or not
+  the attribute happens to hold an expression. The worst of the three was
+  `trigger "start"` with no `action`: a configuration that loaded clean,
+  reported nothing at any log level, and silently did not run the thing it was
+  written to run.
+
+  Blocks nested inside a block are checked too, which is where several of the
+  thirty were: an mqtt `will` with no `topic`, a `channel_subscription` with no
+  `channel`.
+
+- **Whether a configuration is instrumented no longer depends on where the
+  backend block is written.** A `metrics` or `tracing` attribute that is omitted
+  auto-wires the default backend — and resolution happens as each block is
+  processed, so it found one only if the `server "metrics"` or `client "otlp"`
+  block happened to appear *above* it in the file:
+
+  ```hcl
+  bus "main" {}                                    # reported nothing
+  server "metrics" "prom" { listen = ":9090" }
+  ```
+
+  ```hcl
+  server "metrics" "prom" { listen = ":9090" }
+  bus "main" {}                                    # reported everything
+  ```
+
+  Reordering two blocks that declare no relationship to each other silently
+  decided whether the process was instrumented, and nothing said so. `metric`
+  blocks were the sole exception, having carried a private fix for this since
+  they were introduced.
+
+  Every block that auto-wires a backend now waits for every block that could
+  provide one: `bus`, `condition`, `fsm`, `metric`, `subscription`, `trigger`,
+  and every `server` and `client` type. Servers and clients take the rule
+  whatever their type rather than opting in one at a time — a client type added
+  later would otherwise silently not be told, which is this bug again.
+
+  The backends themselves are excluded, since a block that waited for every
+  backend would be waiting for itself. `server "metrics"` is the exception to
+  the exception: it resolves a `client "otlp"` of its own for tracing, and now
+  waits for those — its own instance of the same bug, and the last one.
+
+  A configuration that was quietly uninstrumented will start reporting. Nothing
+  breaks, but a backend may begin receiving data it was not receiving before.
+
+- **Two plugins contributing the same function name is now a diagnostic instead
+  of a coin toss.** `RegisterFunctionPlugin` had no collision check at all: the
+  registry was merged with `funcs[name] = fn` in `init()` order, so a duplicate
+  silently shadowed and which implementation a config called depended on the
+  link. `RegisterTransformPlugin` has always reported this properly; functions
+  now do the same, naming both plugins and the function, and using neither.
+
+  A plugin shadowing `log::info` produced no diagnostic whatsoever — the symptom
+  was whatever the wrong implementation did, at the call site, with nothing
+  pointing at the cause.
+
+  The check runs over every function the binary *could* provide rather than the
+  ones the current flags expose, so a name that only collides behind
+  `--file-path` or `--allow-kill` is still reported. A collision is a property
+  of the binary's plugin set, and the run that would notice is not the run that
+  needs telling.
+
+  Switching it on found one in-tree: `abspath`, `basename`, `dirname` and
+  `pathexpand` were registered by both `stdlib` (unconditionally) and
+  `filesystem` (only with `--file-path`). Identical function values either way,
+  so nothing behaved wrongly — but it made which registration won an accident of
+  `init()` order. The `filesystem` plugin now contributes only the functions
+  that actually read the disk, which is what `doc/functions.md` already
+  described: those four manipulate a path string and have always been available
+  without the flag.
+
+- **`redis::ack()` had no way to learn the entry ID it takes.** Manual
+  acknowledgement is the whole point of `auto_ack = false`, and the entry ID it
+  needs was never put anywhere a `redis_stream` consumer's `action` could read
+  it — the documented `ctx.message_id` did not exist, so every example of the
+  feature failed. A consumer now delivers the ID as `ctx.fields["$entry_id"]`,
+  matching how an `sqs_receiver` hands a manual delete its `$receipt_handle`
+  under the same `$` prefix for system-generated names:
+
+  ```hcl
+  action = redis::ack(ctx, client.rs.consumer.in, ctx.fields["$entry_id"])
+  ```
+
+  Acknowledge from the consumer's own `action`: `fields` do not cross a bus hop,
+  so the ID is out of reach of a `subscription` behind `subscriber = bus.main`.
+  Requires vinculum-redis v0.6.0.
+
+- **A server that could not bind its port came up anyway, serving nothing.** Both
+  HTTP-bearing servers called `ListenAndServe` inside their own goroutine, so a bind
+  failure was logged and otherwise invisible — `server "metrics"` discarded the error
+  outright. `Start` now calls `net.Listen` synchronously, and a bind failure stops the
+  process: it is logged naming the server, whatever did start is torn down, and the
+  exit code is non-zero.
+
+  Exiting is the change from the first pass at this, which came up and reported `503`
+  instead. A port conflict is local and never resolves itself, so there is nothing to
+  retry and nothing readiness could usefully say about it — and `readiness = false` on
+  a server, which is a statement about a dependency not gating traffic, must not also
+  mean that a listener which will never accept a connection goes unnoticed. It matches
+  what the standalone health listener already did, so the three listeners now agree.
+
+- **`log::` printed a list or object as Go source.** Complex values were formatted by
+  hand, falling back to cty's `GoString()`, so logging a structure emitted
+  `[cty.ObjectVal(map[string]cty.Value{"component":cty.StringVal(…` — neither readable
+  nor JSON. Structures now reach the log as real arrays and objects, a `time` logs as a
+  timestamp rather than an opaque handle, and an empty list logs as `[]` rather than
+  `null`. Scalars are unchanged and keep their types, so a number is still a number.
+
+- **Overriding a container image's command silently disabled file functions and
+  plugins.** The images carried `-f /data`, `-w /data/write`, and
+  `--plugin-path /plugins` in `CMD`, and Docker replaces the entire `CMD` as soon as
+  the user passes arguments — so `docker run … serve /myconf` dropped all three, and a
+  config calling `file()` failed with "no function named file" for no visible reason.
+  The three are now `ENV` (`VINCULUM_FILE_PATH`, `VINCULUM_WRITE_PATH`,
+  `VINCULUM_PLUGIN_PATH`) and `CMD` is `["serve", "/conf"]`, so they survive a command
+  the user supplies and each is separately overridable with `-e`.
+
+  `docker run … vinculum` with no arguments is unchanged. Where a command *was*
+  overridden, file functions become enabled rooted at `/data` where they had been
+  silently off, and `docker run … check /conf` now validates the configuration under
+  the same capabilities `serve` will give it.
+
+- **Two servers of different types sharing a name crashed config processing.**
+  `server "http" "x"` alongside `server "mcp" "x"` panicked instead of reporting the
+  conflict: server names are global — `server.x` names one server whatever its type —
+  but the check looked the colliding block up in its own type's bucket, which is the
+  one place a cross-type collision cannot be. Both `server` and `client` now report it
+  cleanly and say that the namespace is global. Declaring two same-named blocks and
+  using `disabled` to select between them is unaffected.
 
 - **An unreachable OIDC provider no longer stops vinculum from starting.** `auth "oidc"`
   fetched the discovery document and the JWKS while the config was being processed, with
@@ -1040,29 +1064,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   secret — were not reachable before this change and are not what it fixes.
   What was reachable: if the issuer published a key whose algorithm the operator had
   deliberately excluded, a token genuinely signed with that key was accepted anyway.
-  
-### Changed
-
-- **`auth "oidc"` rejects a bad `algorithms` list at config load** instead of ignoring it.
-  Unrecognized algorithm names, an empty list, and `"none"` are now errors. This can fail a
-  config that loaded before: a misspelled name such as `["RSA256"]` was previously accepted
-  and — like the rest of the list — discarded, so the typo was invisible. It now names the
-  offending value at startup.
-- **JWT handling moved from `github.com/lestrrat-go/jwx` v2 to v3.** The v2 line is no
-  longer maintained. Nothing about `auth "oidc"` changes for a config author beyond the two
-  entries above; the JWKS cache still refreshes in the background on the same interval and
-  still re-fetches once on an unknown `kid` to ride out a key rotation.
-
-  This stops at v3 rather than going on to v4. jwx v4
-  requires `encoding/json/v2`, still gated behind `GOEXPERIMENT=jsonv2` as of Go 1.26 — so
-  adopting it would mean setting that flag for every build of vinculum, including CI,
-  GoReleaser, all three images, the plugin-build image, and every plugin author's own
-  build.
-
-  The `auth "oidc"` code path had no test coverage of its own before this port. It now has
-  tests covering the claim mapping onto `ctx.auth`, algorithm enforcement, expiry and clock
-  skew, audience mismatch, unknown signing keys, malformed and absent bearer tokens, the
-  explicit `jwks_url` path that skips discovery, and the config errors above.
 
 ### Documentation
 
@@ -2220,7 +2221,7 @@ now emits telemetry conforming to the [OpenTelemetry GenAI/MCP semantic conventi
   - `clock_skew` (OIDC) and `cache_ttl` (OAuth2) accept a string (Go duration syntax), a plain number (seconds), or a `duration` capsule
   - On standalone `server "mcp"` with `auth "oidc"`, vinculum automatically serves `GET /.well-known/oauth-authorization-server` for MCP client OAuth2 discovery
   - New dependency: `github.com/lestrrat-go/jwx/v2` for JWKS caching and JWT validation
-  - See [doc/server-auth.md](doc/server-auth.md) for the full reference
+  - See [doc/auth.md](doc/auth.md) for the full reference
 
 - **HTTP response functions** — new globally-available functions for building HTTP responses
   (not scoped to `handle` actions; usable from any action expression):

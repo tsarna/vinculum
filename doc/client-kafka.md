@@ -358,11 +358,14 @@ receiver "main" {
   # Optional transform pipeline and async queue (same semantics as the
   # top-level `subscription` block — see config.md#subscription).
   # transforms = [ jq(".payload") ]
-  # queue_size = 100              # only with ack = "periodic"
+  # queue_size = 100
+  # partitions = 8                 # process partitions in parallel
+  # partition_key = ctx.topic      # the key is not a field — see Partitioning below
 
-  start_offset = "stored"          # stored | earliest | latest — default: stored
-  ack          = "auto"            # auto | periodic — default: auto
-  dlq_topic    = "vinculum.dlq"    # optional: dead-letter queue topic
+  start_offset   = "stored"        # stored | earliest | latest — default: stored
+  ack            = "auto"          # auto | manual | periodic — default: auto
+  # settle_timeout = "30s"         # required with ack = "manual"
+  dlq_topic      = "vinculum.dlq"  # optional: dead-letter queue topic
 
   baggage {                        # optional; inbound baggage stripped by default
     allow = ["tenant_id"]
@@ -397,6 +400,7 @@ consumer group semantics.
 | `partition_key` | expression |  |  | Expression deciding which messages must stay in order. |
 | `partitions` | number |  | `1` | Number of messages that may be processed at once. |
 | `queue_size` | number |  |  | Depth of an async queue wrapping the subscriber. |
+| `settle_timeout` | expression (duration) |  |  | How long a message may go unsettled before it is nacked automatically. |
 | `start_offset` | string |  | `stored` | Where to start when the group has no committed offset. |
 | `subscriber` | expression (subscriber-ref) |  |  | Subscriber to forward messages to, instead of evaluating an action. |
 | `transforms` | expression (transform-pipeline) |  |  | Transform pipeline applied before the action or subscriber. |
@@ -412,9 +416,11 @@ Kafka distributes each topic's partitions across the members of a group.
 
 **`ack`**
 
-`auto` commits a record's offset once delivery succeeds, giving at-least-once delivery; `periodic` commits on a timer regardless of outcome, which can lose or duplicate messages across a crash. Unlike the other receivers, this one has no per-record settler — acknowledging one record is not the same as committing an offset, and completing record 7 while 5 is still outstanding needs a low-water-mark tracker this receiver does not have. So `auto` here can only settle when delivery returns, which is why it is refused alongside `queue_size`, and why manual settle is not available yet.
+`auto` settles a record on the outcome of the work, wherever that work finishes — behind a `queue_size` queue, across a bus, several hops downstream — and `manual` leaves it to `inbound::ack()` and `inbound::nack()`. `periodic` is Kafka's own: offsets advance on a timer regardless of outcome, which can lose or duplicate records across a crash.
 
-One of: `auto`, `periodic`.
+A Kafka commit is an assertion about a *prefix*, not about one record, so this receiver settles by advancing a per-partition low-water mark and committing only that. A record nothing settles therefore stops its partition's committed offset where it is: everything after it keeps being processed, and everything from it onwards is handled again by whoever next owns the partition. Set `dlq_topic` to keep such a record somewhere and let the offset move past it.
+
+One of: `auto`, `manual`, `periodic`.
 
 **`action`**
 
@@ -424,7 +430,9 @@ Evaluated against the `message` context.
 
 **`dlq_topic`**
 
-The record keeps its key and value and gains `vinculum-error`, `vinculum-original-topic`, and `vinculum-timestamp` headers. The offset is committed only once the dead-letter send succeeds, so a failure there redelivers rather than drops.
+The record keeps its key and value and gains `vinculum-error`, `vinculum-original-topic`, and `vinculum-timestamp` headers. The low-water mark advances past the record only once the dead-letter send succeeds, so a failure there is handled again rather than lost.
+
+Any nack reaches here, not only one this receiver made: a record refused by `inbound::nack()` several hops downstream is dead-lettered the same way. Without this attribute a refusal has nowhere to go, and the partition's committed offset stops at the record instead.
 
 **`on_decode_error`**
 
@@ -460,6 +468,10 @@ When set, delivery is handed to a background goroutine so slow work does not blo
 
 A graceful shutdown runs the queue out rather than exiting past it: see [Boot and shutdown](health.md#boot-and-shutdown).
 
+**`settle_timeout`**
+
+Required with `ack = "manual"`, where nothing settles the message until the configuration does. Optional with `ack = "auto"`, to bound a chain the configuration does not fully trust — the acknowledgement follows the work, so a handler that never finishes leaves the message outstanding. An unsettled message costs something for as long as it is outstanding: an SQS visibility window, a RabbitMQ prefetch slot, a Kafka partition's committable offset. On expiry the message is nacked and the failure is logged against the receiver.
+
 **`start_offset`**
 
 `stored` resumes from the group's committed offset, which is what production wants; `earliest` replays the whole topic; `latest` skips everything already there.
@@ -493,55 +505,109 @@ before delivery, `queue_size = N` wraps delivery in an async background queue of
 depth `N`, and `partitions` / `partition_key` process several messages at once.
 Same semantics as the top-level [subscription](config.md#subscription) block.
 
-**Partitioning a Kafka receiver waits on the same tracker `queue_size` does.**
-`partitions` requires `queue_size`, which this receiver refuses under the
-default `ack = "auto"` for the reason below, so partitioning here means
-`ack = "manual"` until that lands.
-
-When it does, the natural key is the record's own:
+**Partitioning a Kafka receiver.** `partitions` requires `queue_size`, and what
+you want to partition on is whatever keeps related records in order:
 
 ```hcl
+queue_size    = 500
 partitions    = 8
-partition_key = ctx.fields.key    # the record key, so a key's records stay ordered
+partition_key = ctx.topic         # a topic that embeds the key, per below
 ```
 
-That reproduces per-partition-serial processing without needing to know
-Kafka's partition count. **Vinculum's hash is not Kafka's**, though: two Kafka
+`partition_key` is evaluated on the message, where the record's key is *not* a
+field — `ctx.fields` holds the record's headers. The key is available one step
+earlier, to `vinculum_topic` as `ctx.key`, so route it into the topic and
+partition on that:
+
+```hcl
+subscription "sensor.readings" {
+  vinculum_topic = "sensor/${ctx.key}"
+}
+```
+
+A header works too, when the ordering key is one: `partition_key = ctx.fields.device`.
+
+That reproduces per-partition-serial processing without needing to know Kafka's
+partition count. **Vinculum's hash is not Kafka's**, though: two Kafka
 partitions can land in one vinculum partition, which costs some parallelism and
 never costs ordering. Do not read `partitions = N` as a one-to-one mapping onto
 the topic's partitions.
 
-**`queue_size` is refused alongside `ack = "auto"`**, which is the default —
-and this receiver is the only one that still refuses it. On the others the
-delivery carries a settler that travels with the message, so the
-acknowledgement follows the work through the queue. A Kafka record has no such
-handle: committing an offset is not acknowledging a record, and completing
-record 7 while 5 is still outstanding cannot commit anything without a
-low-water-mark tracker this receiver does not have.
-
-So `auto` here can only settle when delivery returns. With a queue in front,
-the offset would be committed the moment the record was enqueued: an error from
-the handler would no longer route to `dlq_topic`, and a full queue would drop a
-record whose offset was already committed. A slow handler here holds up the
-poll loop rather than being queued away, until that tracker exists — which is
-also what `ack = "manual"` is waiting on.
-
-> **The same limit applies to `subscriber = bus.<name>`, and is not refused.**
-> A bus accepts a message onto its own queue and returns, so the offset is
-> committed at that hand-off rather than when the subscribers on that bus have
-> run. On the other three receivers the delivery carries a settler that closes
-> this; on Kafka there is nothing to carry.
->
-> It is not rejected the way `queue_size` is, because routing a receiver into a
-> bus is the ordinary way to build anything and refusing it would leave the
-> Kafka receiver able to feed only a directly-attached `action`. That is a
-> deliberate asymmetry rather than a considered difference in risk: `queue_size`
-> is an explicit request for something that quietly breaks, and a bus is the
-> normal shape of a configuration. Both are closed by the same tracker. Until
-> then, a Kafka receiver whose work must not be lost wants that work in its own
-> `action`, or `dlq_topic` set so a failure has somewhere to go.
+Partitioning also means a record can be settled while an earlier one is still
+running, which is what makes duplicates possible at a restart — see
+[handling records out of order costs duplicates](#handling-records-out-of-order-costs-duplicates).
 
 See [delivery model](config.md#delivery-model).
+
+### How offsets are committed
+
+A Kafka commit is an assertion about a **prefix**: committing offset *N* says
+everything below *N* is done. Every other receiver settles one delivery at a
+time, and Kafka cannot — so this receiver keeps a **low-water mark** per
+partition and commits only that.
+
+Each record carries a settler on its context, exactly as on the other
+receivers, so the acknowledgement follows the work: through a `queue_size`
+queue, across a bus, into an `fsm`, however many hops away it finishes. What a
+settle does here is mark the record complete. The mark then advances over every
+contiguous completion above it, and that is what gets committed — so an offset
+never passes a record still in flight, whatever order the work finishes in.
+
+Three consequences worth knowing:
+
+- **A record nothing settles stops its partition's committed offset.** Records
+  after it keep being processed; nothing past the gap is committed, and
+  everything from it onwards is handled again by whoever next owns the
+  partition. That is the at-least-once answer, and it is what a nack means when
+  there is nowhere to put the record. Set `dlq_topic` to keep the record
+  somewhere and let the mark move past it.
+- **A stuck partition stops being fetched rather than growing.** Once a
+  partition's unsettled window reaches an internal bound, fetches for it are
+  paused until half of that window has drained, and the pause is logged with the
+  topic, the partition, and the offset the mark stopped at. Nothing is dropped.
+- **Settling after a rebalance reports that the partition was reassigned.**
+  Another member owns it and is reprocessing from the last committed mark, so
+  moving the mark from here would commit past work it is still doing.
+  `inbound::ack()` returns `false` in that case rather than appearing to
+  succeed.
+
+#### Handling records out of order costs duplicates
+
+Where a partition's records are handled one at a time — the common case: an
+`action`, a `subscriber`, or either behind a plain `queue_size` queue — the mark
+is always the last settled record plus one. It is an exact account of what has
+been handled, and a restart replays only what settled since the last commit,
+which is the ordinary at-least-once window every Kafka consumer has.
+
+Where they are not, it is not exact. `partitions` spreads a receiver's records
+across queues that finish at their own pace, and `ack = "manual"` lets the
+configuration settle whenever it likes; either way a record can settle while an
+earlier one is still outstanding. The mark stops at the earlier one, so **every
+record settled above it is delivered a second time if this process restarts or
+the partition is reassigned** — acknowledged, and redelivered regardless, since
+the commit that ran could not reach past the record still outstanding below it.
+
+That is Kafka rather than a choice vinculum makes. An offset cannot say "5 is
+still running but 6 through 20 are done", only where the finished prefix ends,
+and the only safe answer is 5. The alternative — committing 20 — would lose
+record 5 outright, so the duplicate is the conservative half of the trade.
+
+What follows for a configuration:
+
+- **Handling that settles out of order must be idempotent**, because it will
+  see the same record twice eventually. Handling that runs strictly in order
+  need only tolerate the usual at-least-once replay.
+- The number of duplicates is bounded by the same in-flight bound that pauses a
+  stuck partition — on the order of a thousand records per partition — and not
+  by how long the receiver has been running.
+- A record that never settles is unbounded in *time*, not in count: the mark
+  stays at it, so those records are replayed at every restart until it settles
+  or `dlq_topic` takes it. See the first consequence above.
+
+Under `ack = "periodic"` none of this applies: offsets advance on franz-go's own
+timer regardless of outcome, records carry no settler, and `inbound::ack()`
+reports `false`. `dlq_topic` still applies, because a record that failed is
+worth keeping even where its offset moves anyway.
 
 #### Action context variables
 

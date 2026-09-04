@@ -185,14 +185,31 @@ func (s *firstMessageSubscriber) OnEvent(_ context.Context, _ string, msg any, _
 	return nil
 }
 
-// firstRecordAfterFailure consumes one record under the given ack mode with an
-// action that fails, then rejoins the same consumer group with a subscriber
-// that succeeds and asks what it is handed first.
+// failingAction publishes what it saw and then fails, by adding a number to a
+// string. The publish is what gives the test a positive signal that the record
+// really was processed — a settle policy's whole job is to react to what
+// happened next.
+const failingAction = `
+    action = [
+      send(ctx, bus.main, "seen", ctx.msg),
+      ctx.msg + 1,
+    ]`
+
+// firstRecordAfterFailure consumes one record under the given receiver
+// settings, with an action that fails.
+func firstRecordAfterFailure(t *testing.T, receiverAttrs string) string {
+	t.Helper()
+	return firstRecordAfterFailureWithAction(t, receiverAttrs, failingAction)
+}
+
+// firstRecordAfterFailureWithAction consumes one record under the given
+// receiver settings and action, then rejoins the same consumer group with a
+// subscriber that succeeds and asks what it is handed first.
 //
 // A marker record produced to the second consumer is what makes the answer a
 // positive assertion rather than a wait: getting the original record back means
 // its offset was never committed, and getting only the marker means it was.
-func firstRecordAfterFailure(t *testing.T, ackMode string) string {
+func firstRecordAfterFailureWithAction(t *testing.T, receiverAttrs, action string) string {
 	t.Helper()
 
 	cluster, err := kfake.NewCluster(kfake.SeedTopics(1, "intopic"))
@@ -215,10 +232,6 @@ func firstRecordAfterFailure(t *testing.T, ackMode string) string {
 	// to the *end* of the partition when the group has no committed offset, so
 	// the second consumer would skip an uncommitted record and report the same
 	// answer as a committed one.
-	//
-	// The first run's action publishes what it saw before failing, so the test
-	// has a positive signal that the record really was processed — a commit
-	// mode's whole job is to react to what happened next.
 	failing := fmt.Sprintf(`
 bus "main" {}
 
@@ -228,19 +241,15 @@ client "kafka" "k" {
   receiver "r" {
     group_id     = "g"
     start_offset = "earliest"
-    ack          = %q
-
-    action = [
-      send(ctx, bus.main, "seen", ctx.msg),
-      ctx.msg + 1,
-    ]
+%s
+%s
 
     subscription "intopic" {
       vinculum_topic = "in"
     }
   }
 }
-`, addr, ackMode)
+`, addr, receiverAttrs, action)
 
 	first, stopFirst := startConfig(t, failing)
 	seen := &firstMessageSubscriber{got: make(chan string, 1)}
@@ -299,12 +308,269 @@ func TestKfakeAutoRedeliversAFailedRecord(t *testing.T) {
 	// is what `commit_mode = "after_process"` did, under the name every
 	// receiver now shares, and the assertion is unchanged — which is the point
 	// of the rename.
-	assert.Equal(t, "A", firstRecordAfterFailure(t, "auto"))
+	assert.Equal(t, "A", firstRecordAfterFailure(t, `    ack = "auto"`))
 }
 
 func TestKfakePeriodicCommitsDespiteFailure(t *testing.T) {
 	// Offsets advance on a clock, not on an outcome. A record whose action
 	// failed is gone — which is what `periodic` says it does, and what
 	// `commit_mode = "manual"` silently did until it was rejected at load.
-	assert.Equal(t, "B", firstRecordAfterFailure(t, "periodic"))
+	assert.Equal(t, "B", firstRecordAfterFailure(t, `    ack = "periodic"`))
+}
+
+func TestKfakeAutoBehindAQueueStillRedeliversAFailedRecord(t *testing.T) {
+	// The combination this receiver refused until it had a per-record settler,
+	// and the whole point of having one. Delivery returns as soon as the record
+	// is queued, so without a settler the offset would advance there and a
+	// failing action would have nothing left to redeliver.
+	//
+	// The settler travels on the record's context instead, so the acknowledgement
+	// is decided by the queue's worker rather than by the enqueue.
+	assert.Equal(t, "A", firstRecordAfterFailure(t, `
+    ack        = "auto"
+    queue_size = 10`))
+}
+
+func TestKfakeAutoBehindAPartitionedQueueStillRedeliversAFailedRecord(t *testing.T) {
+	// Partitioning is what makes completion order stop matching delivery order,
+	// which is the case a low-water mark exists for. One record and one failure
+	// is the degenerate version; TestKfakeMarkStopsAtTheRefusedRecord below is
+	// the one that needs the prefix.
+	assert.Equal(t, "A", firstRecordAfterFailure(t, `
+    ack           = "auto"
+    queue_size    = 10
+    partitions    = 4
+    partition_key = ctx.topic`))
+}
+
+func TestKfakeManualNackLeavesTheRecordForTheNextConsumer(t *testing.T) {
+	// Under manual the configuration decides, and here it refuses. With no
+	// dlq_topic there is nowhere to put the record, so the committed offset
+	// stops at it.
+	assert.Equal(t, "A", firstRecordAfterFailureWithAction(t, `
+    ack            = "manual"
+    settle_timeout = "30s"`, `
+    action = [
+      send(ctx, bus.main, "seen", ctx.msg),
+      inbound::nack(ctx, "refused by the test"),
+    ]`))
+}
+
+func TestKfakeManualAckCommitsEvenThoughTheActionFails(t *testing.T) {
+	// The case ack = "auto" cannot express: acknowledge the record *even
+	// though* handling failed. A delivery settles once, so the ack wins and the
+	// nack that the failure would otherwise cause is a no-op.
+	assert.Equal(t, "B", firstRecordAfterFailureWithAction(t, `
+    ack            = "manual"
+    settle_timeout = "30s"`, `
+    action = [
+      send(ctx, bus.main, "seen", ctx.msg),
+      inbound::ack(ctx),
+      ctx.msg + 1,
+    ]`))
+}
+
+// countingSubscriber signals once it has seen n messages.
+type countingSubscriber struct {
+	bus.BaseSubscriber
+	mu   sync.Mutex
+	n    int
+	want int
+	done chan struct{}
+}
+
+func (s *countingSubscriber) OnEvent(_ context.Context, _ string, _ any, _ map[string]string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.n++
+	if s.n == s.want {
+		close(s.done)
+	}
+	return nil
+}
+
+func TestKfakeMarkStopsAtTheRefusedRecordHoweverMuchCompletesAboveIt(t *testing.T) {
+	// The property a low-water mark exists for, and the one a naive
+	// "commit what just finished" gets wrong.
+	//
+	// Six records are processed across four partitions, so completion order is
+	// genuinely not delivery order. The record at offset 2 fails; the three
+	// above it succeed, and under a naive tracker one of those completions
+	// would commit offset 6 and lose the failure. The committed offset must
+	// stop at 2, so 2 is what the next consumer is handed.
+	cluster, err := kfake.NewCluster(kfake.SeedTopics(1, "intopic"))
+	require.NoError(t, err)
+	t.Cleanup(cluster.Close)
+	addr := cluster.ListenAddrs()[0]
+
+	prod, err := kgo.NewClient(kgo.SeedBrokers(addr))
+	require.NoError(t, err)
+	t.Cleanup(prod.Close)
+
+	produce := func(key, value string) {
+		t.Helper()
+		require.NoError(t, prod.ProduceSync(context.Background(), &kgo.Record{
+			Topic: "intopic", Key: []byte(key), Value: []byte(value),
+		}).FirstErr())
+	}
+
+	// `ctx.msg + 1` succeeds on a number and fails on a string, so the JSON
+	// value is what decides which record is refused — no timing involved.
+	//
+	// The record key reaches vinculum_topic as ctx.key and nothing later, so
+	// routing it into the topic is what gives partition_key something to spread
+	// on. That is the documented idiom, exercised here.
+	first := fmt.Sprintf(`
+bus "main" {}
+
+client "kafka" "k" {
+  brokers = [%q]
+
+  receiver "r" {
+    group_id      = "g"
+    start_offset  = "earliest"
+    ack           = "auto"
+    queue_size    = 50
+    partitions    = 4
+    partition_key = ctx.topic
+
+    action = [
+      send(ctx, bus.main, "seen", ctx.msg),
+      ctx.msg + 1,
+    ]
+
+    subscription "intopic" {
+      vinculum_topic = "in/${ctx.key}"
+    }
+  }
+}
+`, addr)
+
+	config, stopFirst := startConfig(t, first)
+	seen := &countingSubscriber{want: 6, done: make(chan struct{})}
+	require.NoError(t, config.Buses["main"].Subscribe(context.Background(), "seen", seen))
+
+	values := []string{`0`, `1`, `"R2"`, `3`, `4`, `5`}
+	for i, v := range values {
+		produce(fmt.Sprintf("k%d", i), v)
+	}
+
+	select {
+	case <-seen.done:
+	case <-time.After(25 * time.Second):
+		t.Fatal("timed out waiting for all six records to be processed")
+	}
+
+	stopFirst()
+
+	replay := fmt.Sprintf(`
+bus "main" {}
+
+client "kafka" "k" {
+  brokers = [%q]
+
+  receiver "r" {
+    group_id     = "g"
+    start_offset = "earliest"
+    subscriber   = bus.main
+
+    subscription "intopic" {
+      vinculum_topic = "in"
+    }
+  }
+}
+`, addr)
+
+	second, _ := startConfig(t, replay)
+	got := &firstMessageSubscriber{got: make(chan string, 1)}
+	require.NoError(t, second.Buses["main"].Subscribe(context.Background(), "in", got))
+
+	produce("k6", `"MARKER"`)
+
+	select {
+	case msg := <-got.got:
+		assert.Equal(t, "R2", msg,
+			"the refused record is what the mark stopped at; MARKER means an offset was committed past it")
+	case <-time.After(25 * time.Second):
+		t.Fatal("timed out waiting for the second consumer to receive a record")
+	}
+}
+
+func TestKfakeManualCommitsNothingWhenTheActionSettlesNothing(t *testing.T) {
+	// An action that forgets to settle leaves the record outstanding, so the
+	// mark never moves. The timeout here is long enough never to fire, which is
+	// what makes this about the unsettled record rather than about the bound —
+	// TestKfakeSettleTimeoutExpiryNacksAnUnsettledRecord covers the expiry.
+	assert.Equal(t, "A", firstRecordAfterFailureWithAction(t, `
+    ack            = "manual"
+    settle_timeout = "30s"`, `
+    action = send(ctx, bus.main, "seen", ctx.msg)`))
+}
+
+func TestKfakeSettleTimeoutExpiryNacksAnUnsettledRecord(t *testing.T) {
+	// The bound that keeps ack = "manual" from wedging a partition on an
+	// expression that forgets to settle. Nothing settles this record, so the
+	// deadline is the only thing that can — and a nack with dlq_topic set is a
+	// positive signal it fired: the record turns up in the dead-letter topic
+	// carrying the reason, which nothing else in the receiver would put there.
+	cluster, err := kfake.NewCluster(kfake.SeedTopics(1, "intopic", "dlq"))
+	require.NoError(t, err)
+	t.Cleanup(cluster.Close)
+	addr := cluster.ListenAddrs()[0]
+
+	prod, err := kgo.NewClient(kgo.SeedBrokers(addr))
+	require.NoError(t, err)
+	t.Cleanup(prod.Close)
+	require.NoError(t, prod.ProduceSync(context.Background(), &kgo.Record{
+		Topic: "intopic", Key: []byte("k"), Value: []byte(`"A"`),
+	}).FirstErr())
+
+	startConfig(t, fmt.Sprintf(`
+bus "main" {}
+
+client "kafka" "k" {
+  brokers = [%q]
+
+  receiver "r" {
+    group_id       = "g"
+    start_offset   = "earliest"
+    ack            = "manual"
+    settle_timeout = "250ms"
+    dlq_topic      = "dlq"
+
+    action = send(ctx, bus.main, "seen", ctx.msg)
+
+    subscription "intopic" {
+      vinculum_topic = "in"
+    }
+  }
+}
+`, addr))
+
+	dlq, err := kgo.NewClient(
+		kgo.SeedBrokers(addr),
+		kgo.ConsumeTopics("dlq"),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(dlq.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+
+	fetches := dlq.PollRecords(ctx, 1)
+	require.NoError(t, fetches.Err(), "nothing reached dlq_topic, so the deadline never nacked")
+
+	records := fetches.Records()
+	require.Len(t, records, 1)
+	assert.Equal(t, []byte(`"A"`), records[0].Value, "the dead letter keeps the original value")
+
+	var reason string
+	for _, h := range records[0].Headers {
+		if h.Key == "vinculum-error" {
+			reason = string(h.Value)
+		}
+	}
+	assert.Contains(t, reason, "settle_timeout expired",
+		"the dead letter should say the deadline is what refused the record")
 }

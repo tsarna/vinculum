@@ -94,53 +94,69 @@ func receiverWithAck(mode string) string {
 	return receiverWithBody(`ack = "` + mode + `"`)
 }
 
-func TestReceiverAckManualIsRejected(t *testing.T) {
-	// Acknowledging one record is not committing an offset: completing record 7
-	// while 5 is outstanding needs a low-water-mark tracker this receiver does
-	// not have. Its predecessor, commit_mode = "manual", promised
-	// caller-controlled commits that nothing could perform and fell through to
-	// the Kafka client's own periodic autocommit — an alias for the weakest
-	// mode in the enum while documented as the strongest. See
-	// specs/KAFKA-UNFINISHED.md §1 and specs/CONTEXT-ACK.md §6 phase 3.
+func TestReceiverAckManualRequiresSettleTimeout(t *testing.T) {
+	// The only thing standing between a config and manual settle now. Nothing
+	// settles a record until the configuration does, so a bound is not optional
+	// — an unsettled record holds its partition's committable offset.
 	_, hasErr, msg := build(t, receiverWithAck("manual"))
-	require.True(t, hasErr, `ack = "manual" should be rejected at load`)
-	assert.Contains(t, msg, "not implemented yet")
-	assert.Contains(t, msg, "low-water-mark")
+	require.True(t, hasErr, `ack = "manual" without settle_timeout should be rejected`)
+	assert.Contains(t, msg, "requires settle_timeout")
 }
 
 func TestReceiverAckInvalidNamesTheModesThisReceiverHas(t *testing.T) {
 	_, hasErr, msg := build(t, receiverWithAck("whenever"))
 	require.True(t, hasErr, "an unknown ack should be rejected")
 	assert.Contains(t, msg, `"auto"`)
+	assert.Contains(t, msg, `"manual"`)
 	assert.Contains(t, msg, `"periodic"`)
 }
 
 func TestReceiverAckModesThatWorkStillParse(t *testing.T) {
-	for _, mode := range []string{"auto", "periodic"} {
-		t.Run(mode, func(t *testing.T) {
-			_, hasErr, msg := build(t, receiverWithAck(mode))
+	for _, body := range []string{
+		`ack = "auto"`,
+		`ack = "periodic"`,
+		"ack = \"manual\"\n    settle_timeout = \"30s\"",
+	} {
+		t.Run(body, func(t *testing.T) {
+			_, hasErr, msg := build(t, receiverWithBody(body))
 			require.False(t, hasErr, msg)
 		})
 	}
 }
 
-// A queue makes delivery succeed at the moment the record is queued, so `auto`
-// would commit the offset before the handler ran — and an error would no longer
-// reach dlq_topic. Refused, written or defaulted.
-func TestQueueSizeIsRefusedWithAutoCommit(t *testing.T) {
+// Refused until this receiver had a per-record settler, because `auto` could
+// only settle when delivery returned — which, behind a queue, is the enqueue.
+// The settler travels with the record now, so the acknowledgement follows the
+// work through the queue and the combination is correct rather than a trap.
+func TestQueueSizeIsAcceptedWithAuto(t *testing.T) {
 	for _, body := range []string{
 		"queue_size = 16",
 		"ack = \"auto\"\n    queue_size = 16",
+		"ack = \"auto\"\n    queue_size = 16\n    partitions = 4\n    partition_key = ctx.topic",
 	} {
 		t.Run(body, func(t *testing.T) {
 			_, hasErr, msg := build(t, receiverWithBody(body))
-			require.True(t, hasErr, "queue_size with an auto commit should be rejected")
-			assert.Contains(t, msg, "queue_size cannot be combined")
-			// Kafka has neither knob yet, so the diagnostic must not name one.
-			assert.Contains(t, msg, "remove queue_size")
-			assert.NotContains(t, msg, "concurrency")
+			require.False(t, hasErr, msg)
 		})
 	}
+}
+
+// Optional under auto, where the framework settles at a known point but the
+// chain reaching it may be one the configuration does not fully trust. It was
+// refused here while there was no single delivery for a bound to apply to.
+func TestSettleTimeoutIsAcceptedWithAuto(t *testing.T) {
+	_, hasErr, msg := build(t, receiverWithBody(
+		"ack = \"auto\"\n    settle_timeout = \"30s\""))
+	require.False(t, hasErr, msg)
+}
+
+// Neither mode has a per-record acknowledgement for a bound to apply to:
+// periodic advances offsets on a timer whatever happens.
+func TestSettleTimeoutIsRefusedWithPeriodic(t *testing.T) {
+	_, hasErr, msg := build(t, receiverWithBody(
+		"ack = \"periodic\"\n    settle_timeout = \"30s\""))
+	require.True(t, hasErr, "settle_timeout under periodic should be rejected")
+	assert.Contains(t, msg, "does not apply")
 }
 
 // `periodic` commits on a timer regardless of the outcome, so the queue takes

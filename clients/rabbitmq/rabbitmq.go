@@ -292,7 +292,6 @@ type RMQReceiverDefinition struct {
 	Ack                        string                       `hcl:"ack,optional"`
 	AckRange                   hcl.Range                    `hcl:"ack,attr_range"`
 	SettleTimeout              hcl.Expression               `hcl:"settle_timeout,optional"`
-	QueueSizeRange             hcl.Range                    `hcl:"queue_size,attr_range"`
 	Baggage                    *hclutil.BaggageFilterConfig `hcl:"baggage,block"`
 	Declare                    *RMQQueueDeclareDefinition   `hcl:"declare,block"`
 	Bindings                   []RMQBindingDefinition       `hcl:"binding,block"`
@@ -897,14 +896,12 @@ func buildReceiverSpec(config *cfg.Config, clientName string, def RMQReceiverDef
 		spec.exclusive = *def.Exclusive
 	}
 	policy, ackDiags := config.ResolveAck(cfg.AckRequest{
-		Receiver:       fmt.Sprintf("rabbitmq client %q receiver %q", clientName, def.Name),
-		Value:          def.Ack,
-		ValueRange:     def.AckRange,
-		SettleTimeout:  def.SettleTimeout,
-		QueueSize:      def.QueueSize,
-		QueueSizeRange: def.QueueSizeRange,
-		Extra:          cfg.AckNone,
-		DefRange:       def.DefRange,
+		Receiver:      fmt.Sprintf("rabbitmq client %q receiver %q", clientName, def.Name),
+		Value:         def.Ack,
+		ValueRange:    def.AckRange,
+		SettleTimeout: def.SettleTimeout,
+		Extra:         cfg.AckNone,
+		DefRange:      def.DefRange,
 	})
 	if ackDiags.HasErrors() {
 		return spec, ackDiags

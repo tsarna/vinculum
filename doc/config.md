@@ -671,10 +671,14 @@ downstream work to gate the acknowledgement, route to it with `subscriber =`
 (or a `subscription` on the bus you sent to), which is what carries the
 delivery onward.
 
-**One receiver still refuses the combination.** `client "kafka"` has no
-per-record settler — committing an offset is not the same as acknowledging one
-record — so `queue_size` alongside `ack = "auto"` is rejected at load, with a
-diagnostic that says so. See [`doc/client-kafka.md`](client-kafka.md).
+**One receiver settles differently.** A Kafka commit is an assertion about a
+*prefix* — committing offset N says everything below N is done — so
+`client "kafka"` cannot acknowledge one record on its own. It settles by
+advancing a per-partition low-water mark instead, which accepts every
+combination above but means a record nothing settles stops its partition's
+committed offset, and that handling records out of order costs duplicates at a
+restart. See
+[how offsets are committed](client-kafka.md#how-offsets-are-committed).
 
 #### What the bus counts
 

@@ -164,7 +164,6 @@ type SQSReceiverDefinition struct {
 	VisibilityTimeout hcl.Expression               `hcl:"visibility_timeout,optional"`
 	Ack               string                       `hcl:"ack,optional"`
 	AckRange          hcl.Range                    `hcl:"ack,attr_range"`
-	QueueSizeRange    hcl.Range                    `hcl:"queue_size,attr_range"`
 	SettleTimeout     hcl.Expression               `hcl:"settle_timeout,optional"`
 	Concurrency       *int                         `hcl:"concurrency,optional"`
 	WireFormat        hcl.Expression               `hcl:"wire_format,optional"`
@@ -256,13 +255,11 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 	}
 
 	policy, ackDiags := config.ResolveAck(cfg.AckRequest{
-		Receiver:       fmt.Sprintf("sqs_receiver client %q", clientName),
-		Value:          def.Ack,
-		ValueRange:     def.AckRange,
-		SettleTimeout:  def.SettleTimeout,
-		QueueSize:      def.QueueSize,
-		QueueSizeRange: def.QueueSizeRange,
-		DefRange:       def.DefRange,
+		Receiver:      fmt.Sprintf("sqs_receiver client %q", clientName),
+		Value:         def.Ack,
+		ValueRange:    def.AckRange,
+		SettleTimeout: def.SettleTimeout,
+		DefRange:      def.DefRange,
 	})
 	if ackDiags.HasErrors() {
 		return nil, ackDiags

@@ -206,7 +206,6 @@ type ConsumerDef struct {
 	BlockTimeout     hcl.Expression               `hcl:"block_timeout,optional"`
 	Ack              string                       `hcl:"ack,optional"`
 	AckRange         hcl.Range                    `hcl:"ack,attr_range"`
-	QueueSizeRange   hcl.Range                    `hcl:"queue_size,attr_range"`
 	SettleTimeout    hcl.Expression               `hcl:"settle_timeout,optional"`
 	GroupCreate      string                       `hcl:"group_create,optional"`
 	PayloadField     *string                      `hcl:"payload_field,optional"`
@@ -624,13 +623,11 @@ func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, cli
 	}
 
 	policy, ackDiags := config.ResolveAck(cfg.AckRequest{
-		Receiver:       fmt.Sprintf("redis_stream client %q consumer %q", clientName, def.Name),
-		Value:          def.Ack,
-		ValueRange:     def.AckRange,
-		SettleTimeout:  def.SettleTimeout,
-		QueueSize:      def.QueueSize,
-		QueueSizeRange: def.QueueSizeRange,
-		DefRange:       def.DefRange,
+		Receiver:      fmt.Sprintf("redis_stream client %q consumer %q", clientName, def.Name),
+		Value:         def.Ack,
+		ValueRange:    def.AckRange,
+		SettleTimeout: def.SettleTimeout,
+		DefRange:      def.DefRange,
 	})
 	if ackDiags.HasErrors() {
 		return nil, ackDiags

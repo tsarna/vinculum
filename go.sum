@@ -295,8 +295,8 @@ github.com/tsarna/vinculum-bus v0.20.0 h1:Zo8DEdDMuz13OLmcTFsHWsYi+sjNPWFQFO8eXh
 github.com/tsarna/vinculum-bus v0.20.0/go.mod h1:aDWU03rnNrWcG4d/cC07NUeMEVatGD9Xt2UuEjLAjf8=
 github.com/tsarna/vinculum-fsm v0.6.0 h1:GEB+rGo5Dk/ZcFgrrX7IGvaxiPfeKr5PYxVxWL4c4WM=
 github.com/tsarna/vinculum-fsm v0.6.0/go.mod h1:SJJLyKTdL/BJgrKpNraNZmanzOmiQv6MlY+KBpGMwHE=
-github.com/tsarna/vinculum-kafka v0.13.0 h1:o7ngjWj51KgMgXts8RekECmNhofHgmWggjECeX8xKrw=
-github.com/tsarna/vinculum-kafka v0.13.0/go.mod h1:QvOYnK6NYQN3VtYQ0iMxui9hNuZosiVVjMPNhplvXfo=
+github.com/tsarna/vinculum-kafka v0.14.0 h1:aJ0XEjL1udDpxvhY+Dl4FQcx5iP8FTT21AJeSm8HXAo=
+github.com/tsarna/vinculum-kafka v0.14.0/go.mod h1:u4aTUL2lAsI7hcsjVJ/Y8+9ia6x0MREm9vao5q9ktT0=
 github.com/tsarna/vinculum-mqtt v0.12.1 h1:iWAp0SykMFtPGXLdOWk5nW5XHIu7KHdYY8BVupwECa8=
 github.com/tsarna/vinculum-mqtt v0.12.1/go.mod h1:DmGbIBUAubb1YFQ+wFkLpPN+HD3sPeJWwlZNxv0xUj4=
 github.com/tsarna/vinculum-rabbitmq v0.8.0 h1:81Q2ZcH81QWGIsYY8k4lDg+GFK5VSd/IloV/twHhMVU=

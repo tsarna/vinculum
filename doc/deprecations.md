@@ -220,22 +220,25 @@ processing succeeded** — so a config that selected `manual` to take control of
 its commits got `periodic`, the weakest guarantee in the enum, while reading
 documentation promising the strongest.
 
-It is rejected at load rather than quietly redefined, because a config that
-asked for `manual` did not ask for either surviving mode and the difference
-between them is which messages it loses:
+It is not quietly redefined, because a config that asked for `manual` did not
+ask for any of the surviving modes and the difference between them is which
+messages it loses:
 
 | You had | Use | What changes |
 | --- | --- | --- |
 | `commit_mode = "manual"` | `ack = "auto"` | At-least-once. The offset advances only once the message has been handled, so a failed message is redelivered rather than skipped. |
+| `commit_mode = "manual"` | `ack = "manual"` + `settle_timeout` | What the name always promised: nothing is committed until the configuration calls `inbound::ack()` or `inbound::nack()`. |
 | `commit_mode = "manual"` | `ack = "periodic"` | Nothing. This is what the receiver was already doing. |
 
 `ack = "auto"` is the right choice for almost everyone, and is the default.
-Pick `periodic` only to keep the existing behavior deliberately.
+Pick `periodic` only to keep the existing behavior deliberately, and `manual`
+only where the configuration really does decide when a record is finished.
 
 The attribute itself was renamed in the same release — see
 [settle attributes](#settle-attributes-auto_ack-auto_delete-commit_mode) below.
-Caller-controlled settle will come back as a working feature under `ack`, once
-Kafka has the commit tracker it requires.
+**Caller-controlled settle arrived in the same release it was removed in**, on
+the low-water-mark commit tracker it always needed: see
+[how offsets are committed](client-kafka.md#how-offsets-are-committed).
 
 ### Settle attributes: `auto_ack`, `auto_delete`, `commit_mode`
 
@@ -261,13 +264,11 @@ behaved as `ack = "auto"` by default — RabbitMQ's `auto_ack = false` included:
 | `rabbitmq` `receiver` | `auto_ack = true` | `ack = "none"` |
 | `kafka` `receiver` | `commit_mode = "after_process"` *(default)* | `ack = "auto"` *(default)* |
 | `kafka` `receiver` | `commit_mode = "periodic"` | `ack = "periodic"` |
+| `kafka` `receiver` | `commit_mode = "manual"` | `ack = "manual"` + `settle_timeout` — see [above](#commit_mode--manual) |
 
 Each type accepts only what it can honour, and its generated attribute
-reference lists exactly that: `periodic` is kafka's alone, `none` is
-rabbitmq's, and `manual` is available everywhere except `kafka`, where
-acknowledging one record is not the same as committing an offset. Writing
-`ack = "manual"` there is rejected at load with a diagnostic saying what is
-missing.
+reference lists exactly that: `auto` and `manual` are common to all four,
+`periodic` is kafka's alone, and `none` is rabbitmq's.
 
 Writing a retired name reports what it became rather than that the argument is
 not expected here, so an upgrade can be driven by running `vinculum check`

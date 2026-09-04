@@ -167,22 +167,31 @@ consume from Kafka topics as part of a consumer group.`,
 					Default: "stored",
 				},
 				"ack": cfg.AckAttr.
-					WithDoc("`auto` commits a record's offset once delivery succeeds, giving "+
-						"at-least-once delivery; `periodic` commits on a timer regardless of "+
-						"outcome, which can lose or duplicate messages across a crash. "+
-						"Unlike the other receivers, this one has no per-record settler — "+
-						"acknowledging one record is not the same as committing an offset, and "+
-						"completing record 7 while 5 is still outstanding needs a low-water-mark "+
-						"tracker this receiver does not have. So `auto` here can only settle "+
-						"when delivery returns, which is why it is refused alongside "+
-						"`queue_size`, and why manual settle is not available yet.").
-					WithEnum(cfg.AckAuto, cfg.AckPeriodic),
+					WithDoc("`auto` settles a record on the outcome of the work, wherever that "+
+						"work finishes — behind a `queue_size` queue, across a bus, several "+
+						"hops downstream — and `manual` leaves it to `inbound::ack()` and "+
+						"`inbound::nack()`. `periodic` is Kafka's own: offsets advance on a "+
+						"timer regardless of outcome, which can lose or duplicate records "+
+						"across a crash.\n\n"+
+						"A Kafka commit is an assertion about a *prefix*, not about one record, "+
+						"so this receiver settles by advancing a per-partition low-water mark "+
+						"and committing only that. A record nothing settles therefore stops its "+
+						"partition's committed offset where it is: everything after it keeps "+
+						"being processed, and everything from it onwards is handled again by "+
+						"whoever next owns the partition. Set `dlq_topic` to keep such a record "+
+						"somewhere and let the offset move past it.").
+					WithEnum(cfg.AckAuto, cfg.AckManual, cfg.AckPeriodic),
+				"settle_timeout": cfg.SettleTimeoutAttr,
 				"dlq_topic": {
 					Summary: "Kafka topic to publish messages that could not be handled.",
 					Doc: "The record keeps its key and value and gains `vinculum-error`, " +
 						"`vinculum-original-topic`, and `vinculum-timestamp` headers. The " +
-						"offset is committed only once the dead-letter send succeeds, so a " +
-						"failure there redelivers rather than drops.",
+						"low-water mark advances past the record only once the dead-letter " +
+						"send succeeds, so a failure there is handled again rather than lost.\n\n" +
+						"Any nack reaches here, not only one this receiver made: a record " +
+						"refused by `inbound::nack()` several hops downstream is dead-lettered " +
+						"the same way. Without this attribute a refusal has nowhere to go, and " +
+						"the partition's committed offset stops at the record instead.",
 				},
 				"on_decode_error": cfg.OnDecodeErrorAttr.WithContextFields(
 					cfg.ContextField{
@@ -270,13 +279,13 @@ type ConsumerDefinition struct {
 	PartitionsRange hcl.Range      `hcl:"partitions,attr_range"`
 	PartitionKey    hcl.Expression `hcl:"partition_key,optional"`
 
-	Ack            string                        `hcl:"ack,optional"`
-	AckRange       hcl.Range                     `hcl:"ack,attr_range"`
-	QueueSizeRange hcl.Range                     `hcl:"queue_size,attr_range"`
-	DLQTopic       string                        `hcl:"dlq_topic,optional"`
-	Baggage        *hclutil.BaggageFilterConfig  `hcl:"baggage,block"`
-	Subscriptions  []TopicSubscriptionDefinition `hcl:"subscription,block"`
-	DefRange       hcl.Range                     `hcl:",def_range"`
+	Ack           string                        `hcl:"ack,optional"`
+	AckRange      hcl.Range                     `hcl:"ack,attr_range"`
+	SettleTimeout hcl.Expression                `hcl:"settle_timeout,optional"`
+	DLQTopic      string                        `hcl:"dlq_topic,optional"`
+	Baggage       *hclutil.BaggageFilterConfig  `hcl:"baggage,block"`
+	Subscriptions []TopicSubscriptionDefinition `hcl:"subscription,block"`
+	DefRange      hcl.Range                     `hcl:",def_range"`
 }
 
 type KafkaClientDefinition struct {
@@ -312,7 +321,7 @@ type builtConsumerSpec struct {
 	name          string
 	groupID       string
 	startOffset   kgo.Offset
-	commitMode    kconsumer.CommitMode
+	ackMode       kconsumer.AckMode
 	dlqTopic      string
 	subscriptions []kconsumer.TopicSubscription
 	subscriber    bus.Subscriber
@@ -456,7 +465,7 @@ func (c *KafkaClient) Start() error {
 			WithClientName(c.Name).
 			WithGroupID(spec.groupID).
 			WithStartOffset(spec.startOffset).
-			WithCommitMode(spec.commitMode).
+			WithAckMode(spec.ackMode).
 			WithDLQTopic(spec.dlqTopic).
 			WithSubscriber(spec.subscriber).
 			WithWireFormat(c.wireFormat).
@@ -592,9 +601,7 @@ func (c *KafkaClient) DeliveryDisposition() bus.Disposition {
 // ─── Config processing ────────────────────────────────────────────────────────
 
 // renamedReceiverAttrs retires `commit_mode`, whose three values were the one
-// receiver-side settle policy under a Kafka-specific name — and whose third
-// value, `manual`, was already rejected because nothing could commit an offset
-// explicitly.
+// receiver-side settle policy under a Kafka-specific name.
 var renamedReceiverAttrs = cfg.RenameSpec{
 	Blocks: []cfg.RenamedInBlock{{
 		Type:   "receiver",
@@ -606,8 +613,8 @@ var renamedReceiverAttrs = cfg.RenameSpec{
 					Since: "0.46.0",
 					Note: "`commit_mode = \"after_process\"` was the default and is now the " +
 						"default `ack = \"auto\"`. `commit_mode = \"periodic\"` is " +
-						"`ack = \"periodic\"`. `commit_mode = \"manual\"` was already " +
-						"rejected and remains unavailable; see " +
+						"`ack = \"periodic\"`. `commit_mode = \"manual\"` never committed " +
+						"anything explicitly and is now `ack = \"manual\"`, which does — see " +
 						"[deprecations](deprecations.md#commit_mode--manual).",
 				},
 			},
@@ -1024,32 +1031,24 @@ func buildConsumerSpec(config *cfg.Config, clientName string, def ConsumerDefini
 		}}
 	}
 
-	// "manual" is refused rather than accepted-and-ignored, which is what the
-	// old commit_mode did: it did not merely fail to commit explicitly, it fell
-	// through to the Kafka client's own periodic autocommit, making it an alias
-	// for the weakest mode in the enum while documented as the strongest.
 	policy, ackDiags := config.ResolveAck(cfg.AckRequest{
-		Receiver:       fmt.Sprintf("kafka client %q receiver %q", clientName, def.Name),
-		Value:          def.Ack,
-		ValueRange:     def.AckRange,
-		QueueSize:      def.QueueSize,
-		QueueSizeRange: def.QueueSizeRange,
-		Extra:          cfg.AckPeriodic,
-		NoSettler: "Acknowledging one record is not the same as committing an offset: " +
-			"completing record 7 while 5 is still outstanding cannot commit anything " +
-			"without a low-water-mark tracker, which this receiver does not have. Use " +
-			"\"auto\" without a queue for at-least-once delivery, where the offset " +
-			"advances only once the record has been handled, or \"periodic\" to commit " +
-			"on a timer regardless of the outcome.",
-		DefRange: def.DefRange,
+		Receiver:      fmt.Sprintf("kafka client %q receiver %q", clientName, def.Name),
+		Value:         def.Ack,
+		ValueRange:    def.AckRange,
+		SettleTimeout: def.SettleTimeout,
+		Extra:         cfg.AckPeriodic,
+		DefRange:      def.DefRange,
 	})
 	if ackDiags.HasErrors() {
 		return spec, ackDiags
 	}
-	if policy.Mode == cfg.AckPeriodic {
-		spec.commitMode = kconsumer.CommitPeriodic
-	} else {
-		spec.commitMode = kconsumer.CommitAfterProcess
+	switch policy.Mode {
+	case cfg.AckPeriodic:
+		spec.ackMode = kconsumer.AckPeriodic
+	case cfg.AckManual:
+		spec.ackMode = kconsumer.AckManual
+	default:
+		spec.ackMode = kconsumer.AckAfterHandling
 	}
 
 	spec.dlqTopic = def.DLQTopic
@@ -1070,6 +1069,12 @@ func buildConsumerSpec(config *cfg.Config, clientName string, def ConsumerDefini
 	if diags.HasErrors() {
 		return spec, diags
 	}
+
+	// Bound how long a record may go unsettled, outside the async queue so the
+	// clock starts when the record arrives rather than when a worker reaches it.
+	// A no-op unless settle_timeout was written.
+	subscriber = cfg.NewSettleTimeoutSubscriber(policy, subscriber,
+		fmt.Sprintf("kafka/%s/%s", clientName, def.Name), config.UserLogger)
 
 	// Strip untrusted inbound baggage at this external boundary before it reaches
 	// the action. Secure by default: a nil baggage block strips everything; opt

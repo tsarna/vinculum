@@ -1010,22 +1010,29 @@ know:
 | `redis_stream` | Leaves the entry pending, for `reclaim_min_idle` and `dead_letter_after` | The log |
 | `sqs_receiver` | Leaves the message for its visibility timeout and the queue's redrive policy | The log |
 | `rabbitmq` | Rejects the message without requeueing it: the queue's dead-letter exchange takes it, or it is dropped | The log |
+| `kafka` | Reproduces the record to `dlq_topic` and lets the partition's committed offset move past it. With no `dlq_topic`, the offset stops at the record instead, so it and everything after it are handled again | A `vinculum-error` header on the dead-lettered record, or the log |
 
 **`inbound::keepalive()` extends a lease only where there is one.** A
 `redis_stream` entry is re-claimed for the same consumer, resetting its idle
 time; an `sqs_receiver` message has its visibility window extended. A `rabbitmq`
 delivery has no per-message lease at all — it is held for as long as its channel
-lives — so keepalive there returns `false` and does nothing.
+lives — and a `kafka` record has none either. Keepalive on those two returns
+`false` and does nothing.
 
 **A settle can arrive too late.** An SQS receipt handle expires with its
 visibility window; past it the message is back on the queue and may already be
 somewhere else. A RabbitMQ delivery tag means something only on the channel that
 issued it, and AMQP renumbers tags from 1 on each new channel, so a reconnect
-retires every tag outstanding at the time. Such a settle reaches the broker not
-at all, returns `false`, and logs why — "visibility timeout expired", "channel
-reconnected". The check exists rather than being left to the broker to reject
-because a stale acknowledgement is not merely a failed one on every protocol:
-where a tag has been renumbered it names a *different* message.
+retires every tag outstanding at the time. A Kafka record's partition can be
+revoked to another member of the consumer group, which is then reprocessing from
+the last committed offset — or the log beneath it can be truncated or expire, so
+the offsets the record names are no longer in the topic. Such a settle reaches
+the broker not at all, returns `false`, and logs why — "visibility timeout
+expired", "channel reconnected", "partition reassigned", "partition reset to an
+earlier offset". The check exists rather than being left to the broker to
+reject because a stale acknowledgement is not merely a failed one on every
+protocol: where a tag has been renumbered it names a *different* message, and
+where a partition has moved the offset it would advance is someone else's.
 
 **`settle_timeout` is required with `ack = "manual"`.** A message nothing
 settles is costing something for as long as it is outstanding, so forgetting to
