@@ -103,3 +103,21 @@ func TestRetiredAutoDeleteSaysWhatItBecame(t *testing.T) {
 	assert.Contains(t, msg, "0.46.0")
 	assert.Contains(t, msg, `ack = "manual"`)
 }
+
+// Likewise for concurrency, which moved for a different reason: partitions
+// arrived on this block meaning parallel processing, and two attributes a word
+// apart both reading as "how parallel" is the confusion the rename removes.
+func TestRetiredConcurrencySaysWhatItBecame(t *testing.T) {
+	_, hasErr, msg := build(t, receiverWith(`concurrency = 4`))
+	require.True(t, hasErr, "concurrency should no longer be accepted")
+	assert.Contains(t, msg, `"concurrency" is now "pollers"`)
+	assert.Contains(t, msg, "0.46.0")
+	assert.Contains(t, msg, "pollers = 4")
+}
+
+// And the new spelling loads, which is what makes the diagnostic above advice
+// rather than a dead end.
+func TestPollersIsAccepted(t *testing.T) {
+	_, hasErr, msg := build(t, receiverWith(`pollers = 4`))
+	require.False(t, hasErr, msg)
+}

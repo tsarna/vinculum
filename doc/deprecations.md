@@ -283,6 +283,37 @@ requires `settle_timeout` …
 A RabbitMQ `receiver`'s `declare { auto_delete }` is untouched — that is AMQP's
 delete-the-queue-when-unused, a different attribute in a different block.
 
+### `concurrency` on `client "sqs_receiver"`
+
+**Removed in 0.46.0.** Renamed to `pollers`. The value carries over unchanged:
+`concurrency = 4` becomes `pollers = 4`, and nothing about the behaviour is
+different.
+
+It was renamed because the same release gave every receiver a `partitions`
+attribute, which sets how many messages are *processed* in parallel behind a
+`queue_size` queue. That left `sqs_receiver` with two attributes a word apart
+that both read as "how parallel this is", meaning different things:
+
+| Attribute | Governs |
+| --- | --- |
+| `pollers` | How many loops **fetch** from SQS, each independently long-polling up to `max_messages` |
+| `partitions` | How many messages are **processed** at once behind a `queue_size` queue |
+
+The sentence to remember is **pollers fetch, partitions process**. They are
+independent knobs behind a queue: `pollers` sets how fast work arrives,
+`partitions` how fast it is handled. Without a queue each poller runs its own
+delivery, so the two collapse into one and raising `pollers` alone still adds
+processing concurrency.
+
+`vinculum check` names the replacement:
+
+```text
+"concurrency" is now "pollers" (since 0.46.0); The value carries over unchanged:
+`concurrency = 4` is now `pollers = 4`. …
+```
+
+No other block had a `concurrency` attribute, so nothing else changes.
+
 ### `redis::ack()`, `sqs::delete()`, `sqs::extend_visibility()`
 
 **Removed in 0.46.0.** Replaced by

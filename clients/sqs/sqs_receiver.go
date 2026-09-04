@@ -124,9 +124,15 @@ are deleted once handled, unless ` + "`ack`" + ` says otherwise.`,
 				"redrive policy decides when it has been tried enough, and the reason " +
 				"reaches the log only."),
 		"settle_timeout": cfg.SettleTimeoutAttr,
-		"concurrency": {
+		"pollers": {
 			Summary: "Number of polling loops run in parallel.",
-			Doc:     "Each polls independently, so this multiplies `max_messages` in flight.",
+			Doc: "Each polls independently, so this multiplies `max_messages` in flight. " +
+				"It is the fetching half of the pair: **pollers fetch, partitions " +
+				"process**. Behind a `queue_size` queue the two are independent — this " +
+				"sets how fast messages arrive, `partitions` how many are handled at " +
+				"once. With no queue each poller also runs its own delivery, so raising " +
+				"this alone does add processing concurrency, at the cost of tying the " +
+				"two together.",
 			Default: "1",
 		},
 		"on_decode_error": cfg.OnDecodeErrorAttr.WithContextFields(
@@ -165,7 +171,7 @@ type SQSReceiverDefinition struct {
 	Ack               string                       `hcl:"ack,optional"`
 	AckRange          hcl.Range                    `hcl:"ack,attr_range"`
 	SettleTimeout     hcl.Expression               `hcl:"settle_timeout,optional"`
-	Concurrency       *int                         `hcl:"concurrency,optional"`
+	Pollers           *int                         `hcl:"pollers,optional"`
 	WireFormat        hcl.Expression               `hcl:"wire_format,optional"`
 	Metrics           hcl.Expression               `hcl:"metrics,optional"`
 	Tracing           hcl.Expression               `hcl:"tracing,optional"`
@@ -187,9 +193,11 @@ func (c *SQSReceiverClient) Stop() error {
 }
 
 // renamedReceiverAttrs retires `auto_delete`, which was the Redis and RabbitMQ
-// behaviour under a third name. The rename is scoped to this block rather than
-// declared globally: `auto_delete` is a perfectly good attribute of a RabbitMQ
-// receiver's `declare` block, where it means something else entirely.
+// behaviour under a third name, and `concurrency`, which was the only attribute
+// in the language whose meaning depended on which block it was written in. Both
+// renames are scoped to this block rather than declared globally: `auto_delete`
+// is a perfectly good attribute of a RabbitMQ receiver's `declare` block, and
+// `concurrency` is not retired anywhere else.
 var renamedReceiverAttrs = cfg.RenameSpec{
 	Attrs: map[string]cfg.RenamedAttr{
 		"auto_delete": {
@@ -199,6 +207,15 @@ var renamedReceiverAttrs = cfg.RenameSpec{
 				"`auto_delete = false` is `ack = \"manual\"`, which also requires " +
 				"`settle_timeout` and is settled with `inbound::ack()` rather than the " +
 				"removed `sqs::delete()`.",
+		},
+		"concurrency": {
+			Now:   "pollers",
+			Since: "0.46.0",
+			Note: "The value carries over unchanged: `concurrency = 4` is now " +
+				"`pollers = 4`. It was renamed because `partitions` arrived on this " +
+				"same block meaning parallel *processing*, leaving two attributes a " +
+				"word apart that both read as \"how parallel\". Pollers fetch, " +
+				"partitions process.",
 		},
 	},
 }
@@ -345,8 +362,11 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 		builder = builder.WithMaxMessages(int32(*def.MaxMessages))
 	}
 	builder = builder.WithAutoDelete(!policy.Manual())
-	if def.Concurrency != nil {
-		builder = builder.WithConcurrency(*def.Concurrency)
+	// The library knob is still WithConcurrency: what 0.46.0 renamed is the VCL
+	// attribute, which sat one word away from `partitions` meaning something
+	// else. Inside vinculum-sqs there is nothing to collide with.
+	if def.Pollers != nil {
+		builder = builder.WithConcurrency(*def.Pollers)
 	}
 
 	// Vinculum topic resolution.

@@ -701,6 +701,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   type. `doc/server-auth.md` is now `doc/auth.md`, since it documents a block of its
   own rather than part of `server`.
 
+- **`client "sqs_receiver"`'s `concurrency` is renamed `pollers`.** The value carries
+  over unchanged — `concurrency = 4` becomes `pollers = 4` — and nothing about the
+  behaviour is different. It moves because this release gives every receiver a
+  `partitions` attribute, which sets how many messages are *processed* in parallel
+  behind a `queue_size` queue. That left one block carrying two attributes a word
+  apart that both read as "how parallel this is": **pollers fetch, partitions
+  process.** They are independent knobs behind a queue — `pollers` sets how fast work
+  arrives, `partitions` how fast it is handled — and without a queue each poller runs
+  its own delivery, so raising `pollers` alone still adds processing concurrency.
+  Writing the old name reports what it became rather than that the argument is not
+  expected here. No other block had a `concurrency` attribute. See
+  [deprecations](doc/deprecations.md#concurrency-on-client-sqs_receiver).
+
 - **`auth "oauth2"` is renamed `auth "introspection"`.** The old name claimed a whole
   framework but implemented one corner of it — RFC 7662 token introspection. `oidc` is
   equally OAuth2-based, so the pair implied the two were alternatives at the same

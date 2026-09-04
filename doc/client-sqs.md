@@ -290,8 +290,8 @@ client "sqs_receiver" "tasks" {
     # visibility_timeout = "30s"  # override queue's default
     ack = "auto"                  # auto | manual (manual also needs settle_timeout)
 
-    # Concurrency
-    concurrency = 1           # polling goroutines (default: 1)
+    # Concurrency: pollers fetch, partitions process
+    pollers = 1               # polling goroutines (default: 1)
 
     # Wire format for deserialization (default: "auto")
     # wire_format = "json"
@@ -312,9 +312,10 @@ rather than conflicting with it: the delivery travels on `ctx`, so under the
 default `ack = "auto"` the message is deleted when the work finishes, however
 many hops downstream that happens. A handler that fails leaves the message on
 the queue to reappear after the visibility timeout, and a full queue nacks
-rather than dropping. `concurrency` is the other answer and a different one —
-it runs the work in parallel rather than decoupling it from the poll loop. See
-[delivery model](config.md#delivery-model).
+rather than dropping. `pollers` is the other answer and a different one — it
+fetches faster rather than decoupling the work from the poll loop. Behind a
+queue, `partitions` is what runs the work in parallel: **pollers fetch,
+partitions process**. See [delivery model](config.md#delivery-model).
 
 <!-- vinculum:begin block-attrs client sqs_receiver level=3 -->
 
@@ -324,13 +325,13 @@ it runs the work in parallel rather than decoupling it from the poll loop. See
 | `ack` | string |  | `auto` | When a received message is settled with the broker. |
 | `action` | expression (action-expression) |  |  | Expression evaluated once per message. |
 | `aws` | expression (client-ref) |  |  | Shared AWS configuration to use. |
-| `concurrency` | number |  | `1` | Number of polling loops run in parallel. |
 | `disabled` | bool |  |  | Skip this block entirely. |
 | `max_messages` | number |  | `10` | Maximum messages to fetch per poll. |
 | `metrics` | expression (metrics-ref) |  |  | Where to report metrics. |
 | `on_decode_error` | expression (action-expression) |  |  | Evaluated when an inbound message cannot be decoded. |
 | `partition_key` | expression |  |  | Expression deciding which messages must stay in order. |
 | `partitions` | number |  | `1` | Number of messages that may be processed at once. |
+| `pollers` | number |  | `1` | Number of polling loops run in parallel. |
 | `queue_size` | number |  |  | Depth of an async queue wrapping the subscriber. |
 | `region` | string |  |  | AWS region to operate in. |
 | `settle_timeout` | expression (duration) |  |  | How long a message may go unsettled before it is nacked automatically. |
@@ -362,10 +363,6 @@ Evaluated against the `message` context.
 **`aws`**
 
 A `client "aws"` block. Without one, the default AWS credential chain is used.
-
-**`concurrency`**
-
-Each polls independently, so this multiplies `max_messages` in flight.
 
 **`disabled`**
 
@@ -406,6 +403,10 @@ Runs this many queues, each drained by its own goroutine, so that many messages 
 `queue_size` is per partition, so `queue_size = 500` with `partitions = 8` is up to 4000 messages buffered — reconcile that with whatever bounds in-flight messages on the source, such as a RabbitMQ `prefetch` or an SQS visibility timeout.
 
 Work that runs in parallel must tolerate running in parallel. Two partitions evaluating `set(ctx, var.n, get(var.n) + 1)` lose updates, whatever the key.
+
+**`pollers`**
+
+Each polls independently, so this multiplies `max_messages` in flight. It is the fetching half of the pair: **pollers fetch, partitions process**. Behind a `queue_size` queue the two are independent — this sets how fast messages arrive, `partitions` how many are handled at once. With no queue each poller also runs its own delivery, so raising this alone does add processing concurrency, at the cost of tying the two together.
 
 **`queue_size`**
 
@@ -767,6 +768,6 @@ client "sqs_receiver" "task_queue" {
     queue_url      = "https://sqs.us-east-1.amazonaws.com/123456789012/task-assignments"
     subscriber     = bus.main
     vinculum_topic = "tasks/incoming"
-    concurrency    = 3
+    pollers        = 3
 }
 ```
