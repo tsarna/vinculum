@@ -766,7 +766,8 @@ See `MCP-SPEC.md` (full spec) and `MCP-MVP.md` (MVP scope) for details.
   transport-independent, so identical in standalone and HTTP-mounted modes. The
   HTTP transport itself is separately wrapped with `otelhttp`. `tracing` /
   `metrics` block attributes resolve like `server "http"`. Session-duration
-  metrics are deferred (no SDK session-disconnect hook in go-sdk v1.6.1).
+  metrics are deferred (the SDK exposes no session-disconnect hook; still true
+  as of go-sdk v1.7.0).
 
 **Key design decisions:**
 - `mcp_*` functions live in `functions/mcp.go` and are included in `GetFunctions()` so bus subscriptions and other handlers can construct MCP values for future async support
