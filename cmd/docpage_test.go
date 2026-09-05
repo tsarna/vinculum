@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -100,9 +101,15 @@ func collectDocPages(path string, body *config.SchemaBody, into map[string][]str
 	}
 }
 
-var headingRe = regexp.MustCompile(`(?m)^#{1,6}\s+(.*)$`)
+var (
+	headingRe = regexp.MustCompile(`(?m)^#{1,6}\s+(.*)$`)
 
-// anchorsIn returns the set of GitHub heading anchors in a Markdown document.
+	// An explicit anchor is as linkable as a heading, and doc/container.md uses
+	// them to give stable ids to headings that are mostly punctuation.
+	explicitAnchorRe = regexp.MustCompile(`<a\s+(?:id|name)="([^"]+)"`)
+)
+
+// anchorsIn returns the set of GitHub anchors in a Markdown document.
 //
 // GitHub lowercases the heading, drops everything that is not a letter, digit,
 // space, hyphen, or underscore, and turns spaces into hyphens. That is enough
@@ -110,8 +117,13 @@ var headingRe = regexp.MustCompile(`(?m)^#{1,6}\s+(.*)$`)
 // approximate is acceptable in the direction it errs: a heading this
 // under-generates simply fails the check, which is a nudge to look, not a
 // silently accepted bad link.
+//
+// Two things beyond the heading text, because a link may legitimately name
+// either: an explicit `<a id="…">`, and the `-1`, `-2` suffixes GitHub appends
+// to the second and later headings that would otherwise collide.
 func anchorsIn(markdown string) map[string]bool {
 	anchors := map[string]bool{}
+	seen := map[string]int{}
 	inFence := false
 
 	for _, line := range strings.Split(markdown, "\n") {
@@ -122,11 +134,20 @@ func anchorsIn(markdown string) map[string]bool {
 		if inFence {
 			continue // a comment in a code block is not a heading
 		}
+		for _, m := range explicitAnchorRe.FindAllStringSubmatch(line, -1) {
+			anchors[m[1]] = true
+		}
 		m := headingRe.FindStringSubmatch(line)
 		if m == nil {
 			continue
 		}
-		anchors[anchorFor(m[1])] = true
+		anchor := anchorFor(m[1])
+		if n := seen[anchor]; n > 0 {
+			anchors[fmt.Sprintf("%s-%d", anchor, n)] = true
+		} else {
+			anchors[anchor] = true
+		}
+		seen[anchor]++
 	}
 	return anchors
 }
