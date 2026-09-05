@@ -50,8 +50,24 @@ jobs:
       # (internal/release), which checks the version-bearing files against the
       # release being built. Empty on an ordinary build, where it checks only
       # what must hold at every commit.
+      #
+      # Under -race, and only under -race: a good deal of what this repository
+      # does is concurrent — the bus delivery loop, the async queues, the
+      # partitioned dispatch, the teardown phases, the settle chain — and a data
+      # race in any of it produces wrong behaviour under load rather than a
+      # failing test. Some tests exist to be run this way and cannot fail
+      # otherwise, being detector canaries with no assertions of their own.
+      #
+      # It replaces the plain run rather than joining it. Measured over the
+      # whole suite the detector costs about seven seconds on top of
+      # twenty-six, which is not worth a second invocation, and `go build`
+      # above already covers the non-race compile.
+      #
+      # This gates releases as well as pushes, which is deliberate: a race is
+      # exactly the kind of defect that should stop a tag, and the reusable
+      # workflow exists so a tag cannot be held to a weaker standard.
       - name: Test
-        run: go test ./...
+        run: go test -race ./...
         env:
           VINCULUM_RELEASE_VERSION: ${{ inputs.release_version }}
 
