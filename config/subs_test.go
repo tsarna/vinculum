@@ -381,9 +381,19 @@ subscription "plain" {
 type blockingSubscriber struct {
 	bus.BaseSubscriber
 	release chan struct{}
+
+	// entered, when set, is closed the first time the worker reaches OnEvent.
+	// A test that needs the queue behind a *parked* worker has to wait for
+	// that: until it happens the worker may not have been scheduled at all,
+	// and the queue's own buffer is the only thing holding anything.
+	entered chan struct{}
+	once    sync.Once
 }
 
 func (b *blockingSubscriber) OnEvent(_ context.Context, _ string, _ any, _ map[string]string) error {
+	if b.entered != nil {
+		b.once.Do(func() { close(b.entered) })
+	}
 	<-b.release
 	return nil
 }
@@ -392,7 +402,9 @@ func (b *blockingSubscriber) OnEvent(_ context.Context, _ string, _ any, _ map[s
 // action that blocks fills, and what arrives after that is dropped and counted.
 func TestSubscriptionQueueCountsWhatItRefuses(t *testing.T) {
 	release := make(chan struct{})
-	cfg := newSubscriberSourceTestConfig(t, &blockingSubscriber{release: release})
+	entered := make(chan struct{})
+	cfg := newSubscriberSourceTestConfig(t,
+		&blockingSubscriber{release: release, entered: entered})
 
 	queueSize := 1
 	_, queue, diags := SubscriberSource{
@@ -408,8 +420,22 @@ func TestSubscriptionQueueCountsWhatItRefuses(t *testing.T) {
 
 	handle := &SubscriptionHandle{name: "slow", queue: queue}
 
-	// One message reaches the blocked worker, one fills the single slot, and
-	// everything after that is refused.
+	// Park the worker inside OnEvent before filling anything. Which state the
+	// twelve offers below produce depends entirely on whether it got there
+	// first: with the worker parked, one message sits in the single slot and
+	// eleven are refused, and the queue stays full for as long as the test
+	// looks. With the worker not yet scheduled, the slot is the only thing
+	// holding anything — so the worker drains it a moment later and the queue
+	// reads *empty* while the drops it already counted say it was full. That is
+	// the state this test was accidentally asserting against.
+	require.NoError(t, queue.OnEvent(context.Background(), "t", -1, nil))
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the worker never reached the blocking subscriber")
+	}
+
+	// One message fills the single slot, and everything after that is refused.
 	for i := 0; i < 12; i++ {
 		_ = queue.OnEvent(context.Background(), "t", i, nil)
 	}

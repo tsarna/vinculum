@@ -3,6 +3,7 @@ package redispubsub_test
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -217,6 +218,18 @@ client "redis_pubsub" "rps" {
 		}{topic, msg}
 	}))
 	require.NoError(t, err)
+
+	// Redis pub/sub drops whatever is published before a subscriber is
+	// listening, so a message that loses this race is gone rather than late.
+	// This config takes out two subscriptions — SUBSCRIBE alerts and
+	// PSUBSCRIBE devices.* — established one after the other, and publishing as
+	// soon as the client has started races the second of them. That is why the
+	// failure this guards against arrived as "got alerts, timed out on the
+	// second" rather than as a general slowness.
+	require.Eventually(t, func() bool {
+		return slices.Contains(mr.PubSubChannels("*"), "alerts") && mr.PubSubNumPat() >= 1
+	}, 5*time.Second, 5*time.Millisecond,
+		"both the channel and the pattern subscription should be live before anything is published")
 
 	// Publish two channels via a fresh goredis client.
 	pub := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
