@@ -369,8 +369,8 @@ func (h *BusBlockHandler) BuildEventBus(config *Config, busDef *BusDefinition, d
 	// past it. No Close: Stop abandons what is queued instead of dispatching
 	// it, so the only way to empty a bus is to let it run.
 	config.InFlight = append(config.InFlight, InFlightHolder{
-		Name:       "bus." + busDef.Name,
-		QueueDepth: eventBus.QueueDepth,
+		Name:    "bus." + busDef.Name,
+		Pending: eventBus.QueueDepth,
 	})
 
 	// Attributes can't be added on the fly, do we have to redefine the object to add each new bus

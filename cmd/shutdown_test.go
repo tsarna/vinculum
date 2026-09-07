@@ -43,8 +43,8 @@ func (r *recorder) Stop() error {
 // the other three.
 func (r *recorder) inFlight() config.InFlightHolder {
 	return config.InFlightHolder{
-		Name:       r.name,
-		QueueDepth: func() int { return 0 },
+		Name:    r.name,
+		Pending: func() int { return 0 },
 		Close: func() error {
 			*r.log = append(*r.log, "quiesce:"+r.name)
 			return nil
@@ -94,7 +94,7 @@ func TestDrainRunsInReverseRegistrationOrder(t *testing.T) {
 	host := &recorder{name: "host", log: &log}
 
 	cfg := &config.Config{Drainables: []config.Drainable{mounted, host}}
-	drain(cfg, zap.NewNop())
+	drain(cfg, zap.NewNop(), config.DefaultShutdownTimeout)
 
 	assert.Equal(t, []string{"drain:host", "drain:mounted"}, log)
 }
@@ -119,6 +119,49 @@ func TestDrainContinuesPastAFailure(t *testing.T) {
 type failingDrainable struct{}
 
 func (failingDrainable) Drain(context.Context) error { return context.DeadlineExceeded }
+
+// slowDrainable takes the whole budget it is given, as a listener with a stuck
+// request or a receiver with a stuck action does.
+//
+// The fallback is what keeps a regression legible: given no deadline at all it
+// returns anyway, so the phase costs three fallbacks and the test fails on the
+// elapsed time. Waiting only on the context would make the same regression hang
+// the package until some later timeout, which says nothing about what broke.
+type slowDrainable struct{}
+
+func (slowDrainable) Drain(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(2 * time.Second):
+		return nil
+	}
+}
+
+// The phase is bounded once for all of it, not once per component. Every
+// Drainable applies its own grace period too, so without a deadline here the
+// phase costs their sum — ten seconds per listener and per receiver, and then
+// quiesce's own on top. That is how a shutdown gets killed part-way through by
+// a termination grace period, leaving in flight exactly the work the phases
+// exist to finish.
+//
+// Mirrors TestQuiesceGivesUpAtItsDeadline, and its absence is why this went
+// unnoticed: the sum is only visible with more than one slow component, and
+// every test until now had one.
+func TestDrainGivesUpAtItsDeadlineForThePhaseNotPerComponent(t *testing.T) {
+	cfg := &config.Config{
+		Drainables: []config.Drainable{slowDrainable{}, slowDrainable{}, slowDrainable{}},
+	}
+
+	budget := 4 * quiesceInterval
+	start := time.Now()
+	drain(cfg, zap.NewNop(), budget)
+	elapsed := time.Since(start)
+
+	assert.GreaterOrEqual(t, elapsed, budget, "drain gave up before its budget")
+	assert.Less(t, elapsed, 3*budget,
+		"each Drainable got its own budget, so the phase cost their sum")
+}
 
 // gate is a subscriber that holds every delivery until the test releases it,
 // then counts it. Nothing here sleeps: the queue is provably still holding
@@ -156,7 +199,7 @@ func TestQuiesceRunsTheBacklogAQueueIsHolding(t *testing.T) {
 	require.Positive(t, queue.QueueDepth(), "the queue should still be holding the backlog")
 
 	cfg := &config.Config{InFlight: []config.InFlightHolder{{
-		Name: "subscription/slow", QueueDepth: queue.QueueDepth, Close: queue.Close,
+		Name: "subscription/slow", Pending: queue.QueueDepth, Close: queue.Close,
 	}}}
 
 	// Released once the phase is under way, so the wait is what the messages
@@ -191,7 +234,7 @@ func TestQuiesceRunsTheBacklogABusIsHolding(t *testing.T) {
 	}
 
 	cfg := &config.Config{InFlight: []config.InFlightHolder{{
-		Name: "bus.events", QueueDepth: events.QueueDepth,
+		Name: "bus.events", Pending: events.QueueDepth,
 	}}}
 
 	go func() {
@@ -220,7 +263,7 @@ func TestQuiesceWaitsForWorkTheQueueHasAlreadyDequeued(t *testing.T) {
 		close(g.open)
 	}()
 	quiesce(&config.Config{InFlight: []config.InFlightHolder{{
-		Name: "subscription/slow", QueueDepth: queue.QueueDepth, Close: queue.Close,
+		Name: "subscription/slow", Pending: queue.QueueDepth, Close: queue.Close,
 	}}}, zap.NewNop(), 5*time.Second)
 
 	assert.Equal(t, int64(1), g.handled.Load(),
@@ -231,7 +274,7 @@ func TestQuiesceWaitsForWorkTheQueueHasAlreadyDequeued(t *testing.T) {
 // phase's, so a holder that reports a depth forever costs one budget and not
 // one per holder.
 func TestQuiesceGivesUpAtItsDeadline(t *testing.T) {
-	stuck := config.InFlightHolder{Name: "bus.jammed", QueueDepth: func() int { return 7 }}
+	stuck := config.InFlightHolder{Name: "bus.jammed", Pending: func() int { return 7 }}
 
 	start := time.Now()
 	quiesce(&config.Config{InFlight: []config.InFlightHolder{stuck, stuck}}, zap.NewNop(),
@@ -251,7 +294,7 @@ func TestQuiesceGivesUpOnAQueueThatWillNotClose(t *testing.T) {
 
 	start := time.Now()
 	quiesce(&config.Config{InFlight: []config.InFlightHolder{{
-		Name: "subscription/stuck", QueueDepth: queue.QueueDepth, Close: queue.Close,
+		Name: "subscription/stuck", Pending: queue.QueueDepth, Close: queue.Close,
 	}}}, zap.NewNop(), 4*quiesceInterval)
 
 	assert.Less(t, time.Since(start), time.Second, "a hung action hung the shutdown")
@@ -321,7 +364,7 @@ subscription "audit" {
 	names := make([]string, 0, len(cfg.InFlight))
 	for _, holder := range cfg.InFlight {
 		names = append(names, holder.Name)
-		assert.NotNil(t, holder.QueueDepth, "%s registered no depth to wait on", holder.Name)
+		assert.NotNil(t, holder.Pending, "%s registered nothing to wait on", holder.Name)
 	}
 	assert.Equal(t, []string{"bus.events", "subscription/audit"}, names)
 

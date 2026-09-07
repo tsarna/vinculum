@@ -986,14 +986,28 @@ contributors is fixed for the life of the process and the sequence is always
 
 1. **Readiness goes false.** Before anything is torn down, so a probe arriving
    during the shutdown gets an honest `503` rather than a refused connection.
-2. **Listeners stop accepting** and finish the requests already in flight —
-   every `server` block, and any client that holds connections. Each applies its
-   own `shutdown_timeout` — see [`server "http"`](server-http.md).
+2. **Inbound work stops arriving.** Listeners stop accepting and finish the
+   requests already in flight — every `server` block, and any client that holds
+   connections; each applies its own `shutdown_timeout`, see
+   [`server "http"`](server-http.md). An **acknowledging receiver** —
+   `redis_stream`, `sqs_receiver`, `rabbitmq`, `kafka` — stops consuming from
+   its broker and finishes handling what it had already taken. It stays
+   connected, because the acknowledgements for everything it has handed over
+   have yet to arrive, and anything the broker had sent but it had not yet
+   taken is left unacknowledged, so the broker redelivers it on the next boot.
+
+   A `mqtt` or `redis_pubsub` receiver does not stop here, and keeps delivering
+   until step 5. Neither acknowledges anything, so nothing is owed and nothing
+   is redelivered — but a message either of them delivers during step 4 is new
+   work entering a pipeline that is being emptied, which is why a process under
+   continuous inbound load on one of those can spend the whole of step 4's
+   budget without reaching zero.
 3. **`trigger "shutdown"` actions run**, with the whole runtime still available
    behind the closed front door: they can publish, send, and call a client.
-4. **The message pipeline empties.** Every bus dispatches what is on its
-   channel, and every `queue_size` queue runs the backlog it is holding and
-   finishes the action it is running.
+4. **The work already accepted finishes.** Every bus dispatches what is on its
+   channel, every `queue_size` queue runs the backlog it is holding and finishes
+   the action it is running, and every receiver that drained in step 2 waits for
+   the deliveries it has handed out to be acknowledged.
 5. **Everything stops.** Connections close, clients disconnect, timers stop.
 
 Step 4 is what keeps a queue from being a hole in the guarantee. A
@@ -1005,24 +1019,43 @@ than left on a channel, and *before* step 5 because the acknowledgement for a
 message the pipeline is still carrying travels over a connection that step 5
 closes.
 
+Steps 2 and 4 are two halves of one thing for a receiver, and the split is the
+point. Draining stops it *reading*; it goes on acknowledging throughout step 4,
+because an acknowledgement follows the work rather than the delivery, and the
+work may be several hops from where the message arrived. Under `ack = "manual"`
+the wait covers whatever the configuration has not settled yet — a deployment
+that holds deliveries by design will spend the whole budget below at every
+shutdown, which is the cost of settling on its own schedule.
+
 The wait is bounded by ten seconds for the phase as a whole. What is still held
 when that expires is named in the log:
 
 ```text
 warn  Shutting down with messages still in flight  {"messages": 412,
-      "holders": ["subscription/enrich=412"]}
+      "holders": ["subscription/enrich=412",
+                  "redis_stream/cache/entries unsettled=3"]}
 ```
 
-Nothing new enters the pipeline during step 4 through a *listener*, since those
-closed in step 2. A client **receiver** consuming from a broker is still
-consuming, though, and a message it delivers during the wait is handled
-normally. One that arrives after the queues have closed is refused, which on an
-acknowledging transport means the broker redelivers it on the next boot.
+A receiver names what it still owes its broker, which is a different number from
+a queue's: the queue says where messages are *waiting*, the receiver says how
+many of them nobody has answered for yet. A receiver with a `queue_size` queue
+appears twice for that reason, once under each name.
 
-That is also the one shape in which the wait runs long: a pipeline saturated
-enough that it never momentarily empties will use the whole ten seconds before
-giving up. A pipeline that keeps up reaches zero within a sampling interval or
-two, so an ordinary shutdown is not measurably slower than it was.
+Whatever is still held when the budget expires is left as it is. On every
+transport that acknowledges, an unacknowledged message is one the broker
+redelivers, so the next boot picks it up — the cost of a shutdown that ran out
+of time is a duplicate, not lost work. Nothing is nacked on the way out: on
+three of the four transports a nack at that point changes nothing the close
+would not have done anyway, and on Kafka with `dlq_topic` set it would
+dead-letter a record whose only fault was arriving late in a shutdown.
+
+Nothing new enters the pipeline during step 4 through a listener, since those
+closed in step 2, nor through an acknowledging receiver, which stopped consuming
+there too. So for those the wait is over a backlog that only shrinks, and a
+process that keeps up reaches zero within a sampling interval or two — an
+ordinary shutdown is not measurably slower than it was. The exceptions are the
+two receivers named in step 2 and the `trigger` blocks, which run until step 5
+and can therefore put work into a pipeline that is being emptied.
 
 ---
 

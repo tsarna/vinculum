@@ -188,6 +188,19 @@ func (c *SQSReceiverClient) Start() error {
 	return c.receiver.Start(context.Background())
 }
 
+// Drain stops the receiver polling, in teardown's first phase, and leaves it
+// otherwise untouched: the SQS client stays usable and the messages already
+// delivered stay deletable. Those deletions arrive during the third phase, as
+// the pipeline empties, and Stop closes the door in the fourth.
+func (c *SQSReceiverClient) Drain(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, cfg.DefaultShutdownTimeout)
+	defer cancel()
+	return c.receiver.Drain(ctx)
+}
+
+// Stop closes the door. A receiver whose delivery outlasted the drain reports
+// it here rather than blocking on it, so the failure reaches the teardown log
+// instead of the process.
 func (c *SQSReceiverClient) Stop() error {
 	return c.receiver.Stop(context.Background())
 }
@@ -394,7 +407,23 @@ func processReceiver(config *cfg.Config, block *hcl.Block, remainingBody hcl.Bod
 	}
 
 	config.Startables = append(config.Startables, wrapper)
+	config.Drainables = append(config.Drainables, wrapper)
 	config.Stoppables = append(config.Stoppables, wrapper)
+
+	// What the receiver still owes SQS, for teardown's third phase. The queue
+	// this receiver feeds registers a holder of its own; this one is the hop
+	// past it, because a message is deleted when the work finishes rather than
+	// when the queue lets go of it, and the delete needs a usable client when
+	// it does.
+	//
+	// The suffix is what keeps the two apart in the give-up log line, which is
+	// this phase's only operator-facing output. They would otherwise share a
+	// name, and "which of these two numbers is the backlog" is exactly the
+	// question that line exists to answer.
+	config.InFlight = append(config.InFlight, cfg.InFlightHolder{
+		Name:    "sqs_receiver/" + clientName + " unsettled",
+		Pending: receiver.Unsettled,
+	})
 
 	return wrapper, nil
 }

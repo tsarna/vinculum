@@ -206,7 +206,7 @@ func shutdown(cfg *config.Config, logger *zap.Logger) {
 	// lossy one.
 	cfg.Health.BeginDrain()
 
-	drain(cfg, logger)
+	drain(cfg, logger, config.DefaultShutdownTimeout)
 	for i := len(cfg.PreStoppables) - 1; i >= 0; i-- {
 		if err := cfg.PreStoppables[i].PreStop(); err != nil {
 			logger.Error("Failed to pre-stop component", zap.Error(err))
@@ -220,21 +220,56 @@ func shutdown(cfg *config.Config, logger *zap.Logger) {
 	}
 }
 
-// drain closes the listeners and waits for in-flight work, in reverse
+// drain closes the listeners and stops the receivers consuming, in reverse
 // registration order. Because a server "http" block is processed after the
 // server it mounts, that order closes the front door first and only then the
-// connections held behind it.
+// connections held behind it — which is why this phase is sequential and stays
+// that way, even though the receivers in it have no ordering relationship at
+// all.
 //
-// Each Drainable enforces its own configured grace period beneath this
-// context, so the phase is bounded by the config rather than by a number
-// chosen here.
-func drain(cfg *config.Config, logger *zap.Logger) {
-	ctx := context.Background()
+// budget bounds the phase, not each component in it. Every Drainable also
+// applies its own grace period beneath this context, and the two compose the
+// right way round: whichever deadline is nearer wins, so one component cannot
+// spend more than what is left. Without this the phase cost the sum of them —
+// ten seconds per listener and per receiver, and then quiesce's own on top,
+// which is how a shutdown gets killed part-way through by a termination grace
+// period and leaves exactly the work in flight that all of this exists to
+// finish.
+//
+// The trade this makes is deliberate: under one deadline a slow component
+// leaves less for the ones after it, and a component that uses the whole budget
+// leaves none. That is worse for the individual and better for the process,
+// which is the same choice quiesce makes for the same reason.
+func drain(cfg *config.Config, logger *zap.Logger, budget time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
+	defer cancel()
+
 	for i := len(cfg.Drainables) - 1; i >= 0; i-- {
 		if err := cfg.Drainables[i].Drain(ctx); err != nil {
-			logger.Warn("Component did not drain cleanly", zap.Error(err))
+			logger.Warn("Component did not drain cleanly",
+				append(drainableName(cfg.Drainables[i]), zap.Error(err))...)
 		}
 	}
+	if ctx.Err() != nil {
+		logger.Warn("Shutting down before everything stopped accepting",
+			zap.Duration("budget", budget))
+	}
+}
+
+// drainableName names the component a drain failure belongs to, when it can say.
+//
+// Every server and every client carries a block name through BaseServer or
+// BaseClient, so in practice this always answers — but Drainable does not
+// require it, and a teardown phase is the wrong place to insist. Without it the
+// only identity in the line is whatever the component put in its error text,
+// which is a different amount of information per component and none at all for
+// some.
+func drainableName(d config.Drainable) []zap.Field {
+	named, ok := d.(interface{ GetName() string })
+	if !ok {
+		return nil
+	}
+	return []zap.Field{zap.String("component", named.GetName())}
 }
 
 // quiesceInterval is how often the pipeline is resampled while it empties. It
@@ -349,15 +384,17 @@ func closeQueues(cfg *config.Config, logger *zap.Logger, budget time.Duration) {
 	}
 }
 
-// pendingWork totals the messages the pipeline is still holding. A holder that
-// reports no depth is skipped rather than dereferenced: registering one is a
-// mistake, and teardown is the worst place in the process to answer a mistake
-// with a panic, since everything after it would go unstopped.
+// pendingWork totals the unfinished work the process is still holding: what is
+// queued in the pipeline, plus the deliveries a receiver has handed out and
+// nothing has settled. A holder that reports nothing is skipped rather than
+// dereferenced: registering one is a mistake, and teardown is the worst place
+// in the process to answer a mistake with a panic, since everything after it
+// would go unstopped.
 func pendingWork(cfg *config.Config) int {
 	total := 0
 	for _, holder := range cfg.InFlight {
-		if holder.QueueDepth != nil {
-			total += holder.QueueDepth()
+		if holder.Pending != nil {
+			total += holder.Pending()
 		}
 	}
 	return total
@@ -368,10 +405,10 @@ func pendingWork(cfg *config.Config) int {
 func pendingHolders(cfg *config.Config) []string {
 	var names []string
 	for _, holder := range cfg.InFlight {
-		if holder.QueueDepth == nil {
+		if holder.Pending == nil {
 			continue
 		}
-		if depth := holder.QueueDepth(); depth > 0 {
+		if depth := holder.Pending(); depth > 0 {
 			names = append(names, fmt.Sprintf("%s=%d", holder.Name, depth))
 		}
 	}

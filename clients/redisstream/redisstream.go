@@ -5,6 +5,7 @@ package redisstream
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -264,11 +265,42 @@ func (c *RedisStreamClient) Start() error {
 	return nil
 }
 
-func (c *RedisStreamClient) Stop() error {
-	for _, cc := range c.consumers {
-		_ = cc.Stop()
+// Drain stops every consumer reading, in teardown's first phase, and leaves
+// them otherwise untouched: the Redis connection stays up and the entries
+// already delivered stay acknowledgeable. Those acknowledgements arrive during
+// the third phase, as the pipeline empties, and Stop closes the door in the
+// fourth.
+//
+// Each consumer gets the whole grace period rather than a share of it. They
+// stop reading concurrently — the wait is for deliveries in flight, and one
+// consumer's slow action is no reason to cut another's short.
+func (c *RedisStreamClient) Drain(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, cfg.DefaultShutdownTimeout)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	errs := make([]error, len(c.consumers))
+	for i, cc := range c.consumers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = cc.Drain(ctx)
+		}()
 	}
-	return nil
+	wg.Wait()
+
+	return errors.Join(errs...)
+}
+
+// Stop closes the door. A consumer whose delivery outlasted the drain reports
+// it here rather than blocking on it, so the failure reaches the teardown log
+// instead of the process.
+func (c *RedisStreamClient) Stop() error {
+	errs := make([]error, 0, len(c.consumers))
+	for _, cc := range c.consumers {
+		errs = append(errs, cc.Stop())
+	}
+	return errors.Join(errs...)
 }
 
 // CtyValue names the client's producers, which are the parts of it a
@@ -469,6 +501,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 
 	if len(consumers) > 0 {
 		config.Startables = append(config.Startables, wrapper)
+		config.Drainables = append(config.Drainables, wrapper)
 		config.Stoppables = append(config.Stoppables, wrapper)
 	}
 
@@ -799,7 +832,24 @@ func buildConsumer(config *cfg.Config, connector redisclient.RedisConnector, cli
 		)
 	}
 
-	return b.Build(), nil
+	consumer := b.Build()
+
+	// What the consumer still owes Redis, for teardown's third phase. The
+	// queue this receiver feeds registers a holder of its own; this one is the
+	// hop past it, because an entry settles when the work finishes rather than
+	// when the queue lets go of it, and the XACK needs the connection still
+	// open when it does.
+	//
+	// The suffix is what keeps the two apart in the give-up log line, which is
+	// this phase's whole operator-facing output. They would otherwise share a
+	// name, and "which of these two numbers is the backlog" is exactly the
+	// question that line exists to answer.
+	config.InFlight = append(config.InFlight, cfg.InFlightHolder{
+		Name:    fmt.Sprintf("redis_stream/%s/%s unsettled", clientName, def.Name),
+		Pending: consumer.Unsettled,
+	})
+
+	return consumer, nil
 }
 
 // resolveConsumerName evaluates consumer_name or falls back to a hostname-

@@ -405,6 +405,12 @@ type RMQClientWrapper struct {
 	mu      sync.RWMutex
 	client  *rmqclient.Client
 	senders []*rmqsender.RMQSender
+	// receivers is keyed by receiver block name and populated at Start, which
+	// is where the library objects are built. Teardown's third phase reads
+	// their unsettled counts, and it registers a holder per receiver at config
+	// time — before any of these exist — so the lookup goes through here rather
+	// than closing over an object that is not there yet.
+	receivers map[string]*rmqreceiver.RMQReceiver
 	// report tells the health subsystem the connection changed, so a drop is
 	// visible at once rather than at the next probe. Set at registration, which
 	// happens after this client is built and before anything starts.
@@ -485,6 +491,7 @@ func (c *RMQClientWrapper) Start() error {
 		senders = append(senders, s)
 	}
 
+	receivers := make(map[string]*rmqreceiver.RMQReceiver, len(c.receiverSpecs))
 	for _, spec := range c.receiverSpecs {
 		b := rmqreceiver.NewReceiver().
 			WithClientName(c.Name).
@@ -513,6 +520,7 @@ func (c *RMQClientWrapper) Start() error {
 			return fmt.Errorf("rabbitmq client %q receiver %q: %w", c.Name, spec.name, err)
 		}
 		cli.AddReceiver(r)
+		receivers[spec.name] = r
 	}
 
 	// Published before the connection is launched, so Ready has something to
@@ -522,6 +530,7 @@ func (c *RMQClientWrapper) Start() error {
 	c.mu.Lock()
 	c.client = cli
 	c.senders = senders
+	c.receivers = receivers
 	c.mu.Unlock()
 
 	// Start no longer dials — it launches the connect-and-watch loop and
@@ -560,6 +569,31 @@ func (c *RMQClientWrapper) Ready(context.Context) error {
 	return nil
 }
 
+// Drain withdraws every receiver's consumer, in teardown's first phase, and
+// leaves the connection alone: the channels stay open and every delivery tag
+// handed out stays good, so the acknowledgements for work still in flight
+// arrive during the third phase. Stop closes the door in the fourth.
+//
+// On AMQP the distinction is sharper than elsewhere — a delivery tag means
+// nothing except on the channel that issued it, so a receiver that stopped
+// consuming by giving up its channel would invalidate every outstanding
+// acknowledgement in the act of stopping.
+func (c *RMQClientWrapper) Drain(ctx context.Context) error {
+	c.mu.RLock()
+	cli := c.client
+	c.mu.RUnlock()
+	if cli == nil {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, cfg.DefaultShutdownTimeout)
+	defer cancel()
+	return cli.Drain(ctx)
+}
+
+// Stop closes the door. A receiver whose delivery outlasted the drain reports
+// it here rather than blocking on it, so the failure reaches the teardown log
+// instead of the process.
 func (c *RMQClientWrapper) Stop() error {
 	c.mu.RLock()
 	cli := c.client
@@ -568,6 +602,17 @@ func (c *RMQClientWrapper) Stop() error {
 		return nil
 	}
 	return cli.Stop()
+}
+
+// unsettled reports what one receiver still owes the broker, or zero before the
+// client has started and built it. Teardown's third phase reads this.
+func (c *RMQClientWrapper) unsettled(name string) int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if r, ok := c.receivers[name]; ok {
+		return r.Unsettled()
+	}
+	return 0
 }
 
 // OnEvent fans an event out to all senders. Errors from individual senders
@@ -806,7 +851,31 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	wrapper.tracerProvider = tracerProvider
 
 	config.Startables = append(config.Startables, wrapper)
+	if len(receiverSpecs) > 0 {
+		config.Drainables = append(config.Drainables, wrapper)
+	}
 	config.Stoppables = append(config.Stoppables, wrapper)
+
+	// What each receiver still owes the broker, for teardown's third phase. The
+	// queue a receiver feeds registers a holder of its own; this one is the hop
+	// past it, because a delivery is acknowledged when the work finishes rather
+	// than when the queue lets go of it, and the ack needs the channel still
+	// open when it does.
+	//
+	// The suffix is what keeps the two apart in the give-up log line, which is
+	// this phase's only operator-facing output. They would otherwise share a
+	// name, and "which of these two numbers is the backlog" is exactly the
+	// question that line exists to answer.
+	//
+	// Registered from the spec rather than from the receiver, which does not
+	// exist until Start; the closure looks it up by name when asked.
+	for _, spec := range receiverSpecs {
+		name := spec.name
+		config.InFlight = append(config.InFlight, cfg.InFlightHolder{
+			Name:    fmt.Sprintf("rabbitmq/%s/%s unsettled", clientName, name),
+			Pending: func() int { return wrapper.unsettled(name) },
+		})
+	}
 
 	return wrapper, nil
 }

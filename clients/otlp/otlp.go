@@ -320,14 +320,26 @@ func (c *OtlpClientImpl) Start() error {
 	return nil
 }
 
+// Stop flushes whatever telemetry is still buffered and shuts the exporters
+// down.
+//
+// Bounded, and the two share one deadline. Each Shutdown flushes its batch
+// processor to a collector that may not be answering — telemetry is the one
+// thing a process keeps producing while it dies, so an unreachable collector is
+// exactly the case — and an unbounded flush there would hold the process open
+// for as long as the collector stayed silent. Losing the last batch of spans is
+// a worse outcome than losing them *and* not exiting.
 func (c *OtlpClientImpl) Stop() error {
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.DefaultShutdownTimeout)
+	defer cancel()
+
 	if c.meterProvider != nil {
-		if err := c.meterProvider.Shutdown(context.Background()); err != nil {
+		if err := c.meterProvider.Shutdown(ctx); err != nil {
 			return fmt.Errorf("client \"otlp\" %q: metric shutdown: %w", c.Name, err)
 		}
 	}
 	if c.tracerProvider != nil {
-		if err := c.tracerProvider.Shutdown(context.Background()); err != nil {
+		if err := c.tracerProvider.Shutdown(ctx); err != nil {
 			return fmt.Errorf("client \"otlp\" %q: trace shutdown: %w", c.Name, err)
 		}
 	}

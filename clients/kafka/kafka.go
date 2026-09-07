@@ -388,10 +388,16 @@ type KafkaClient struct {
 	tracerProvider  trace.TracerProvider
 	logger          *zap.Logger
 
-	mu         sync.RWMutex
-	kgoClient  *kgo.Client
-	producers  []*kproducer.KafkaProducer
-	consumers  []*kconsumer.KafkaConsumer
+	mu        sync.RWMutex
+	kgoClient *kgo.Client
+	producers []*kproducer.KafkaProducer
+	consumers []*kconsumer.KafkaConsumer
+	// byName maps a receiver block's name to its consumer, populated at Start
+	// where the library objects are built. Teardown's third phase reads their
+	// unsettled counts, and it registers a holder per receiver at config time —
+	// before any of these exist — so the lookup goes through here rather than
+	// closing over an object that is not there yet.
+	byName     map[string]*kconsumer.KafkaConsumer
 	consCancel context.CancelFunc
 }
 
@@ -458,6 +464,7 @@ func (c *KafkaClient) Start() error {
 
 	consumerCtx, consCancel := context.WithCancel(context.Background())
 	consumers := make([]*kconsumer.KafkaConsumer, 0, len(c.consSpecs))
+	byName := make(map[string]*kconsumer.KafkaConsumer, len(c.consSpecs))
 
 	for _, spec := range c.consSpecs {
 		b := kconsumer.NewConsumer().
@@ -479,7 +486,9 @@ func (c *KafkaClient) Start() error {
 		if err != nil {
 			consCancel()
 			for _, c2 := range consumers {
-				c2.Stop()
+				// Discarded: no drain has run on this path, so Stop has nothing
+				// to report but the failure already being returned below.
+				_ = c2.Stop()
 			}
 			if kgoClient != nil {
 				kgoClient.Close()
@@ -489,7 +498,9 @@ func (c *KafkaClient) Start() error {
 		if err := cons.Start(consumerCtx); err != nil {
 			consCancel()
 			for _, c2 := range consumers {
-				c2.Stop()
+				// Discarded: no drain has run on this path, so Stop has nothing
+				// to report but the failure already being returned below.
+				_ = c2.Stop()
 			}
 			if kgoClient != nil {
 				kgoClient.Close()
@@ -497,12 +508,14 @@ func (c *KafkaClient) Start() error {
 			return fmt.Errorf("kafka client %q consumer %q start: %w", c.Name, spec.name, err)
 		}
 		consumers = append(consumers, cons)
+		byName[spec.name] = cons
 	}
 
 	c.mu.Lock()
 	c.kgoClient = kgoClient
 	c.producers = producers
 	c.consumers = consumers
+	c.byName = byName
 	c.consCancel = consCancel
 	c.mu.Unlock()
 
@@ -526,6 +539,40 @@ func (c *KafkaClient) Ready(ctx context.Context) error {
 	return kgoClient.Ping(ctx)
 }
 
+// Drain stops every consumer polling, in teardown's first phase, and leaves the
+// rest alone: the client stays in its consumer group, so the marks that records
+// still in flight will move are still committable when they settle. Stop is
+// what leaves the group, and leaving replays every offset not yet committed
+// wherever the partitions land next.
+//
+// Every consumer drains at once, under the one deadline. They are independent,
+// and what is being waited for is dispatch — one consumer's slow action is no
+// reason to cut another's short.
+func (c *KafkaClient) Drain(ctx context.Context) error {
+	c.mu.RLock()
+	consumers := c.consumers
+	c.mu.RUnlock()
+
+	ctx, cancel := context.WithTimeout(ctx, cfg.DefaultShutdownTimeout)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	errs := make([]error, len(consumers))
+	for i, cons := range consumers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = cons.Drain(ctx)
+		}()
+	}
+	wg.Wait()
+
+	return errors.Join(errs...)
+}
+
+// Stop closes the door. A consumer whose record outlasted the drain reports it
+// here rather than blocking on it, so the failure reaches the teardown log
+// instead of the process.
 func (c *KafkaClient) Stop() error {
 	c.mu.RLock()
 	kgoClient := c.kgoClient
@@ -536,18 +583,38 @@ func (c *KafkaClient) Stop() error {
 	if consCancel != nil {
 		consCancel()
 	}
+	stopErrs := make([]error, 0, len(consumers))
 	for _, cons := range consumers {
-		cons.Stop()
+		stopErrs = append(stopErrs, cons.Stop())
 	}
 
 	if kgoClient != nil {
-		if err := kgoClient.Flush(context.Background()); err != nil {
-			c.logger.Error("kafka: flush on shutdown failed", zap.String("client", c.Name), zap.Error(err))
+		// Bounded, because a flush waits for the broker to acknowledge every
+		// buffered record and a broker that has stopped answering would
+		// otherwise hold the process here for as long as it stays silent. The
+		// records that do not make it out are lost either way; what this
+		// decides is whether the process can leave.
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.DefaultShutdownTimeout)
+		if err := kgoClient.Flush(ctx); err != nil {
+			c.logger.Error("kafka: flush on shutdown failed",
+				zap.String("client", c.Name), zap.Error(err))
 		}
+		cancel()
 		kgoClient.Close()
 	}
 
-	return nil
+	return errors.Join(stopErrs...)
+}
+
+// unsettled reports what one consumer still owes Kafka, or zero before the
+// client has started and built it. Teardown's third phase reads this.
+func (c *KafkaClient) unsettled(name string) int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if cons, ok := c.byName[name]; ok {
+		return cons.Unsettled()
+	}
+	return 0
 }
 
 func (c *KafkaClient) OnEvent(ctx context.Context, topic string, msg any, fields map[string]string) error {
@@ -850,7 +917,31 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 	}
 
 	config.Startables = append(config.Startables, client)
+	if len(client.consSpecs) > 0 {
+		config.Drainables = append(config.Drainables, client)
+	}
 	config.Stoppables = append(config.Stoppables, client)
+
+	// What each consumer still owes Kafka, for teardown's third phase. The
+	// queue a receiver feeds registers a holder of its own; this one is the hop
+	// past it, because a record's mark moves when the work finishes rather than
+	// when the queue lets go of it, and the mark has to be committed before the
+	// client leaves the group.
+	//
+	// The suffix is what keeps the two apart in the give-up log line, which is
+	// this phase's only operator-facing output. They would otherwise share a
+	// name, and "which of these two numbers is the backlog" is exactly the
+	// question that line exists to answer.
+	//
+	// Registered from the spec rather than from the consumer, which does not
+	// exist until Start; the closure looks it up by name when asked.
+	for _, spec := range client.consSpecs {
+		name := spec.name
+		config.InFlight = append(config.InFlight, cfg.InFlightHolder{
+			Name:    fmt.Sprintf("kafka/%s/%s unsettled", client.Name, name),
+			Pending: func() int { return client.unsettled(name) },
+		})
+	}
 
 	return client, nil
 }

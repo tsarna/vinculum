@@ -870,6 +870,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a connection to travel over. The wait is bounded at ten seconds for the phase;
   what is still held when that expires is named in the log.
 
+- **A client receiver now stops consuming at the start of a shutdown rather
+  than the end of one.** Every one of them — `redis_stream`, `sqs_receiver`,
+  `rabbitmq` and `kafka` — read from its broker until the moment its connection
+  closed, so the phase above spent its budget draining a pipeline that was still
+  being fed, and messages taken in the last moments of the process were the ones
+  most likely to go unacknowledged and be redelivered.
+
+  Draining and stopping are now separate. A receiver stops reading in the first
+  phase, alongside the listeners, and stays connected: the messages it has
+  already handed over are still travelling, and the `XACK` or `DeleteMessage`
+  for each arrives over that connection during the phase above. It also reports
+  what it still owes the broker, so the wait covers an acknowledgement the
+  configuration has not made yet — under `ack = "manual"` the pipeline can be
+  empty while the process still owes an answer, and those are not the same
+  thing. A receiver with `pollers` set stops every one of them.
+
+  Whatever is still outstanding when the budget expires is named in the log and
+  left alone. An unacknowledged message is one the broker redelivers, so the
+  cost of a shutdown that ran out of time is a duplicate rather than lost work.
+
+  On RabbitMQ the receiver withdraws its consumer rather than closing anything,
+  which matters twice over. A delivery tag means nothing except on the channel
+  that issued it, so a receiver that stopped consuming by giving up its channel
+  would invalidate every outstanding acknowledgement in the act of stopping.
+  And withdrawing leaves the broker to close the delivery stream *behind* what
+  it has already sent, so the prefetched backlog — up to `prefetch` messages,
+  ten by default — is handled rather than abandoned.
+
+  One visible consequence: a receiver now registers its consumer under a name
+  of its own, `vinculum-<client>-<queue>`, where a generated `ctag-…` string
+  used to appear. Withdrawing a consumer means naming it, and the generated tag
+  is not returned to the caller. It shows up in `rabbitmqctl list_consumers`
+  and in the management UI, which is an improvement on what was there before.
+
+  On Kafka the receiver keeps its group membership through the drain, which is
+  what lets a mark moved by work still in flight be committed before the client
+  leaves. Leaving the group is what replays every offset not yet committed, so
+  the order matters: stop consuming, let the work finish and commit, and only
+  then leave.
+
 - **`increment()` with no delta no longer fails.** The delta is documented as
   optional — `increment(var.hits)` adds one — but a variable, a gauge and a
   counter all read it positionally, so the documented spelling produced a Go

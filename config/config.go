@@ -84,10 +84,11 @@ type PreStoppable interface {
 }
 
 // Drainable is implemented by components that accept inbound work from the
-// outside world — listeners and the connections they hold. Drain() is called
-// in reverse registration order as the *first* phase of teardown, before any
-// PreStop() or Stop(), so that nothing new arrives while the runtime the
-// handlers depend on (clients, buses, subscriptions) is being torn down.
+// outside world: listeners and the connections they hold, and the client
+// receivers that consume from a broker. Drain() is called in reverse
+// registration order as the *first* phase of teardown, before any PreStop() or
+// Stop(), so that nothing new arrives while the runtime the handlers depend on
+// (clients, buses, subscriptions) is being torn down.
 //
 // Draining before PreStop rather than during it is what makes the ordering
 // deterministic: PreStoppables also carry the user's `trigger "shutdown"`
@@ -100,41 +101,54 @@ type PreStoppable interface {
 // by the caller. Returning a context error is normal — it means in-flight work
 // outlasted the grace period — and an implementation must force-close rather
 // than keep blocking once its deadline passes.
+//
+// A receiver drains by stopping its poll loop and nothing else. What it must
+// *not* do is close its transport or invalidate the settlers it has handed
+// out: the acknowledgement for a message the pipeline is still carrying travels
+// back over that connection, and the pipeline does not empty until the third
+// phase. Closing belongs to Stop, which runs after it.
 type Drainable interface {
 	Drain(ctx context.Context) error
 }
 
-// InFlightHolder describes one place a message waits between being accepted
-// and being worked on: an event bus's dispatch channel, or the queue
-// `queue_size` puts in front of a subscriber. Teardown's third phase waits for
-// every registered holder to empty before the fourth closes the transports,
-// so an acknowledgement that follows the work still has something to travel
-// over when the work finishes.
+// InFlightHolder describes one place a message is still the process's
+// responsibility: an event bus's dispatch channel, the queue `queue_size` puts
+// in front of a subscriber, or a client receiver holding deliveries nothing has
+// acknowledged yet. Teardown's third phase waits for every registered holder to
+// report empty before the fourth closes the transports, so an acknowledgement
+// that follows the work still has something to travel over when the work
+// finishes.
 //
-// It is a value rather than an interface because the two things the phase needs
-// are already methods on the components — bus.EventBus.QueueDepth and
-// AsyncQueueingSubscriber.QueueDepth and Close — under names an interface would
-// only rename. What is *not* on either is the name to report, so registration
-// supplies it.
+// It is a value rather than an interface because what the phase needs is
+// already a method on each component under a name of that component's own —
+// a depth on a bus and on an async queue, an unsettled count on a receiver.
+// What is on none of them is the name to report, so registration supplies it.
 //
-// Every holder registers, whatever the topology: the phase waits for all
-// depths to reach zero rather than emptying them in flow order, because no
+// Every holder registers, whatever the topology: the phase waits for all of
+// them to reach zero rather than emptying them in flow order, because no
 // registration order is flow order. A `subscription` names its source
 // (`target = bus.x`), so its bus is registered first and is upstream; a client
 // receiver names its destination (`subscriber = bus.main`), so its bus is
 // registered first and is downstream. Waiting is what makes both correct.
 type InFlightHolder struct {
 	// Name is what the shutdown log calls this holder if it does not empty:
-	// `bus.events`, `subscription/audit`.
+	// `bus.events`, `subscription/audit`, `redis_stream/cache/entries unsettled`.
+	//
+	// Distinct per holder, which takes saying because one component registers
+	// two: a receiver's queue and the receiver behind it are named for the same
+	// block, and a line reporting two identical names with two different
+	// numbers answers nothing.
 	Name string
 
-	// QueueDepth reports how many messages are waiting. Required: a holder that
-	// cannot say is one the phase cannot wait for.
+	// Pending reports how much unfinished work the holder is carrying —
+	// messages waiting on a queue, or deliveries handed out and not yet
+	// settled. Required: a holder that cannot say is one the phase cannot wait
+	// for.
 	//
-	// A depth of zero is not quite proof of quiescence — the last message may
-	// have been taken off the queue and still be running — which is why the
-	// phase samples twice and then closes what can be closed.
-	QueueDepth func() int
+	// Zero is not quite proof of quiescence — the last message may have been
+	// taken off the queue and still be running — which is why the phase samples
+	// twice and then closes what can be closed.
+	Pending func() int
 
 	// Close finishes everything the holder is still carrying and returns, or is
 	// nil when the component has no such operation. An async queue's Close
@@ -142,7 +156,9 @@ type InFlightHolder struct {
 	// and it leaves the queue refusing further messages rather than accepting
 	// ones nothing will run. A bus registers none: its Stop abandons whatever
 	// is in the channel instead of dispatching it, so waiting is the only way
-	// to empty one.
+	// to empty one. Nor does a receiver: what it holds are deliveries belonging
+	// to a broker, and the only way to finish one is for something to settle
+	// it — which is what the waiting is for.
 	Close func() error
 }
 

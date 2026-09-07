@@ -98,7 +98,7 @@ func TestExamplesAreValid(t *testing.T) {
 			if cfg != nil {
 				// Teardown in the order `vinculum check` uses, so a Drainable
 				// that acquires something at construction still gets released.
-				drain(cfg, zap.NewNop())
+				drain(cfg, zap.NewNop(), config.DefaultShutdownTimeout)
 				for i := len(cfg.Stoppables) - 1; i >= 0; i-- {
 					cfg.Stoppables[i].Stop() //nolint:errcheck
 				}

@@ -298,9 +298,9 @@ func (s SubscriberSource) ResolveQueue(
 		// whatever it had not run yet. Registering here covers every block that
 		// accepts the pattern, since this is the only place one is built.
 		config.InFlight = append(config.InFlight, InFlightHolder{
-			Name:       name,
-			QueueDepth: async.QueueDepth,
-			Close:      async.Close,
+			Name:    name,
+			Pending: async.QueueDepth,
+			Close:   async.Close,
 		})
 	}
 

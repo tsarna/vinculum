@@ -48,16 +48,16 @@ require (
 	github.com/tsarna/sqid-cty-funcs v0.2.0
 	github.com/tsarna/time-cty-funcs v0.4.0
 	github.com/tsarna/vinculum-bus v0.20.0
-	github.com/tsarna/vinculum-kafka v0.14.0
+	github.com/tsarna/vinculum-kafka v0.15.0
 	github.com/tsarna/vinculum-mqtt v0.12.1
-	github.com/tsarna/vinculum-rabbitmq v0.8.0
-	github.com/tsarna/vinculum-redis v0.8.0
+	github.com/tsarna/vinculum-rabbitmq v0.9.0
+	github.com/tsarna/vinculum-redis v0.9.0
 	github.com/tsarna/vinculum-sns v0.3.0
-	github.com/tsarna/vinculum-sqs v0.6.0
+	github.com/tsarna/vinculum-sqs v0.7.0
 	github.com/tsarna/vinculum-vws v0.14.1
 	github.com/tsarna/vinculum-wire v0.5.0
 	github.com/twmb/franz-go v1.21.6
-	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260901041101-98fab8994d34
+	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260906002741-ab55e0424097
 	github.com/twmb/franz-go/plugin/kotel v1.7.0
 	github.com/yosida95/uritemplate/v3 v3.0.2
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
