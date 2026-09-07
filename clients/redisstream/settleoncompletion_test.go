@@ -148,10 +148,18 @@ client "redis_stream" "rs" {
 	wrapper := c.Clients["redis_stream"]["rs"].(*redisstream.RedisStreamClient)
 	require.NoError(t, wrapper.OnEvent(context.Background(), "x", "hi", nil))
 
+	// Wait on the counter, not on the pending list, because the pending list is
+	// zero at both ends of this: before the consumer claims the entry and again
+	// after it acknowledges it. Polling for a zero that is already there
+	// resolves on the first tick, and the count below then reports on a
+	// delivery that has not happened — which is how this failed on CI while
+	// passing thirty consecutive runs here. The counter only ever rises, so it
+	// is a barrier rather than a coincidence.
+	require.Eventually(t, func() bool { return c.Buses["main"].UndeliveredTotal() == 1 },
+		3*time.Second, 20*time.Millisecond,
+		"the entry should reach the end of the bus's routing and be counted there")
+
 	assert.Eventually(t, func() bool { return pendingCount(mr.Addr()) == 0 },
 		3*time.Second, 20*time.Millisecond,
 		"nothing wanted it and nothing asked to be told, so it is acknowledged")
-
-	assert.EqualValues(t, 1, c.Buses["main"].UndeliveredTotal(),
-		"and it is counted, which is the diagnostic for a pattern that should have matched")
 }
