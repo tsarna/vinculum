@@ -74,8 +74,8 @@ var AckAttr = AttrMeta{
 // Optional under `auto` for a different reason: the framework settles at a
 // known point, so a configuration that asks for no bound is no worse off than
 // it was. Whether `auto` should derive one from the broker's own lease is left
-// to specs/SETTLE-ON-SHUTDOWN.md, which needs a bound of its own and would
-// otherwise have to agree with one chosen here.
+// open, because shutdown needs a bound of its own and would otherwise have to
+// agree with one chosen here.
 var SettleTimeoutAttr = AttrMeta{
 	Summary: "How long a message may go unsettled before it is nacked automatically.",
 	Doc: "Required with `ack = \"manual\"`, where nothing settles the message until the " +

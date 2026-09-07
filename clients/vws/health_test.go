@@ -159,7 +159,7 @@ client "vws" "peer" {
 }
 
 // The client reports no readiness on purpose, because nothing connects it. See
-// the note on init() in vws.go, and specs/VWS-CLIENT-GAP.md. These pin that,
+// the note on init() in vws.go. These pin that,
 // because the instinct on seeing a client with no Ready() is to add one — the
 // method is right there, commented out, and looks like an oversight.
 

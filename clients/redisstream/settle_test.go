@@ -154,7 +154,7 @@ subscription "second" {
 }
 
 // The settle survives every hop: an async queue, then a bus, then a
-// subscription's action. This is the test that proves specs/CONTEXT-ACK.md §11.
+// subscription's action.
 //
 // queue_size makes delivery return at the moment the entry is queued, which is
 // what couples an auto acknowledgement to the wrong outcome — the receiver

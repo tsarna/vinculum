@@ -81,7 +81,7 @@ func deadLetteredQueue(t *testing.T, e brokerEnv, ch *amqp.Channel) (work, sink 
 
 // The acknowledgement waits for the work, and reflects what the work did.
 //
-// This is the whole of `specs/old/SETTLE-ON-COMPLETION.md`, asked of a broker.
+// This is the whole of settle-on-completion, asked of a broker.
 // `queue_size` makes delivery return the moment the message is queued, so under
 // the old behaviour the message was acknowledged there — before the subscriber
 // had run, and with no way to redeliver or dead-letter it if the subscriber

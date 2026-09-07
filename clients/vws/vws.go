@@ -31,8 +31,7 @@ import (
 // `"mcp"` out of the probes: always mounted, owning no listener, nothing of
 // their own to report.
 //
-// See specs/VWS-CLIENT-GAP.md. Restore this in the commit that makes the client
-// connect, not before.
+// Restore this in the commit that makes the client connect, not before.
 func init() {
 	cfg.RegisterClientType("vws", process, cfg.WithSchema(vwsClientSchema))
 }

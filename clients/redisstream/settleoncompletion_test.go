@@ -138,8 +138,7 @@ subscription "worker" {
 //
 // This is also why `settle_timeout` under `auto` is permitted but has very
 // little left to bound: the paths that once looked like "nobody ever settles"
-// resolve to an ack or a nack on their own. What remains is shutdown, which is
-// specs/SETTLE-ON-SHUTDOWN.md's subject.
+// resolve to an ack or a nack on their own. What remains is shutdown.
 func TestAnEntryNothingSubscribesToIsAcknowledged(t *testing.T) {
 	mr := miniredis.RunT(t)
 	src := fmt.Sprintf(`
