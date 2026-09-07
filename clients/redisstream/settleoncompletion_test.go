@@ -27,6 +27,11 @@ func TestQueueSizeWithAutoAckSettlesOnTheRealOutcome(t *testing.T) {
 	const config = `
 bus "main" {}
 
+# Where an action that succeeds reports that it ran. The failing case below
+# leaves it unused, because an action that throws has nothing to report — which
+# is the whole reason the two halves need different barriers.
+bus "results" {}
+
 client "redis" "base" { address = "%s" }
 client "redis_stream" "rs" {
     connection = client.base
@@ -60,11 +65,27 @@ subscription "worker" {
 			t.Run("work that succeeds is acknowledged", func(t *testing.T) {
 				mr := miniredis.RunT(t)
 				c := buildConfig(t, fmt.Sprintf(config, mr.Addr(), ack.line,
-					`log::debug("handled", { topic = ctx.topic })`))
+					`send(ctx, bus.results, "done", true)`))
+				rec := &boolRecorder{}
+				require.NoError(t, c.Buses["results"].Subscribe(context.Background(), "done", rec))
 				startLifecycle(t, c)
 
 				wrapper := c.Clients["redis_stream"]["rs"].(*redisstream.RedisStreamClient)
 				require.NoError(t, wrapper.OnEvent(context.Background(), "x", "hi", nil))
+
+				// The barrier, and the reason the action reports rather than
+				// logs. Zero entries pending is true at both ends of this: before
+				// the consumer claims the entry, and again once it acknowledges
+				// it. Polling for that zero from the moment OnEvent returns can
+				// resolve on the first of them and call an entry that was never
+				// delivered acknowledged.
+				//
+				// The recorder runs inside the action, so by the time it has
+				// fired the entry is claimed and not yet settled — which makes
+				// the only zero left the one this test is about.
+				require.Eventually(t, func() bool { return rec.count() == 1 },
+					3*time.Second, 20*time.Millisecond,
+					"the action should run before we assert on what followed it")
 
 				assert.Eventually(t, func() bool { return pendingCount(mr.Addr()) == 0 },
 					3*time.Second, 20*time.Millisecond,
