@@ -1169,6 +1169,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   delivery returns without error, which is a different moment and the one that
   matters.
 
+- **`client "rabbitmq"`'s `declare { durable = false }` now says that RabbitMQ 4
+  refuses it.** A queue that is neither durable nor exclusive is a deprecated
+  broker feature — `transient_nonexcl_queues` — which RabbitMQ 4 declines to
+  declare unless `deprecated_features.permit` names it, failing the channel with
+  a 541, and which a future major removes the option to permit at all. The
+  attribute documented the flag without the refusal, so a configuration that
+  read as supported failed at the broker instead. For a queue that should not
+  outlive its consumers, `auto_delete` on a durable queue is the replacement,
+  and the manual round-trip example under `clients/rabbitmq/manual/` now uses
+  it. Nothing changes in what vinculum sends: `declare` still defaults to
+  `durable = true`, so only a configuration that asked for the deprecated
+  behaviour was affected.
+
 ## [0.45.1] - 2026-08-17
 
 ### Fixed
