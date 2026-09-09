@@ -189,9 +189,21 @@ func TestRMQ_Phase4_TLSInsecureSkipVerify(t *testing.T) {
   sender "out" { exchange = "`+exTopic+`" }`, "")
 		c := buildCfg(t, vcl)
 		w := c.Clients["rabbitmq"]["events"].(*rabbitmq.RMQClientWrapper)
-		err := w.Start()
+		require.NoError(t, w.Start(), "a certificate that does not verify is not a boot failure")
 		t.Cleanup(func() { _ = w.Stop() })
-		require.Error(t, err, "amqps to a private-CA broker without trust must fail verification")
+
+		// Asked of readiness rather than of Start, for the reason
+		// TestRMQ_Phase0_BadPassword gives at length: no connection failure is
+		// terminal here, because a broker whose certificate does not verify
+		// today is as likely to be one mid-renewal as one permanently wrong,
+		// and the client retries either. So the verification failure is not
+		// something Start can return — it has not happened yet when Start
+		// returns — and what the configuration can be held to is that it never
+		// reports itself able to carry traffic it cannot.
+		require.Never(t, func() bool {
+			return w.Ready(context.Background()) == nil
+		}, 3*time.Second, 250*time.Millisecond,
+			"amqps to a private-CA broker without trust must not report ready")
 	})
 }
 
