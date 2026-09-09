@@ -124,6 +124,21 @@ func TestRMQ_Drain_DeliversWhatTheBrokerHadAlreadySent(t *testing.T) {
 
 	require.NoError(t, <-drained)
 
+	// Drain is only the first phase. It withdraws the consumer and returns; the
+	// phase that waits for a delivery still travelling through a bus is the
+	// InFlight quiesce, which drainCfg does not run and which the gate does not
+	// move into Drain. So the drain here returned while all five handlers were
+	// still blocked on the gate, and the count below would be read before any of
+	// them had run — the same barrier the settle suite needs, for the same
+	// reason, in the one place TEST-CONFIDENCE §1b's third repair did not reach.
+	//
+	// Like those two, this fails on the barrier rather than the assertion when
+	// the drain abandons the backlog: the receiver's unsettled count stays up
+	// and awaitSettled times out first. Acceptable for the same reason — *the
+	// configuration never finished settling what it took* is an accurate report
+	// of that defect, not a confusing one.
+	awaitSettled(t, c, 10*time.Second)
+
 	// Counted, not measured off the queue. An abandoned delivery is
 	// unacknowledged rather than ready, so a queue depth of zero says nothing
 	// about whether it was handled — and the drain deliberately does not close

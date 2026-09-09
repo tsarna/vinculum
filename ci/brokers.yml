@@ -1,0 +1,49 @@
+# Brokers the integration suites are run against.
+#
+# `services:` containers in a GitHub workflow start before checkout and cannot
+# mount a file from the repository, which every broker here needs — RabbitMQ a
+# definitions file for its users and a certificate for its TLS listener. So the
+# brokers are started with compose after checkout instead, one service per job:
+#
+#   docker compose -f ci/brokers.yml up -d --wait rabbitmq
+#
+# That is the same command CI runs, so a failure there reproduces locally.
+# Fixtures a broker needs built first are made by ci/<service>/setup.sh, and the
+# environment its tests read is ci/<service>.env:
+#
+#   ci/rabbitmq/setup.sh
+#   docker compose -f ci/brokers.yml up -d --wait rabbitmq
+#   set -a; . ci/rabbitmq.env; set +a
+#   go test -race -tags integration ./clients/rabbitmq/...
+#
+# Ports are published to localhost, so only one of these can run at a time per
+# machine — which is all any one job needs.
+
+services:
+  rabbitmq:
+    image: rabbitmq:4-management
+    # Fixed, because the node name is rabbit@$HOSTNAME and a random one makes
+    # the log harder to read across runs.
+    hostname: vinculum-rabbitmq
+    ports:
+      - "5672:5672" # amqp
+      - "5671:5671" # amqps
+      - "15672:15672" # management API
+    volumes:
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - ./rabbitmq/certs:/etc/rabbitmq/certs:ro
+    # The vhost is the last thing to appear: it comes from the definitions file,
+    # which is imported after the listeners are up. Checking for it is what makes
+    # `--wait` mean "provisioned", rather than "the port answers" — a test that
+    # starts between those two sees its credentials rejected.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_port_connectivity && rabbitmqctl -q list_vhosts | grep -qx vinculum",
+        ]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 10s

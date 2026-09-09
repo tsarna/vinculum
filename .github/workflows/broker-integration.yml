@@ -1,0 +1,86 @@
+name: Broker integration
+
+# One broker from ci/brokers.yml, and the integration-tagged tests that need it.
+#
+# Reusable from the first job rather than after the second, because five sibling
+# repositories want this exact shape — a sibling is tagged *before* vinculum
+# bumps to it, and a tag is immutable, so a regression found only downstream
+# costs a second tag. What differs between them is the broker, not the workflow.
+#
+# Everything else is convention, so a caller passes one name:
+#
+#   ci/brokers.yml        the service, named by `broker`
+#   ci/<broker>/setup.sh  fixtures to build first, if the broker needs any
+#   ci/<broker>.env       where the tests find it, sourced into the test step
+#
+# `services:` containers cannot be used for this: they start before checkout, so
+# a broker needing a file from the repository — a definitions file, a
+# certificate, a config — has nothing to mount.
+
+on:
+  workflow_call:
+    inputs:
+      broker:
+        description: >-
+          Service in ci/brokers.yml to start, which also names its fixtures.
+        type: string
+        required: true
+      packages:
+        description: Go packages whose integration tests need that broker.
+        type: string
+        default: "./..."
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    # A broker that never becomes healthy, or a test that waits on a delivery
+    # that never arrives, otherwise sits here for six hours.
+    timeout-minutes: 20
+
+    env:
+      BROKER: ${{ inputs.broker }}
+      PACKAGES: ${{ inputs.packages }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Prepare fixtures
+        run: |
+          setup="ci/$BROKER/setup.sh"
+          if [ -x "$setup" ]; then "$setup"; fi
+
+      # --wait, so the tests start against a broker that is provisioned rather
+      # than merely listening. What "provisioned" means is the service's own
+      # healthcheck in ci/brokers.yml.
+      - name: Start ${{ inputs.broker }}
+        run: docker compose -f ci/brokers.yml up -d --wait "$BROKER"
+
+      # -race for the reason checks.yml gives: what this exercises is concurrent
+      # almost everywhere, and a race in it produces wrong behaviour under load
+      # rather than a failing test.
+      - name: Test
+        run: |
+          set -a
+          # shellcheck source=/dev/null  # the broker names it
+          . "ci/$BROKER.env"
+          set +a
+          # shellcheck disable=SC2086  # unquoted: a caller may pass several patterns
+          go test -race -tags integration $PACKAGES
+
+      # A broker that refused a connection, or refused to start, explains itself
+      # here and nowhere else.
+      - name: Broker logs
+        if: failure()
+        run: docker compose -f ci/brokers.yml logs --no-color "$BROKER"
+
+      - name: Stop ${{ inputs.broker }}
+        if: always()
+        run: docker compose -f ci/brokers.yml down -v
