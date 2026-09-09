@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -446,10 +447,33 @@ client "redis_stream" "rs" {
 }
 `, mr.Addr(), tc.ack)
 			c := buildConfig(t, src)
+
+			// The barrier. Zero entries pending is true at both ends of what the
+			// assertion below watches: before the consumer claims the entry, and
+			// again once it acknowledges it. Polling for that zero from the moment
+			// OnEvent returns can resolve on the first of them and call an entry
+			// that was never delivered acknowledged.
+			//
+			// What the recorder establishes is that the entry was delivered, and
+			// only a claimed entry is ever delivered — which puts the barrier past
+			// the pre-claim zero and leaves the post-ack one as the only zero the
+			// assertion can reach.
+			//
+			// Subscribing also moves which settle point this exercises: with the
+			// bus empty the entry is settled as undeliverable instead, and that
+			// path is TestAnEntryNothingSubscribesToIsAcknowledged's subject. This
+			// one is now about the ordinary delivered case, which is what "once
+			// delivery returns without error" was always meant to describe.
+			var delivered atomic.Int64
+			require.NoError(t, c.Buses["main"].Subscribe(context.Background(), "events",
+				&busRecorder{onEvent: func(string, any) { delivered.Add(1) }}))
 			startLifecycle(t, c)
 
 			wrapper := c.Clients["redis_stream"]["rs"].(*redisstream.RedisStreamClient)
 			require.NoError(t, wrapper.OnEvent(context.Background(), "x", "hi", nil))
+
+			require.Eventually(t, func() bool { return delivered.Load() == 1 }, 3*time.Second, 20*time.Millisecond,
+				"the entry should be delivered before we assert on what followed it")
 
 			assert.Eventually(t, func() bool { return pendingCount(mr.Addr()) == 0 }, 3*time.Second, 20*time.Millisecond,
 				"the entry should be acked once delivery returns without error")

@@ -110,11 +110,18 @@ func TestPingDropsAPeerThatStoppedResponding(t *testing.T) {
 	require.NoError(t, eventBus.Start())
 	t.Cleanup(func() { _ = eventBus.Stop() })
 
+	// These two together are how long the connection lives: the first ping goes
+	// out after pingInterval and gives up write_timeout later. The barrier below
+	// has to observe the connection inside that window, so it is three hundred
+	// milliseconds against a ten-millisecond poll rather than the few tens of
+	// milliseconds that would make the barrier a transient — and a barrier that
+	// misses its window fails the test for the one reason that says nothing
+	// about pings.
 	listener, err := NewServer().
 		WithEventBus(eventBus).
 		WithLogger(zap.NewNop()).
-		WithPingInterval(20 * time.Millisecond).
-		WithWriteTimeout(50 * time.Millisecond).
+		WithPingInterval(100 * time.Millisecond).
+		WithWriteTimeout(200 * time.Millisecond).
 		Build()
 	require.NoError(t, err)
 
@@ -127,6 +134,16 @@ func TestPingDropsAPeerThatStoppedResponding(t *testing.T) {
 	conn, _, err := websocket.Dial(ctx, "ws"+srv.URL[len("http"):], nil)
 	require.NoError(t, err)
 	defer conn.Close(websocket.StatusAbnormalClosure, "")
+
+	// Dial returns as soon as the client has read the 101; the server tracks the
+	// connection a few statements later. Without this barrier the wait below
+	// starts against a count that is still zero for that reason, and resolves on
+	// it — reporting a connection that was never established as one that a ping
+	// tore down, whether or not pings are sent at all.
+	require.Eventually(t, func() bool {
+		return listener.ConnectionCount() == 1
+	}, 5*time.Second, 10*time.Millisecond,
+		"the connection should be tracked before we watch for it going away")
 
 	// Deliberately never Read, so the client library never answers the ping.
 	require.Eventually(t, func() bool {

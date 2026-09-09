@@ -193,6 +193,8 @@ func (r *busRecorder) OnEvent(_ context.Context, topic string, msg any, _ map[st
 func TestManualAckFromTheConsumerAction(t *testing.T) {
 	mr := miniredis.RunT(t)
 	src := fmt.Sprintf(`
+bus "results" {}
+
 client "redis" "base" { address = "%s" }
 client "redis_stream" "rs" {
     connection = client.base
@@ -205,15 +207,37 @@ client "redis_stream" "rs" {
         block_timeout  = "100ms"
         ack            = "manual"
         settle_timeout = "30s"
-        action         = inbound::ack(ctx)
+        action         = [
+            send(ctx, bus.results, "ran", true),
+            inbound::ack(ctx),
+        ]
     }
 }
 `, mr.Addr())
 	c := buildConfig(t, src)
+
+	// The barrier, and the reason the action reports at all. Zero entries pending
+	// is true at both ends of what the assertion below watches: before the
+	// consumer claims the entry, and again once it acknowledges it. Polling for
+	// that zero from the moment OnEvent returns can resolve on the first of them
+	// and call an entry that was never delivered acknowledged.
+	//
+	// What the recorder establishes is that the action ran, and an action runs
+	// only on a claimed entry — which puts the barrier past the pre-claim zero
+	// and leaves the post-ack one as the only zero the assertion can reach. Not
+	// that the ack has not happened yet: send() hands the value to the results
+	// bus and returns, so the recorder fires on that bus's own goroutine and may
+	// well run after inbound::ack() has finished. Either order is sound; only
+	// the claim matters here.
+	rec := &boolRecorder{}
+	require.NoError(t, c.Buses["results"].Subscribe(context.Background(), "ran", rec))
 	startLifecycle(t, c)
 
 	wrapper := c.Clients["redis_stream"]["rs"].(*redisstream.RedisStreamClient)
 	require.NoError(t, wrapper.OnEvent(context.Background(), "x", "hi", nil))
+
+	require.Eventually(t, func() bool { return rec.count() == 1 }, 3*time.Second, 20*time.Millisecond,
+		"the action should run before we assert on what followed it")
 
 	rc := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
 	defer rc.Close()
