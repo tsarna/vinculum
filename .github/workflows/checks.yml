@@ -80,3 +80,17 @@ jobs:
       # this fails, the fix is to run the same command with --update.
       - name: Check generated documentation
         run: go run . schema --format markdown --check doc/
+
+  # The integration suites, against real brokers, so a tag cannot be cut without
+  # them having run — the same reason this file exists at all.
+  #
+  # A release only, rather than every caller: an ordinary push and a pull request
+  # reach the same workflow through integration.yml, which filters on the paths
+  # that can change what a broker sees. A tag gets no such discount, because
+  # what it is being held to is the whole claim rather than the diff.
+  brokers:
+    if: inputs.release_version != ''
+    uses: ./.github/workflows/broker-integration.yml
+    with:
+      broker: rabbitmq
+      packages: ./clients/rabbitmq/...

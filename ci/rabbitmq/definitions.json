@@ -1,0 +1,87 @@
+{
+  "rabbit_version": "4.0.0",
+  "vhosts": [
+    { "name": "vinculum" }
+  ],
+  "users": [
+    {
+      "name": "vinculum",
+      "password": "vinculum",
+      "tags": ["administrator"]
+    },
+    {
+      "name": "vinculum_ro",
+      "password": "vinculum_ro",
+      "tags": []
+    }
+  ],
+  "permissions": [
+    {
+      "user": "vinculum",
+      "vhost": "vinculum",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    },
+    {
+      "user": "vinculum_ro",
+      "vhost": "vinculum",
+      "configure": "^$",
+      "write": "^$",
+      "read": ".*"
+    }
+  ],
+  "topic_permissions": [],
+  "parameters": [],
+  "global_parameters": [],
+  "policies": [],
+  "queues": [],
+  "bindings": [],
+  "exchanges": [
+    {
+      "name": "vinculum.test.topic",
+      "vhost": "vinculum",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "vinculum.test.inbound",
+      "vhost": "vinculum",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "vinculum.test.direct",
+      "vhost": "vinculum",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "vinculum.test.fanout",
+      "vhost": "vinculum",
+      "type": "fanout",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "vinculum.test.headers",
+      "vhost": "vinculum",
+      "type": "headers",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ]
+}

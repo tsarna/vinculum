@@ -1,0 +1,40 @@
+name: Integration
+
+# The broker jobs on a pull request. The steps live in broker-integration.yml,
+# which a release tag reaches through checks.yml — so this file is the trigger
+# and the filter, not the work.
+#
+# Path-filtered because a job that starts a broker costs more than a job that
+# does not, and hosted minutes are free but not unlimited in spirit: the filter
+# is the paths whose contents can change what the broker sees. A pull request
+# touching only doc/ gets nothing here and needs nothing here.
+
+on:
+  pull_request:
+    paths:
+      - "clients/rabbitmq/**"
+      - "config/**"
+      - "cmd/**"
+      - "go.mod"
+      # The broker's own definition. A change to the compose file, the fixtures
+      # or the workflow is exactly a change that has to be run to be believed.
+      - "ci/**"
+      - ".github/workflows/integration.yml"
+      - ".github/workflows/broker-integration.yml"
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run's answer worthless, and
+# a broker held for it is a broker held for nothing.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rabbitmq:
+    uses: ./.github/workflows/broker-integration.yml
+    with:
+      broker: rabbitmq
+      packages: ./clients/rabbitmq/...

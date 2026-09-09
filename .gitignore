@@ -36,7 +36,11 @@ go.work.sum
 .env
 
 # local RabbitMQ integration-test credentials (never commit)
-rabbitmq.env
+/rabbitmq.env
+
+# Issued by ci/rabbitmq/setup.sh on demand, including a private key. Nothing
+# reads them but the local broker, and CI makes its own.
+/ci/rabbitmq/certs/
 
 # Notes
 FUTURE
