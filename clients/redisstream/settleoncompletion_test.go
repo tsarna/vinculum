@@ -80,9 +80,13 @@ subscription "worker" {
 				// resolve on the first of them and call an entry that was never
 				// delivered acknowledged.
 				//
-				// The recorder runs inside the action, so by the time it has
-				// fired the entry is claimed and not yet settled — which makes
-				// the only zero left the one this test is about.
+				// What the recorder establishes is that the action ran, and an
+				// action runs only on a claimed entry — which puts the barrier
+				// past the pre-claim zero and makes the only zero left the one
+				// this test is about. Not that the settle has not happened yet:
+				// send() hands the value to the results bus and returns, so the
+				// recorder fires on that bus's goroutine and may run either side
+				// of the settle. Only the claim is load-bearing.
 				require.Eventually(t, func() bool { return rec.count() == 1 },
 					3*time.Second, 20*time.Millisecond,
 					"the action should run before we assert on what followed it")
