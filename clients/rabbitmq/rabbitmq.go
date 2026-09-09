@@ -198,7 +198,18 @@ consume a queue and deliver what arrives to the bus or an action.`,
 						"maximum length — are deliberately not exposed here; set them with " +
 						"a RabbitMQ policy instead.",
 					Attrs: map[string]cfg.AttrMeta{
-						"durable":     {Summary: "Keep the queue across broker restarts.", Hint: cfg.HintBool, Default: "true"},
+						"durable": {
+							Summary: "Keep the queue across broker restarts.",
+							Doc: "`durable = false` needs a broker that still allows it. RabbitMQ 4 " +
+								"refuses to declare a queue that is neither durable nor exclusive — its " +
+								"`transient_nonexcl_queues` feature is deprecated, permitted only by an " +
+								"explicit `deprecated_features.permit` setting, and to be removed in a " +
+								"future major version regardless of configuration. The declare then fails " +
+								"the channel with a 541 naming the feature. For a queue that should not " +
+								"outlive its consumers, use `auto_delete` on a durable queue instead.",
+							Hint:    cfg.HintBool,
+							Default: "true",
+						},
 						"auto_delete": {Summary: "Delete the queue once its last consumer disconnects.", Hint: cfg.HintBool, Default: "false"},
 					},
 				},

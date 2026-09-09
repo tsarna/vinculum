@@ -67,7 +67,9 @@ client "rabbitmq" "events" {
     subscriber = bus.main
 
     declare {
-      durable     = false
+      # Durable, with auto_delete for the cleanup: RabbitMQ 4 refuses a queue
+      # that is neither durable nor exclusive.
+      durable     = true
       auto_delete = true
     }
 

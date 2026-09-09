@@ -889,6 +889,10 @@ declare to verify the queue exists and fails fast otherwise.
 | `auto_delete` | bool |  | `false` | Delete the queue once its last consumer disconnects. |
 | `durable` | bool |  | `true` | Keep the queue across broker restarts. |
 
+**`durable`**
+
+`durable = false` needs a broker that still allows it. RabbitMQ 4 refuses to declare a queue that is neither durable nor exclusive — its `transient_nonexcl_queues` feature is deprecated, permitted only by an explicit `deprecated_features.permit` setting, and to be removed in a future major version regardless of configuration. The declare then fails the channel with a 541 naming the feature. For a queue that should not outlive its consumers, use `auto_delete` on a durable queue instead.
+
 <!-- vinculum:end block-attrs client rabbitmq receiver declare -->
 
 Manage the advanced queue arguments with a
