@@ -37,6 +37,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -184,11 +185,57 @@ func getWithin(t *testing.T, ch *amqp.Channel, queue string, timeout time.Durati
 // queueDepth returns the ready-message count via a passive declare on a fresh
 // channel (a failed passive declare closes the channel, so never reuse the
 // caller's channel for it).
+//
+// Ready is not the same as present. A delivery the broker has handed out is
+// outstanding rather than ready, so this number drops to zero when the consumer
+// receives the message and reads the same afterwards whether that message was
+// acknowledged, rejected, or is still being held. It answers "was anything put
+// back?", never "was anything settled?" — for the latter, watch the queue's
+// dead-letter exchange, which a nack without requeue delivers to.
 func queueDepth(t *testing.T, e brokerEnv, queue string) int {
 	t.Helper()
 	ch := dialAdmin(t, e)
 	q, err := ch.QueueDeclarePassive(queue, false, false, false, false, nil)
 	require.NoError(t, err, "passive declare %s", queue)
+	return q.Messages
+}
+
+// readyCount is queueDepth for a polling condition, where queueDepth must not
+// be used: testify runs an Eventually or Never condition on its own goroutine.
+// A require there calls t.FailNow from outside the test, and dialAdmin
+// registers a t.Cleanup — on a test that a slow last poll can outlive, which
+// turns an ordinary pass into a failure in whatever runs next.
+//
+// A read that fails answers -1, which is neither "drained" nor "one ready" — but
+// the caller has to choose the comparison that makes that count against it,
+// because the two shapes want opposite things. An `Eventually(readyCount == 1)`
+// gets it for free: -1 is not 1, so the wait continues. A `Never` does not, and
+// `Never(readyCount > 0)` would be *satisfied* by every failed read — a broker
+// this could not reach would pass the assertion having observed nothing, which
+// is the whole failure a poll for an absence is prone to. Write those as
+// `Never(readyCount != 0)`, so an unreadable broker fails rather than vindicates.
+//
+// The dial is bounded for the same reason. A condition that never returns is
+// worse than one that returns the wrong answer: testify goes on ticking, sees no
+// true, and reports a Never satisfied — so an unbounded TCP connect would pass
+// the assertion in exactly the way the sentinel above exists to prevent.
+func readyCount(e brokerEnv, queue string) int {
+	conn, err := amqp.DialConfig(e.adminURL(), amqp.Config{
+		Dial: amqp.DefaultDial(2 * time.Second),
+	})
+	if err != nil {
+		return -1
+	}
+	defer conn.Close()
+	ch, err := conn.Channel()
+	if err != nil {
+		return -1
+	}
+	defer ch.Close()
+	q, err := ch.QueueDeclarePassive(queue, false, false, false, false, nil)
+	if err != nil {
+		return -1
+	}
 	return q.Messages
 }
 
@@ -221,18 +268,30 @@ func buildCfg(t *testing.T, vcl string) *cfg.Config {
 // exposed to this because nothing routes traffic to a process until /readyz
 // says so; awaitReady in cmd/health.go is the same wait for `vinculum test`.
 // This is that gate, for a test that drives the runtime directly.
-func startCfg(t *testing.T, c *cfg.Config) {
+//
+// The returned function is that same teardown, for a test that needs the client
+// gone before its last assertion rather than after it — closing the connection
+// is the only thing that makes an *unacknowledged* delivery visible, because the
+// broker returns one to the queue when the channel carrying it goes away. Most
+// callers ignore it and let the cleanup run; calling it runs the teardown once,
+// whichever way it is reached.
+func startCfg(t *testing.T, c *cfg.Config) func() {
 	t.Helper()
 	for _, s := range c.Startables {
 		require.NoError(t, s.Start(), "start component")
 	}
-	t.Cleanup(func() {
-		for i := len(c.Stoppables) - 1; i >= 0; i-- {
-			_ = c.Stoppables[i].Stop()
-		}
-	})
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			for i := len(c.Stoppables) - 1; i >= 0; i-- {
+				_ = c.Stoppables[i].Stop()
+			}
+		})
+	}
+	t.Cleanup(stop)
 	c.Health.SetBooted()
 	awaitReady(t, c)
+	return stop
 }
 
 // awaitReady blocks until every readiness contributor passes, or fails the test
@@ -258,6 +317,37 @@ func awaitReady(t *testing.T, c *cfg.Config) {
 		case <-time.After(25 * time.Millisecond):
 		}
 	}
+}
+
+// awaitSettled waits until every in-flight holder the configuration registered
+// reports nothing outstanding — the receiver's own unsettled count among them.
+//
+// It is needed by any test that takes the connection away in order to observe an
+// acknowledgement, because `startCfg`'s teardown runs `Stoppables` and nothing
+// else. Production runs a whole quiesce over `InFlight` first (cmd/serve.go),
+// which is the phase that waits for a settle still travelling back from a queue
+// or a bus; skipping it and closing the connection would race the very
+// acknowledgement the assertion is about, and lose about half the time — a bus
+// fans out over a map, so a subscriber observing the message says nothing about
+// whether a *sibling* subscription has run yet.
+//
+// This is itself a poll for zero, and it is sound only because the caller has
+// already observed the delivery: the count is incremented when the receiver
+// hands the delivery out, before anything downstream can see it, so a caller
+// past its own barrier cannot reach the pre-delivery zero. Called before one, it
+// would be the very fault it exists to prevent — resolving on the zero that
+// precedes the message and reporting an untouched queue as a settled one.
+func awaitSettled(t *testing.T, c *cfg.Config, within time.Duration) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		for _, h := range c.InFlight {
+			if h.Pending != nil && h.Pending() != 0 {
+				return false
+			}
+		}
+		return true
+	}, within, 25*time.Millisecond,
+		"the configuration never finished settling what it took")
 }
 
 // buildAndStart is the common path for happy-path tests.
@@ -1000,7 +1090,10 @@ func TestRMQ_Phase3_RoundTrip(t *testing.T) {
 func TestRMQ_Phase4_ManualAckFromASubscription(t *testing.T) {
 	e := loadEnv(t)
 	admin := dialAdmin(t, e)
-	queue := uniqueName("vinculum.test.manual")
+	// Declared here rather than by the receiver's own `declare` block, which
+	// other tests in this file cover: the assertion needs a queue that outlives
+	// its consumer, and an auto_delete one is gone before it can be read.
+	work, sink := deadLetteredQueue(t, e, admin)
 
 	vcl := vclConfig(e, e.brokerURL(), fmt.Sprintf(`
   receiver "in" {
@@ -1009,34 +1102,51 @@ func TestRMQ_Phase4_ManualAckFromASubscription(t *testing.T) {
     queue_size     = 16
     ack            = "manual"
     settle_timeout = "30s"
-    declare {
-      durable     = false
-      auto_delete = true
-    }
-    binding "manual.#" { exchange = "`+exInbound+`" }
-  }`, queue),
+  }`, work),
 		`subscription "settle" {
   target = bus.main
-  topics = ["manual/#"]
+  topics = ["settle/#"]
   action = [
     log::info("handled", { topic = ctx.topic }),
     inbound::ack(ctx),
   ]
 }`)
 	c := buildCfg(t, vcl)
-	sub := observeBus(t, c, "main", "manual/#")
-	startCfg(t, c)
+	sub := observeBus(t, c, "main", "settle/#")
+	stop := startCfg(t, c)
 
-	publishRaw(t, admin, exInbound, "manual.one", "payload", nil)
+	publishRaw(t, admin, exInbound, "settle.one", "payload", nil)
 
 	got := sub.await(t, 5*time.Second)
-	assert.Equal(t, "manual/one", got.topic)
+	assert.Equal(t, "settle/one", got.topic)
 
-	// The ack is issued after the action runs, on the queue's worker goroutine,
-	// so the broker sees it a moment after the bus does.
-	assert.Eventually(t, func() bool { return queueDepth(t, e, queue) == 0 },
-		5*time.Second, 100*time.Millisecond,
-		"inbound::ack() from a subscription should have acknowledged the delivery")
+	// Not the queue's ready count on its own, which stopped being able to answer
+	// this the moment the broker handed the delivery out: zero there means "not
+	// waiting to be delivered", which is equally true of a message that was
+	// acknowledged and one nothing has settled at all. Polled by itself it would
+	// hold with inbound::ack() deleted.
+	//
+	// Closing the client is what separates them. The broker returns an
+	// unacknowledged delivery to the queue when the channel carrying it goes
+	// away, and does nothing with an acknowledged one — so a queue still empty
+	// after the client has gone held nothing outstanding when it left.
+	// settle_timeout stays long, because a bound expiring is a different thing
+	// from an acknowledgement and would answer this question with a nack.
+	//
+	// The wait is not optional. `sub.await` says the capture subscriber saw the
+	// message, and the subscription that acknowledges is a *different*
+	// subscriber on the same bus — the fan-out is a map range, so about half the
+	// time the action has not started when the await returns. Closing the
+	// connection there would requeue a delivery nothing had got to yet and blame
+	// inbound::ack() for it.
+	awaitSettled(t, c, 10*time.Second)
+	stop()
+	assert.Never(t, func() bool { return readyCount(e, work) != 0 },
+		3*time.Second, 200*time.Millisecond,
+		"the delivery came back when the connection closed, so inbound::ack() "+
+			"from the subscription never reached the broker")
+	_, dead := getWithin(t, admin, sink, 1*time.Second)
+	assert.False(t, dead, "an acknowledged delivery must not be rejected on the way out")
 }
 
 // A configuration that forgets to settle stalls silently otherwise: an
@@ -1046,7 +1156,7 @@ func TestRMQ_Phase4_ManualAckFromASubscription(t *testing.T) {
 func TestRMQ_Phase4_SettleTimeoutNacks(t *testing.T) {
 	e := loadEnv(t)
 	admin := dialAdmin(t, e)
-	queue := uniqueName("vinculum.test.manual")
+	work, sink := deadLetteredQueue(t, e, admin)
 
 	// Nothing settles anything here: the receiver only forwards to the bus, and
 	// the observer that reads it is not a configuration that acknowledges.
@@ -1056,28 +1166,36 @@ func TestRMQ_Phase4_SettleTimeoutNacks(t *testing.T) {
     subscriber     = bus.main
     ack            = "manual"
     settle_timeout = "1s"
-    declare {
-      durable     = false
-      auto_delete = true
-    }
-    binding "forgot.#" { exchange = "`+exInbound+`" }
-  }`, queue), "")
+  }`, work), "")
 	c := buildCfg(t, vcl)
-	sub := observeBus(t, c, "main", "forgot/#")
+	sub := observeBus(t, c, "main", "settle/#")
 	startCfg(t, c)
 
-	publishRaw(t, admin, exInbound, "forgot.one", "payload", nil)
+	publishRaw(t, admin, exInbound, "settle.one", "payload", nil)
 	sub.await(t, 5*time.Second)
 
-	// Nacked without requeue once the bound expires, so the queue drains rather
-	// than the message coming back to be forgotten again.
-	assert.Eventually(t, func() bool { return queueDepth(t, e, queue) == 0 },
-		8*time.Second, 200*time.Millisecond,
-		"settle_timeout should have nacked the unsettled delivery")
+	// Watched on the dead-letter exchange rather than in the queue's ready count.
+	// The delivery stopped being ready when the broker handed it out, so that
+	// count is zero before the bound expires and zero after it — it cannot tell a
+	// nack from a delivery nobody has got round to. A nack without requeue is a
+	// message *arriving* somewhere, which can.
+	// Arriving here is also what says it was not requeued, so there is nothing
+	// further to assert: a nack requeues or it dead-letters, never both, and a
+	// message on the dead-letter exchange took the second branch by definition.
+	d, dead := getWithin(t, admin, sink, 8*time.Second)
+	require.True(t, dead,
+		"settle_timeout should have nacked the unsettled delivery, without requeue")
+	assert.Equal(t, "payload", string(d.Body))
 }
 
-// nack rejects without requeueing, so a message the configuration refuses is
-// gone from the queue rather than redelivered in a loop.
+// nack rejects without requeueing, so a message the configuration refuses is not
+// redelivered in a loop.
+//
+// Only that half. This queue has no dead-letter exchange, so nothing here can
+// distinguish a rejected delivery from one still being held — the receiver's
+// settle_timeout is thirty seconds and the test is over long before it. What a
+// rejection *would* be gone from is asserted by TestRMQ_Phase4_SettleTimeoutNacks
+// and the settle suite, both against a queue that dead-letters.
 func TestRMQ_Phase4_ManualNackDrainsTheQueue(t *testing.T) {
 	e := loadEnv(t)
 	admin := dialAdmin(t, e)
@@ -1105,7 +1223,15 @@ func TestRMQ_Phase4_ManualNackDrainsTheQueue(t *testing.T) {
 	publishRaw(t, admin, exInbound, "reject.one", "payload", nil)
 	sub.await(t, 5*time.Second)
 
-	assert.Eventually(t, func() bool { return queueDepth(t, e, queue) == 0 },
-		5*time.Second, 100*time.Millisecond,
-		"a nacked message must not be requeued")
+	// Watched on the bus rather than in the queue's ready count, which cannot
+	// see this either way round. The delivery stopped being ready when the
+	// broker handed it out, so zero there is already true before the nack; and a
+	// requeued message goes to the head of the queue and straight back out to
+	// this same consumer, which still has prefetch to spare, so it is ready for
+	// a window far shorter than any poll would catch.
+	//
+	// What a requeue does leave is a second trip through the action, and the
+	// action publishes. One event and no more is the observation that separates
+	// a rejection from a loop.
+	sub.expectNone(t, 2*time.Second)
 }

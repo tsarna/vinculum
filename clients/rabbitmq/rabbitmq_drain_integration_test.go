@@ -72,7 +72,7 @@ func TestRMQ_Drain_StopsDeliveriesArriving(t *testing.T) {
 	// Published after the consumer was withdrawn. It must stay on the queue.
 	publishRaw(t, admin, exInbound, "settle.after", "after", nil)
 
-	assert.Eventually(t, func() bool { return queueDepth(t, e, work) == 1 },
+	assert.Eventually(t, func() bool { return readyCount(e, work) == 1 },
 		10*time.Second, 200*time.Millisecond,
 		"a message published after the drain should still be on the queue")
 	assert.Equal(t, 1, seen.count(), "the receiver kept consuming after it was drained")
@@ -132,10 +132,14 @@ func TestRMQ_Drain_DeliversWhatTheBrokerHadAlreadySent(t *testing.T) {
 	assert.Equal(t, messages, gate.count(),
 		"the drain abandoned messages the broker had already sent")
 
-	// Eventually, because basic.ack has no ack-ok: the drain returns when the
-	// work is done, and the broker's ready count catches up a moment later.
-	assert.Eventually(t, func() bool { return queueDepth(t, e, work) == 0 },
-		10*time.Second, 200*time.Millisecond, "and none should be left ready")
+	// Never, not Eventually. The ready count reached zero when the broker handed
+	// these five out, well before the drain, so an Eventually here resolves on
+	// the first poll having observed nothing — the count says the same thing
+	// whether the backlog was acknowledged or abandoned, which is why the count
+	// above is the assertion that carries this test. What the ready count *can*
+	// still answer is whether anything came back, and nothing should.
+	assert.Never(t, func() bool { return readyCount(e, work) != 0 },
+		3*time.Second, 200*time.Millisecond, "and none should be put back")
 }
 
 // A delivery tag issued before the drain still acknowledges after it. This is
@@ -176,9 +180,14 @@ func TestRMQ_Drain_KeepsAnOutstandingTagAcknowledgeable(t *testing.T) {
 	require.NoError(t, err, "the delivery tag went stale during the drain")
 	assert.True(t, settled)
 
-	assert.Eventually(t, func() bool { return queueDepth(t, e, work) == 0 },
-		10*time.Second, 200*time.Millisecond,
-		"the acknowledgement did not reach the broker")
+	// The Ack above returning nil is what says the tag was still good; the ready
+	// count cannot corroborate it, because it reached zero at delivery and stays
+	// there whether or not anything settled. What it can say is that the delivery
+	// was not handed back, which a nack with requeue — or a channel the drain had
+	// no business closing — would have done.
+	assert.Never(t, func() bool { return readyCount(e, work) != 0 },
+		3*time.Second, 200*time.Millisecond,
+		"an acknowledged message must not come back to the queue")
 	_, dead := getWithin(t, admin, sink, 1*time.Second)
 	assert.False(t, dead, "an acknowledged message must not be dead-lettered")
 }
@@ -238,9 +247,14 @@ func (s *countingSubscriber) count() int { return len(s.ch) }
 
 // settlerHolder keeps the settler off the delivery context so a test can settle
 // deliberately late, as a configuration under `ack = "manual"` does.
+// The mutex is not about OnEvent, which hands the settler over a channel.
+// settler() is called from inside an Eventually condition, which testify runs
+// on its own goroutine, and again from the test goroutine afterwards — so the
+// memo it writes is shared between the two.
 type settlerHolder struct {
 	bus.BaseSubscriber
 	got chan bus.Settler
+	mu  sync.Mutex
 	s   bus.Settler
 }
 
@@ -257,6 +271,8 @@ func (h *settlerHolder) OnEvent(ctx context.Context, _ string, _ any, _ map[stri
 }
 
 func (h *settlerHolder) settler() bus.Settler {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if h.s != nil {
 		return h.s
 	}

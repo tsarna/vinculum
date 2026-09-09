@@ -144,7 +144,7 @@ func TestRMQ_Settle_AutoAckFollowsTheWorkBehindAQueue(t *testing.T) {
 		gate := newGatedFailer(nil)
 		defer gate.Release()
 		require.NoError(t, c.Buses["main"].Subscribe(context.Background(), "settle/#", gate))
-		startCfg(t, c)
+		stop := startCfg(t, c)
 
 		publishRaw(t, admin, exInbound, "settle.two", "payload", nil)
 
@@ -155,9 +155,28 @@ func TestRMQ_Settle_AutoAckFollowsTheWorkBehindAQueue(t *testing.T) {
 		}
 		gate.Release()
 
-		// Acknowledged: gone from the work queue, and never dead-lettered.
-		assert.Eventually(t, func() bool { return queueDepth(t, e, work) == 0 },
-			10*time.Second, 200*time.Millisecond, "the message should be acknowledged")
+		// Closing the client is what makes the acknowledgement observable, and
+		// nothing short of it is. The queue's ready count reached zero when the
+		// broker handed the message out, so it reads the same whether the
+		// handler's success was acknowledged or nothing was settled at all; the
+		// dead-letter exchange only sees a rejection, which is not what a
+		// forgotten delivery is. Both would pass with the ack deleted.
+		//
+		// What the broker does on its own is return an unacknowledged delivery
+		// to the queue when the channel carrying it goes away, and do nothing at
+		// all with an acknowledged one. So this is the difference, asked
+		// directly: a queue still empty after the client has gone held nothing
+		// outstanding when it left.
+		//
+		// The wait comes first because Release only unblocks the subscriber; the
+		// settle happens as OnEvent returns, on the bus's goroutine, and closing
+		// the connection in between would requeue the delivery and read it as a
+		// missing acknowledgement.
+		awaitSettled(t, c, 10*time.Second)
+		stop()
+		assert.Never(t, func() bool { return readyCount(e, work) != 0 },
+			3*time.Second, 200*time.Millisecond,
+			"the delivery came back when the connection closed, so it was never acknowledged")
 		_, dead := getWithin(t, admin, sink, 1*time.Second)
 		assert.False(t, dead, "a handler that succeeded must not dead-letter the message")
 	})
