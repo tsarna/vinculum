@@ -86,10 +86,18 @@ func pending(t *testing.T, addr string) int64 {
 	return res.Count
 }
 
+// startAllOrFail runs the boot sequence the way startAll does — every
+// Startable, then every PostStartable — but fails the test on any error, where
+// startAll logs a degraded start and carries on. PostStart is where triggers
+// and conditions arm themselves, so a helper that stopped at Start would leave
+// a configuration's triggers silently never firing.
 func startAllOrFail(t *testing.T, cfg *config.Config) {
 	t.Helper()
 	for _, s := range cfg.Startables {
 		require.NoError(t, s.Start())
+	}
+	for _, ps := range cfg.PostStartables {
+		require.NoError(t, ps.PostStart())
 	}
 }
 
