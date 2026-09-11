@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`man::page(topic, subtopics...)` and `man::index()`: the reference as Markdown, from
+  inside a config.** `help()` answers in plain text for a person at a prompt.
+  These return what `vinculum man` writes when its output is not a terminal:
+  one topic's page, or the front page listing every block, `ctx` shape, and
+  namespace, with its closing examples given as bare topic paths. That
+  is what a config needs to serve its own documentation, to a browser or to an
+  MCP client.
+
+  Resolution is `vinculum man`'s rather than `help()`'s. Blocks and functions
+  are searched together, so `man::page("assert")` is the menu, and `function:` is
+  accepted as a kind prefix. The functions documented are the built-ins and
+  loaded plugins, not the running config's own definitions, and not those a
+  flag switches on (`--file-path`, `--write-path`, `--allow-kill`) — the same
+  set `vinculum man` documents. Each argument is split on spaces, so
+  `man::page("client mqtt")` is `man::page("client", "mqtt")`. An ambiguous
+  name renders a menu of the bare topic paths that resolve it (`client http`,
+  `block:assert`) rather than calls in any one front door's syntax, and each
+  entry can be passed back to `man::page` as it stands. A name that names
+  nothing returns `null`. See `doc/functions.md` §Reflection.
+
+  `vinculum man` now builds its function catalog once per process rather than
+  up to three times on a single-word lookup that misses.
+
 - **`client "kafka"` settles one record at a time, so `ack = "manual"`,
   `queue_size` and `partitions` all work there.** This receiver committed a
   record's offset when delivery returned and had no way to settle a single

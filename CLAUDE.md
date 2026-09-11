@@ -122,8 +122,12 @@ internal/       Internal-only helpers
                 of doc/ (regions.go) that `schema --format markdown` writes;
                 and behind `help()`, which it reaches by registering a
                 config.HelpTopicResolver from init() (config cannot import it
-                back). Functions are a second corpus (funcs.go), searched
-                alongside the document rather than merged into it.
+                back); and behind the `man::page`/`man::index` VCL functions
+                (manfuncs.go), a function plugin registered from init() for
+                the same reason. Functions are a second corpus (funcs.go),
+                searched alongside the document rather than merged into it;
+                BuiltinFuncs, shared by `man` and `man::`, is the functions
+                of a sourceless config, built once.
                 namespace.go resolves and renders the `namespace` topic kind
                 (`man sys pid`); only provider namespaces are addressable,
                 since a block root would collide with its own block.

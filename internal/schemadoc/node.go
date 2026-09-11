@@ -1,6 +1,7 @@
 package schemadoc
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/tsarna/vinculum/config"
@@ -40,6 +41,36 @@ func ValidKind(s string) bool {
 		}
 	}
 	return false
+}
+
+// ParseKindPrefix splits an optional leading `kind:` off the first word of a
+// topic path, for a front door that has nowhere to put a --type flag: a REPL
+// meta-command line, or a function call.
+//
+// A functy qualified name (`time::now`) is one word, not a kind. Any other
+// single colon must name a kind: no topic contains one, so `blok:assert` is a
+// typo worth reporting rather than a lookup that silently finds nothing.
+func ParseKindPrefix(s string) (kind Kind, rest string, err error) {
+	name, rest, found := strings.Cut(s, ":")
+	if !found || strings.HasPrefix(rest, ":") {
+		return "", s, nil
+	}
+	if !ValidKind(name) {
+		return "", "", fmt.Errorf("unknown kind %q in %q (want one of %s)", name, s, KindList())
+	}
+	if rest == "" {
+		return "", "", fmt.Errorf("%q names a kind but no topic (write the topic straight after the colon, as in %s:name)", s, name)
+	}
+	return Kind(name), rest, nil
+}
+
+// KindList names every kind, comma-separated, for a diagnostic or a description.
+func KindList() string {
+	names := make([]string, 0, len(Kinds))
+	for _, k := range Kinds {
+		names = append(names, string(k))
+	}
+	return strings.Join(names, ", ")
 }
 
 // nodeShape discriminates what a Node points at. A Node carries exactly one of

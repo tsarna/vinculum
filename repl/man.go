@@ -136,19 +136,11 @@ func parseManArgs(args []string) (kind schemadoc.Kind, path []string, err error)
 		return "", nil, nil
 	}
 
-	name, rest, found := strings.Cut(path[0], ":")
-	if !found || strings.HasPrefix(rest, ":") {
-		// No prefix, or a functy qualified name (`time::now`), which is one word.
-		return "", path, nil
+	kind, path[0], err = schemadoc.ParseKindPrefix(path[0])
+	if err != nil {
+		return "", nil, err
 	}
-	if !schemadoc.ValidKind(name) {
-		return "", nil, fmt.Errorf("unknown kind %q in %q (want one of %s)", name, path[0], manKindList())
-	}
-	if rest == "" {
-		return "", nil, fmt.Errorf("%q names a kind but no topic", path[0])
-	}
-	path[0] = rest
-	return schemadoc.Kind(name), path, nil
+	return kind, path, nil
 }
 
 func (h *host) manNotFound(out io.Writer, doc *config.SchemaDocument, kind schemadoc.Kind, path []string) {
@@ -186,17 +178,5 @@ func (h *host) showMan(out io.Writer, events []schemadoc.Event) {
 // prompt. Qualifying uses the `kind:` prefix, since a meta-command line has
 // nowhere to put a flag.
 func ManSpeller(kind schemadoc.Kind, path []string, qualify bool) string {
-	words := append([]string(nil), path...)
-	if qualify && len(words) > 0 {
-		words[0] = string(kind) + ":" + words[0]
-	}
-	return ":man " + strings.Join(words, " ")
-}
-
-func manKindList() string {
-	names := make([]string, 0, len(schemadoc.Kinds))
-	for _, k := range schemadoc.Kinds {
-		names = append(names, string(k))
-	}
-	return strings.Join(names, ", ")
+	return ":man " + schemadoc.PathSpeller(kind, path, qualify)
 }
