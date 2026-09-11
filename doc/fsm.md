@@ -25,6 +25,8 @@ driven by `send()`.
 ## Quick Example
 
 ```hcl
+bus "main" {}
+
 fsm "door" {
     initial = "closed"
 
@@ -38,10 +40,18 @@ fsm "door" {
         on_entry = log::info("Door is now locked")
     }
 
-    event "open"   { transition "closed" "open"   {} }
-    event "close"  { transition "open"   "closed" {} }
-    event "lock"   { transition "closed" "locked" {} }
-    event "unlock" { transition "locked" "closed" {} }
+    event "open" {
+        transition "closed" "open" {}
+    }
+    event "close" {
+        transition "open" "closed" {}
+    }
+    event "lock" {
+        transition "closed" "locked" {}
+    }
+    event "unlock" {
+        transition "locked" "closed" {}
+    }
 
     on_change = log::info("Door: ${ctx.old_state} -> ${ctx.new_state}")
 }
