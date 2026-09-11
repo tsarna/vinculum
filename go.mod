@@ -175,7 +175,7 @@ require (
 	github.com/heimdalr/dag v1.5.1
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/tsarna/url-cty-funcs v0.2.0
-	github.com/tsarna/vinculum-fsm v0.6.0
+	github.com/tsarna/vinculum-fsm v0.7.0
 	github.com/zclconf/go-cty v1.19.0
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/mod v0.38.0 // indirect
