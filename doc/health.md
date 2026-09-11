@@ -1006,14 +1006,20 @@ contributors is fixed for the life of the process and the sequence is always
    behind the closed front door: they can publish, send, and call a client.
 4. **The work already accepted finishes.** Every bus dispatches what is on its
    channel, every `queue_size` queue runs the backlog it is holding and finishes
-   the action it is running, and every receiver that drained in step 2 waits for
-   the deliveries it has handed out to be acknowledged.
+   the action it is running, every `fsm` runs the events queued in its mailbox,
+   and every receiver that drained in step 2 waits for the deliveries it has
+   handed out to be acknowledged.
 5. **Everything stops.** Connections close, clients disconnect, timers stop.
 
 Step 4 is what keeps a queue from being a hole in the guarantee. A
 `subscription` with `queue_size = 500` can be holding five hundred messages
 when the signal arrives, and they are work that was accepted; on a path where
-nothing acknowledged them, there is no broker to redeliver them either. It runs
+nothing acknowledged them, there is no broker to redeliver them either. An
+`fsm` is the same shape, and with `shutdown_event` a stricter one: that event
+ends the event loop, so anything still queued behind it never runs. Without
+one, whatever step 4 has not finished runs in step 5 instead, where much of it
+can no longer succeed — see [the `fsm` page](fsm.md#lifecycle-and-shutdown).
+Step 4 runs
 *after* step 3 so that what a shutdown trigger publishes is delivered rather
 than left on a channel, and *before* step 5 because the acknowledgement for a
 message the pipeline is still carrying travels over a connection that step 5
@@ -1039,7 +1045,10 @@ warn  Shutting down with messages still in flight  {"messages": 412,
 A receiver names what it still owes its broker, which is a different number from
 a queue's: the queue says where messages are *waiting*, the receiver says how
 many of them nobody has answered for yet. A receiver with a `queue_size` queue
-appears twice for that reason, once under each name.
+appears twice for that reason, once under each name. So does an `fsm` fed by an
+acknowledging receiver: the same deliveries are in its mailbox and unsettled at
+the receiver. A mailbox's figure can also exceed its `queue_size`, since it
+counts the event running and any producer blocked waiting for room.
 
 Whatever is still held when the budget expires is left as it is. On every
 transport that acknowledges, an unacknowledged message is one the broker
@@ -1056,6 +1065,15 @@ process that keeps up reaches zero within a sampling interval or two — an
 ordinary shutdown is not measurably slower than it was. The exceptions are the
 two receivers named in step 2 and the `trigger` blocks, which run until step 5
 and can therefore put work into a pipeline that is being emptied.
+
+An `fsm` fed by one of those exceptions can hold step 4 open for the whole
+budget: a mailbox processes one event at a time, so if each transition does
+real work — an HTTP call, a database round trip — it may never read empty while
+it is being fed. So can a machine that feeds itself, through hooks that send it
+events or reactive `when` events that keep firing, since both carry on until
+step 5. Either way it is named in the `holders` field of the warning shown
+above, and it can hold up the bus in front of it too: a full mailbox blocks
+the dispatch that is filling it.
 
 ---
 

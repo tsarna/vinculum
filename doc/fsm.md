@@ -577,7 +577,8 @@ deadlock or hook interleaving.
 
 The FSM implements `Startable` and `Stoppable`. On stop, if
 `shutdown_event` is configured, it is injected via a priority channel and
-processed before remaining queued events:
+processed ahead of what is still queued — at most one queued event can run
+first:
 
 ```hcl
 fsm "process" {
@@ -594,6 +595,26 @@ fsm "process" {
     }
 }
 ```
+
+The shutdown event also *ends* the event loop: once it has been processed the
+machine stops, and any event still queued is not run. In a graceful shutdown
+there is normally nothing queued, because the mailbox is one of the queues a
+shutdown empties before it stops the machine — see
+[readiness and shutdown](health.md#what-a-graceful-shutdown-does-in-order),
+step 4. What can still be there is whatever a source still producing delivers
+after step 4 ends, or a backlog longer than the ten seconds that step allows.
+
+Without a `shutdown_event` the machine runs whatever is queued and then stops.
+That is not a substitute for the wait above: it happens in the last phase of the
+teardown, where every `queue_size` queue has already been closed and refuses
+what those transitions publish; the connection a queued message's
+acknowledgement travels over may already be closed, by whichever client owns it
+(the `client "redis"` behind a `redis_stream` receiver, say), if that client
+was set up after the machine — which, when nothing links the two, usually means
+it was declared after it; a client a transition calls may already have been
+stopped for the same reason, because hooks do not make the machine depend on
+what they call; and nothing bounds the phase, so a long backlog can outrun the
+termination grace period.
 
 ---
 

@@ -397,6 +397,17 @@ func (h *FsmBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnost
 	config.Startables = append(config.Startables, &fsmStartable{inst: inst, reactiveExprs: reactiveExprs})
 	config.Stoppables = append(config.Stoppables, &fsmStoppable{inst: inst, reactiveExprs: reactiveExprs})
 
+	// The mailbox is a queue like any other, and the quiesce phase can only
+	// wait for what registers. No Close: the only way to end a mailbox is Stop,
+	// which ends the machine and, with a shutdown_event, abandons what is
+	// queued — the stop phase's job. Waiting is what empties it, and it means
+	// the shutdown_event normally reaches a machine with nothing queued behind
+	// it.
+	config.InFlight = append(config.InFlight, InFlightHolder{
+		Name:    "fsm." + name,
+		Pending: inst.QueueDepth,
+	})
+
 	return diags
 }
 

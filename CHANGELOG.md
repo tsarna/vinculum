@@ -910,6 +910,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the order matters: stop consuming, let the work finish and commit, and only
   then leave.
 
+- **A graceful shutdown now waits for an `fsm` to run what is in its mailbox.**
+  A machine's inbound queue is `queue_size` events deep and drained by a single
+  goroutine, and no teardown phase waited for it. A shutdown could sample the
+  pipeline, find it empty, and go on to stop the machine — which, where
+  `shutdown_event` is set, ends the event loop, so every event still queued was
+  thrown away. Without one the events did run, but in the last phase, after the
+  `queue_size` queues downstream of them had been closed and with nothing
+  bounding how long they took.
+
+  The mailbox now registers alongside every bus and `queue_size` queue and is
+  emptied before the machine is stopped. Two things follow. If you set
+  `shutdown_event`, it now normally runs after the backlog rather than ahead of
+  it. And a shutdown can take up to ten seconds longer when a machine has a
+  backlog or keeps feeding itself; a machine still carrying events when that
+  budget runs out is listed as `fsm.<name>=<depth>` in the `holders` field of
+  the `Shutting down with messages still in flight` warning.
+
 - **`increment()` with no delta no longer fails.** The delta is documented as
   optional — `increment(var.hits)` adds one — but a variable, a gauge and a
   counter all read it positionally, so the documented spelling produced a Go
