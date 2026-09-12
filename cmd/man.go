@@ -9,7 +9,6 @@ import (
 	"github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/internal/pager"
 	"github.com/tsarna/vinculum/internal/schemadoc"
-	"go.uber.org/zap"
 )
 
 var (
@@ -95,7 +94,7 @@ func runMan(cmd *cobra.Command, args []string) error {
 
 	kind := schemadoc.Kind(manType)
 	if manType != "" && !schemadoc.ValidKind(manType) {
-		return &ExitCodeError{Code: 2, Err: fmt.Errorf("unknown --type %q (want one of %s)", manType, kindList())}
+		return &ExitCodeError{Code: 2, Err: fmt.Errorf("unknown --type %q (want one of %s)", manType, schemadoc.KindList())}
 	}
 	if pluginPath != "" && len(manConfigs) == 0 {
 		return &ExitCodeError{Code: 2, Err: fmt.Errorf("--plugin-path needs --config paths to search for .vinit plugin blocks")}
@@ -180,9 +179,9 @@ func funcCatalog(kind schemadoc.Kind, args []string) schemadoc.FuncCatalog {
 	return buildFuncCatalog(kind)
 }
 
-// buildFuncCatalog builds the functions of a config with no sources of its own,
-// which is every built-in plus everything the linked libraries and loaded
-// plugins register.
+// buildFuncCatalog is the built-in function corpus — shared with man::, and
+// built once however many times a lookup asks — unless the kind rules
+// functions out.
 //
 // A search always pays for it: a keyword can match a function's name or its
 // prose whatever else it matches, and leaving the corpus out would make the
@@ -191,16 +190,7 @@ func buildFuncCatalog(kind schemadoc.Kind) schemadoc.FuncCatalog {
 	if kind != "" && kind != schemadoc.KindFunction {
 		return nil
 	}
-	// A discarding logger: building this config is a lookup, and its startup
-	// chatter is not the answer to the question being asked.
-	cfg, diags := config.NewConfig().WithLogger(zap.NewNop()).Build()
-	if diags.HasErrors() || cfg == nil {
-		// Nothing to document rather than an error: the block corpus still
-		// answers, and a config with no sources failing to build is a bug that
-		// `vinculum check` reports far more usefully than a man lookup would.
-		return nil
-	}
-	return cfg
+	return schemadoc.BuiltinFuncs()
 }
 
 // notFound reports a topic that does not exist, with near misses when there
@@ -303,12 +293,4 @@ func completeManTopic(cmd *cobra.Command, args []string, toComplete string) ([]s
 		return names, cobra.ShellCompDirectiveNoFileComp
 	}
 	return schemadoc.Members(doc, kind, args), cobra.ShellCompDirectiveNoFileComp
-}
-
-func kindList() string {
-	names := make([]string, 0, len(schemadoc.Kinds))
-	for _, k := range schemadoc.Kinds {
-		names = append(names, string(k))
-	}
-	return strings.Join(names, ", ")
 }

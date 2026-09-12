@@ -63,6 +63,8 @@ Available anywhere vinculum evaluates an expression, and most useful at the [REP
 
 - `help(topic...)`: Return a human-readable summary of a function *or* of part of the configuration language. With no argument, return the sorted names of every available function, as a directory to explore with `help(name)`. Returns `null` if nothing is named that.
 - `doc(name)`: Return just a function's description. `null` if there is no such function; `""` if it exists but is undocumented. Functions only — a block has no equivalent of "exists but is undocumented".
+- `man::page(topic, subtopics...)`: Return the reference for one topic as **Markdown** — the page `vinculum man` renders. `null` if nothing is named that. See [below](#the-reference-as-markdown-man).
+- `man::index()`: Return the reference's front page — every block, `ctx` shape, and namespace — as Markdown.
 
 `help()` answers the same questions as [`vinculum man`](man.md), from inside an
 expression:
@@ -128,6 +130,58 @@ Parameters:
   fallback?  Conventionally the value to return when the thing has none. …
   *args      further arguments, interpreted by the thing
 ```
+
+#### The reference as Markdown (`man::`)
+
+`man::page(topic, subtopics...)` and `man::index()` return the same reference as
+**Markdown**, for a page or a model to read. A page is exactly what `vinculum
+man` writes when its output is not a terminal. The index is too, except for its
+closing examples, which are bare topic paths rather than shell commands, and
+omit the `-k` keyword search, which `man::` does not have. They are the
+functions to build on when a config serves its own documentation, to a browser
+or to an MCP client.
+
+```hcl
+const {
+  mqtt  = man::page("client", "mqtt")
+  index = man::index()
+}
+```
+
+Six things differ from `help()`:
+
+- **Resolution is `vinculum man`'s.** Blocks and functions are searched
+  together, so `man::page("assert")` is the menu rather than the function, and
+  `function:` is accepted as a kind prefix alongside the others.
+- **A menu lists bare topic paths.** Its entries are `client http` or
+  `block:assert` rather than calls, because the output may be read through a
+  front door with a call syntax of its own, such as an MCP tool or a web page.
+  `man::page` accepts a path as it stands, so a tool or page built on it can
+  pass an entry straight back.
+
+  ```console
+  > man::page("http")
+  "http" is ambiguous, choose one of:
+
+      client http
+      server http
+  ```
+
+- **Each argument is split on spaces.** `man::page("client mqtt")` is
+  `man::page("client", "mqtt")`, so a path can be passed as one string — a menu
+  entry, or a topic someone typed. `help()` does not split:
+  `help("client mqtt")` is `null`.
+- **Functions are the built-ins**, plus any loaded plugin's, as `vinculum man`
+  documents them. The running config's own `function`, `jq`, and `.cty`
+  definitions are left out, because a config that serves the reference should
+  not document its own helpers.
+- **Functions a flag switches on are not documented.** That covers the file
+  functions and `templatefile` (`--file-path`), `filewrite` and `fileappend` (`--write-path`),
+  and `kill` (`--allow-kill`) — the same gap `vinculum man` has.
+- **A misspelled kind is an error.** `man::page("blok:assert")` fails rather
+  than returning `null`, since no topic contains a single colon.
+
+A name that names nothing is `null`, as it is for `help()`.
 
 ### Data Manipulation
 

@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"bytes"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -9,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/internal/schemadoc"
+	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )
 
@@ -25,6 +28,7 @@ func runManCmd(t *testing.T, args ...string) (stdout, stderr string, err error) 
 	// Flags bind to package-level variables that cobra does not reset between
 	// runs, so restore their declared defaults before each one.
 	manType, manNoPager, manApropos, manConfigs, pluginPath = "", false, false, nil, ""
+	manFormat, manColor, manWidth = "auto", "auto", 0
 
 	var out, errOut bytes.Buffer
 	rootCmd.SetOut(&out)
@@ -415,7 +419,115 @@ func TestAproposFindsNothing(t *testing.T) {
 	assert.Empty(t, out)
 }
 
-// manTestConfig builds the same sourceless config funcCatalog does.
+// man::page is `vinculum man` from inside a config, and the Markdown it returns
+// is the Markdown the command writes when its output is not a terminal. The
+// two must not drift apart.
+func TestManPageFunctionMatchesTheCommand(t *testing.T) {
+	fn, ok := manTestConfig(t).EvalCtx().Functions["man::page"]
+	require.True(t, ok, "man::page is not registered")
+
+	for _, words := range [][]string{
+		{"client", "mqtt"},
+		{"subscription", "action"},
+		{"message"},
+		{"send"},
+	} {
+		out, _, err := runManCmd(t, words...)
+		require.NoError(t, err, "%v", words)
+
+		args := make([]cty.Value, len(words))
+		for i, w := range words {
+			args[i] = cty.StringVal(w)
+		}
+		got, err := fn.Call(args)
+		require.NoError(t, err, "%v", words)
+		assert.Equal(t, out, got.AsString(), "%v", words)
+	}
+}
+
+// man::index is the command's index with a footer of its own: everything above
+// the footer must be identical.
+func TestManIndexFunctionMatchesTheCommand(t *testing.T) {
+	fn, ok := manTestConfig(t).EvalCtx().Functions["man::index"]
+	require.True(t, ok, "man::index is not registered")
+
+	got, err := fn.Call(nil)
+	require.NoError(t, err)
+	out, _, err := runManCmd(t)
+	require.NoError(t, err)
+
+	const footer = "Give a topic to read it:"
+	cmdBody, _, ok := strings.Cut(out, footer)
+	require.True(t, ok, "the command's index has no footer")
+	fnBody, fnFooter, ok := strings.Cut(got.AsString(), footer)
+	require.True(t, ok, "man::index has no footer")
+
+	assert.Equal(t, cmdBody, fnBody)
+	assert.Contains(t, fnBody, "`client`")
+	assert.NotContains(t, fnFooter, "vinculum man", "the footer is spelled as topic paths")
+}
+
+// Every entry of every man::page menu, passed back to man::page as it stands,
+// must resolve — that is what spelling menus as bare topic paths is for. The
+// menus are found by asking about every leading name and function rather than
+// listed, so an ambiguity added later is covered the day it appears.
+func TestManPageMenusRoundTrip(t *testing.T) {
+	cfg := manTestConfig(t)
+	fn, ok := cfg.EvalCtx().Functions["man::page"]
+	require.True(t, ok, "man::page is not registered")
+
+	page := func(topic string) string {
+		t.Helper()
+		v, err := fn.Call([]cty.Value{cty.StringVal(topic)})
+		require.NoError(t, err, "%q", topic)
+		if v.IsNull() {
+			return ""
+		}
+		return v.AsString()
+	}
+	// Every menu opens by quoting the query; a page opens with a heading.
+	isMenu := func(topic, text string) bool {
+		return strings.HasPrefix(text, strconv.Quote(topic)+" is ")
+	}
+
+	doc, _ := config.GenerateSchema(config.SchemaGenOptions{})
+	names := append(schemadoc.LeadingNames(doc, ""), cfg.FuncNames()...)
+	slices.Sort(names)
+	var menus []string
+	for _, name := range slices.Compact(names) {
+		if isMenu(name, page(name)) {
+			menus = append(menus, name)
+		}
+	}
+
+	// The ambiguities known today, so that a search that finds none — because
+	// the menu's wording changed, say — fails rather than passing vacuously.
+	// http and vws are client and server types; assert is a block and a
+	// function; check is a block and a ctx shape; counter is a condition type
+	// and a metric type.
+	for _, known := range []string{"assert", "check", "counter", "http", "vws"} {
+		assert.Contains(t, menus, known)
+	}
+
+	for _, query := range menus {
+		var items []string
+		for _, line := range strings.Split(page(query), "\n") {
+			if item, ok := strings.CutPrefix(line, "    "); ok {
+				items = append(items, item)
+			}
+		}
+		require.NotEmpty(t, items, "%q", query)
+
+		for _, item := range items {
+			got := page(item)
+			if assert.NotEmpty(t, got, "%q from the %q menu resolves to nothing", item, query) {
+				assert.False(t, isMenu(item, got), "%q from the %q menu is itself a menu", item, query)
+			}
+		}
+	}
+}
+
+// manTestConfig builds a sourceless config, the kind BuiltinFuncs caches.
 func manTestConfig(t *testing.T) *config.Config {
 	t.Helper()
 	cfg, diags := config.NewConfig().WithLogger(zap.NewNop()).Build()

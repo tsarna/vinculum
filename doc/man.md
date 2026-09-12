@@ -276,3 +276,6 @@ source <(vinculum completion bash)     # or zsh, fish, powershell
   the evaluation namespace, and block ordering.
 - [`help()`](functions.md#reflection) — the same lookups from inside an
   expression, and the natural way to use them at the [REPL](repl.md).
+- [`man::page()` and `man::index()`](functions.md#the-reference-as-markdown-man) — these same
+  pages as Markdown strings, from inside a config: what a docs site or an MCP
+  server is built on.

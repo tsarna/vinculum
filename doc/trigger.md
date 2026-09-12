@@ -643,7 +643,7 @@ trigger "file" "conf_d" {
     filter    = "*.yaml"
     events    = ["create", "write", "rename"]
     debounce  = "200ms"
-    action    = reload_fragment(ctx.event_path)
+    action    = myproject::foo::reload_fragment(ctx.event_path)
 }
 ```
 
