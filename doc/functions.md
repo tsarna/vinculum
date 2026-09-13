@@ -64,7 +64,7 @@ Available anywhere vinculum evaluates an expression, and most useful at the [REP
 - `help(topic...)`: Return a human-readable summary of a function *or* of part of the configuration language. With no argument, return the sorted names of every available function, as a directory to explore with `help(name)`. Returns `null` if nothing is named that.
 - `doc(name)`: Return just a function's description. `null` if there is no such function; `""` if it exists but is undocumented. Functions only — a block has no equivalent of "exists but is undocumented".
 - `man::page(topic, subtopics...)`: Return the reference for one topic as **Markdown** — the page `vinculum man` renders. `null` if nothing is named that. See [below](#the-reference-as-markdown-man).
-- `man::index()`: Return the reference's front page — every block, `ctx` shape, and namespace — as Markdown.
+- `man::index()`: Return the reference's front page — every block, `ctx` shape, namespace, and command — as Markdown.
 - `man::apropos(term, terms...)`: Search the reference by keyword and return the matches as a Markdown table, each row naming a topic path `man::page` reads. `null` if nothing matches.
 - `man::synopsis(topic, subtopics...)`: Return just one topic's skeleton — a block's header, attributes and sub-blocks, or a function's calling conventions.
 
@@ -77,6 +77,7 @@ expression:
 > help("client", "mqtt")        one type of a block
 > help("subscription", "action")  one attribute, with the ctx it sees
 > help("message")               a ctx shape
+> help("serve")                 a vinculum command, with its flags
 ```
 
 A bare name is looked up as a function first, and tried as a topic only when it
@@ -86,6 +87,7 @@ function — a `kind:` prefix chooses:
 ```console
 > help("block:assert")
 > help("context:message")
+> help("command:check")
 ```
 
 Qualified functy names are untouched by this: the prefix is recognized only
@@ -151,11 +153,11 @@ const {
 }
 ```
 
-Six things differ from `help()`:
+Five things differ from `help()`:
 
-- **Resolution is `vinculum man`'s.** Blocks and functions are searched
-  together, so `man::page("assert")` is the menu rather than the function, and
-  `function:` is accepted as a kind prefix alongside the others.
+- **Resolution is `vinculum man`'s.** Blocks, commands and functions are
+  searched together, so `man::page("assert")` is the menu rather than the
+  function, and `function:` is accepted as a kind prefix alongside the others.
 - **A menu lists bare topic paths.** Its entries are `client http` or
   `block:assert` rather than calls, because the output may be read through a
   front door with a call syntax of its own, such as an MCP tool or a web page.
@@ -177,10 +179,10 @@ Six things differ from `help()`:
 - **Functions are the built-ins**, plus any loaded plugin's, as `vinculum man`
   documents them. The running config's own `function`, `jq`, and `.cty`
   definitions are left out, because a config that serves the reference should
-  not document its own helpers.
-- **Functions a flag switches on are not documented.** That covers the file
-  functions and `templatefile` (`--file-path`), `filewrite` and `fileappend` (`--write-path`),
-  and `kill` (`--allow-kill`) — the same gap `vinculum man` has.
+  not document its own helpers. That includes the functions a flag switches on,
+  whether or not this config was given the flag. Each such page opens by naming
+  the flag and the commands that accept it, as [`vinculum man`](man.md#functions)
+  does.
 - **A misspelled kind is an error.** `man::page("blok:assert")` fails rather
   than returning `null`, since no topic contains a single colon.
 
@@ -189,8 +191,8 @@ A name that names nothing is `null`, as it is for `help()`.
 ##### Searching
 
 `man::apropos` is [`vinculum man -k`](man.md#searching) from inside a config:
-every block, attribute, sub-block, `ctx` field, namespace member and function
-whose name or one-line summary contains **all** the terms. Arguments are split
+every block, attribute, sub-block, `ctx` field, namespace member, function,
+command and flag whose name or one-line summary contains **all** the terms. Arguments are split
 on spaces, so `man::apropos("keep alive")` and `man::apropos("keep", "alive")`
 are the same search.
 
@@ -209,8 +211,8 @@ straight to a page. A name that is exactly a term comes first — for a function
 the part after its `::` counts — then names that contain one, then the rest. At
 most fifty rows are shown, followed by a count of the others, since a one-letter
 term matches most of the language. There is no `kind` filter: a row spells its
-kind (`block:assert`) when the results span kinds, which is the same answer
-without a second lookup. Nothing matching is `null`, not an empty table.
+kind (`command:check`) whenever its path alone would name more than one thing,
+so every row reads the page it was printed for. Nothing matching is `null`, not an empty table.
 
 ##### Just the skeleton
 

@@ -81,6 +81,7 @@ var manExamples = []string{
 	":man client mqtt",
 	":man server http handle",
 	":man send",
+	":man serve",
 	":apropos keep_alive",
 }
 

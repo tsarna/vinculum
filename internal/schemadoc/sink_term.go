@@ -167,6 +167,9 @@ func (t *termSink) render(e Event) {
 	case AttrDetail:
 		t.attrDetail(v)
 
+	case FlagTable:
+		t.flagTable(v)
+
 	case BlockTable:
 		t.blockTable(v)
 
@@ -333,6 +336,29 @@ func attrQualifier(r AttrRow) string {
 		parts = append(parts, "default `"+r.Default+"`")
 	}
 	return strings.Join(parts, ", ")
+}
+
+// flagTable lays flags out the way --help does, spelling and placeholder
+// together in the name column, with the default trailing the description as an
+// attribute's does.
+func (t *termSink) flagTable(v FlagTable) {
+	if len(v.Rows) == 0 {
+		return
+	}
+	t.gap()
+	names := make([]string, len(v.Rows))
+	for i, r := range v.Rows {
+		names[i] = strings.TrimSpace(r.Spelling() + " " + r.Type)
+	}
+	width := t.columnWidth(names)
+
+	for i, r := range v.Rows {
+		desc := oneLine(r.Usage)
+		if r.Default != "" {
+			desc = strings.TrimSpace(desc + " *(default `" + r.Default + "`)*")
+		}
+		t.column(names[i], desc, width)
+	}
 }
 
 func (t *termSink) attrDetail(d AttrDetail) {

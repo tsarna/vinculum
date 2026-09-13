@@ -136,3 +136,112 @@ func TestFunctionPlugin_UniqueNamesMerged(t *testing.T) {
 	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
 	assert.Contains(t, config.Functions, "unique_fn")
 }
+
+func TestFunctionFeatures_FromTheProbe(t *testing.T) {
+	withCleanFunctionPlugins(t)
+
+	RegisterFunctionPlugin("features_plug", func(c *Config) map[string]function.Function {
+		out := map[string]function.Function{"always_fn": makeConstantFunc("always")}
+		if c.GetFeature("readfiles") != "" {
+			out["reads_fn"] = makeConstantFunc("reads")
+			// Asked only once readfiles is on, which the all-features probe
+			// has to see anyway.
+			if c.GetFeature("writefiles") != "" {
+				out["writes_fn"] = makeConstantFunc("writes")
+			}
+		}
+		return out
+	})
+
+	// A running config that enabled readfiles still reports what the function
+	// needs: the answer is how to get the function, not whether this run has it.
+	config, diags := NewConfig().
+		WithSources([]byte("")).
+		WithLogger(zap.NewNop()).
+		WithFeature("readfiles", t.TempDir()).
+		Build()
+	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
+
+	assert.Nil(t, config.FunctionFeatures("always_fn"))
+	assert.Equal(t, []string{"readfiles"}, config.FunctionFeatures("reads_fn"))
+	assert.Equal(t, []string{"readfiles", "writefiles"}, config.FunctionFeatures("writes_fn"),
+		"a function behind two features needs both")
+	assert.Nil(t, config.FunctionFeatures("no_such_fn"))
+
+	doc, ok := config.FuncDoc("reads_fn")
+	require.True(t, ok)
+	assert.Equal(t, []string{"readfiles"}, doc.Features)
+
+	// The answer is a copy: changing it does not change the next one.
+	doc.Features[0] = "mutated"
+	assert.Equal(t, []string{"readfiles"}, config.FunctionFeatures("reads_fn"))
+}
+
+// Build refuses --write-path without --file-path, which the probe cannot see,
+// so a function behind writefiles is documented as needing both.
+func TestFunctionFeatures_ImpliedByBuild(t *testing.T) {
+	withCleanFunctionPlugins(t)
+
+	RegisterFunctionPlugin("implied_plug", func(c *Config) map[string]function.Function {
+		if c.GetFeature("writefiles") == "" {
+			return nil
+		}
+		return map[string]function.Function{"writes_only_fn": makeConstantFunc("w")}
+	})
+
+	config, diags := NewConfig().WithSources([]byte("")).WithLogger(zap.NewNop()).Build()
+	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
+	assert.Equal(t, []string{"readfiles", "writefiles"}, config.FunctionFeatures("writes_only_fn"))
+}
+
+// A config's own function is not a plugin's, whatever its name: without the
+// flag the plugin's function does not exist, and the config's does.
+func TestFuncDoc_UserFunctionSharingAGatedNameHasNoFeatures(t *testing.T) {
+	withCleanFunctionPlugins(t)
+
+	RegisterFunctionPlugin("shadowed_plug", func(c *Config) map[string]function.Function {
+		if c.GetFeature("allowkill") == "" {
+			return nil
+		}
+		return map[string]function.Function{"shadowed_fn": makeConstantFunc("plugin")}
+	})
+
+	config, diags := NewConfig().
+		WithSources([]byte(`function "shadowed_fn" {
+  params = [a]
+  result = a
+}`)).
+		WithLogger(zap.NewNop()).
+		Build()
+	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
+
+	doc, ok := config.FuncDoc("shadowed_fn")
+	require.True(t, ok)
+	assert.Nil(t, doc.Features)
+	assert.Equal(t, []string{"allowkill"}, config.FunctionFeatures("shadowed_fn"),
+		"the binary-level answer is unchanged; only this config's function is exempt")
+}
+
+func TestWithEveryFeature_RegistersGatedFunctions(t *testing.T) {
+	withCleanFunctionPlugins(t)
+
+	RegisterFunctionPlugin("every_feature_plug", func(c *Config) map[string]function.Function {
+		if c.GetFeature("allowkill") == "" {
+			return nil
+		}
+		return map[string]function.Function{"gated_every_fn": makeConstantFunc("gated")}
+	})
+
+	config, diags := NewConfig().
+		WithSources([]byte("")).
+		WithLogger(zap.NewNop()).
+		WithEveryFeature().
+		Build()
+	require.False(t, diags.HasErrors(), "unexpected diagnostics: %v", diags)
+
+	doc, ok := config.FuncDoc("gated_every_fn")
+	require.True(t, ok, "a config built WithEveryFeature documents gated functions")
+	assert.Equal(t, []string{"allowkill"}, doc.Features)
+	assert.Empty(t, config.EnabledFeatureNames(), "no feature is actually enabled")
+	assert.Empty(t, config.BaseDir)
+}

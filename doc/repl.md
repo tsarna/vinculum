@@ -95,8 +95,14 @@ string that binds to `_N` and scrolls off the top:
 1> :man subscription
 1> :man client mqtt
 1> :man send                one of the functions
+1> :man serve               a vinculum command, with its flags
 1> :man                     what there is to read
 ```
+
+The functions are this session's own. A function that a flag switches on, such
+as `file()` with `--file-path`, has a page here only when the session was
+started with that flag. `vinculum man` documents it either way, with a note
+naming the flag.
 
 Where a name means more than one thing, `:man` prints the commands that resolve
 it. A `kind:` prefix chooses between kinds, since a meta-command line has
@@ -118,7 +124,7 @@ with `2>vinculum.log` (below) does not swallow it.
 
 `:man` needs a path. When you have a word instead — an attribute name you saw in
 someone's config, a term from an error — `:apropos` searches names and summaries
-across every block, attribute, `ctx` field and function, and prints the `:man`
+across every block, attribute, `ctx` field, function, command and flag, and prints the `:man`
 command that reads each hit:
 
 ```console

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
@@ -22,6 +23,7 @@ type ConfigBuilder struct {
 	blockHandlers map[string]BlockHandler
 	pluginPath    string
 	testing       bool
+	everyFeature  bool
 	// files holds every source file Build() parsed (.vinit, .vcl, .cty),
 	// keyed by filename, so diagnostics can be rendered with the offending
 	// line quoted. It is kept on the builder rather than the Config because
@@ -188,10 +190,23 @@ type Config struct {
 	// real external I/O off under test (e.g. `disabled = sys.testing`).
 	Testing bool
 	// probeAllFeatures makes GetFeature answer every feature, enabled or not.
-	// It is set only on the throwaway copy possibleFunctionNames builds to ask
-	// the function plugins for their names; nothing in a running config reads
-	// it.
+	// It is set on the throwaway copies that ask the function plugins for their
+	// names, and on a config built WithEveryFeature to document them; a config
+	// that runs never has it.
 	probeAllFeatures bool
+	// probeWithout is the one feature a probe answers as disabled, and
+	// probeAsked records every feature a plugin asked about. Both are set only
+	// on functionFeatures' throwaway copies.
+	probeWithout string
+	probeAsked   map[string]bool
+	// featureGates caches functionFeatures, which asks every function plugin
+	// once per feature and so is worth doing only once, and only if asked.
+	featureGates func() map[string][]string
+	// pluginFuncNames are the functions this config got from function plugins,
+	// as opposed to its own function, jq, editor, or .cty definitions — which is
+	// what decides whether a function's documented features are its own. Nil
+	// for a Config not made by Build.
+	pluginFuncNames map[string]bool
 
 	// Health aggregates readiness for the process: the boot and drain gates,
 	// every component that reports whether it is serving, and the `check`
@@ -293,6 +308,17 @@ func (c *ConfigBuilder) WithFeature(name, value string) *ConfigBuilder {
 	return c
 }
 
+// WithEveryFeature makes every feature-gated function plugin contribute its
+// functions, as though every feature flag had been given, so that they can be
+// documented. The features carry a placeholder rather than a directory, so a
+// config built this way is for describing functions and never for calling
+// them. Nothing else about the build changes: BaseDir, WriteDir, and
+// sys.features still reflect the features actually passed to WithFeature.
+func (c *ConfigBuilder) WithEveryFeature() *ConfigBuilder {
+	c.everyFeature = true
+	return c
+}
+
 // WithTesting marks the build as a test run (`vinculum test`). When true, the
 // `sys.testing` ambient is true, letting a config disable real external
 // connections under test via `disabled = sys.testing`. Must be set before
@@ -335,6 +361,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		Features:           cb.features,
 		BaseDir:            cb.features["readfiles"],
 		WriteDir:           cb.features["writefiles"],
+		probeAllFeatures:   cb.everyFeature,
 		Testing:            cb.testing,
 		Constants:          make(map[string]cty.Value),
 		Health:             NewHealth(userLogger),
@@ -357,8 +384,10 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	}
 
 	initAuthNamespace(config)
+	config.featureGates = sync.OnceValue(config.functionFeatures)
 
-	// Validate write-path is under file-path
+	// Validate write-path is under file-path. featureImplies documents the first
+	// half of this rule; keep the two in step.
 	if config.WriteDir != "" {
 		if config.BaseDir == "" {
 			return nil, hcl.Diagnostics{{
@@ -600,6 +629,11 @@ func (c *Config) ExtractUserFunctions(bodies []hcl.Body) (map[string]function.Fu
 // then adds user-defined functions with duplicate detection.
 func (c *Config) GetFunctions(userFuncs map[string]function.Function) (map[string]function.Function, hcl.Diagnostics) {
 	funcs, diags := c.buildPluginFunctions()
+
+	c.pluginFuncNames = make(map[string]bool, len(funcs))
+	for name := range funcs {
+		c.pluginFuncNames[name] = true
+	}
 
 	for name, fn := range userFuncs {
 		if _, exists := funcs[name]; exists {

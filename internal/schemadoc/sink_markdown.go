@@ -58,7 +58,11 @@ func (m *markdownSink) render(e Event) {
 
 	case Synopsis:
 		m.para()
-		m.line("```hcl")
+		lang := v.Lang
+		if lang == "" {
+			lang = "hcl"
+		}
+		m.line("```" + lang)
 		for _, l := range v.Lines {
 			m.line(l)
 		}
@@ -77,6 +81,9 @@ func (m *markdownSink) render(e Event) {
 
 	case AttrDetail:
 		m.attrDetail(v)
+
+	case FlagTable:
+		m.flagTable(v)
 
 	case BlockTable:
 		m.blockTable(v)
@@ -154,6 +161,33 @@ func (m *markdownSink) attrTable(t AttrTable) {
 		}
 		m.line(fmt.Sprintf("| `%s` | %s | %s | %s | %s |",
 			r.Name, typeLabel(r.Type, r.Hint), req, def, desc))
+	}
+}
+
+func (m *markdownSink) flagTable(t FlagTable) {
+	if len(t.Rows) == 0 {
+		return
+	}
+	defaults := t.HasDefaults()
+
+	m.para()
+	if defaults {
+		m.line("| Flag | Type | Default | Description |")
+		m.line("|---|---|---|:---|")
+	} else {
+		m.line("| Flag | Type | Description |")
+		m.line("|---|---|:---|")
+	}
+	for _, r := range t.Rows {
+		if !defaults {
+			m.line(fmt.Sprintf("| `%s` | %s | %s |", r.Spelling(), r.Type, oneLine(r.Usage)))
+			continue
+		}
+		def := ""
+		if r.Default != "" {
+			def = "`" + r.Default + "`"
+		}
+		m.line(fmt.Sprintf("| `%s` | %s | %s | %s |", r.Spelling(), r.Type, def, oneLine(r.Usage)))
 	}
 }
 

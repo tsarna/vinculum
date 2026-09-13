@@ -40,11 +40,12 @@ func manFunctions() map[string]function.Function {
 
 // BuiltinFuncs is the function corpus of `vinculum man` and man::: the
 // functions of a config with no sources of its own. That is every built-in,
-// plus whatever the linked libraries and loaded plugins register. The
-// functions a flag switches on (--file-path, --write-path, --allow-kill) are
-// not in it, since a sourceless config enables no features. Neither are the
-// hosting config's own function, jq, and .cty definitions, because a docs site
-// should not document its own helpers.
+// plus whatever the linked libraries and loaded plugins register — and the
+// functions a flag switches on (--file-path, --write-path, --allow-kill), which
+// it is built with every feature to include, so that each page can say which
+// flag it needs rather than the function seeming not to exist. The hosting
+// config's own function, jq, and .cty definitions are not in it, because a docs
+// site should not document its own helpers.
 //
 // It is built once, on the first call, rather than at registration. Plugins
 // register while .vinit files are processed, or in `vinculum man --plugin-path`
@@ -59,7 +60,7 @@ var builtinFuncs = sync.OnceValue(buildBuiltinFuncs)
 func buildBuiltinFuncs() FuncCatalog {
 	// A discarding logger: building this config is a lookup, and its startup
 	// chatter is not the answer to the question being asked.
-	cfg, diags := config.NewConfig().WithLogger(zap.NewNop()).Build()
+	cfg, diags := config.NewConfig().WithLogger(zap.NewNop()).WithEveryFeature().Build()
 	if diags.HasErrors() || cfg == nil {
 		// Nothing to document, rather than an error: the block corpus still
 		// answers. Return an untyped nil here, because a nil *Config stored in
@@ -238,7 +239,7 @@ var aproposMaxRows = 50
 // manAproposFunc builds man::apropos over the given document and catalog.
 func manAproposFunc(docFn func() *config.SchemaDocument, catFn func() FuncCatalog) function.Function {
 	return function.New(&function.Spec{
-		Description: `Search the configuration-language reference by keyword, for the reader who knows a word but not which block owns it: every block, attribute, sub-block, ctx field, namespace member and function whose name or summary contains all of the terms, as a Markdown table. man::apropos("keep alive") and man::apropos("keep", "alive") are the same search. Each row names a topic path that man::page accepts as it stands, so a search leads straight to a page. At most fifty rows are shown — a name that is exactly a term first, then other name matches — with a count of the rest. Null when nothing matches.`,
+		Description: `Search the configuration-language reference by keyword, for the reader who knows a word but not which block owns it: every block, attribute, sub-block, ctx field, namespace member, function, vinculum command and command-line flag whose name or summary contains all of the terms, as a Markdown table. man::apropos("keep alive") and man::apropos("keep", "alive") are the same search. Each row names a topic path that man::page accepts as it stands, so a search leads straight to a page. At most fifty rows are shown — a name that is exactly a term first, then other name matches — with a count of the rest. Null when nothing matches.`,
 		Params: []function.Parameter{{
 			Name:        "term",
 			Type:        cty.String,
@@ -298,12 +299,13 @@ var pathExamples = []string{
 	"client mqtt",
 	"server http handle",
 	"send",
+	"serve",
 }
 
 // manIndexFunc builds man::index over the given document.
 func manIndexFunc(docFn func() *config.SchemaDocument) function.Function {
 	return function.New(&function.Spec{
-		Description: "Render the front page of the configuration-language reference as Markdown: every block, `ctx` shape, and namespace, each with a one-line summary, followed by a few example topic paths to pass to man::page().",
+		Description: "Render the front page of the configuration-language reference as Markdown: every block, `ctx` shape, namespace, and vinculum command, each with a one-line summary, followed by a few example topic paths to pass to man::page().",
 		Params:      []function.Parameter{},
 		Type:        function.StaticReturnType(cty.String),
 		Impl: func(_ []cty.Value, _ cty.Type) (cty.Value, error) {

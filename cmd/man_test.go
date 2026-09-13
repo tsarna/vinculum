@@ -427,10 +427,15 @@ func TestManPageFunctionMatchesTheCommand(t *testing.T) {
 	require.True(t, ok, "man::page is not registered")
 
 	for _, words := range [][]string{
+		// First, and flagless: a command rendered before anything has merged the
+		// global flags into it must still agree with the command's own page.
+		{"version"},
 		{"client", "mqtt"},
 		{"subscription", "action"},
 		{"message"},
 		{"send"},
+		{"serve"},
+		{"kill"},
 	} {
 		out, _, err := runManCmd(t, words...)
 		require.NoError(t, err, "%v", words)

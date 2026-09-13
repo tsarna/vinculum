@@ -119,18 +119,18 @@ server "mcp" "man" {
     # ── Tools ────────────────────────────────────────────────────────────────
 
     tool "vcl_man" {
-        description = "Read the Vinculum configuration-language reference for one topic: a block type, one of its type variants, an attribute or sub-block under it, a ctx shape, a namespace member, or a built-in function. The topic is a path, written as one space-separated string: \"subscription\", \"client mqtt\", \"server http handle\", \"send\". A name that means more than one thing answers with a menu of topic paths to call back with."
+        description = "Read the Vinculum configuration-language reference for one topic: a block type, one of its type variants, an attribute or sub-block under it, a ctx shape, a namespace member, a built-in function, or a vinculum command with its flags. The topic is a path, written as one space-separated string: \"subscription\", \"client mqtt\", \"server http handle\", \"send\", \"serve\". Read \"serve\" before telling anyone how to run a config: some functions exist only when a flag is given (file() needs --file-path), and a function's page says which. A name that means more than one thing answers with a menu of topic paths to call back with."
 
         param "topic" {
             type        = "string"
             required    = true
-            description = "Topic path, space-separated: \"subscription\", \"client mqtt\", \"server http handle\", \"send\""
+            description = "Topic path, space-separated: \"subscription\", \"client mqtt\", \"server http handle\", \"send\", \"serve\""
         }
         param "kind" {
             type        = "string"
             default     = ""
-            enum        = ["", "block", "context", "namespace", "function"]
-            description = "Restrict the lookup to one kind of topic, for a name that means more than one — \"assert\" is a block type and a function"
+            enum        = ["", "block", "context", "namespace", "function", "command"]
+            description = "Restrict the lookup to one kind of topic, for a name that means more than one — \"assert\" is a block type and a function, \"check\" is a block type and a command"
         }
 
         # A miss is ordinary text, not mcp::error(): a lookup that found nothing
@@ -145,7 +145,7 @@ server "mcp" "man" {
     }
 
     tool "vcl_apropos" {
-        description = "Search the Vinculum reference by keyword, when you know a word but not which block owns it. Lists every block, attribute, sub-block, ctx field, namespace member and function whose name or one-line summary contains all the keywords, each with the topic path that reads it — pass that path to vcl_man."
+        description = "Search the Vinculum reference by keyword, when you know a word but not which block owns it. Lists every block, attribute, sub-block, ctx field, namespace member, function, command and command-line flag whose name or one-line summary contains all the keywords, each with the topic path that reads it — pass that path to vcl_man."
 
         param "keywords" {
             type        = "string"
@@ -199,7 +199,7 @@ server "mcp" "man" {
 
     resource "vcl://index" {
         name        = "VCL reference index"
-        description = "Every block, ctx shape and namespace of the configuration language, each with a one-line summary — the whole map of the language, in a few KB."
+        description = "Every block, ctx shape and namespace of the configuration language, and every vinculum command, each with a one-line summary — the whole map of the language, in a few KB."
         mime_type   = "text/markdown"
 
         action = "${man::index()}${footer}"
@@ -251,7 +251,7 @@ server "mcp" "man" {
               3. vcl_man on the block, or on one attribute of it, for the detail and the ctx an expression sees.
               4. vcl_doc for the language the blocks are written in — "config" for the HCL syntax, "functy" for .cty, "transforms", "testing".
 
-            Then check what you wrote with `vinculum check <file>`.${ctx.args.task == "" ? "" : "\n\nThe task: ${ctx.args.task}"}
+            Then check what you wrote with `vinculum check <file>`, and read vcl_man "serve" for how to run it: some functions do not exist unless a flag is given — file() needs --file-path — and a function's page says which.${ctx.args.task == "" ? "" : "\n\nThe task: ${ctx.args.task}"}
         EOT
     }
 }

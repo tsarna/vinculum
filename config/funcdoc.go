@@ -33,6 +33,10 @@ type FuncDoc struct {
 	// Params are the documented parameters, unioned across the forms with the
 	// first occurrence of a name winning — matching how functy renders them.
 	Params []FuncParam
+	// Features are the feature flags the function needs before it exists, e.g.
+	// ["readfiles"] for file(); nil for one that always exists. See
+	// Config.FunctionFeatures.
+	Features []string
 }
 
 // FuncParam is one parameter of a function.
@@ -62,6 +66,17 @@ func (c *Config) FuncDoc(name string) (FuncDoc, bool) {
 	if c == nil {
 		return FuncDoc{}, false
 	}
+	doc, ok := c.funcDoc(name)
+	// Only a plugin's function needs a plugin's feature. A config without
+	// --allow-kill may define a `function "kill"` of its own, and that one
+	// exists whatever the flags.
+	if ok && (c.pluginFuncNames == nil || c.pluginFuncNames[doc.Name]) {
+		doc.Features = c.FunctionFeatures(doc.Name)
+	}
+	return doc, ok
+}
+
+func (c *Config) funcDoc(name string) (FuncDoc, bool) {
 	res := c.functyResult()
 
 	if decls := res.LookupFuncDecls(name); len(decls) > 0 {

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/hashicorp/hcl/v2"
@@ -92,6 +93,12 @@ func (c *Config) buildPluginFunctions() (map[string]function.Function, hcl.Diagn
 // GetFeature returns the value associated with a named feature flag,
 // or empty string if the feature is not enabled.
 func (c *Config) GetFeature(name string) string {
+	if c.probeAsked != nil {
+		c.probeAsked[name] = true
+	}
+	if c.probeWithout != "" && name == c.probeWithout {
+		return ""
+	}
 	if v := c.Features[name]; v != "" {
 		return v
 	}
@@ -127,12 +134,101 @@ func (c *Config) possibleFunctionNames() map[string]bool {
 
 	probe := *c
 	probe.probeAllFeatures = true
-	for _, p := range functionPlugins {
-		for name := range p.getter(&probe) {
-			names[name] = true
+	for name := range pluginFunctionNames(&probe) {
+		names[name] = true
+	}
+
+	return names
+}
+
+// FunctionFeatures returns the features a function needs before it exists —
+// ["readfiles"] for file(), since the filesystem plugin contributes it only with
+// --file-path — or nil for a function that exists whatever the flags.
+//
+// It answers for the binary rather than for this invocation, so a config that
+// was given --file-path still reports file() as needing it: the answer is for
+// documentation, and what it documents is how to get the function.
+func (c *Config) FunctionFeatures(name string) []string {
+	if c == nil {
+		return nil
+	}
+	// A copy, since the cached map is shared by every caller.
+	if c.featureGates != nil {
+		return slices.Clone(c.featureGates()[name])
+	}
+	return c.functionFeatures()[name]
+}
+
+// functionFeatures works out every function's features by asking the plugins
+// rather than from a list, so a feature added later is covered without one to
+// keep in step.
+//
+// A probe with every feature enabled finds every function and, as a side effect,
+// every feature a plugin asks about. Then, for each such feature, a probe with
+// everything enabled except it: a function that disappears needs that feature.
+// Removing one feature at a time rather than enabling one at a time is what
+// finds a function that needs two.
+//
+// What the probe cannot see is a rule Build enforces after the plugins have
+// run, so featureImplies adds those.
+func (c *Config) functionFeatures() map[string][]string {
+	all := *c
+	all.probeAllFeatures = true
+	all.probeAsked = map[string]bool{}
+	// The copies do not carry the parent's cache. A copy is a probe, not a
+	// config, and the cache belongs to the config the answer is for.
+	all.featureGates = nil
+	every := pluginFunctionNames(&all)
+
+	features := make([]string, 0, len(all.probeAsked))
+	for f := range all.probeAsked {
+		features = append(features, f)
+	}
+	sort.Strings(features)
+
+	out := map[string][]string{}
+	for _, f := range features {
+		without := *c
+		without.probeAllFeatures = true
+		without.probeWithout = f
+		without.featureGates = nil
+		kept := pluginFunctionNames(&without)
+		for name := range every {
+			if !kept[name] {
+				out[name] = append(out[name], f)
+			}
 		}
 	}
 
+	for name, needs := range out {
+		for _, f := range needs {
+			for _, implied := range featureImplies[f] {
+				if !slices.Contains(out[name], implied) {
+					out[name] = append(out[name], implied)
+				}
+			}
+		}
+		sort.Strings(out[name])
+	}
+	return out
+}
+
+// featureImplies lists, for a feature, the features Build refuses it without.
+// filewrite() asks its plugin only for writefiles, but Build rejects
+// --write-path unless --file-path is given too, so a page that named only the
+// first flag would describe a command line that does not start.
+var featureImplies = map[string][]string{
+	"writefiles": {"readfiles"},
+}
+
+// pluginFunctionNames returns the names every function plugin contributes to c.
+func pluginFunctionNames(c *Config) map[string]bool {
+	names := map[string]bool{}
+	for _, p := range functionPlugins {
+		for name := range p.getter(c) {
+			names[name] = true
+		}
+	}
 	return names
 }
 

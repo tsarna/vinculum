@@ -41,15 +41,24 @@ type Hit struct {
 	// function, the part after its last `::` — which sorts above a name that
 	// merely contains one.
 	exactName bool
+	// ambiguous records that Path, unqualified, names more than this hit — a
+	// flag of the `check` command is found while the `check` block is not — so
+	// its invocation has to carry the kind even with no twin among the hits.
+	ambiguous bool
 }
 
 // Apropos returns every topic whose name or summary contains all of terms,
 // best match first.
 //
-// Both corpora are searched — the config-language document and, when a catalog
-// is supplied, the callable functions — because a reader searching for "topic"
-// has no reason to know which of the two owns the answer. kind restricts the
-// search the way `--type` restricts resolution.
+// Every corpus is searched — the config-language document, the command tree
+// and, when a catalog is supplied, the callable functions — because a reader
+// searching for "topic" has no reason to know which of them owns the answer.
+// kind restricts the search the way `--type` restricts resolution.
+//
+// Pass the catalog whatever the kind. It is searched only when kind admits
+// functions, but it is always consulted to decide which rows need their kind
+// spelled out: a `--type block` search for `assert` finds only the block, and
+// its row must still not print a command that reads the menu.
 func Apropos(doc *config.SchemaDocument, cat FuncCatalog, kind Kind, terms []string) []Hit {
 	needles := make([]string, 0, len(terms))
 	for _, t := range terms {
@@ -73,6 +82,23 @@ func Apropos(doc *config.SchemaDocument, cat FuncCatalog, kind Kind, terms []str
 	}
 	if kind == "" || kind == KindFunction {
 		s.functions(cat)
+	}
+	if kind == "" || kind == KindCommand {
+		s.commands()
+	}
+
+	// Whether a row's path is ambiguous is a property of the corpora, not of
+	// the hits a query happened to find — nor of the kind it was restricted to —
+	// so it is asked of the resolver across every kind.
+	ambiguous := map[string]bool{}
+	for i := range s.hits {
+		key := strings.Join(s.hits[i].Path, " ")
+		got, ok := ambiguous[key]
+		if !ok {
+			got = len(Resolve(doc, "", s.hits[i].Path))+len(ResolveFuncs(cat, "", s.hits[i].Path)) > 1
+			ambiguous[key] = got
+		}
+		s.hits[i].ambiguous = got
 	}
 
 	// Name matches first: someone who typed a name wants the thing with that
@@ -305,22 +331,15 @@ func kindOrder(k Kind) int {
 // Every printed command must read the hit it is printed against, so a name that
 // means something in two kinds — `assert` is a block type and a function — is
 // spelled with its kind. Unqualified it would resolve to the ambiguity menu
-// instead of to the row the reader is pointing at.
+// instead of to the row the reader is pointing at. That holds whether or not
+// the other meaning is among the hits: a search for `file-path` finds the
+// `check` command and not the `check` block, and still must not print
+// `vinculum man check`. Apropos decides that per hit, against every corpus.
 func ResultsFor(terms []string, hits []Hit, spell Speller) Results {
-	kinds := map[string]Kind{}
-	crossKind := map[string]bool{}
-	for _, h := range hits {
-		plain := spell(h.Kind, h.Path, false)
-		if seen, ok := kinds[plain]; ok && seen != h.Kind {
-			crossKind[plain] = true
-		}
-		kinds[plain] = h.Kind
-	}
-
 	rows := make([]ResultRow, 0, len(hits))
 	for _, h := range hits {
 		rows = append(rows, ResultRow{
-			Command: spell(h.Kind, h.Path, crossKind[spell(h.Kind, h.Path, false)]),
+			Command: spell(h.Kind, h.Path, h.ambiguous),
 			Detail:  h.Detail,
 			Summary: h.Summary,
 		})
