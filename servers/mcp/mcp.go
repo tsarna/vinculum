@@ -87,14 +87,16 @@ var mcpParamSchema = cfg.TypeSchema{
 	Doc: `The label is the parameter name; its value arrives as ` + "`ctx.args.<name>`" + `.
 
 A tool publishes its parameters as a JSON Schema, so ` + "`type`" + `, ` + "`enum`" + `, and
-` + "`default`" + ` all reach the model and its arguments arrive with those types. The
-prompt protocol carries only a name, a description, and whether the argument is
-required — so on a prompt, ` + "`type`" + ` and ` + "`enum`" + ` constrain nothing at runtime and
-every argument arrives as a string.`,
+` + "`default`" + ` all reach the model — and because a client is free to ignore the
+schema, the server also checks ` + "`type`" + `, ` + "`required`" + ` and ` + "`enum`" + ` when the tool is
+called, answering a call that does not match with a tool error naming the
+parameter, before the action runs. The prompt protocol carries only a name, a
+description, and whether the argument is required — so on a prompt, ` + "`type`" + ` and
+` + "`enum`" + ` constrain nothing at runtime and every argument arrives as a string.`,
 	Attrs: map[string]cfg.AttrMeta{
 		"type": {
 			Summary: "Type of the parameter.",
-			Doc:     "Published to the model on a tool. On a prompt it checks `default` and `enum` at config time only, since prompt arguments are strings on the wire.",
+			Doc:     "Published to the model on a tool, and checked when the tool is called: an argument of another type is refused before the action runs. On a prompt it checks `default` and `enum` at config time only, since prompt arguments are strings on the wire.",
 			Enum:    []string{"string", "number", "boolean"},
 		},
 		"description": {
@@ -102,17 +104,18 @@ every argument arrives as a string.`,
 		},
 		"required": {
 			Summary: "Whether the client must supply the parameter.",
+			Doc:     "On a tool, a call that omits it — or passes it as null — is refused before the action runs.",
 			Hint:    cfg.HintBool,
 			Default: "false",
 		},
 		"default": {
 			Summary: "Value used when the client omits the parameter.",
-			Doc:     "Applied when the argument is absent, whether or not the client honours the default published in a tool's schema. It must match `type`. On a prompt it is stringified with every other argument.",
+			Doc:     "Applied when the argument is absent — or, on a tool, sent as null — whether or not the client honours the default published in a tool's schema. It must match `type`. On a prompt it is stringified with every other argument.",
 			Hint:    cfg.HintExpression,
 		},
 		"enum": {
 			Summary: "Closed set of values the parameter accepts.",
-			Doc:     "Every entry must match `type`. Published in a tool's input schema; the prompt protocol has nowhere to carry it, so on a prompt it documents intent without constraining the caller.",
+			Doc:     "Every entry must match `type`. Published in a tool's input schema and checked when the tool is called, so a value outside the set never reaches the action. The prompt protocol has nowhere to carry it, so on a prompt it documents intent without constraining the caller.",
 		},
 	},
 	Constraints: []cfg.Constraint{
@@ -164,7 +167,7 @@ template — ` + "`db://records/{table}/{id}`" + ` — and each placeholder arri
 				},
 				"action": {
 					Summary: "Expression evaluated when a client reads the resource.",
-					Doc:     "Required unless the resource is disabled. Its value becomes the contents, and must be a string — served as-is under `mime_type` — or an `mcp::image()`. Wrap structured data in `jsonencode()`; anything else is an error at request time. `ctx.uri` is the resolved URI and `ctx.args` holds any template placeholders.",
+					Doc:     "Required unless the resource is disabled. Its value becomes the contents, and must be a string — served as-is under `mime_type` — or an `mcp::image()`. Wrap structured data in `jsonencode()`; anything else, including `null`, is an error at request time, so wrap an expression that may be null in `coalesce()` or `cond()`. `ctx.uri` is the resolved URI and `ctx.args` holds any template placeholders.",
 					Hint:    cfg.HintActionExpression,
 					Context: "mcp-resource",
 				},
@@ -185,7 +188,7 @@ template — ` + "`db://records/{table}/{id}`" + ` — and each placeholder arri
 				},
 				"action": {
 					Summary: "Expression evaluated when the tool is called.",
-					Doc:     "Required unless the tool is disabled. Arguments arrive as `ctx.args.<param>`. A string becomes text content, `mcp::image()` image content, and `mcp::error(message)` reports failure to the model; any other type is an error. Wrap structured data in `jsonencode()`.",
+					Doc:     "Required unless the tool is disabled. Arguments arrive as `ctx.args.<param>`. A string becomes text content, `mcp::image()` image content, and `mcp::error(message)` reports failure to the model; any other type is an error, `null` included, so wrap an expression that may be null in `coalesce()` or `cond()`. Wrap structured data in `jsonencode()`.",
 					Hint:    cfg.HintActionExpression,
 					Context: "mcp-tool",
 				},
@@ -206,7 +209,7 @@ template — ` + "`db://records/{table}/{id}`" + ` — and each placeholder arri
 				},
 				"action": {
 					Summary: "Expression evaluated when a client requests the prompt.",
-					Doc:     "Required unless the prompt is disabled. Arguments arrive as `ctx.args.<param>`. Return a string, or `mcp::user_message()`/`mcp::assistant_message()` values — singly or as a list — to control message roles.",
+					Doc:     "Required unless the prompt is disabled. Arguments arrive as `ctx.args.<param>`. Return a string, which becomes a single message from the user, or `mcp::user_message()`/`mcp::assistant_message()` values — singly or as a list — to control message roles. Anything else, `null` included, is an error at request time.",
 					Hint:    cfg.HintActionExpression,
 					Context: "mcp-prompt",
 				},

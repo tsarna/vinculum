@@ -65,6 +65,8 @@ Available anywhere vinculum evaluates an expression, and most useful at the [REP
 - `doc(name)`: Return just a function's description. `null` if there is no such function; `""` if it exists but is undocumented. Functions only — a block has no equivalent of "exists but is undocumented".
 - `man::page(topic, subtopics...)`: Return the reference for one topic as **Markdown** — the page `vinculum man` renders. `null` if nothing is named that. See [below](#the-reference-as-markdown-man).
 - `man::index()`: Return the reference's front page — every block, `ctx` shape, and namespace — as Markdown.
+- `man::apropos(term, terms...)`: Search the reference by keyword and return the matches as a Markdown table, each row naming a topic path `man::page` reads. `null` if nothing matches.
+- `man::synopsis(topic, subtopics...)`: Return just one topic's skeleton — a block's header, attributes and sub-blocks, or a function's calling conventions.
 
 `help()` answers the same questions as [`vinculum man`](man.md), from inside an
 expression:
@@ -133,13 +135,14 @@ Parameters:
 
 #### The reference as Markdown (`man::`)
 
-`man::page(topic, subtopics...)` and `man::index()` return the same reference as
-**Markdown**, for a page or a model to read. A page is exactly what `vinculum
-man` writes when its output is not a terminal. The index is too, except for its
-closing examples, which are bare topic paths rather than shell commands, and
-omit the `-k` keyword search, which `man::` does not have. They are the
-functions to build on when a config serves its own documentation, to a browser
-or to an MCP client.
+The `man::` functions return the reference as **Markdown**, for a page or a
+model to read: `man::page` for one topic, `man::index` for the front page,
+`man::apropos` to search, and `man::synopsis` for a topic's skeleton alone. A
+page is exactly what `vinculum man` writes when its output is not a terminal,
+and the index is too, except for its closing examples, which are bare topic
+paths rather than shell commands. They are the functions to build on when a
+config serves its own documentation, to a browser or to an MCP client —
+[examples/man-site/](../examples/man-site/) is an MCP server built from them.
 
 ```hcl
 const {
@@ -182,6 +185,57 @@ Six things differ from `help()`:
   than returning `null`, since no topic contains a single colon.
 
 A name that names nothing is `null`, as it is for `help()`.
+
+##### Searching
+
+`man::apropos` is [`vinculum man -k`](man.md#searching) from inside a config:
+every block, attribute, sub-block, `ctx` field, namespace member and function
+whose name or one-line summary contains **all** the terms. Arguments are split
+on spaces, so `man::apropos("keep alive")` and `man::apropos("keep", "alive")`
+are the same search.
+
+```console
+> man::apropos("keep_alive")
+2 topics match "keep_alive":
+
+| Topic | Description |
+|---|:---|
+| `client mqtt keep_alive` | Interval at which to send keep-alive pings. |
+| `client http disable_keep_alives` | Close each connection after a single request. |
+```
+
+Each row's topic is a path `man::page` accepts as it stands, so a search leads
+straight to a page. A name that is exactly a term comes first — for a function,
+the part after its `::` counts — then names that contain one, then the rest. At
+most fifty rows are shown, followed by a count of the others, since a one-letter
+term matches most of the language. There is no `kind` filter: a row spells its
+kind (`block:assert`) when the results span kinds, which is the same answer
+without a second lookup. Nothing matching is `null`, not an empty table.
+
+##### Just the skeleton
+
+`man::synopsis` returns the fenced skeleton that opens a page — the block header
+with its attributes and sub-blocks, or a function's calling conventions, one
+line per overload. It is what to ask for before writing a block, and much
+smaller than the page. A block whose shape depends on its type label, such as
+`client`, has no single skeleton, so it answers with the menu of its types.
+
+`man::synopsis("fsm")` returns a single fenced block:
+
+```hcl
+fsm "<name>" {
+    initial        = string  # required
+    disabled       = bool
+    on_change      = expression
+    ...
+}
+```
+
+Resolution is `man::page`'s, so an ambiguous name gets the same menu and an
+unknown one is `null`. A topic that resolves but has **no** skeleton — an
+attribute, a `ctx` shape, a namespace member — is an *error*, because `null`
+already means "nothing is named that". Fall back with
+`try(man::synopsis(x), man::page(x))`.
 
 ### Data Manipulation
 

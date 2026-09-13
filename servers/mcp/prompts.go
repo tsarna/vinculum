@@ -79,6 +79,26 @@ func makePromptHandler(s *Server, def PromptDef) sdkmcp.PromptHandler {
 }
 
 func ctyToPromptMessages(val cty.Value) ([]*sdkmcp.PromptMessage, error) {
+	// A null reports what it is rather than "unsupported type string", which
+	// names the wrong problem: a null carries a type. See the same guard in
+	// ctyToCallToolResult.
+	if val.IsNull() {
+		return nil, fmt.Errorf("prompt action returned null; expected a string, mcp::user_message(), or mcp::assistant_message(). Wrap an expression that may be null in coalesce() or cond()")
+	}
+	if !val.IsKnown() {
+		return nil, fmt.Errorf("prompt action returned an unknown value; expected a string, mcp::user_message(), or mcp::assistant_message()")
+	}
+
+	// A bare string is the prompt whose every message is the obvious one: a
+	// single message from the user. Spelling that mcp::user_message() adds a
+	// call to say what the shape already says.
+	if val.Type() == cty.String {
+		return []*sdkmcp.PromptMessage{{
+			Role:    sdkmcp.Role("user"),
+			Content: &sdkmcp.TextContent{Text: val.AsString()},
+		}}, nil
+	}
+
 	// Single MCPResult capsule
 	if r := functions.GetMCPResult(val); r != nil {
 		msg, err := mcpResultToPromptMessage(r)
@@ -95,9 +115,14 @@ func ctyToPromptMessages(val cty.Value) ([]*sdkmcp.PromptMessage, error) {
 		var i int
 		for it := val.ElementIterator(); it.Next(); i++ {
 			_, elem := it.Element()
+			// Reported for what it is, as at the top level, rather than as "not
+			// a message", which names the wrong problem.
+			if elem.IsNull() {
+				return nil, fmt.Errorf("prompt action list element %d is null; expected mcp::user_message() or mcp::assistant_message()", i)
+			}
 			r := functions.GetMCPResult(elem)
 			if r == nil {
-				return nil, fmt.Errorf("prompt action list element %d is not an mcp_usermessage() or mcp_assistantmessage()", i)
+				return nil, fmt.Errorf("prompt action list element %d is not an mcp::user_message() or mcp::assistant_message()", i)
 			}
 			msg, err := mcpResultToPromptMessage(r)
 			if err != nil {
@@ -108,7 +133,7 @@ func ctyToPromptMessages(val cty.Value) ([]*sdkmcp.PromptMessage, error) {
 		return messages, nil
 	}
 
-	return nil, fmt.Errorf("prompt action returned unsupported type %s; expected mcp_usermessage() or mcp_assistantmessage()", val.Type().FriendlyName())
+	return nil, fmt.Errorf("prompt action returned unsupported type %s; expected a string, mcp::user_message(), or mcp::assistant_message()", val.Type().FriendlyName())
 }
 
 func mcpResultToPromptMessage(r *functions.MCPResult) (*sdkmcp.PromptMessage, error) {
@@ -124,6 +149,6 @@ func mcpResultToPromptMessage(r *functions.MCPResult) (*sdkmcp.PromptMessage, er
 			Content: &sdkmcp.TextContent{Text: r.Text},
 		}, nil
 	default:
-		return nil, fmt.Errorf("mcp_result kind %q is not valid for prompt message; use mcp_usermessage() or mcp_assistantmessage()", r.Kind)
+		return nil, fmt.Errorf("mcp_result kind %q is not valid for prompt message; use mcp::user_message() or mcp::assistant_message()", r.Kind)
 	}
 }

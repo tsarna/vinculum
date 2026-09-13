@@ -91,6 +91,15 @@ func makeResourceHandler(s *Server, def ResourceDef) sdkmcp.ResourceHandler {
 }
 
 func ctyToResourceContents(uri, mimeType string, val cty.Value) ([]*sdkmcp.ResourceContents, error) {
+	// A null carries a type, so the string branch below would take it and panic
+	// in AsString. See the same guard in ctyToCallToolResult.
+	if val.IsNull() {
+		return nil, fmt.Errorf("resource action returned null; expected a string or mcp::image(). Wrap an expression that may be null in coalesce() or cond()")
+	}
+	if !val.IsKnown() {
+		return nil, fmt.Errorf("resource action returned an unknown value; expected a string or mcp::image()")
+	}
+
 	if val.Type() == cty.String {
 		return []*sdkmcp.ResourceContents{{
 			URI:      uri,
@@ -112,5 +121,5 @@ func ctyToResourceContents(uri, mimeType string, val cty.Value) ([]*sdkmcp.Resou
 		}
 	}
 
-	return nil, fmt.Errorf("resource action returned unsupported type %s; expected string or mcp_image()", val.Type().FriendlyName())
+	return nil, fmt.Errorf("resource action returned unsupported type %s; expected string or mcp::image()", val.Type().FriendlyName())
 }

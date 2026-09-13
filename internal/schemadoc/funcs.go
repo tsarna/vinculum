@@ -139,9 +139,10 @@ func (w *walker) walkFunction(n Node, level int) {
 
 	// One synopsis per form. An overload set is several calling conventions,
 	// not one with optional parameters: parsetime(s) reads a timestamp while
-	// parsetime(format, s) reads a format and then a timestamp.
-	if len(doc.Signatures) > 0 {
-		w.emit(Synopsis{Lines: doc.Signatures})
+	// parsetime(format, s) reads a format and then a timestamp. synopsisOf
+	// builds it, so man::synopsis and this page cannot disagree.
+	if syn, ok := synopsisOf(n); ok {
+		w.emit(syn)
 	}
 	if doc.Doc != "" {
 		w.emit(Prose{Markdown: doc.Doc})

@@ -56,7 +56,7 @@ func WalkSection(n Node, sec Section, opts WalkOptions) ([]Event, error) {
 	case SectionSynopsis:
 		syn, ok := synopsisOf(n)
 		if !ok {
-			return nil, fmt.Errorf("%s has no synopsis: it has no body of its own", pathText(n))
+			return nil, noSynopsisError(n)
 		}
 		w.emit(syn)
 
@@ -152,8 +152,32 @@ func synopsisOf(n Node) (Synopsis, bool) {
 		return synopsisFor(variantHeader(n.Path[0], n.Path[1], n.labels), n.body), true
 	case shapeNested:
 		return synopsisFor(blockHeader(n.Path[len(n.Path)-1], n.nested.Labels), &n.nested.SchemaBody), true
+	case shapeFunction:
+		// A function's skeleton is its calling conventions — one line per form,
+		// since parsetime(s) and parsetime(format, s) are two conventions rather
+		// than one with an optional parameter. Sharing this with the page is
+		// what keeps the two from disagreeing about what a skeleton is.
+		if n.funcs == nil {
+			return Synopsis{}, false
+		}
+		doc, ok := n.funcs.FuncDoc(n.Path[0])
+		if !ok || len(doc.Signatures) == 0 {
+			return Synopsis{}, false
+		}
+		return Synopsis{Lines: doc.Signatures}, true
 	}
 	return Synopsis{}, false
+}
+
+// noSynopsisError says why there is no skeleton, which differs by what the node
+// is: a topic of the document has no body, while a function has no signature
+// recorded. Both reach a reader — a doc/ region naming a section its page
+// cannot have, and man::synopsis being asked for one.
+func noSynopsisError(n Node) error {
+	if n.shape == shapeFunction {
+		return fmt.Errorf("%s has no synopsis: no signature is recorded for it", pathText(n))
+	}
+	return fmt.Errorf("%s has no synopsis: it has no body of its own", pathText(n))
 }
 
 // pathText spells a node's path for a diagnostic, without Markdown backticks —

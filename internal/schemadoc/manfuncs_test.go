@@ -217,6 +217,215 @@ func TestManPageRejectsMalformedTopics(t *testing.T) {
 	assert.ErrorContains(t, err, "straight after the colon")
 }
 
+// callSynopsis and callApropos mirror callPage, over the same fixtures.
+func callSynopsis(t *testing.T, cat FuncCatalog, words ...string) (cty.Value, error) {
+	t.Helper()
+	return callWords(t, manSynopsisFunc(testDoc, func() FuncCatalog { return cat }), words)
+}
+
+func callApropos(t *testing.T, cat FuncCatalog, words ...string) (cty.Value, error) {
+	t.Helper()
+	return callWords(t, manAproposFunc(testDoc, func() FuncCatalog { return cat }), words)
+}
+
+func callWords(t *testing.T, fn function.Function, words []string) (cty.Value, error) {
+	t.Helper()
+	args := make([]cty.Value, len(words))
+	for i, w := range words {
+		args[i] = cty.StringVal(w)
+	}
+	return fn.Call(args)
+}
+
+func TestManSynopsisRendersTheSkeletonAlone(t *testing.T) {
+	got, err := callSynopsis(t, testCatalog(), "client mqtt")
+	require.NoError(t, err)
+
+	events, err := WalkSection(Resolve(testDoc(), "", []string{"client", "mqtt"})[0], SectionSynopsis, WalkOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, RenderMarkdown(events, MarkdownOptions{}), got.AsString())
+
+	// One fenced skeleton, and none of the page around it. A `#` inside the
+	// fence is a comment on an attribute line; what must not appear is a
+	// heading, which is the page's and not the section's.
+	assert.True(t, strings.HasPrefix(got.AsString(), "```hcl"))
+	assert.Contains(t, got.AsString(), "# required")
+	assert.NotContains(t, got.AsString(), "| Attribute |")
+	for _, line := range strings.Split(got.AsString(), "\n") {
+		assert.False(t, strings.HasPrefix(line, "#"), "unexpected heading: %q", line)
+	}
+}
+
+// A function's skeleton is its calling conventions, one line per overload.
+func TestManSynopsisRendersAFunctionsSignatures(t *testing.T) {
+	got, err := callSynopsis(t, testCatalog(), "parsetime")
+	require.NoError(t, err)
+
+	assert.Contains(t, got.AsString(), "parsetime(s: string) -> time")
+	assert.Contains(t, got.AsString(), "parsetime(format: string, s: string) -> time")
+	assert.NotContains(t, got.AsString(), "Reads a timestamp.", "the description belongs to the page")
+}
+
+// The invariant that keeps the two functions from drifting: a synopsis is how
+// the page opens.
+func TestManSynopsisIsThePageOpening(t *testing.T) {
+	for _, topic := range []string{"client mqtt", "subscription", "parsetime"} {
+		syn, err := callSynopsis(t, testCatalog(), topic)
+		require.NoError(t, err, topic)
+		page, err := callPage(t, testCatalog(), topic)
+		require.NoError(t, err, topic)
+		assert.Contains(t, page.AsString(), strings.TrimSuffix(syn.AsString(), "\n"), topic)
+	}
+}
+
+// Resolution is man::page's, all of it.
+func TestManSynopsisResolvesLikeManPage(t *testing.T) {
+	// Ambiguity gets the same menu of bare topic paths.
+	got, err := callSynopsis(t, testCatalog(), "http")
+	require.NoError(t, err)
+	assert.Contains(t, got.AsString(), "    client http\n")
+
+	// A kind prefix chooses, and the words may arrive either way.
+	one, err := callSynopsis(t, testCatalog(), "block:client mqtt")
+	require.NoError(t, err)
+	two, err := callSynopsis(t, testCatalog(), "client", "mqtt")
+	require.NoError(t, err)
+	assert.Equal(t, two.AsString(), one.AsString())
+
+	// Nothing named that is null; a misspelled kind is an error.
+	got, err = callSynopsis(t, testCatalog(), "no_such_topic")
+	require.NoError(t, err)
+	assert.True(t, got.IsNull())
+
+	_, err = callSynopsis(t, testCatalog(), "blok:client")
+	assert.Error(t, err)
+}
+
+// A topic that resolves but has no skeleton is an error, not null: null already
+// means "nothing is named that", and one answer for both would make a real
+// topic look like a typo.
+func TestManSynopsisErrorsWhereThereIsNoSynopsis(t *testing.T) {
+	for _, topic := range []string{"subscription action", "message", "sys"} {
+		_, err := callSynopsis(t, testCatalog(), topic)
+		assert.ErrorContains(t, err, "has no synopsis", topic)
+	}
+}
+
+// A typed block's skeleton is its type's, so the answer is the menu of types —
+// not the page's stub, whose "see below" points at a list a synopsis lacks.
+func TestManSynopsisOfATypedBlockIsAMenuOfItsTypes(t *testing.T) {
+	got, err := callSynopsis(t, testCatalog(), "client")
+	require.NoError(t, err)
+
+	assert.Contains(t, got.AsString(), `"client" takes a`)
+	assert.Contains(t, got.AsString(), "    client http\n")
+	assert.Contains(t, got.AsString(), "    client mqtt\n")
+	assert.NotContains(t, got.AsString(), "see below")
+
+	// Every entry is a real skeleton.
+	for _, item := range []string{"client http", "client mqtt"} {
+		syn, err := callSynopsis(t, testCatalog(), item)
+		require.NoError(t, err, item)
+		assert.True(t, strings.HasPrefix(syn.AsString(), "```hcl"), item)
+	}
+}
+
+// The rows kept are bounded, and the answer says how many were not shown.
+func TestManAproposCapsItsRows(t *testing.T) {
+	saved := aproposMaxRows
+	aproposMaxRows = 1
+	t.Cleanup(func() { aproposMaxRows = saved })
+
+	got, err := callApropos(t, testCatalog(), "client")
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, strings.Count(got.AsString(), "\n| `"), "one row kept")
+	assert.Regexp(t, `\d+ more topics match, and are not shown`, got.AsString())
+	// The intro still counts everything that matched.
+	assert.NotContains(t, got.AsString(), "1 topics match")
+}
+
+func TestManAproposRendersHitsAsATable(t *testing.T) {
+	got, err := callApropos(t, testCatalog(), "broker")
+	require.NoError(t, err)
+
+	assert.Contains(t, got.AsString(), "topics match \"broker\":")
+	assert.Contains(t, got.AsString(), "| Topic | Description |")
+	// Rows are bare topic paths, not any front door's call syntax.
+	assert.Contains(t, got.AsString(), "| `client mqtt broker` |")
+	assert.NotContains(t, got.AsString(), "vinculum man")
+}
+
+// Every row names a topic man::page can read: a row that resolved to nothing,
+// or to a menu, would be a row that lied.
+func TestManAproposRowsRoundTripThroughManPage(t *testing.T) {
+	cat := testCatalog()
+	for _, term := range []string{"topic", "client", "message"} {
+		got, err := callApropos(t, cat, term)
+		require.NoError(t, err, term)
+
+		var rows int
+		for _, line := range strings.Split(got.AsString(), "\n") {
+			if !strings.HasPrefix(line, "| `") {
+				continue
+			}
+			topic := strings.TrimSuffix(strings.TrimPrefix(strings.SplitN(line, " | ", 2)[0], "| `"), "`")
+			rows++
+
+			page, err := callPage(t, cat, topic)
+			require.NoError(t, err, topic)
+			if assert.False(t, page.IsNull(), "%q from the %q search resolves to nothing", topic, term) {
+				assert.False(t, strings.HasPrefix(page.AsString(), strconv.Quote(topic)+" is "),
+					"%q from the %q search is a menu", topic, term)
+			}
+		}
+		assert.NotZero(t, rows, "%q matched nothing", term)
+	}
+}
+
+func TestManAproposSplitsArgumentsOnSpaces(t *testing.T) {
+	// RawEquals rather than AsString: a search that matched nothing is null on
+	// both sides, and the point is that the two spellings agree either way.
+	for _, tc := range [][2][]string{
+		{{"decode error"}, {"decode", "error"}},
+		{{"broker"}, {" broker "}},
+		{{"zzzznope nothing"}, {"zzzznope", "nothing"}},
+	} {
+		one, err := callApropos(t, testCatalog(), tc[0]...)
+		require.NoError(t, err, tc[0])
+		two, err := callApropos(t, testCatalog(), tc[1]...)
+		require.NoError(t, err, tc[1])
+		assert.True(t, one.RawEquals(two), "%v and %v are the same search", tc[0], tc[1])
+	}
+}
+
+func TestManAproposReturnsNullForNothing(t *testing.T) {
+	got, err := callApropos(t, testCatalog(), "zzzznope")
+	require.NoError(t, err)
+	assert.True(t, got.IsNull(), "an empty result set renders as the empty string, which is a worse answer")
+
+	for _, words := range [][]string{{}, {""}, {"   "}, {"a", "  "}} {
+		_, err := callApropos(t, testCatalog(), words...)
+		assert.Error(t, err, "%q", words)
+	}
+}
+
+// A lookup builds the catalog only when the path could name a function; a
+// search always does, because a keyword can match a function's prose.
+func TestManAproposAlwaysBuildsTheCatalog(t *testing.T) {
+	calls := 0
+	fn := manAproposFunc(testDoc, func() FuncCatalog {
+		calls++
+		return testCatalog()
+	})
+
+	_, err := callWords(t, fn, []string{"send"})
+	require.NoError(t, err)
+	_, err = callWords(t, fn, []string{"keep", "alive", "broker"})
+	require.NoError(t, err)
+	assert.Equal(t, 2, calls)
+}
+
 func TestManIndexRendersTheFrontPage(t *testing.T) {
 	got, err := manIndexFunc(testDoc).Call(nil)
 	require.NoError(t, err)
@@ -277,8 +486,10 @@ func TestManFunctionsAreRegisteredAndDocumented(t *testing.T) {
 	require.False(t, diags.HasErrors(), "%s", diags)
 
 	for name, params := range map[string][]cty.Type{
-		"man::page":  {cty.String, cty.String},
-		"man::index": nil,
+		"man::page":     {cty.String, cty.String},
+		"man::index":    nil,
+		"man::synopsis": {cty.String, cty.String},
+		"man::apropos":  {cty.String, cty.String},
 	} {
 		fn, ok := cfg.EvalCtx().Functions[name]
 		require.True(t, ok, "%s is not registered", name)

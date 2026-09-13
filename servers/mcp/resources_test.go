@@ -93,6 +93,52 @@ func TestResourceStaticText(t *testing.T) {
 	assert.Equal(t, "status://current", res.Contents[0].URI)
 }
 
+// `{+path}` is RFC 6570 reserved expansion: the capture may contain slashes,
+// which is what lets one template address a whole tree of topics. A plain
+// {path} would not match "client/mqtt" at all, so a URL space built on it rests
+// on this and nothing else checks it.
+func TestResourceTemplateCapturesASlashSeparatedPath(t *testing.T) {
+	tmpl, err := ParseResourceTemplate("vcl://topic/{+path}")
+	require.NoError(t, err)
+	require.NotNil(t, tmpl, "a URI with a placeholder is a template")
+
+	srv := newTestServer(t, []ResourceDef{
+		{
+			URI:      "vcl://topic/{+path}",
+			Name:     "Topic",
+			Template: tmpl,
+			Action:   parseExpr(t, `ctx.args.path`),
+		},
+	}, nil, nil)
+
+	cs := connectInMemory(t, srv)
+
+	for uri, want := range map[string]string{
+		"vcl://topic/subscription":       "subscription",
+		"vcl://topic/client/mqtt":        "client/mqtt",
+		"vcl://topic/server/http/handle": "server/http/handle",
+	} {
+		res, err := cs.ReadResource(context.Background(), &sdkmcp.ReadResourceParams{URI: uri})
+		require.NoError(t, err, uri)
+		require.Len(t, res.Contents, 1, uri)
+		assert.Equal(t, want, res.Contents[0].Text, uri)
+	}
+}
+
+// As for a tool: a typed null would take the string branch and panic. The null
+// is typed for the reason TestToolNullResultIsReportedNotPanicked gives.
+func TestResourceNullResultIsReportedNotPanicked(t *testing.T) {
+	srv := newTestServer(t, []ResourceDef{
+		{URI: "nothing://x", Name: "Nothing", Action: parseExpr(t, `true ? null : ""`)},
+	}, nil, nil)
+
+	cs := connectInMemory(t, srv)
+
+	_, err := cs.ReadResource(context.Background(), &sdkmcp.ReadResourceParams{URI: "nothing://x"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "returned null")
+}
+
 func TestResourceListsResources(t *testing.T) {
 	srv := newTestServer(t, []ResourceDef{
 		{URI: "a://x", Name: "A", Action: parseExpr(t, `"a"`)},

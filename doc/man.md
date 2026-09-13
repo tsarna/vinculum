@@ -124,17 +124,19 @@ command that reads each hit:
 $ vinculum man -k keep_alive
 2 topics match "keep_alive":
 
-vinculum man client http disable_keep_alives
-  Close each connection after a single request.
 vinculum man client mqtt keep_alive
   Interval at which to send keep-alive pings.
+vinculum man client http disable_keep_alives
+  Close each connection after a single request.
 ```
 
 It searches names and one-line summaries across everything: block types, type
 variants, sub-blocks, attributes, `ctx` shapes and their fields, namespaces and
 their members, and the callable functions. Matching is case-insensitive
 substring, and **every** keyword must match, so a second word narrows rather
-than widens:
+than widens. A name that is exactly a keyword — or a function's name after its
+`::` — is listed first, then names that contain one, then matches found only in
+a summary:
 
 ```sh
 vinculum man -k baggage          # everything about baggage
@@ -276,6 +278,7 @@ source <(vinculum completion bash)     # or zsh, fish, powershell
   the evaluation namespace, and block ordering.
 - [`help()`](functions.md#reflection) — the same lookups from inside an
   expression, and the natural way to use them at the [REPL](repl.md).
-- [`man::page()` and `man::index()`](functions.md#the-reference-as-markdown-man) — these same
-  pages as Markdown strings, from inside a config: what a docs site or an MCP
-  server is built on.
+- [The `man::` functions](functions.md#the-reference-as-markdown-man) — these
+  same pages and searches as Markdown strings, from inside a config:
+  `man::page`, `man::index`, `man::apropos`, `man::synopsis`. See
+  [examples/man-site/](../examples/man-site/), an MCP server built from them.

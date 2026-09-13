@@ -47,6 +47,31 @@ Run it with `vinculum serve examples/weather-mcp/`, then point an MCP client
 at `http://localhost:9000/mcp`. See the comments at the top of the file for the
 client config and example prompts.
 
+### [man-site/](man-site/)
+
+A [`server "mcp"`](../doc/server-mcp.md) that serves Vinculum's own
+configuration-language reference to a coding agent — a documentation server for
+a config language, written in that config language. Because the reference is
+generated from the same decode structs the parser uses, a tool answer cannot
+describe an attribute the binary cannot parse. Demonstrates:
+
+- the `man::` functions — `man::page`, `man::index`, `man::apropos`,
+  `man::synopsis` — which return the reference as Markdown from inside a config
+  (see [functions.md](../doc/functions.md#the-reference-as-markdown-man))
+- answering a miss as ordinary text rather than `mcp::error()`, with
+  `coalesce()` at the call site, since every lookup returns `null` for "nothing
+  is named that" and user functions reject null arguments
+- a `{+path}` resource template, whose capture may contain slashes
+- `file()`/`fileset()` serving the hand-written `doc/` pages that the generated
+  reference deliberately does not cover, behind a page-name guard because the
+  endpoint is meant to be public
+- an `enum` param, keeping a value the action could not handle off the wire
+
+Run it with `vinculum serve -f /path/to/vinculum examples/man-site/`. The `-f`
+flag points `vcl_doc` at a checkout, which is where it reads the hand-written
+pages from; every other tool answers from the binary.
+See [man-site/README.md](man-site/README.md).
+
 ### [traffic-light/](traffic-light/)
 
 A simulated four-way traffic intersection: a multi-file configuration combining
