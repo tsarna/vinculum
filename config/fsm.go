@@ -2,7 +2,9 @@ package config
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -33,9 +35,9 @@ type FsmBlockHandler struct {
 	BlockHandlerBase
 	BackendDeps
 	instances      map[string]*fsm.Instance
-	initialStorage map[string]map[string]cty.Value // fsmName -> key -> value
-	reactiveExprs  map[string][]*ReactiveExpr      // fsmName -> reactive when exprs
-	edgeState      map[string]map[string]*bool     // fsmName -> eventName -> last bool
+	initialStorage map[string]map[string]cty.Value    // fsmName -> key -> value
+	reactiveExprs  map[string][]*ReactiveExpr         // fsmName -> reactive when exprs
+	edgeState      map[string]map[string]*atomic.Bool // fsmName -> eventName -> last bool
 }
 
 func NewFsmBlockHandler() *FsmBlockHandler {
@@ -94,7 +96,7 @@ see the FSM reference.`,
 		},
 		"queue_size": {
 			Summary: "Depth of the inbound event queue.",
-			Doc:     "Events are processed one at a time by a single goroutine, so this is how far the machine can fall behind before a `send()` blocks.",
+			Doc:     "Events are processed one at a time by a single goroutine, so this is how far the machine can fall behind before a `send()` from elsewhere blocks. A hook of this machine cannot wait for room on its own queue, and its `send()` fails instead; size this for the largest burst a hook sends itself.",
 			Default: "64",
 		},
 		"shutdown_event": {
@@ -358,7 +360,25 @@ func (h *FsmBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagnost
 	if IsExpressionProvided(topLevel.OnError) {
 		expr := topLevel.OnError
 		def.OnError = func(ctx context.Context, hookCtx *fsm.HookContext) {
-			evalHookExpr(ctx, config, expr, hookCtx)
+			// Nothing handles an on_error that fails, so it is logged here,
+			// along with the error it was called for — which would otherwise go
+			// unreported too, this being what reports it.
+			err := evalHookExpr(ctx, config, expr, hookCtx)
+			if err == nil {
+				return
+			}
+			fields := []zap.Field{
+				zap.String("fsm", name),
+				zap.String("hook", hookCtx.Hook),
+				zap.String("handling", hookCtx.Error),
+			}
+			var diags hcl.Diagnostics
+			if errors.As(err, &diags) {
+				fields = append(fields, config.ActionError(diags))
+			} else {
+				fields = append(fields, zap.Error(err))
+			}
+			config.UserLogger.Error("FSM on_error hook failed", fields...)
 		}
 	} else {
 		def.OnError = func(_ context.Context, hookCtx *fsm.HookContext) {
@@ -654,12 +674,12 @@ func (h *FsmBlockHandler) parseStorageBlock(config *Config, fsmName string, bloc
 func (h *FsmBlockHandler) wireReactiveEvent(config *Config, fsmName string, eventName string, expr hclsyntax.Expression) hcl.Diagnostics {
 	// Initialize edge state tracking for this FSM/event.
 	if h.edgeState == nil {
-		h.edgeState = make(map[string]map[string]*bool)
+		h.edgeState = make(map[string]map[string]*atomic.Bool)
 	}
 	if h.edgeState[fsmName] == nil {
-		h.edgeState[fsmName] = make(map[string]*bool)
+		h.edgeState[fsmName] = make(map[string]*atomic.Bool)
 	}
-	lastWasTrue := new(bool)
+	lastWasTrue := new(atomic.Bool)
 	h.edgeState[fsmName][eventName] = lastWasTrue
 
 	inst := h.instances[fsmName]
@@ -671,11 +691,35 @@ func (h *FsmBlockHandler) wireReactiveEvent(config *Config, fsmName string, even
 			isTrue = v.True()
 		}
 
-		// Edge-trigger: only fire on false→true transition.
-		wasTrueVal := *lastWasTrue
-		*lastWasTrue = isTrue
-		if isTrue && !wasTrueVal {
-			inst.EnqueueEvent(fsm.Event{Ctx: ctx, Name: eventName})
+		// Edge-trigger: only fire on the false→true transition. The expression
+		// may read several watchables, each set from its own goroutine, so the
+		// edge is claimed in one atomic step rather than read and then written:
+		// two goroutines seeing it go true must produce one event, not two.
+		if !isTrue {
+			lastWasTrue.Store(false)
+			return
+		}
+		if lastWasTrue.CompareAndSwap(false, true) {
+			// A stopped machine refusing is expected at shutdown. A full one
+			// refuses work the machine itself set off, and there is no caller
+			// here to hand that error to.
+			err := inst.EnqueueEvent(fsm.Event{Ctx: ctx, Name: eventName})
+			if errors.Is(err, fsm.ErrMailboxFull) {
+				// A refused event did not consume the edge, so put it back: the
+				// alternative is that the event never fires again for as long as
+				// the expression stays true. It still takes another evaluation
+				// to fire, which takes a further change to what the expression
+				// reads — nothing re-evaluates on its own.
+				//
+				// A refusal racing another goroutine's toggle of the expression
+				// can still misplace one edge, since this store may land after
+				// that goroutine's. The window is the width of a refusal, and
+				// closing it would mean holding a lock across an enqueue that
+				// may wait for room.
+				lastWasTrue.Store(false)
+				config.UserLogger.Warn("reactive fsm event dropped: the machine's queue is full",
+					zap.String("fsm", fsmName), zap.String("event", eventName), zap.Error(err))
+			}
 		}
 	})
 
@@ -709,7 +753,10 @@ func evalHookExpr(ctx context.Context, config *Config, expr hcl.Expression, hook
 	}
 	_, diags := expr.Value(evalCtx)
 	if diags.HasErrors() {
-		return fmt.Errorf("%s", diags.Error())
+		// The diagnostics themselves, rather than their text: Error() reads the
+		// same either way, and a handler that renders the failing line against
+		// its source needs the ranges to do it.
+		return diags
 	}
 	return nil
 }
