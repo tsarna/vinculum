@@ -125,10 +125,10 @@ command that reads each hit:
 1> :apropos keep_alive
 2 topics match "keep_alive":
 
-:man client http disable_keep_alives
-  Close each connection after a single request.
 :man client mqtt keep_alive
   Interval at which to send keep-alive pings.
+:man client http disable_keep_alives
+  Close each connection after a single request.
 ```
 
 Every keyword must match, so a second word narrows the search. Because the
@@ -299,7 +299,7 @@ maps.
 ## `ctx` and tracing
 
 `ctx` is available exactly as in any handler action, so functions that take a
-context as their first argument (`send`, `publish`, the `mcp_*` constructors,
+context as their first argument (`send`, `publish`, the `mcp::` constructors,
 HTTP functions, …) work unchanged. Each evaluation opens an OpenTelemetry span
 named `repl.eval`; when a [`client "otlp"`](client-otlp.md) is configured,
 `ctx.trace_id` is populated and anything the expression triggers downstream nests

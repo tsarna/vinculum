@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tsarna/vinculum/config"
 )
 
 // resolveNode is the single-candidate resolution the section tests need.
@@ -151,4 +152,33 @@ func TestSectionsOnATypedBlock(t *testing.T) {
 	_, err := WalkSection(resolveNode(t, "client"), SectionAttrs, WalkOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no body of its own")
+}
+
+// A function's skeleton is its calling conventions. A page has always rendered
+// them; a section reaches the same builder, so the two cannot come to disagree
+// about what the skeleton of a function is.
+func TestSectionSynopsisOfAFunction(t *testing.T) {
+	events, err := WalkSection(FuncNode(testCatalog(), "parsetime"), SectionSynopsis, WalkOptions{})
+	require.NoError(t, err)
+	got := RenderMarkdown(events, MarkdownOptions{})
+
+	assert.True(t, strings.HasPrefix(got, "```hcl"))
+	// An overload set is several conventions, one line each, in one fence.
+	assert.Contains(t, got, "parsetime(s: string) -> time")
+	assert.Contains(t, got, "parsetime(format: string, s: string) -> time")
+	assert.Equal(t, 1, strings.Count(got, "```hcl"))
+	// The description and the parameter table belong to the page, not here.
+	assert.NotContains(t, got, "Reads a timestamp.")
+	assert.NotContains(t, got, "| Attribute |")
+}
+
+// The reason has to be true of the thing asked about: a function has no body to
+// lack, so the block wording would name something that does not apply to it.
+func TestSectionSynopsisSaysWhyAFunctionHasNone(t *testing.T) {
+	cat := fakeCatalog{docs: map[string]config.FuncDoc{"undocumented": {Name: "undocumented"}}}
+
+	_, err := WalkSection(FuncNode(cat, "undocumented"), SectionSynopsis, WalkOptions{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no signature is recorded")
+	assert.NotContains(t, err.Error(), "body of its own")
 }

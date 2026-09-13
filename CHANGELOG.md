@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`man::apropos()` and `man::synopsis()`, and an MCP server built from them.**
+  `man::apropos("keep alive")` is `vinculum man -k` from inside a config: the
+  matching blocks, attributes, `ctx` fields, namespace members and functions as
+  a Markdown table, each row naming a topic path `man::page` reads.
+  `man::synopsis("client mqtt")` is the skeleton alone — the block header, its
+  attributes and its sub-blocks, or a function's calling conventions — which is
+  what you want before writing a block, and much smaller than the page. Both
+  resolve exactly as `man::page` does; a block with type labels answers
+  `man::synopsis` with the menu of its types, and a search shows at most fifty
+  rows. A search that matches nothing is `null`; a topic that has no skeleton
+  of its own is an error, since `null` already means "nothing is named that".
+  Search results are ranked as described under Changed.
+
+  [`examples/man-site/`](examples/man-site/) is a `server "mcp"` built from the
+  four of them, serving the configuration-language reference to a coding agent
+  as `vcl_man`, `vcl_apropos`, `vcl_synopsis` and `vcl_doc`, with the index and
+  each topic also addressable as a resource. Because the reference is generated
+  from the same decode structs the parser uses, a tool answer cannot describe an
+  attribute the binary cannot parse — a different guarantee from "the model read
+  the manual during training".
+
 - **`man::page(topic, subtopics...)` and `man::index()`: the reference as Markdown, from
   inside a config.** `help()` answers in plain text for a person at a prompt.
   These return what `vinculum man` writes when its output is not a terminal:
@@ -507,6 +528,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Searching the reference ranks an exact name first.** In `vinculum man -k`,
+  the REPL's `:apropos` and the new `man::apropos`, a name that is exactly a
+  search term — or a function's name after its `::` — now comes before names
+  that merely contain the term, which come before matches in a summary alone.
+  A common term's exact match was otherwise ordered by kind and path among
+  hundreds of substring matches: `trigger at` came sixty-fourth for `at`.
+
 - **Two `subscription` blocks may no longer share a name.** The label was
   decorative — nothing ever looked a subscription up by it, so a duplicate went
   undetected and both subscriptions ran. It addresses that subscription's queue
@@ -878,6 +906,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A `prompt` action may return a plain string**, becoming a single message
+  from the user, which is what the block's documentation has always said. Error
+  messages that still named the pre-`mcp::` spellings (`mcp_error()`,
+  `mcp_image()`, `mcp_usermessage()`, `mcp_assistantmessage()`) now name
+  functions that exist.
+
 - **A graceful shutdown now empties the message pipeline instead of exiting
   past it.** Nothing stopped the buses or the `queue_size` queues: their
   goroutines died with the process, taking whatever they had accepted and not
@@ -1143,6 +1177,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `shutdown_timeout` governs the total.
 
 ### Security
+
+- **A `server "mcp"` action returning a typed `null` no longer crashes the
+  process.** A null cty value still carries its type, so a string-typed null
+  reached the branch that converts a string result and panicked there, as did a
+  null `mcp::` value, at the top level or inside a prompt's list of messages.
+  The panic happened on the MCP SDK's own goroutine, where nothing recovers, so
+  the whole server exited and every later request was refused. Any client able
+  to reach the endpoint could trigger it wherever an action could produce such a
+  null — and that is ordinary rather than exotic: `man::page()` returns `null`
+  for a name that matches nothing, so a server answering documentation lookups
+  could be stopped by one unauthenticated request for a topic that does not
+  exist. Tools, resources and prompts now report it as an unusable result,
+  naming `coalesce()` and `cond()` as the fix.
+
+- **`server "mcp"` now enforces a tool `param`'s `type`, `required` and
+  `enum`.** They were published in each tool's input schema but never checked,
+  so a client that ignored the schema could send any value — or none —
+  straight to the action, where a config written to trust the schema would meet
+  it. A call that does not match is now answered with a tool error naming the
+  parameter, before the action runs, and a `null` for an optional parameter
+  gets its `default` as an absent one does. A whole-number `default` on a
+  `number` param now arrives as a number; it used to arrive as a string. This
+  is stricter in one visible way: a number sent as a string (`"3"`) used to
+  arrive as a string, which HCL converted wherever a number was needed, and is
+  now refused. Prompts are unchanged — the prompt protocol carries every
+  argument as a string, so none of the three is checked there.
 
 - **`server "vws"` now filters inbound baggage, and strips it by default.** A connected
   client could inject arbitrary OTel baggage entries, which reached `ctx.baggage` in every

@@ -527,6 +527,129 @@ func TestManPageMenusRoundTrip(t *testing.T) {
 	}
 }
 
+// man::apropos is `vinculum man -k` from inside a config. The two spell their
+// rows for different front doors, so what must not drift is the search itself:
+// the same terms find the same things.
+func TestManAproposFunctionMatchesTheCommand(t *testing.T) {
+	fn, ok := manTestConfig(t).EvalCtx().Functions["man::apropos"]
+	require.True(t, ok, "man::apropos is not registered")
+
+	for _, terms := range []string{"keep_alive", "topic", "timeout"} {
+		out, _, err := runManCmd(t, "-k", terms)
+		require.NoError(t, err, terms)
+
+		got, err := fn.Call([]cty.Value{cty.StringVal(terms)})
+		require.NoError(t, err, terms)
+		require.False(t, got.IsNull(), "%q matched nothing", terms)
+
+		intro := strings.SplitN(out, "\n", 2)[0]
+		assert.Contains(t, got.AsString(), intro, "the same search found the same number of topics")
+		assert.NotContains(t, got.AsString(), "vinculum man", "rows are topic paths, not commands")
+
+		// The same rows, not merely as many: each command normalized to the
+		// topic path it reads, and compared with its description. When the
+		// function capped its rows, what it kept must still be rows the
+		// command printed.
+		cmdRows, fnRows := aproposRows(out, true), aproposRows(got.AsString(), false)
+		if strings.Contains(got.AsString(), "more topics match") {
+			assert.Subset(t, cmdRows, fnRows, terms)
+		} else {
+			assert.ElementsMatch(t, cmdRows, fnRows, terms)
+		}
+	}
+}
+
+// aproposRows is a results table's rows as "topic | description", with a
+// command's spelling normalized to the topic path man::page reads: `vinculum
+// man --type block assert` is `block:assert`.
+func aproposRows(table string, commands bool) []string {
+	var rows []string
+	for _, line := range strings.Split(table, "\n") {
+		rest, ok := strings.CutPrefix(line, "| `")
+		if !ok {
+			continue
+		}
+		topic, desc, ok := strings.Cut(rest, "` | ")
+		if !ok {
+			continue
+		}
+		if commands {
+			topic = strings.TrimPrefix(topic, "vinculum man ")
+			if flag, ok := strings.CutPrefix(topic, "--type "); ok {
+				kind, path, _ := strings.Cut(flag, " ")
+				topic = kind + ":" + path
+			}
+		}
+		rows = append(rows, topic+" | "+strings.TrimSuffix(desc, " |"))
+	}
+	return rows
+}
+
+// Every row of a real search names a topic that can be read, which is what
+// makes a search worth following. A row resolving to nothing, or to a menu,
+// would be a row that lied.
+func TestManAproposRowsAreWorkingTopics(t *testing.T) {
+	fns := manTestConfig(t).EvalCtx().Functions
+
+	for _, terms := range []string{"keep_alive", "broker", "timeout"} {
+		hits, err := fns["man::apropos"].Call([]cty.Value{cty.StringVal(terms)})
+		require.NoError(t, err, terms)
+		require.False(t, hits.IsNull(), terms)
+
+		var rows int
+		for _, line := range strings.Split(hits.AsString(), "\n") {
+			if !strings.HasPrefix(line, "| `") {
+				continue
+			}
+			topic := strings.TrimSuffix(strings.TrimPrefix(strings.SplitN(line, " | ", 2)[0], "| `"), "`")
+			rows++
+
+			page, err := fns["man::page"].Call([]cty.Value{cty.StringVal(topic)})
+			require.NoError(t, err, topic)
+			if assert.False(t, page.IsNull(), "%q from the %q search resolves to nothing", topic, terms) {
+				assert.False(t, strings.HasPrefix(page.AsString(), strconv.Quote(topic)+" is "),
+					"%q from the %q search is a menu", topic, terms)
+			}
+		}
+		assert.NotZero(t, rows, "%q matched nothing", terms)
+	}
+}
+
+// A name that is exactly the search term ranks above names that merely contain
+// it, or the row cap could cut the very thing searched for: `at` is a
+// substring of hundreds of names, and `trigger at` once sorted sixty-fourth.
+func TestManAproposRanksAnExactNameFirst(t *testing.T) {
+	fn := manTestConfig(t).EvalCtx().Functions["man::apropos"]
+	got, err := fn.Call([]cty.Value{cty.StringVal("at")})
+	require.NoError(t, err)
+
+	require.Contains(t, got.AsString(), "more topics match", "the cap is in play for this term")
+	assert.Contains(t, got.AsString(), "| `trigger at` |")
+}
+
+// A synopsis is how the page opens. Against the real document, because that is
+// where a skeleton the walker builds differently would show up.
+func TestManSynopsisFunctionIsThePageOpening(t *testing.T) {
+	fns := manTestConfig(t).EvalCtx().Functions
+
+	for _, topic := range []string{"client mqtt", "subscription", "server http handle", "send"} {
+		syn, err := fns["man::synopsis"].Call([]cty.Value{cty.StringVal(topic)})
+		require.NoError(t, err, topic)
+		require.False(t, syn.IsNull(), topic)
+
+		page, err := fns["man::page"].Call([]cty.Value{cty.StringVal(topic)})
+		require.NoError(t, err, topic)
+		require.False(t, page.IsNull(), topic)
+
+		assert.Contains(t, page.AsString(), strings.TrimSuffix(syn.AsString(), "\n"), topic)
+	}
+
+	// A topic with no skeleton of its own says so, rather than returning null,
+	// which would be indistinguishable from a misspelling.
+	_, err := fns["man::synopsis"].Call([]cty.Value{cty.StringVal("subscription action")})
+	assert.ErrorContains(t, err, "has no synopsis")
+}
+
 // manTestConfig builds a sourceless config, the kind BuiltinFuncs caches.
 func manTestConfig(t *testing.T) *config.Config {
 	t.Helper()

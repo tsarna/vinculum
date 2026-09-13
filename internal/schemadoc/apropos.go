@@ -35,8 +35,12 @@ type Hit struct {
 	Summary string
 
 	// nameMatched records that the query hit the name rather than only the
-	// summary, which is what sorts a hit to the top.
+	// summary, which sorts a hit above summary-only matches.
 	nameMatched bool
+	// exactName records that a term is the whole name — or, for a namespaced
+	// function, the part after its last `::` — which sorts above a name that
+	// merely contains one.
+	exactName bool
 }
 
 // Apropos returns every topic whose name or summary contains all of terms,
@@ -72,10 +76,16 @@ func Apropos(doc *config.SchemaDocument, cat FuncCatalog, kind Kind, terms []str
 	}
 
 	// Name matches first: someone who typed a name wants the thing with that
-	// name, not the dozen whose prose mentions it. Everything below that is
-	// tie-breaking, so that the same query always prints the same page.
+	// name, not the dozen whose prose mentions it. Among those, a name that *is*
+	// a term comes before one that merely contains it — `at` is a substring of
+	// hundreds of names, and a capped answer must not cut `trigger at` itself.
+	// Everything below that is tie-breaking, so that the same query always
+	// prints the same page.
 	sort.SliceStable(s.hits, func(i, j int) bool {
 		a, b := s.hits[i], s.hits[j]
+		if a.exactName != b.exactName {
+			return a.exactName
+		}
 		if a.nameMatched != b.nameMatched {
 			return a.nameMatched
 		}
@@ -104,13 +114,18 @@ func (s *search) consider(kind Kind, path []string, detail, name, summary string
 	lowerName := strings.ToLower(name)
 	haystack := lowerName + " " + strings.ToLower(summary)
 
-	nameMatched := false
+	nameMatched, exactName := false, false
 	for _, n := range s.needles {
 		if !strings.Contains(haystack, n) {
 			return
 		}
 		if strings.Contains(lowerName, n) {
 			nameMatched = true
+		}
+		// A namespaced function is exactly named by the part after its last
+		// `::` too: searching `page` is searching for man::page.
+		if lowerName == n || strings.HasSuffix(lowerName, "::"+n) {
+			exactName = true
 		}
 	}
 
@@ -120,6 +135,7 @@ func (s *search) consider(kind Kind, path []string, detail, name, summary string
 		Detail:      detail,
 		Summary:     summary,
 		nameMatched: nameMatched,
+		exactName:   exactName,
 	})
 }
 

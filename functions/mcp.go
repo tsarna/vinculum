@@ -49,19 +49,25 @@ func NewMCPResultCapsule(r MCPResult) cty.Value {
 // GetMCPResult extracts an MCPResult from a cty capsule value.
 // Returns nil if the value is not an MCPResult capsule.
 func GetMCPResult(val cty.Value) *MCPResult {
+	// A null or unknown value of the capsule type has nothing encapsulated, so
+	// EncapsulatedValue would panic. Guarding at the single extractor covers
+	// every caller rather than each of them separately.
+	if val.IsNull() || !val.IsKnown() {
+		return nil
+	}
 	if val.Type() != MCPResultCapsuleType {
 		return nil
 	}
 	return val.EncapsulatedValue().(*MCPResult)
 }
 
-// MCPImageFunc returns an mcp_image function that produces image content.
+// MCPImageFunc is mcp::image, which produces image content.
 //
 // Accepted call forms:
 //
-//	mcp_image(base64_string, mime_type)  - original form, both args required
-//	mcp_image(bytes_capsule)             - mime_type taken from bytes content type
-//	mcp_image(bytes_capsule, mime_type)  - mime_type overrides bytes content type
+//	mcp::image(base64_string, mime_type)  - original form, both args required
+//	mcp::image(bytes_capsule)             - mime_type taken from bytes content type
+//	mcp::image(bytes_capsule, mime_type)  - mime_type overrides bytes content type
 var MCPImageFunc = function.New(&function.Spec{
 	Description: "Returns image content for an MCP resource or tool result",
 	Params: []function.Parameter{
@@ -109,7 +115,7 @@ var MCPImageFunc = function.New(&function.Spec{
 	},
 })
 
-// MCPErrorFunc returns an mcp_error function that signals a tool error result.
+// MCPErrorFunc is mcp::error, which signals a tool error result.
 var MCPErrorFunc = function.New(&function.Spec{
 	Description: "Returns an error result for an MCP tool call",
 	Params: []function.Parameter{
@@ -124,7 +130,7 @@ var MCPErrorFunc = function.New(&function.Spec{
 	},
 })
 
-// MCPUserMessageFunc returns an mcp_usermessage function for prompt results.
+// MCPUserMessageFunc is mcp::user_message, for prompt results.
 var MCPUserMessageFunc = function.New(&function.Spec{
 	Description: "Returns a user-role message for an MCP prompt result",
 	Params: []function.Parameter{
@@ -139,7 +145,7 @@ var MCPUserMessageFunc = function.New(&function.Spec{
 	},
 })
 
-// MCPAssistantMessageFunc returns an mcp_assistantmessage function for prompt results.
+// MCPAssistantMessageFunc is mcp::assistant_message, for prompt results.
 var MCPAssistantMessageFunc = function.New(&function.Spec{
 	Description: "Returns an assistant-role message for an MCP prompt result (few-shot example)",
 	Params: []function.Parameter{

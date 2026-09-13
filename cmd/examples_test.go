@@ -66,6 +66,11 @@ func TestExamplesAreValid(t *testing.T) {
 		filePath: ".",
 		env:      map[string]string{"TRAFFIC_HTML_DIR": "html"},
 	}, {
+		// Nothing reads the disk while this config loads — vcl_doc's file()
+		// calls happen per request — so a seed here would prove nothing.
+		// TestManSiteAnswersOverMCP drives the requests that do.
+		dir: "man-site",
+	}, {
 		dir: "dns-zone-updater",
 		// Reads a credentials file it does not ship, and writes zone files
 		// through an `editor "line"` in file mode. The fixture is the shape the
@@ -145,6 +150,7 @@ func TestExamplesAreAllCovered(t *testing.T) {
 	covered := map[string]bool{
 		"weather-mcp": true, "voipms": true,
 		"traffic-light": true, "dns-zone-updater": true,
+		"man-site": true,
 	}
 	for _, e := range entries {
 		if !e.IsDir() {
