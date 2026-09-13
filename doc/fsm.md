@@ -562,16 +562,36 @@ fsm "door" {
 ## Concurrency
 
 Each instance uses an event queue (buffered channel) processed by a single
-goroutine. This guarantees serialization of transitions without risk of
-deadlock or hook interleaving.
+goroutine. Transitions are serialized and hooks never interleave.
 
 - **Re-entrancy**: If a hook calls `send(ctx, fsm.x, ...)` back to the same
   instance, the event is enqueued and processed after the current transition
-  completes.
+  completes. A hook cannot wait for room on its own machine's queue — the
+  machine is what empties it — so if the queue is full, that `send()` fails,
+  the hook fails, and `on_error` is called. The same goes for anything the hook
+  sets off that feeds the machine, such as a `when` expression that becomes
+  true, which is logged rather than returned. Size `queue_size` for the largest
+  burst a hook sends itself.
+- **Pass `ctx` from a hook**: a machine recognizes its own work by the `ctx` a
+  hook is given, so a call that drops it — `set(var.x, true)` rather than
+  `set(ctx, var.x, true)` — is indistinguishable from an unrelated producer. If
+  such a call reaches the machine's own full queue, it waits for room that only
+  it could make, and the machine wedges until shutdown. This is
+  [issue #261](https://github.com/tsarna/vinculum/issues/261); until it is
+  fixed, pass `ctx` to every call a hook makes that can reach its own machine.
+- **Between machines**: a hook sending to a *different* machine waits for room
+  like any other producer, which is ordinary backpressure. Two machines whose
+  hooks feed each other can therefore still wedge each other if both queues
+  fill; size the queues for the burst, or decouple them through a bus.
 - **Concurrent reads**: `state()`, `get()`, and `count()` use a separate
   `RWMutex` and do not block event processing.
 - **Queue sizing**: `queue_size` sets the buffer depth — how far the machine
-  may fall behind before a `send()` blocks.
+  may fall behind before a `send()` from elsewhere blocks. "Elsewhere" is
+  judged from the `ctx`, which a hook's asynchronous work carries with it: a
+  message a hook publishes to a bus, delivered to this same machine while that
+  hook is still running, can be refused as if the hook had sent it directly.
+  Such a refusal is logged; nothing redelivers it, since a message a hook
+  publishes carries no broker delivery to nack.
 - **Acknowledgement**: handing an event to a machine is not handling it. Where
   the event came from a broker receiver with `ack = "auto"`, the acknowledgement
   waits until the hooks for that event have run, rather than firing when the
@@ -679,7 +699,7 @@ Evaluated against the `fsm-error` context.
 
 **`queue_size`**
 
-Events are processed one at a time by a single goroutine, so this is how far the machine can fall behind before a `send()` blocks.
+Events are processed one at a time by a single goroutine, so this is how far the machine can fall behind before a `send()` from elsewhere blocks. A hook of this machine cannot wait for room on its own queue, and its `send()` fails instead; size this for the largest burst a hook sends itself.
 
 **`shutdown_event`**
 

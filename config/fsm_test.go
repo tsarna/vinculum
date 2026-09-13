@@ -16,6 +16,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 //go:embed testdata/fsm_basic.vcl
@@ -540,4 +541,209 @@ func TestFSM_CallerCancellationDoesNotInterruptHook(t *testing.T) {
 		return v.True()
 	}, time.Second, 5*time.Millisecond,
 		"hook should have run despite caller ctx cancellation")
+}
+
+// A hook sending itself more than its queue has room for cannot wait for the
+// room, because the machine it would wait on is the one running the hook. The
+// send that does not fit fails into on_error, and the transition completes.
+func TestFsm_HookSendingToItsOwnFullQueueFails(t *testing.T) {
+	src := []byte(`
+var "error" {
+    value = ""
+}
+
+fsm "burst" {
+    initial    = "idle"
+    queue_size = 2
+
+    state "idle" {}
+    state "done" {}
+
+    event "go" {
+        transition "idle" "done" {
+            action = [
+                send(ctx, fsm.burst, "noop", 1),
+                send(ctx, fsm.burst, "noop", 2),
+                send(ctx, fsm.burst, "noop", 3),
+            ]
+        }
+    }
+
+    on_error = set(var.error, ctx.error)
+}
+`)
+	cfg, diags := NewConfig().WithSources(src).WithLogger(zap.NewNop()).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+
+	inst, err := fsm.GetInstanceFromCapsule(cfg.CtyFsmMap["burst"])
+	require.NoError(t, err)
+	errVar := varFromFsmCtxConfig(t, cfg, "error")
+
+	for _, s := range cfg.Startables {
+		require.NoError(t, s.Start())
+	}
+	t.Cleanup(func() {
+		for i := len(cfg.Stoppables) - 1; i >= 0; i-- {
+			cfg.Stoppables[i].Stop()
+		}
+	})
+
+	require.NoError(t, inst.OnEvent(context.Background(), "go", nil, nil))
+
+	require.Eventually(t, func() bool {
+		state, _ := inst.State(context.Background())
+		return state == "done"
+	}, 2*time.Second, 5*time.Millisecond,
+		"the transition never completed: its action is waiting for room only the machine can make")
+	require.Eventually(t, func() bool { return inst.QueueDepth() == 0 },
+		2*time.Second, 5*time.Millisecond, "the sends that fit were never finished")
+
+	v, err := errVar.Get(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Contains(t, v.AsString(), "mailbox is full")
+}
+
+// Nothing handles an on_error that fails itself, so it is logged — along with
+// the error it was called for, which on_error was the thing reporting. The
+// on_error failure is rendered against its source line, which is what the
+// evaluation returning its diagnostics rather than their text buys.
+func TestFsm_FailingOnErrorIsLoggedWithItsSource(t *testing.T) {
+	src := []byte(`
+fsm "m" {
+    initial = "idle"
+
+    state "idle" {}
+    state "done" {}
+
+    event "go" {
+        transition "idle" "done" {
+            action = tonumber(ctx.event)
+        }
+    }
+
+    on_error = tonumber(ctx.hook)
+}
+`)
+	cfg, diags := NewConfig().WithSources(src).WithLogger(zap.NewNop()).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+
+	core, logs := observer.New(zap.ErrorLevel)
+	cfg.UserLogger = zap.New(core)
+
+	inst, err := fsm.GetInstanceFromCapsule(cfg.CtyFsmMap["m"])
+	require.NoError(t, err)
+	for _, s := range cfg.Startables {
+		require.NoError(t, s.Start())
+	}
+	t.Cleanup(func() {
+		for i := len(cfg.Stoppables) - 1; i >= 0; i-- {
+			cfg.Stoppables[i].Stop()
+		}
+	})
+
+	// The action fails (the event name is not a number), and on_error fails in
+	// turn (neither is the hook name).
+	require.NoError(t, inst.OnEvent(context.Background(), "go", nil, nil))
+
+	require.Eventually(t, func() bool {
+		return logs.FilterMessage("FSM on_error hook failed").Len() > 0
+	}, 2*time.Second, 5*time.Millisecond, "a failing on_error was discarded without a word")
+
+	entry := logs.FilterMessage("FSM on_error hook failed").All()[0]
+	fields := entry.ContextMap()
+	assert.Equal(t, "m", fields["fsm"])
+	assert.Equal(t, "action", fields["hook"], "the hook whose failure on_error was called for")
+	assert.Contains(t, fields["error"], "on_error = tonumber(ctx.hook)",
+		"the on_error failure should be rendered against its own source line")
+	assert.Contains(t, fields["handling"], `cannot convert "go" to number`,
+		"the error on_error was called for goes down with it")
+}
+
+// An event refused because the machine's queue is full did not consume its
+// edge. If it did, the event could never fire again for as long as the
+// expression stayed true — a refusal would silently become a permanent one.
+//
+// The nudge below is a second watchable, so the expression is re-evaluated
+// while still true. Setting the first one back to false would clear the edge by
+// itself and prove nothing.
+func TestFsm_ReactiveEventRefusedForRoomKeepsItsEdge(t *testing.T) {
+	src := []byte(`
+var "go" {
+    value = false
+}
+
+var "nudge" {
+    value = false
+}
+
+fsm "m" {
+    initial    = "idle"
+    queue_size = 1
+
+    state "idle" {}
+    state "fired" {}
+
+    event "start" {
+        transition "idle" "idle" {
+            action = [
+                send(ctx, fsm.m, "noop", 1),
+                set(ctx, var.go, true),
+            ]
+        }
+    }
+
+    event "fire" {
+        when = get(var.go) || get(var.nudge)
+
+        transition "idle" "fired" {}
+    }
+}
+`)
+	cfg, diags := NewConfig().WithSources(src).WithLogger(zap.NewNop()).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+
+	core, logs := observer.New(zap.WarnLevel)
+	cfg.UserLogger = zap.New(core)
+
+	inst, err := fsm.GetInstanceFromCapsule(cfg.CtyFsmMap["m"])
+	require.NoError(t, err)
+	nudge := varFromFsmCtxConfig(t, cfg, "nudge")
+
+	for _, s := range cfg.Startables {
+		require.NoError(t, s.Start())
+	}
+	t.Cleanup(func() {
+		for i := len(cfg.Stoppables) - 1; i >= 0; i-- {
+			cfg.Stoppables[i].Stop()
+		}
+	})
+
+	// The action fills the one queue slot, then makes the `when` true: the
+	// event it fires has nowhere to go, and cannot wait for room.
+	require.NoError(t, inst.OnEvent(context.Background(), "start", nil, nil))
+
+	require.Eventually(t, func() bool {
+		return logs.FilterMessageSnippet("queue is full").Len() > 0
+	}, 2*time.Second, 5*time.Millisecond, "the refused reactive event was never logged")
+
+	// Wait for the queue to drain, so the nudge is not refused for room too.
+	require.Eventually(t, func() bool { return inst.QueueDepth() == 0 },
+		2*time.Second, 5*time.Millisecond, "the machine never drained")
+	require.Equal(t, "idle", mustState(t, inst), "the refused event must not have run")
+
+	// The expression is still true; re-evaluating it has to fire the event that
+	// was refused.
+	_, err = nudge.Set(context.Background(), []cty.Value{cty.True})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return mustState(t, inst) == "fired" },
+		2*time.Second, 5*time.Millisecond,
+		"the refused event never fired again, so its edge was consumed by a refusal")
+}
+
+func mustState(t *testing.T, inst *fsm.Instance) string {
+	t.Helper()
+	state, err := inst.State(context.Background())
+	require.NoError(t, err)
+	return state
 }

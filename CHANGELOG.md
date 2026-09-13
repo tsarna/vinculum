@@ -878,6 +878,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An `fsm` hook sending more to its own machine than its `queue_size` has
+  room for no longer wedges the machine.** The `send()` that did not fit
+  waited for room, on the goroutine that was the only thing that would make
+  any, so nothing further ran and every shutdown spent its whole ten-second
+  quiesce budget waiting for that mailbox. That `send()` now fails, the hook
+  fails into `on_error`, and the transition completes. A `when` expression a
+  hook makes true is refused the same way, and is logged. A `send()` from
+  elsewhere still waits for room.
+
+  A machine recognises its own work by the `ctx` a hook is given, so a call that
+  drops it — `set(var.x, true)` rather than `set(ctx, var.x, true)` — can still
+  wedge the machine it belongs to. That is
+  [#261](https://github.com/tsarna/vinculum/issues/261); pass `ctx` from hooks
+  until it is fixed.
+
+- **`on_error` on an `fsm` now sees `ctx.error` and `ctx.hook` when a
+  transition hook fails.** It was evaluated against the context cached for the
+  hook that failed, which had neither, so an `on_error` that read them failed —
+  and a failing `on_error` was discarded without a word, taking the error it was
+  called for with it. Both are now logged, the `on_error` failure with its
+  failing line quoted from source. A guard's `on_error` was affected the same
+  way and is also fixed.
+
+- **A `guard` expression now sees the event's `ctx`.** It was evaluated against
+  an empty one, so `ctx.auth`, `ctx.baggage`, `ctx.trace_id` and `ctx.span_id`
+  were null or empty in a guard while every other hook saw them — which is what
+  the `fsm-hook` context documentation already promised for guards.
+
 - **A graceful shutdown now empties the message pipeline instead of exiting
   past it.** Nothing stopped the buses or the `queue_size` queues: their
   goroutines died with the process, taking whatever they had accepted and not
