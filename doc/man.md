@@ -12,6 +12,7 @@ vinculum man client mqtt tls        # one sub-block of it
 vinculum man subscription action    # one attribute, with the ctx it sees
 vinculum man message                # a ctx shape
 vinculum man sys starttime          # a member of a namespace
+vinculum man serve                  # a command, with its flags
 ```
 
 It is generated from the same decode structs the parser uses, so it describes
@@ -111,6 +112,41 @@ vinculum man get      → get(ctx?: ctx, thing, fallback?, *args) -> any
 A bare name declared in two `.cty` namespaces resolves to neither, so `man`
 lists the qualified names instead of reporting it missing.
 
+Some functions exist only when a flag is given, and their pages say so first.
+The file-reading functions need `--file-path`. `filewrite` and `fileappend`
+need `--write-path`, which is refused without `--file-path`, so their pages name
+both. `kill` needs `--allow-kill`:
+
+```
+vinculum man kill     → Available only when run with `--allow-kill` (`vinculum serve`, `vinculum test`).
+```
+
+The note is almost entirely derived. The functions come from asking each plugin
+what it would contribute with every feature on, and the flags come from the
+commands that enable those features, so the note names exactly the commands that
+take the flag. The one hand-written piece is the rule the build enforces after
+the plugins have run: `--write-path` needs `--file-path`.
+
+### Commands
+
+The `vinculum` commands are topics as well. Each page gives the command's usage
+line, its description, its flags with their defaults and environment variables,
+the global flags it inherits, and any subcommands:
+
+```
+vinculum man serve                  # how to run a config
+vinculum man vinculum serve         # the same page, typed as the command is
+vinculum man vinculum               # the global flags, and every command
+```
+
+This is the reference's answer to *how do I run this*. It matters because a
+config can be correct and still need a flag to start. Under the flag table, a
+command's page lists the functions that need each flag. That is the reverse of
+the note on each function's page.
+
+Every top-level command is listed on the index page. Cobra's generated `help`
+command is not a topic, and neither is any hidden command.
+
 ---
 
 ## Searching
@@ -132,7 +168,8 @@ vinculum man client http disable_keep_alives
 
 It searches names and one-line summaries across everything: block types, type
 variants, sub-blocks, attributes, `ctx` shapes and their fields, namespaces and
-their members, and the callable functions. Matching is case-insensitive
+their members, the callable functions, and the commands with their flags.
+Matching is case-insensitive
 substring, and **every** keyword must match, so a second word narrows rather
 than widens. A name that is exactly a keyword — or a function's name after its
 `::` — is listed first, then names that contain one, then matches found only in
@@ -148,12 +185,17 @@ Two things follow from how hits are addressed:
 
 - **Every printed command works.** Where one word names topics of two kinds, the
   rows carry `--type` so each still resolves to the page it was printed for.
-- **A `ctx` field names its shape**, because a field is searchable but not
-  addressable. The row points at the shape and says which field matched:
+  That holds even when the search found only one of the two, as `-k write-path`
+  finds the `check` command and not the `check` block.
+- **A `ctx` field names its shape, and a flag names its command.** A field or a
+  flag can be searched for but has no page of its own. So the row points at the
+  shape or command and says which field or flag matched:
 
   ```
   vinculum man fsm-hook
     ctx.topic_params — Named captures from matching the event's topic pattern.
+  vinculum man serve
+    --allow-kill — enable the kill function [env: VINCULUM_ALLOW_KILL]
   ```
 
 A search that matches nothing exits 1 and says so on stderr. The
@@ -189,9 +231,10 @@ did you mean:
 Both go to **stderr**, so redirecting a lookup that turns out to be ambiguous
 never writes a menu into your file.
 
-`--type` narrows the search to one kind of topic — `block`, `context`,
-`namespace`, or `function` — for when the ambiguity is not between paths but
-between kinds. That happens where one word names things in two corpora at once:
+`--type` narrows the search to one kind of topic: `block`, `context`,
+`namespace`, `function`, or `command`. Use it when the ambiguity is between
+kinds rather than paths, which happens where one word names things in more than
+one corpus:
 
 ```console
 $ vinculum man assert
@@ -200,6 +243,9 @@ $ vinculum man assert
     vinculum man --type block assert
     vinculum man --type function assert
 ```
+
+`check` is the same case three times over: a block type, a `ctx` shape, and a
+command.
 
 ---
 
@@ -216,7 +262,7 @@ vinculum man client mqtt | glow     # Markdown, rendered by something else
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--type <kind>` | — | Restrict to one kind of topic: `block`, `context`, `namespace`, or `function`. |
+| `--type <kind>` | — | Restrict to one kind of topic: `block`, `context`, `namespace`, `function`, or `command`. |
 | `--format <fmt>` | `auto` | `term`, `markdown`, or `auto` (term on a terminal). |
 | `--color <when>` | `auto` | `always`, `never`, or `auto`. |
 | `--width <n>` | terminal's | Wrap width, clamped to 40–100. |

@@ -128,7 +128,14 @@ internal/       Internal-only helpers
                 a second corpus (funcs.go), searched alongside the document
                 rather than merged into it;
                 BuiltinFuncs, shared by `man` and `man::`, is the functions
-                of a sourceless config, built once.
+                of a sourceless config built WithEveryFeature, built once, so
+                flag-gated functions are documented with the flag they need.
+                commands.go is a third corpus, cobra's tree, which cmd
+                registers (cmd/mantree.go) because cmd imports this package;
+                it is searched inside Resolve. A flag names the config feature
+                it enables with the `vinculum.feature` annotation
+                (`enablesFeature`), and a command its doc page with
+                `vinculum.docpage` (`documentedBy`).
                 namespace.go resolves and renders the `namespace` topic kind
                 (`man sys pid`); only provider namespaces are addressable,
                 since a block root would collide with its own block.

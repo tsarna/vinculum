@@ -141,6 +141,22 @@ func TestManSiteAnswersOverMCP(t *testing.T) {
 		assert.Contains(t, got, "# `subscription`")
 	})
 
+	// The question an agent cannot answer from the language alone: how to run
+	// what it wrote.
+	t.Run("a command, and a function that needs one of its flags", func(t *testing.T) {
+		got, isErr := tool("vcl_man", map[string]any{"topic": "vinculum serve"})
+		assert.False(t, isErr, got)
+		assert.Contains(t, got, "# `vinculum serve`")
+		assert.Contains(t, got, "`-f, --file-path`")
+
+		got, isErr = tool("vcl_man", map[string]any{"topic": "check", "kind": "command"})
+		assert.False(t, isErr, got)
+		assert.Contains(t, got, "# `vinculum check`")
+
+		got, _ = tool("vcl_man", map[string]any{"topic": "templatefile"})
+		assert.Contains(t, got, "Available only when run with `--file-path`")
+	})
+
 	t.Run("an empty or malformed topic path is answered, not an error", func(t *testing.T) {
 		w := manSitePost(t, handler, session, "resources/read", map[string]any{"uri": "vcl://topic/"})
 		assert.Contains(t, manSiteContents(t, w), "Give a topic path")

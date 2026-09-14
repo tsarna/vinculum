@@ -28,10 +28,12 @@ const (
 	KindNamespace Kind = "namespace"
 	// KindFunction is a callable function.
 	KindFunction Kind = "function"
+	// KindCommand is a `vinculum` command: `serve`, `check`, the root itself.
+	KindCommand Kind = "command"
 )
 
 // Kinds are the kinds a topic may be resolved in, in the order they are tried.
-var Kinds = []Kind{KindBlock, KindContext, KindNamespace, KindFunction}
+var Kinds = []Kind{KindBlock, KindContext, KindNamespace, KindFunction, KindCommand}
 
 // ValidKind reports whether s names a kind.
 func ValidKind(s string) bool {
@@ -95,6 +97,9 @@ const (
 	// shapeFunction is a callable function, which comes from a FuncCatalog
 	// rather than from the document.
 	shapeFunction
+	// shapeCommand is a CLI command, which comes from the registered command
+	// tree rather than from the document.
+	shapeCommand
 )
 
 // Node is one addressable topic: whatever a resolved path points at, together
@@ -117,6 +122,7 @@ type Node struct {
 	attr   *config.SchemaAttr
 	ctx    *config.SchemaContext
 	funcs  FuncCatalog
+	cmd    *commandDoc
 	// ns is set for a namespace and for every member reached through one, so a
 	// member knows which root it hangs off and what page documents it.
 	ns     *config.SchemaNamespace
@@ -224,6 +230,8 @@ func (n Node) Title() string {
 		return "`" + strings.Join(n.Path, ".") + "`"
 	case shapeFunction:
 		return "`" + n.Path[0] + "()`"
+	case shapeCommand:
+		return "`" + n.cmd.CommandPath + "`"
 	}
 	return strings.Join(n.Path, " ")
 }
@@ -286,6 +294,8 @@ func (n Node) Summary() string {
 		return n.ns.Summary
 	case shapeMember:
 		return n.member.Summary
+	case shapeCommand:
+		return n.cmd.Short
 	}
 	return ""
 }
@@ -311,6 +321,8 @@ func (n Node) DocPage() string {
 		return n.body.DocPage
 	case shapeNested:
 		return n.nested.DocPage
+	case shapeCommand:
+		return n.cmd.DocPage
 	}
 	return ""
 }
@@ -337,6 +349,8 @@ func (n Node) Description() string {
 		return n.ns.Doc
 	case shapeMember:
 		return n.member.Doc
+	case shapeCommand:
+		return commandDescription(n.cmd.Long)
 	}
 	return ""
 }

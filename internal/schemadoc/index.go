@@ -11,7 +11,28 @@ import (
 // It lists blocks and `ctx` shapes but not type variants, which are listed
 // under the block they belong to. 43 variants would bury the 15 blocks a
 // reader arriving with no particular question is looking for.
+//
+// It ends with the commands, when a command tree is registered: a reader of the
+// front page is as likely to be asking how to run a config as how to write one.
 func Index(doc *config.SchemaDocument, opts WalkOptions) []Event {
+	events := languageIndex(doc, opts)
+	if events == nil {
+		return nil
+	}
+	if commands := Topics(nil, KindCommand); len(commands) > 0 {
+		level := opts.baseLevel()
+		events = append(events, Heading{Level: level + 1, Text: "Commands"})
+		events = append(events, Prose{
+			Markdown: "The `vinculum` commands and the flags each takes — including the ones a " +
+				"config depends on to run, such as `--file-path` for the file functions.",
+		})
+		events = append(events, BlockTable{Rows: topicRows(commands)})
+	}
+	return events
+}
+
+// languageIndex is the index of the configuration language alone.
+func languageIndex(doc *config.SchemaDocument, opts WalkOptions) []Event {
 	if doc == nil {
 		return nil
 	}
@@ -120,7 +141,9 @@ func Everything(doc *config.SchemaDocument, opts WalkOptions) []Event {
 		return nil
 	}
 	level := opts.baseLevel()
-	events := Index(doc, opts)
+	// The language alone: this is the reference for what a config file may say,
+	// and a diff of it between releases should not move because a flag did.
+	events := languageIndex(doc, opts)
 
 	events = append(events, Heading{Level: level + 1, Text: "Blocks"})
 	for _, block := range Topics(doc, KindBlock) {

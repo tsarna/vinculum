@@ -9,10 +9,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The reference documents the `vinculum` commands, and says which flag each
+  gated function needs.** `vinculum man serve` shows the command's usage line,
+  its description, its flags with their defaults and environment variables, the
+  global flags, and its subcommands. So does `:man serve` at the REPL,
+  `help("serve")`, `man::page("serve")`, and the man-site example's `vcl_man`
+  tool. The typed form `vinculum serve` names the same page. `--type command`
+  and the `command:` prefix select the kind. `check`'s menu gains a third
+  entry, since it is a block type, a `ctx` shape and now a command. `file`
+  becomes ambiguous too: `vinculum man file` used to show `trigger "file"` and
+  now offers the menu, since `file()` is documented.
+
+  This answers a question the language reference could not: how to run a
+  config. The functions a flag switches on are now documented:
+  - `file`, `fileexists`, `fileset`, `filebase64`, `filebytes`, `templatefile`
+    and `gotemplatefile` need `--file-path`.
+  - `filewrite` and `fileappend` need `--write-path`.
+  - `kill` needs `--allow-kill`.
+
+  Each of those pages opens by naming the flag and the commands that accept it.
+  Each flag lists, on its command's page, the functions that need it. Both lists
+  are derived rather than written by hand. The functions come from asking the
+  plugins what they would contribute with each feature on, and the flags from an
+  annotation on the flag that enables the feature. The one exception is the
+  rule the build enforces that `--write-path` needs `--file-path`. `--apropos` searches commands and flags too, so
+  `vinculum man -k file-path` finds `serve`, `test` and `check`. The index lists
+  the top-level commands.
+
+  A search row now carries its kind whenever its path would be ambiguous on its
+  own. Before, it did only when the other meaning was also among the results,
+  so `vinculum man --type block -k assert` printed a command that opened the
+  menu.
+
+  `vinculum serve`, `test` and `check` say less in `--help` about
+  `--file-path`, because the function list it gave was incomplete. It now
+  says the flag enables the file-reading functions and served files, and the
+  reference lists the functions. `--allow-kill` no longer names its internal
+  feature. The functions that need `--write-path` are documented as needing
+  `--file-path` too, since `--write-path` is refused without it.
+
+  For embedders, `ConfigBuilder.WithEveryFeature()` builds a config that
+  documents every gated function, and `Config.FunctionFeatures(name)` and
+  `FuncDoc.Features` report which features a function needs.
+
 - **`man::apropos()` and `man::synopsis()`, and an MCP server built from them.**
   `man::apropos("keep alive")` is `vinculum man -k` from inside a config: the
-  matching blocks, attributes, `ctx` fields, namespace members and functions as
-  a Markdown table, each row naming a topic path `man::page` reads.
+  matching blocks, attributes, `ctx` fields, namespace members, functions,
+  commands and flags as a Markdown table, each row naming a topic path `man::page` reads.
   `man::synopsis("client mqtt")` is the skeleton alone — the block header, its
   attributes and its sub-blocks, or a function's calling conventions — which is
   what you want before writing a block, and much smaller than the page. Both
@@ -33,17 +76,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`man::page(topic, subtopics...)` and `man::index()`: the reference as Markdown, from
   inside a config.** `help()` answers in plain text for a person at a prompt.
   These return what `vinculum man` writes when its output is not a terminal:
-  one topic's page, or the front page listing every block, `ctx` shape, and
-  namespace, with its closing examples given as bare topic paths. That
+  one topic's page, or the front page listing every block, `ctx` shape,
+  namespace and command, with its closing examples given as bare topic paths. That
   is what a config needs to serve its own documentation, to a browser or to an
   MCP client.
 
   Resolution is `vinculum man`'s rather than `help()`'s. Blocks and functions
   are searched together, so `man::page("assert")` is the menu, and `function:` is
   accepted as a kind prefix. The functions documented are the built-ins and
-  loaded plugins, not the running config's own definitions, and not those a
-  flag switches on (`--file-path`, `--write-path`, `--allow-kill`) — the same
-  set `vinculum man` documents. Each argument is split on spaces, so
+  loaded plugins, including those a flag switches on, but not the running
+  config's own definitions. That is the same set `vinculum man` documents. Each argument is split on spaces, so
   `man::page("client mqtt")` is `man::page("client", "mqtt")`. An ambiguous
   name renders a menu of the bare topic paths that resolve it (`client http`,
   `block:assert`) rather than calls in any one front door's syntax, and each

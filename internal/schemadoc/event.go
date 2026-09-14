@@ -27,6 +27,10 @@ type Heading struct {
 // already indented; a sink emits them verbatim inside a code block.
 type Synopsis struct {
 	Lines []string
+	// Lang is what the lines are written in, for a sink that labels a code
+	// block: empty for HCL, which is every synopsis but a command's; "sh" for a
+	// command line.
+	Lang string
 }
 
 // Prose is curated documentation, as Markdown. It is the only event whose
@@ -95,6 +99,48 @@ type AttrDetail struct {
 	Deprecated string
 	// Context names the `ctx` shape this attribute's expression sees.
 	Context string
+}
+
+// FlagTable lists a command's flags.
+//
+// Distinct from AttrTable, which it resembles: a flag has a shorthand and no
+// notion of being required, and a table headed "Attribute" over `--file-path`
+// would describe the wrong language.
+type FlagTable struct {
+	Rows []FlagRow
+}
+
+// HasDefaults reports whether any row states a default, for the reason
+// AttrTable.HasDefaults gives.
+func (t FlagTable) HasDefaults() bool {
+	for _, r := range t.Rows {
+		if r.Default != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// FlagRow is one flag.
+type FlagRow struct {
+	// Name is the long name, without dashes.
+	Name string
+	// Shorthand is the one-letter form, without its dash; empty when there is
+	// none.
+	Shorthand string
+	// Type is the value's placeholder, e.g. "string"; empty for a switch.
+	Type string
+	// Default is the value when the flag is not given; empty for a zero value.
+	Default string
+	Usage   string
+}
+
+// Spelling is how the flag is written on a command line: `-f, --file-path`.
+func (r FlagRow) Spelling() string {
+	if r.Shorthand == "" {
+		return "--" + r.Name
+	}
+	return "-" + r.Shorthand + ", --" + r.Name
 }
 
 // BlockTable lists sub-blocks or type variants — anything addressable one level
@@ -267,6 +313,7 @@ func (Prose) isEvent()        {}
 func (Note) isEvent()         {}
 func (AttrTable) isEvent()    {}
 func (AttrDetail) isEvent()   {}
+func (FlagTable) isEvent()    {}
 func (BlockTable) isEvent()   {}
 func (ContextTable) isEvent() {}
 func (MemberTable) isEvent()  {}

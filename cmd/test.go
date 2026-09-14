@@ -68,10 +68,14 @@ func init() {
 	// Default quieter than serve: a test run wants clean pass/fail output, not
 	// routine startup/shutdown info logs interleaved with it. Overridable with -l.
 	testCmd.Flags().StringVarP(&testLogLevel, "log-level", "l", "warn", "log level (debug, info, warn, error)")
-	testCmd.Flags().StringVarP(&filePath, "file-path", "f", "", "base directory for file functions (enables file, fileexists, fileset functions)")
+	testCmd.Flags().StringVarP(&filePath, "file-path", "f", "", "base directory for the file-reading functions and served files, which exist only when it is given")
 	testCmd.Flags().StringVarP(&writePath, "write-path", "w", "", "base directory for file write functions; must be under --file-path")
-	testCmd.Flags().BoolVar(&allowKill, "allow-kill", false, "enable the kill function (feature \"allowkill\")")
+	testCmd.Flags().BoolVar(&allowKill, "allow-kill", false, "enable the kill function")
 	testCmd.Flags().StringVar(&pluginPath, "plugin-path", "", "directory containing Go plugin .so files; required if any .vinit plugin block is present")
+	enablesFeature(testCmd, "file-path", "readfiles")
+	enablesFeature(testCmd, "write-path", "writefiles")
+	enablesFeature(testCmd, "allow-kill", "allowkill")
+	documentedBy(testCmd, "testing.md")
 }
 
 func runTest(cmd *cobra.Command, args []string) error {

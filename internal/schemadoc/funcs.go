@@ -144,6 +144,12 @@ func (w *walker) walkFunction(n Node, level int) {
 	if syn, ok := synopsisOf(n); ok {
 		w.emit(syn)
 	}
+	// Before the prose, where the conditional note on a block type goes: a
+	// function that does not exist without a flag is a function a config calls
+	// and then fails to boot with, and saying so after its parameters is too late.
+	if len(doc.Features) > 0 {
+		w.emit(Note{Text: featureNote(doc.Features)})
+	}
 	if doc.Doc != "" {
 		w.emit(Prose{Markdown: doc.Doc})
 	}

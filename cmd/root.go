@@ -29,6 +29,10 @@ func Execute() error {
 }
 
 func init() {
+	// Every flag is also read from the environment, which the root page is the
+	// place to say since it is true of every command.
+	documentedBy(rootCmd, "cli-env.md")
+
 	// Global flags
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&debug, "debug", "d", false, "debug output")

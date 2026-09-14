@@ -165,6 +165,9 @@ func synopsisOf(n Node) (Synopsis, bool) {
 			return Synopsis{}, false
 		}
 		return Synopsis{Lines: doc.Signatures}, true
+	case shapeCommand:
+		syn := commandSynopsis(n.cmd)
+		return syn, len(syn.Lines) > 0
 	}
 	return Synopsis{}, false
 }
@@ -176,6 +179,9 @@ func synopsisOf(n Node) (Synopsis, bool) {
 func noSynopsisError(n Node) error {
 	if n.shape == shapeFunction {
 		return fmt.Errorf("%s has no synopsis: no signature is recorded for it", pathText(n))
+	}
+	if n.shape == shapeCommand {
+		return fmt.Errorf("%s has no synopsis: it neither runs nor has commands of its own", pathText(n))
 	}
 	return fmt.Errorf("%s has no synopsis: it has no body of its own", pathText(n))
 }

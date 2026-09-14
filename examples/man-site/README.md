@@ -36,18 +36,19 @@ Ask it "what attributes does `client \"mqtt\"` take?", or "which blocks have a
 
 | Tool | Answers |
 |---|---|
-| `vcl_man` | One topic of the reference: a block, a type variant, an attribute, a `ctx` shape, a namespace member, a function. Takes an optional `kind` for a name that means more than one thing. |
+| `vcl_man` | One topic of the reference: a block, a type variant, an attribute, a `ctx` shape, a namespace member, a function, or a `vinculum` command with its flags. `serve` is how an agent learns that `file()` needs `--file-path`, and a function a flag switches on says so on its own page. Takes an optional `kind` for a name that means more than one thing. |
 | `vcl_apropos` | Keyword search over names and one-line summaries, for when you know a word but not which block owns it. Each row names a topic path to pass to `vcl_man`; at most fifty rows are shown, with a count of the rest. |
 | `vcl_synopsis` | Just the skeleton of a block, or a function's calling conventions — much smaller than the page for a block, and the right first call before writing one. A block with type labels, such as `client`, answers with its list of types. |
 | `vcl_doc` | One hand-written `doc/` page: the HCL syntax, functy, transforms, testing. The generated reference describes the blocks; these describe the language the blocks are written in. |
 
 | Resource | Holds |
 |---|---|
-| `vcl://index` | Every block, `ctx` shape and namespace with a one-line summary — the whole map of the language, in a few KB. A good default attachment. |
+| `vcl://index` | Every block, `ctx` shape, namespace and command with a one-line summary — the whole map of the language, in a few KB. A good default attachment. |
 | `vcl://topic/{+path}` | One topic, addressed by path: `vcl://topic/client/mqtt`. |
 
 The `write_vcl` prompt grounds a model in the order to use them in: search, then
-skeleton, then detail, then `vinculum check`.
+skeleton, then detail, then `vinculum check`, then the `serve` page for the
+flags the config needs to run.
 
 ## Environment
 

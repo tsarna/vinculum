@@ -16,26 +16,33 @@ import (
 // server type. A caller renders one candidate, or turns the set into a menu
 // (see MenuFor).
 //
-// This searches the config-language document only. Functions are a separate
-// corpus — see ResolveFuncs — and a front door that searches both unions the
-// results, which is where cross-kind ambiguity comes from (`assert` is both a
-// block type and a function).
+// This searches the config-language document and the registered command tree
+// (see RegisterCommandTree), so `check` — a block type and a command both — is
+// ambiguous here already. Functions are a separate corpus — see ResolveFuncs —
+// because only a caller that has built a Config has a catalog to search, and a
+// front door that searches both unions the results (`assert` is both a block
+// type and a function).
 //
 // An empty kind searches every kind; a non-empty one restricts the search,
 // which is what `--type` does.
 func Resolve(doc *config.SchemaDocument, kind Kind, path []string) []Node {
-	if doc == nil || len(path) == 0 {
+	if len(path) == 0 {
 		return nil
 	}
 	var out []Node
-	if kind == "" || kind == KindBlock {
-		out = append(out, resolveBlock(doc, path)...)
+	if doc != nil {
+		if kind == "" || kind == KindBlock {
+			out = append(out, resolveBlock(doc, path)...)
+		}
+		if kind == "" || kind == KindContext {
+			out = append(out, resolveContext(doc, path)...)
+		}
+		if kind == "" || kind == KindNamespace {
+			out = append(out, resolveNamespace(doc, path)...)
+		}
 	}
-	if kind == "" || kind == KindContext {
-		out = append(out, resolveContext(doc, path)...)
-	}
-	if kind == "" || kind == KindNamespace {
-		out = append(out, resolveNamespace(doc, path)...)
+	if kind == "" || kind == KindCommand {
+		out = append(out, resolveCommand(path)...)
 	}
 	return out
 }
@@ -130,42 +137,41 @@ func descendBody(doc *config.SchemaDocument, self Node, path []string, body *con
 	return out
 }
 
-// Topics returns the topics that make up the index page: every top-level block
-// and every `ctx` shape. Type variants are deliberately absent — they are
-// listed under the block they belong to, and 43 of them would bury the 15
-// blocks a reader is looking for.
+// Topics returns the topics that make up the index page: every top-level block,
+// `ctx` shape, namespace, and top-level command. Type variants are deliberately
+// absent — they are listed under the block they belong to, and 43 of them would
+// bury the 15 blocks a reader is looking for.
 func Topics(doc *config.SchemaDocument, kind Kind) []Node {
-	if doc == nil {
-		return nil
-	}
 	var out []Node
-	if kind == "" || kind == KindBlock {
-		for _, name := range sortedBlockKeys(doc.Blocks) {
-			out = append(out, BlockNode(doc, name, doc.Blocks[name]))
+	if doc != nil {
+		if kind == "" || kind == KindBlock {
+			for _, name := range sortedBlockKeys(doc.Blocks) {
+				out = append(out, BlockNode(doc, name, doc.Blocks[name]))
+			}
+		}
+		if kind == "" || kind == KindContext {
+			for _, name := range sortedContextKeys(doc.Contexts) {
+				out = append(out, ContextNode(doc, name, doc.Contexts[name]))
+			}
+		}
+		if kind == "" || kind == KindNamespace {
+			out = append(out, namespaceTopics(doc)...)
 		}
 	}
-	if kind == "" || kind == KindContext {
-		for _, name := range sortedContextKeys(doc.Contexts) {
-			out = append(out, ContextNode(doc, name, doc.Contexts[name]))
-		}
-	}
-	if kind == "" || kind == KindNamespace {
-		out = append(out, namespaceTopics(doc)...)
+	if kind == "" || kind == KindCommand {
+		out = append(out, commandTopics()...)
 	}
 	return out
 }
 
 // LeadingNames returns every name that can begin a path: block types, variant
-// names, and `ctx` shape names.
+// names, `ctx` shape names, namespaces, and commands.
 //
 // Attribute names are deliberately excluded. `action` appears in dozens of
 // bodies, and a menu of dozens is not a menu — attributes resolve only as the
 // continuation of a block path. (Finding one by name is what an apropos search
 // would be for.)
 func LeadingNames(doc *config.SchemaDocument, kind Kind) []string {
-	if doc == nil {
-		return nil
-	}
 	seen := map[string]bool{}
 	var out []string
 	add := func(name string) {
@@ -175,6 +181,13 @@ func LeadingNames(doc *config.SchemaDocument, kind Kind) []string {
 		}
 	}
 
+	if kind == "" || kind == KindCommand {
+		commandLeadingNames(add)
+	}
+	if doc == nil {
+		sort.Strings(out)
+		return out
+	}
 	if kind == "" || kind == KindBlock {
 		for _, blockType := range sortedBlockKeys(doc.Blocks) {
 			add(blockType)
@@ -236,6 +249,10 @@ func Members(doc *config.SchemaDocument, kind Kind, path []string) []string {
 			memberNames(n.ns.Members, add)
 		case shapeMember:
 			memberNames(n.member.Members, add)
+		case shapeCommand:
+			for _, sub := range n.cmd.Subs {
+				add(sub.Name)
+			}
 		}
 	}
 	sort.Strings(out)
@@ -324,7 +341,7 @@ const suggestMax = 5
 // suggest package's to say, so that a topic and a function name are judged on
 // the same terms.
 func Suggest(doc *config.SchemaDocument, kind Kind, path []string) []Node {
-	if doc == nil || len(path) == 0 {
+	if len(path) == 0 {
 		return nil
 	}
 

@@ -38,9 +38,11 @@ func init() {
 	rootCmd.AddCommand(checkCmd)
 
 	checkCmd.Flags().StringVarP(&checkLogLevel, "log-level", "l", "info", "log level (debug, info, warn, error)")
-	checkCmd.Flags().StringVarP(&filePath, "file-path", "f", "", "base directory for file functions (enables file, fileexists, fileset functions)")
+	checkCmd.Flags().StringVarP(&filePath, "file-path", "f", "", "base directory for the file-reading functions and served files, which exist only when it is given")
 	checkCmd.Flags().StringVarP(&writePath, "write-path", "w", "", "base directory for file write functions; must be under --file-path")
 	checkCmd.Flags().StringVar(&pluginPath, "plugin-path", "", "directory containing Go plugin .so files; required if any .vinit plugin block is present")
+	enablesFeature(checkCmd, "file-path", "readfiles")
+	enablesFeature(checkCmd, "write-path", "writefiles")
 	checkCmd.Flags().StringVar(&checkFormat, "format", "text", "diagnostic format: text (stderr, with source context) or json (stdout)")
 }
 

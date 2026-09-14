@@ -27,6 +27,9 @@ var (
 		// what help() is for — so the footer is where a reader learns they
 		// are reachable at all.
 		"vinculum man send",
+		// How to run what was written: the flags a config depends on are on
+		// the command's page.
+		"vinculum man serve",
 		// The one thing to reach for when none of the above is what you have:
 		// a word rather than a topic.
 		"vinculum man -k keep_alive",
@@ -48,6 +51,7 @@ blocks that take one, then an attribute or sub-block, to any depth.
   vinculum man subscription action    one attribute, with the ctx it sees
   vinculum man sys                    a namespace an expression can start from
   vinculum man sys starttime          one member of it
+  vinculum man serve                  a command, with its flags
 
 A type label resolves on its own where it is unambiguous, so "vinculum man mqtt"
 is the same page. Where it is not — http and vws are each both a client type and
@@ -57,8 +61,8 @@ it. Use --type to choose between kinds of topic rather than paths.
 With no topic, lists what there is to read.
 
 With --apropos (-k), the arguments are keywords rather than a path: every block,
-attribute, sub-block, context field, namespace member and function whose name or
-summary contains all of them is listed, with the command that reads each one. It
+attribute, sub-block, context field, namespace member, function, command and flag
+whose name or summary contains all of them is listed, with the command that reads each one. It
 is how to find an attribute whose name you know and whose block you do not.
 
   vinculum man -k keep_alive          who has an attribute by that name
@@ -78,8 +82,9 @@ say so explicitly. See VINCULUM_PAGER, PAGER, NO_COLOR, and MANWIDTH.`,
 
 func init() {
 	rootCmd.AddCommand(manCmd)
+	documentedBy(manCmd, "man.md")
 
-	manCmd.Flags().StringVar(&manType, "type", "", "restrict the search to one kind of topic (block, context, namespace, function)")
+	manCmd.Flags().StringVar(&manType, "type", "", "restrict the search to one kind of topic ("+schemadoc.KindList()+")")
 	manCmd.Flags().StringVar(&manFormat, "format", "auto", "output format: term, markdown, or auto (term on a terminal)")
 	manCmd.Flags().StringVar(&manColor, "color", "auto", "colorize output: always, never, or auto")
 	manCmd.Flags().IntVar(&manWidth, "width", 0, "wrap width (default: the terminal's, clamped)")
@@ -154,7 +159,9 @@ func runApropos(cmd *cobra.Command, doc *config.SchemaDocument, kind schemadoc.K
 		return &ExitCodeError{Code: 2, Err: fmt.Errorf("--apropos needs at least one keyword to search for")}
 	}
 
-	hits := schemadoc.Apropos(doc, buildFuncCatalog(kind), kind, terms)
+	// The whole catalog whatever the kind: Apropos searches it only when the
+	// kind allows, and needs it regardless to tell which rows are ambiguous.
+	hits := schemadoc.Apropos(doc, schemadoc.BuiltinFuncs(), kind, terms)
 	if len(hits) == 0 {
 		fmt.Fprintf(cmd.ErrOrStderr(), "nothing matches %q\n", strings.Join(terms, " "))
 		return &ExitCodeError{
@@ -182,10 +189,6 @@ func funcCatalog(kind schemadoc.Kind, args []string) schemadoc.FuncCatalog {
 // buildFuncCatalog is the built-in function corpus — shared with man::, and
 // built once however many times a lookup asks — unless the kind rules
 // functions out.
-//
-// A search always pays for it: a keyword can match a function's name or its
-// prose whatever else it matches, and leaving the corpus out would make the
-// answer depend on how many words were typed.
 func buildFuncCatalog(kind schemadoc.Kind) schemadoc.FuncCatalog {
 	if kind != "" && kind != schemadoc.KindFunction {
 		return nil

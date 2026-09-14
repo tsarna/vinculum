@@ -71,6 +71,7 @@ Examples:
 
 func init() {
 	rootCmd.AddCommand(schemaCmd)
+	documentedBy(schemaCmd, "schema.md")
 
 	schemaCmd.Flags().StringVar(&schemaFormat, "format", "json", "output format (json, markdown)")
 	schemaCmd.Flags().StringVar(&schemaFileKind, "file-kind", "", "describe only one language: vcl or vinit (default both)")
