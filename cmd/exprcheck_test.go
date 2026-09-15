@@ -22,12 +22,7 @@ func buildRefCheck(t *testing.T, src string) string {
 		WithLogger(zap.NewNop()).
 		Build()
 	if cfg != nil {
-		for i := len(cfg.Stoppables) - 1; i >= 0; i-- {
-			cfg.Stoppables[i].Stop() //nolint:errcheck
-		}
-		for _, b := range cfg.Buses {
-			b.Stop() //nolint:errcheck
-		}
+		cfg.Discard()
 	}
 	if !diags.HasErrors() {
 		return ""

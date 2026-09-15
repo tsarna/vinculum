@@ -67,6 +67,7 @@ Available anywhere vinculum evaluates an expression, and most useful at the [REP
 - `man::index()`: Return the reference's front page — every block, `ctx` shape, namespace, and command — as Markdown.
 - `man::apropos(term, terms...)`: Search the reference by keyword and return the matches as a Markdown table, each row naming a topic path `man::page` reads. `null` if nothing matches.
 - `man::synopsis(topic, subtopics...)`: Return just one topic's skeleton — a block's header, attributes and sub-blocks, or a function's calling conventions.
+- `man::check(source)`: Check one `.vcl` file's text without running it, as `vinculum check` does, and return whether it is valid, its diagnostics, and their text with each line quoted. See [below](#checking-a-configuration).
 
 `help()` answers the same questions as [`vinculum man`](man.md), from inside an
 expression:
@@ -238,6 +239,63 @@ unknown one is `null`. A topic that resolves but has **no** skeleton — an
 attribute, a `ctx` shape, a namespace member — is an *error*, because `null`
 already means "nothing is named that". Fall back with
 `try(man::synopsis(x), man::page(x))`.
+
+##### Checking a configuration
+
+`man::check(source)` builds one `.vcl` file's text without running it — what
+`vinculum check` does — and returns what it found:
+
+| Attribute | Holds |
+|---|---|
+| `valid` | `false` when anything is an error; warnings do not count. |
+| `errors`, `warnings` | How many of each. |
+| `diagnostics` | A list of objects: `severity` (`"error"` or `"warning"`), `summary`, `detail`, and `line`, `column`, `end_line`, `end_column` — `null` for a problem with no place in the source. |
+| `text` | A verdict line, then every diagnostic with its line quoted, as `vinculum check` prints them. The form to show a reader. |
+
+```console
+> man::check("bus \"main\" {}\nsubscription \"s\" {\n  target = bus.mian\n  topics = [\"a\"]\n  action = 1\n}\n").text
+The configuration is not valid: 1 error.
+
+Error: No bus named "mian"
+
+  on config.vcl line 3, in subscription "s":
+   3:   target = bus.mian
+
+Declared bus names are: main.
+```
+
+It is the other half of the reference: a reader who looked a block up and
+wrote one can find out whether it loads. Problems are always in the result —
+the call itself does not fail — so an invalid configuration is an ordinary
+answer.
+
+The text checked is not the operator's, so the build is fenced, and the fences
+are what a reader of the result needs to know:
+
+- **One `.vcl` file, checked alone.** It is named `config.vcl` in what is
+  reported. A block defined in another file of the same configuration is
+  reported as missing. It is never read as a `.vinit` or `.cty` file, so it
+  cannot load a plugin or clone a repository — and neither kind of file can be
+  checked.
+- **No environment.** `env.*` is empty, because a diagnostic can quote a value.
+  `try(env.PORT, "8080")` takes its default; a bare `env.PORT` is reported as
+  missing.
+- **File functions read an empty directory.** They exist, so a config that uses
+  them checks, but `file()` finds nothing. `kill()` does not exist.
+- **User functions may recurse 500 deep.** Deeper is an error, rather than a
+  stack overflow that would end the process. Their return type is not checked
+  before their value.
+- **At most 256 KB, and ten seconds.** Only one check runs at a time, and one
+  that waits more than a second for another is refused. Each refusal is an error
+  diagnostic with no position. A check that runs out of time goes on running
+  until it finishes, and keeps its turn until then.
+
+Some things a configuration does while it is built are not fenced: a `tls`
+block reads the certificate files it names, from anywhere, and `client "aws"`
+reads the profile it names from `~/.aws`. That is why a server offering
+`man::check` to callers should require authentication —
+[examples/man-site/](../examples/man-site/) offers it only when `MAN_CHECK` is
+set.
 
 ### Data Manipulation
 

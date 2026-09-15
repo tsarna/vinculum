@@ -29,6 +29,8 @@
 #     reference deliberately does not cover — the HCL syntax itself, functy,
 #     transforms
 #   - an enum param, which keeps a value the action cannot handle off the wire
+#   - man::check behind `disabled = !checker`: one config, whose checker is
+#     switched on by an environment variable and otherwise never advertised
 
 const {
     # Where the hand-written pages live, relative to --file-path.
@@ -41,6 +43,11 @@ const {
     footer = "\n\n---\nVinculum ${sys.version} — this reference describes exactly what this binary parses."
 
     search_advice = "Search for a word with the vcl_apropos tool, or read vcl://index for the whole map of the language."
+
+    # Whether vcl_check is offered. Checking builds submitted text, so it is off
+    # unless MAN_CHECK is set, and a public endpoint does not even list it. See
+    # the README before setting it.
+    checker = try(env.MAN_CHECK, "") != ""
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -192,6 +199,24 @@ server "mcp" "man" {
         action = doc_page(ctx.args.page)
     }
 
+    # A disabled tool is not registered at all, so without MAN_CHECK it is
+    # absent from tools/list rather than listed and refused. Its action is not
+    # evaluated then, but its description is still required.
+    tool "vcl_check" {
+        disabled    = !checker
+        description = "Check a Vinculum configuration without running it, and get back what `vinculum check` would report: that it is valid, or each error and warning with its line quoted. Call it on what you wrote before handing it over. Pass the text of one .vcl file; it is checked alone, so a block defined in another file of the same configuration is reported as missing — pass the files joined into one. A .vinit or .cty file cannot be checked. The check sees no environment variables, so write try(env.NAME, default) rather than env.NAME for anything the deployment sets; file functions exist but read an empty directory. At most 256 KB, and ten seconds."
+
+        param "config" {
+            type        = "string"
+            required    = true
+            description = "The text of one .vcl file"
+        }
+
+        # man::check reports every problem in its result, never as an error,
+        # so an invalid config is an ordinary answer: the check succeeded.
+        action = "${man::check(ctx.args.config).text}\n---\nChecked by Vinculum ${sys.version}."
+    }
+
     # ── Resources ────────────────────────────────────────────────────────────
     #
     # The same lookups as an attachment rather than a call: a person adding a
@@ -251,7 +276,7 @@ server "mcp" "man" {
               3. vcl_man on the block, or on one attribute of it, for the detail and the ctx an expression sees.
               4. vcl_doc for the language the blocks are written in — "config" for the HCL syntax, "functy" for .cty, "transforms", "testing".
 
-            Then check what you wrote with `vinculum check <file>`, and read vcl_man "serve" for how to run it: some functions do not exist unless a flag is given — file() needs --file-path — and a function's page says which.${ctx.args.task == "" ? "" : "\n\nThe task: ${ctx.args.task}"}
+            Then check what you wrote with ${checker ? "the vcl_check tool" : "`vinculum check <file>`"}, and read vcl_man "serve" for how to run it: some functions do not exist unless a flag is given — file() needs --file-path — and a function's page says which.${ctx.args.task == "" ? "" : "\n\nThe task: ${ctx.args.task}"}
         EOT
     }
 }

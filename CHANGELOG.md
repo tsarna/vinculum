@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`man::check()`, and a `vcl_check` tool for the man-site example.**
+  `man::check(source)` builds one `.vcl` file's text without running it, as
+  `vinculum check` does. It returns `valid`, counts of errors and warnings,
+  the diagnostics with their positions, and `text`, which quotes each offending
+  line. An agent that looked a block up through the example's MCP server can
+  now find out whether what it wrote loads.
+
+  The text is not the operator's, so the build is fenced:
+  - A source passed as text is never read as `.vinit`, so it loads no plugin
+    and clones no repository.
+  - `env.*` is empty.
+  - File functions are rooted at an empty scratch directory.
+  - User functions may recurse 500 deep.
+  - Sources are capped at 256 KB and ten seconds, with one check at a time.
+
+  See [functions.md](doc/functions.md#checking-a-configuration) for what is not
+  fenced.
+
+  The example offers `vcl_check` only when `MAN_CHECK` is set. Otherwise it is
+  not registered, so a public endpoint does not list it. Its `write_vcl` prompt
+  points at whichever checker is available.
+
+  For embedders:
+  - `ConfigBuilder.WithEnvironment(environ)` replaces the environment `env.*`
+    reflects.
+  - `ConfigBuilder.WithMaxCallDepth(n)` makes deep user-function recursion an
+    error. Otherwise it is a fatal stack overflow.
+  - `Config.Discard()` releases a config that was built and never started.
+
 - **The reference documents the `vinculum` commands, and says which flag each
   gated function needs.** `vinculum man serve` shows the command's usage line,
   its description, its flags with their defaults and environment variables, the
@@ -947,6 +976,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hosting `server "http"` block.
 
 ### Fixed
+
+- **Building a config without running it no longer reaches the network.** This
+  affects `vinculum check`, and anything else that builds without starting.
+  - `client "redis"` with `min_idle_conns` dialed its address while the block
+    was processed. It now holds every dial until the client starts or runs its
+    first command, so a client used without starting, as under
+    `vinculum test --no-serve`, still connects when it is used.
+  - `client "otlp"` exported metrics to its endpoint every `metric_interval`
+    from the moment it was processed, and once more at teardown. It now
+    exports nothing until it starts.
+
+  Neither changes a process that runs, since nothing records telemetry before
+  startup and metrics are cumulative. One run does change:
+  `vinculum test --no-serve` starts nothing, so it no longer exports telemetry.
+
+- **A config that fails to build late no longer leaks what it built.** An error
+  found once blocks were being processed returned no config and left the blocks
+  processed before it running, such as each `bus`'s dispatch goroutine. This
+  mattered little to a process that exits on a bad config, and a lot to one that
+  builds many.
 
 - MCP: **A `prompt` action may return a plain string**, becoming a single message
   from the user, which is what the block's documentation has always said. Error

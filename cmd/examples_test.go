@@ -71,6 +71,11 @@ func TestExamplesAreValid(t *testing.T) {
 		// TestManSiteAnswersOverMCP drives the requests that do.
 		dir: "man-site",
 	}, {
+		// The private posture. A disabled tool is skipped before its action is
+		// looked at, so the public case above never parses vcl_check's.
+		dir: "man-site",
+		env: map[string]string{"MAN_CHECK": "1"},
+	}, {
 		dir: "dns-zone-updater",
 		// Reads a credentials file it does not ship, and writes zone files
 		// through an `editor "line"` in file mode. The fixture is the shape the
@@ -101,15 +106,7 @@ func TestExamplesAreValid(t *testing.T) {
 
 			cfg, diags := builder.Build()
 			if cfg != nil {
-				// Teardown in the order `vinculum check` uses, so a Drainable
-				// that acquires something at construction still gets released.
-				drain(cfg, zap.NewNop(), config.DefaultShutdownTimeout)
-				for i := len(cfg.Stoppables) - 1; i >= 0; i-- {
-					cfg.Stoppables[i].Stop() //nolint:errcheck
-				}
-				for _, b := range cfg.Buses {
-					b.Stop() //nolint:errcheck
-				}
+				cfg.Discard()
 			}
 
 			require.False(t, diags.HasErrors(),
