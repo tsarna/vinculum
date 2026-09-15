@@ -14,8 +14,14 @@ import (
 // underscore. An empty name becomes "_". An empty environment returns
 // cty.EmptyObjectVal.
 func EnvObject() cty.Value {
+	return EnvObjectFrom(os.Environ())
+}
+
+// EnvObjectFrom is EnvObject over the given environment, in os.Environ's
+// KEY=value form, rather than the process's.
+func EnvObjectFrom(environ []string) cty.Value {
 	envMap := make(map[string]cty.Value)
-	for _, envVar := range os.Environ() {
+	for _, envVar := range environ {
 		parts := strings.SplitN(envVar, "=", 2)
 		if len(parts) != 2 {
 			continue

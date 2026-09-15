@@ -116,6 +116,9 @@ type RedisConnector interface {
 type RedisClient struct {
 	cfg.BaseClient
 	client goredis.UniversalClient
+	// gate holds the client's dials back until Start or the first command. Nil
+	// for a client not made by process.
+	gate *startGate
 }
 
 func (c *RedisClient) UniversalClient() goredis.UniversalClient {
@@ -126,6 +129,9 @@ func (c *RedisClient) UniversalClient() goredis.UniversalClient {
 // go-redis's pool is lazy otherwise, so a silent misconfiguration would
 // only surface at the first child-client call.
 func (c *RedisClient) Start() error {
+	if c.gate != nil {
+		c.gate.open()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := c.client.Ping(ctx).Err(); err != nil {
@@ -147,6 +153,11 @@ func (c *RedisClient) Ready(ctx context.Context) error {
 }
 
 func (c *RedisClient) Stop() error {
+	if c.gate != nil {
+		// First, so a dial still waiting on a client that never started gives
+		// up rather than connecting on its way out.
+		c.gate.close()
+	}
 	if c.client == nil {
 		return nil
 	}
@@ -222,7 +233,10 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 		uopts.DialTimeout = d
 	}
 
+	gate := newStartGate()
+	uopts.Dialer = gate.dialer(uopts)
 	client := goredis.NewUniversalClient(uopts)
+	client.AddHook(gate)
 
 	wrapper := &RedisClient{
 		BaseClient: cfg.BaseClient{
@@ -230,6 +244,7 @@ func process(config *cfg.Config, block *hcl.Block, remainingBody hcl.Body) (cfg.
 			DefRange: def.DefRange,
 		},
 		client: client,
+		gate:   gate,
 	}
 
 	config.Startables = append(config.Startables, wrapper)

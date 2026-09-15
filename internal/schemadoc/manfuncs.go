@@ -35,6 +35,7 @@ func manFunctions() map[string]function.Function {
 		"man::index":    manIndexFunc(helpDoc),
 		"man::synopsis": manSynopsisFunc(helpDoc, BuiltinFuncs),
 		"man::apropos":  manAproposFunc(helpDoc, BuiltinFuncs),
+		"man::check":    manCheckFunc(),
 	}
 }
 

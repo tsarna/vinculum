@@ -142,6 +142,8 @@ type OtlpClientImpl struct {
 
 	tracerProvider *sdktrace.TracerProvider
 	meterProvider  *sdkmetric.MeterProvider
+	// gate drops both providers' exports until Start.
+	gate exportGate
 }
 
 // ─── cfg.OtlpClient interface ─────────────────────────────────────────────────
@@ -241,7 +243,7 @@ func (c *OtlpClientImpl) buildProviders() error {
 	}
 
 	tpOpts := []sdktrace.TracerProviderOption{
-		sdktrace.WithBatcher(traceExporter),
+		sdktrace.WithBatcher(gatedSpanExporter{traceExporter, &c.gate}),
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(samplingRatio))),
 	}
@@ -290,7 +292,7 @@ func (c *OtlpClientImpl) buildProviders() error {
 	}
 
 	c.meterProvider = sdkmetric.NewMeterProvider(
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter,
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(gatedMetricExporter{metricExporter, &c.gate},
 			sdkmetric.WithInterval(c.metricInterval),
 		)),
 		sdkmetric.WithResource(res),
@@ -302,6 +304,8 @@ func (c *OtlpClientImpl) buildProviders() error {
 // ─── Startable / Stoppable ────────────────────────────────────────────────────
 
 func (c *OtlpClientImpl) Start() error {
+	c.gate.open.Store(true)
+
 	// Set globals so otel.Tracer() / otel.GetTextMapPropagator() resolve correctly.
 	otel.SetTracerProvider(c.tracerProvider)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
