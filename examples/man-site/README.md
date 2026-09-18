@@ -29,6 +29,10 @@ Then point an MCP client at `http://localhost:9000/mcp`:
 {"mcpServers": {"vcl": {"url": "http://localhost:9000/mcp"}}}
 ```
 
+That is the public posture: anonymous, and read-only. Set `MAN_CHECK_PASSWORD`
+to also get `vcl_check`, which puts that password in front of the route — see
+[below](#one-file-three-postures).
+
 Ask it "what attributes does `client \"mqtt\"` take?", or "which blocks have a
 `keep_alive`?", or "write me a config that bridges MQTT to an HTTP endpoint".
 
@@ -40,7 +44,7 @@ Ask it "what attributes does `client \"mqtt\"` take?", or "which blocks have a
 | `vcl_apropos` | Keyword search over names and one-line summaries, for when you know a word but not which block owns it. Each row names a topic path to pass to `vcl_man`; at most fifty rows are shown, with a count of the rest. |
 | `vcl_synopsis` | Just the skeleton of a block, or a function's calling conventions — much smaller than the page for a block, and the right first call before writing one. A block with type labels, such as `client`, answers with its list of types. |
 | `vcl_doc` | One hand-written `doc/` page: the HCL syntax, functy, transforms, testing. The generated reference describes the blocks; these describe the language the blocks are written in. |
-| `vcl_check` | **Only when `MAN_CHECK` is set.** Builds one `.vcl` file's text without running it and answers what `vinculum check` would: that it is valid, or each problem with its line quoted. An agent that can check what it wrote does not need to be right first time. |
+| `vcl_check` | **Only when `MAN_CHECK_PASSWORD` is set**, which also puts that password in front of `/mcp`. Builds one `.vcl` file's text without running it and answers what `vinculum check` would: that it is valid, or each problem with its line quoted. An agent that can check what it wrote does not need to be right first time. |
 
 | Resource | Holds |
 |---|---|
@@ -51,19 +55,55 @@ The `write_vcl` prompt grounds a model in the order to use them in: search, then
 skeleton, then detail, then a check — `vcl_check` when it is offered, `vinculum
 check` otherwise — then the `serve` page for the flags the config needs to run.
 
+## Layout
+
+| File | Contents |
+|---|---|
+| [mcp.vcl](mcp.vcl) | The `server "mcp"` block — its tools, resources and prompt — and the `server "http"` block that mounts it. |
+| [auth.vcl](auth.vcl) | The two `auth` blocks, each switched on by its own password variable. |
+| [docs.vinit](docs.vinit) | A `git` block that fetches `doc/` at boot, for a container that does not carry it. |
+
 ## Environment
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `MAN_DOC_DIR` | `doc` | Where the hand-written pages live, relative to `--file-path`. |
 | `MAN_LISTEN` | `:9000` | Listen address. |
-| `MAN_CHECK` | unset | Any non-empty value offers `vcl_check`. Unset, the tool is not registered, so `tools/list` does not mention it. |
+| `MAN_DOC_DIR` | `doc` | Where the hand-written pages live, relative to `--file-path`. |
+| `MAN_PASSWORD` | _unset → anonymous_ | Password for the reference. Set it and every route needs it. |
+| `MAN_USER` | `docs` | Username for `MAN_PASSWORD`. |
+| `MAN_CHECK_PASSWORD` | _unset → no checker_ | Offers `vcl_check` **and** requires this password on `/mcp`. |
+| `MAN_CHECK_USER` | `check` | Username for `MAN_CHECK_PASSWORD`. |
+| `MAN_DOC_FETCH` | _unset → no clone_ | Any non-empty value fetches `doc/` at boot through the `git` block. |
+| `MAN_DOC_TAG` | _unset → default branch_ | The release to fetch the pages from, e.g. `v0.46.0`. |
+| `MAN_DOC_REPO` | `https://github.com/tsarna/vinculum.git` | Repository to fetch them from. |
+| `MAN_DOC_INTO` | `/conf/doc` | Where to materialize them. Point `--file-path` and `MAN_DOC_DIR` at the result. |
 
-## One file, two postures
+## One file, three postures
 
-The same file runs as a public, read-only reference and as a private one that
+The same files run as a public, read-only reference and as a private one that
 also checks what an agent wrote. Only the environment differs, so nothing is
 edited to switch.
+
+| Set | `/mcp` | `vcl_check` |
+|---|---|---|
+| nothing | anonymous, on purpose | not registered, not listed |
+| `MAN_PASSWORD` | that password | not registered, not listed |
+| `MAN_CHECK_PASSWORD` | **that** password | offered |
+
+A disabled `auth` block is parsed but inert, and its required attributes are not
+validated, which is what lets one variable both supply the credential and switch
+the mechanism on. The unset case says `auth.anonymous` rather than leaving the
+policy empty: both are unauthenticated, but an empty one logs a warning naming
+the route at startup, and this deployment is public on purpose.
+
+There is no variable that offers the checker without a password. That is the
+whole point of `MAN_CHECK_PASSWORD` being a password rather than a flag: the
+mistake it prevents is an exposed checker.
+
+The cost is that turning the checker on closes the reference **over MCP** too,
+since the tools of one `server "mcp"` block are one list and a second anonymous
+endpoint would mean a second copy of every tool. `MAN_PASSWORD` still governs
+the HTTP site the example will grow.
 
 Checking is off by default because it builds text a caller sent. That build is
 fenced:
@@ -78,8 +118,8 @@ Other things are not fenced. A `tls` block reads the certificate files it
 names, and its error says whether a path exists. `client "aws"` reads the
 profile it names. So:
 
-- **Put `MAN_CHECK` behind authentication.** Anyone who can reach the tool can
-  probe the server's filesystem this way. See
+- **The password on `MAN_CHECK_PASSWORD` is load-bearing.** Anyone who can reach
+  the tool can probe the server's filesystem this way. See
   [functions.md](../../doc/functions.md#checking-a-configuration) for the full
   list.
 - **Point `--file-path` at the documentation and nothing else.** That keeps the
@@ -87,6 +127,38 @@ profile it names. So:
 
 A checked config can't see the operator's environment, so write
 `try(env.NAME, default)` in anything meant to be checked this way.
+
+## Deploying it
+
+The published images carry the binary and nothing else — the minimal one is a
+scratch build with no shell — so the `doc/` pages `vcl_doc` serves are not in
+them. [docs.vinit](docs.vinit) fetches them at boot with a
+[`git` block](../../doc/git.md), which is pure Go for exactly this reason and so
+works in an image with no `git` in it. The pages then update by restarting
+rather than by rebuilding an image.
+
+```sh
+docker run -p 9000:9000 \
+    -v "$PWD/examples/man-site:/conf" \
+    -e MAN_DOC_FETCH=1 -e MAN_DOC_TAG=v0.46.0 \
+    ghcr.io/tsarna/vinculum:0.46.0 serve -f /conf /conf
+```
+
+`-f /conf` is what `MAN_DOC_DIR` is relative to, and `MAN_DOC_INTO` defaults to
+`/conf/doc`, so the fetched pages land where `vcl_doc` looks with nothing else
+set. The mount has to be writable, since that is where the clone is
+materialized; to keep the config read-only, set `MAN_DOC_INTO` to a writable
+path of its own and `MAN_DOC_DIR` to the same place.
+
+Each fetch owns its destination, and this one sets `overwrite = true`, so every
+boot replaces the last boot's copy. Point it at a directory nothing else writes.
+
+Pin `MAN_DOC_TAG` to the release the image is, so the hand-written pages and the
+generated reference describe the same binary. Without it the repository's
+default branch is fetched, which is what a deployment tracking `main` wants.
+
+For the private posture, add `-e MAN_CHECK_PASSWORD=…`, and put the whole thing
+behind TLS: basic auth over plain HTTP sends the password in every request.
 
 ## Worth reading the config for
 
@@ -104,12 +176,17 @@ A checked config can't see the operator's environment, so write
   `--file-path` but do not stop a path climbing out of it, and this endpoint is
   meant to be public.
 - **`cond()`** for lazy branching, so a rejected name never reaches `file()`.
+- **The policies are written at the routes, not in a `const`.** A `const` is
+  evaluated before any `auth` block is processed, so `auth.site` does not resolve
+  in one — and naming the block at the route is what lets the dependency sort
+  order the server after the blocks it names.
+- **A route's `auth` replaces the server's** rather than adding to it, which is
+  why the site password does not open `/mcp` once the checker is on.
 
 ## What this does not do yet
 
-Later steps of the same plan: an HTML site over the same functions, an `auth`
-block gated on an environment variable (which `MAN_CHECK` wants), a `.vinit` `git` block so a
-deployment fetches its own documentation at boot, and rate limiting, which is
+Later steps of the same plan: an HTML site over the same functions, for a person
+with a browser rather than a model with a client. And rate limiting, which is
 the first thing a public deployment would want that Vinculum does not have.
 
 Searching has no `kind` filter, because the rows say which kind they are when it

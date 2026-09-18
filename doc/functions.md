@@ -294,8 +294,9 @@ Some things a configuration does while it is built are not fenced: a `tls`
 block reads the certificate files it names, from anywhere, and `client "aws"`
 reads the profile it names from `~/.aws`. That is why a server offering
 `man::check` to callers should require authentication —
-[examples/man-site/](../examples/man-site/) offers it only when `MAN_CHECK` is
-set.
+[examples/man-site/](../examples/man-site/) offers it only when
+`MAN_CHECK_PASSWORD` is set, which is also the password its MCP route then
+requires — so there is no setting that offers the checker without one.
 
 ### Data Manipulation
 

@@ -35,7 +35,7 @@ func TestManSiteAnswersOverMCP(t *testing.T) {
 
 	// The public posture: building submitted text is not offered, and not
 	// advertised either.
-	t.Run("without MAN_CHECK there is no vcl_check", func(t *testing.T) {
+	t.Run("without MAN_CHECK_PASSWORD there is no vcl_check", func(t *testing.T) {
 		assert.NotContains(t, manSiteToolNames(t, handler, session), "vcl_check")
 		assert.Contains(t, manSitePrompt(t, handler, session), "`vinculum check <file>`")
 	})
@@ -148,20 +148,22 @@ func TestManSiteAnswersOverMCP(t *testing.T) {
 }
 
 // TestManSiteChecksWhenEnabled is the private posture: the same file, with
-// MAN_CHECK set and nothing edited.
+// MAN_CHECK_PASSWORD set and nothing edited.
 func TestManSiteChecksWhenEnabled(t *testing.T) {
-	handler, session := startManSite(t, map[string]string{"MAN_CHECK": "1"})
+	handler, session := startManSite(t,
+		map[string]string{"MAN_CHECK_PASSWORD": "s3cret"}, "check:s3cret")
 
 	check := func(source string) string {
 		t.Helper()
 		got, isErr := manSiteResult(t, manSitePost(t, handler, session, "tools/call",
-			map[string]any{"name": "vcl_check", "arguments": map[string]any{"config": source}}))
+			map[string]any{"name": "vcl_check", "arguments": map[string]any{"config": source}},
+			"check:s3cret"))
 		assert.False(t, isErr, "an invalid config is an answer, not a failed call: %s", got)
 		return got
 	}
 
-	assert.Contains(t, manSiteToolNames(t, handler, session), "vcl_check")
-	assert.Contains(t, manSitePrompt(t, handler, session), "the vcl_check tool")
+	assert.Contains(t, manSiteToolNames(t, handler, session, "check:s3cret"), "vcl_check")
+	assert.Contains(t, manSitePrompt(t, handler, session, "check:s3cret"), "the vcl_check tool")
 
 	got := check(`
 bus "main" {}
@@ -179,6 +181,68 @@ subscription "s" {
 	assert.Contains(t, got, "The configuration is not valid")
 	assert.Contains(t, got, "on config.vcl line 4")
 	assert.NotContains(t, got, "mcp.vcl", "nothing about the server's own files")
+}
+
+// TestManSitePostures is the door, per posture. The tools are covered above;
+// what matters here is who gets to reach them, and that no environment turns
+// the checker on without also putting a password in front of it.
+func TestManSitePostures(t *testing.T) {
+	// initialize is the first call a client makes, so it is the one the door is
+	// tested with. A 401 carries the realm, which says which password is wanted.
+	initialize := func(t *testing.T, handler http.Handler, creds string) *httptest.ResponseRecorder {
+		t.Helper()
+		return manSiteTry(t, handler, "", "initialize", map[string]any{
+			"protocolVersion": "2025-06-18",
+			"capabilities":    map[string]any{},
+			"clientInfo":      map[string]any{"name": "test", "version": "0"},
+		}, creds)
+	}
+
+	t.Run("nothing set: anonymous on purpose", func(t *testing.T) {
+		handler, _ := startManSite(t, nil)
+		assert.Equal(t, http.StatusOK, initialize(t, handler, "").Code)
+	})
+
+	t.Run("MAN_PASSWORD closes the reference", func(t *testing.T) {
+		handler, _ := startManSite(t, map[string]string{"MAN_PASSWORD": "site-pw"}, "docs:site-pw")
+
+		w := initialize(t, handler, "")
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+		assert.Equal(t, `Basic realm="Vinculum reference"`, w.Header().Get("Www-Authenticate"))
+
+		assert.Equal(t, http.StatusUnauthorized, initialize(t, handler, "docs:wrong").Code)
+		assert.Equal(t, http.StatusOK, initialize(t, handler, "docs:site-pw").Code)
+	})
+
+	// The property the split posture is for: one variable both offers the
+	// checker and demands a password for the route carrying it.
+	t.Run("MAN_CHECK_PASSWORD closes the MCP route it opens", func(t *testing.T) {
+		handler, _ := startManSite(t, map[string]string{"MAN_CHECK_PASSWORD": "check-pw"}, "check:check-pw")
+
+		w := initialize(t, handler, "")
+		assert.Equal(t, http.StatusUnauthorized, w.Code, "the checker is never anonymous")
+		assert.Equal(t, `Basic realm="Vinculum checker"`, w.Header().Get("Www-Authenticate"))
+		assert.Equal(t, http.StatusOK, initialize(t, handler, "check:check-pw").Code)
+	})
+
+	t.Run("both set: the checker's password is the one the MCP route takes", func(t *testing.T) {
+		handler, _ := startManSite(t, map[string]string{
+			"MAN_PASSWORD": "site-pw", "MAN_CHECK_PASSWORD": "check-pw",
+		}, "check:check-pw")
+
+		assert.Equal(t, http.StatusUnauthorized, initialize(t, handler, "docs:site-pw").Code,
+			"the route's own policy replaces the server's rather than adding to it")
+		assert.Equal(t, http.StatusOK, initialize(t, handler, "check:check-pw").Code)
+	})
+
+	t.Run("the usernames are configurable", func(t *testing.T) {
+		handler, _ := startManSite(t, map[string]string{
+			"MAN_CHECK_PASSWORD": "check-pw", "MAN_CHECK_USER": "agent",
+		}, "agent:check-pw")
+
+		assert.Equal(t, http.StatusUnauthorized, initialize(t, handler, "check:check-pw").Code)
+		assert.Equal(t, http.StatusOK, initialize(t, handler, "agent:check-pw").Code)
+	})
 }
 
 // TestManCheckWithEveryBuiltin covers what internal/schemadoc's own tests
@@ -227,9 +291,10 @@ func TestManCheckWithEveryBuiltin(t *testing.T) {
 }
 
 // startManSite builds examples/man-site with env set and returns its HTTP
-// handler and an initialized MCP session. Build starts nothing: the handler is
-// driven directly, with no listener.
-func startManSite(t *testing.T, env map[string]string) (http.Handler, string) {
+// handler and an MCP session initialized with creds ("user:password", or
+// nothing for an anonymous one). Build starts nothing: the handler is driven
+// directly, with no listener.
+func startManSite(t *testing.T, env map[string]string, creds ...string) (http.Handler, string) {
 	t.Helper()
 
 	// The layout the README documents: --file-path at a checkout, pages in doc/.
@@ -238,7 +303,10 @@ func startManSite(t *testing.T, env map[string]string) (http.Handler, string) {
 	// are unset rather than emptied. t.Setenv first registers the restore — and
 	// makes the test refuse t.Parallel, which a process-wide unset could not
 	// survive.
-	for _, name := range []string{"MAN_DOC_DIR", "MAN_LISTEN", "MAN_CHECK"} {
+	for _, name := range []string{
+		"MAN_DOC_DIR", "MAN_LISTEN", "MAN_CHECK_PASSWORD", "MAN_CHECK_USER",
+		"MAN_PASSWORD", "MAN_USER", "MAN_DOC_FETCH", "MAN_DOC_TAG", "MAN_DOC_REPO", "MAN_DOC_INTO",
+	} {
 		t.Setenv(name, "")
 		require.NoError(t, os.Unsetenv(name))
 	}
@@ -259,13 +327,13 @@ func startManSite(t *testing.T, env map[string]string) (http.Handler, string) {
 	t.Cleanup(cfg.Discard)
 
 	handler := cfg.Servers["http"]["main"].(*httpserver.HttpServer).Server.Handler
-	return handler, manSiteInitialize(t, handler)
+	return handler, manSiteInitialize(t, handler, creds...)
 }
 
 // manSiteToolNames is the names tools/list advertises.
-func manSiteToolNames(t *testing.T, handler http.Handler, session string) []string {
+func manSiteToolNames(t *testing.T, handler http.Handler, session string, creds ...string) []string {
 	t.Helper()
-	tools, ok := manSiteMessage(t, manSitePost(t, handler, session, "tools/list", map[string]any{}))["tools"].([]any)
+	tools, ok := manSiteMessage(t, manSitePost(t, handler, session, "tools/list", map[string]any{}, creds...))["tools"].([]any)
 	require.True(t, ok)
 	names := make([]string, 0, len(tools))
 	for _, tool := range tools {
@@ -275,28 +343,37 @@ func manSiteToolNames(t *testing.T, handler http.Handler, session string) []stri
 }
 
 // manSitePrompt is the text of the write_vcl prompt.
-func manSitePrompt(t *testing.T, handler http.Handler, session string) string {
+func manSitePrompt(t *testing.T, handler http.Handler, session string, creds ...string) string {
 	t.Helper()
 	msgs, ok := manSiteMessage(t, manSitePost(t, handler, session, "prompts/get",
-		map[string]any{"name": "write_vcl"}))["messages"].([]any)
+		map[string]any{"name": "write_vcl"}, creds...))["messages"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, msgs)
 	return msgs[0].(map[string]any)["content"].(map[string]any)["text"].(string)
 }
 
-func manSiteInitialize(t *testing.T, handler http.Handler) string {
+func manSiteInitialize(t *testing.T, handler http.Handler, creds ...string) string {
 	t.Helper()
 	w := manSitePost(t, handler, "", "initialize", map[string]any{
 		"protocolVersion": "2025-06-18",
 		"capabilities":    map[string]any{},
 		"clientInfo":      map[string]any{"name": "test", "version": "0"},
-	})
+	}, creds...)
 	session := w.Header().Get("Mcp-Session-Id")
 	require.NotEmpty(t, session, "initialize: %s", w.Body.String())
 	return session
 }
 
-func manSitePost(t *testing.T, handler http.Handler, session, method string, params any) *httptest.ResponseRecorder {
+func manSitePost(t *testing.T, handler http.Handler, session, method string, params any, creds ...string) *httptest.ResponseRecorder {
+	t.Helper()
+	w := manSiteTry(t, handler, session, method, params, creds...)
+	require.Equal(t, http.StatusOK, w.Code, "%s: %s", method, w.Body.String())
+	return w
+}
+
+// manSiteTry posts without insisting on a status, for the cases that are about
+// the status. creds is "user:password", or nothing for an anonymous request.
+func manSiteTry(t *testing.T, handler http.Handler, session, method string, params any, creds ...string) *httptest.ResponseRecorder {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
 	require.NoError(t, err)
@@ -307,9 +384,12 @@ func manSitePost(t *testing.T, handler http.Handler, session, method string, par
 	if session != "" {
 		req.Header.Set("Mcp-Session-Id", session)
 	}
+	if len(creds) > 0 && creds[0] != "" {
+		user, password, _ := strings.Cut(creds[0], ":")
+		req.SetBasicAuth(user, password)
+	}
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-	require.Equal(t, http.StatusOK, w.Code, "%s: %s", method, w.Body.String())
 	return w
 }
 

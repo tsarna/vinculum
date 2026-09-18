@@ -1,0 +1,47 @@
+# Fetching the hand-written pages at boot
+# =======================================
+#
+# `.vinit` files are processed before any `.vcl`, so whatever this materializes
+# is on disk before the config that reads it is parsed.
+#
+# This is what makes the example deployable as a container. The published
+# images carry the binary and nothing else — the minimal one is a scratch build
+# with no shell — so the `doc/` pages `vcl_doc` serves are not in them. The
+# `git` block is pure Go for exactly this reason, and it works in the scratch
+# image where a `git` binary does not exist. The site then updates by
+# restarting rather than by rebuilding an image.
+#
+#   docker run -p 9000:9000 \
+#       -e MAN_DOC_FETCH=1 -e MAN_DOC_TAG=v0.46.0 \
+#       -v ./man-site:/conf ghcr.io/tsarna/vinculum:0.46.0 serve -f /conf /conf
+#
+# Off unless MAN_DOC_FETCH is set, so a checkout — or a test that builds this
+# example — reads the pages that are already there and clones nothing. A
+# disabled block is not validated either, so nothing else here has to be set.
+#
+# The `.vinit` evaluation context is a small one: env and the cty stdlib, no
+# const and no user functions. try() is the way to read a variable that may be
+# unset, here as anywhere.
+git "docs" {
+    disabled = try(env.MAN_DOC_FETCH, "") == ""
+
+    repo = try(env.MAN_DOC_REPO, "https://github.com/tsarna/vinculum.git")
+
+    # Pin the pages to the release whose binary is serving them: the generated
+    # reference comes from this binary, and pages a version out of step with it
+    # are the one thing this example is meant not to serve. Unset takes the
+    # repository's default branch, which is what a deployment tracking main
+    # wants. An empty attribute reads as unset, so this is one variable rather
+    # than a branch/tag pair.
+    tag = try(env.MAN_DOC_TAG, "")
+
+    # Each fetch owns its destination: an existing non-empty directory is a
+    # fatal error unless overwrite is set, which clears it first. Overwriting is
+    # right here — the destination holds the last boot's copy of these same
+    # pages, and nothing else should be putting anything there.
+    fetch "doc" {
+        from      = "doc"
+        into      = try(env.MAN_DOC_INTO, "/conf/doc")
+        overwrite = true
+    }
+}
