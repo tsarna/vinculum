@@ -45,9 +45,10 @@ const {
     search_advice = "Search for a word with the vcl_apropos tool, or read vcl://index for the whole map of the language."
 
     # Whether vcl_check is offered. Checking builds submitted text, so it is off
-    # unless MAN_CHECK is set, and a public endpoint does not even list it. See
-    # the README before setting it.
-    checker = try(env.MAN_CHECK, "") != ""
+    # unless MAN_CHECK_PASSWORD is set — one variable that both offers the tool
+    # and puts a password in front of the route carrying it (see auth.vcl). A
+    # public endpoint does not even list it.
+    checker = try(env.MAN_CHECK_PASSWORD, "") != ""
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -199,9 +200,9 @@ server "mcp" "man" {
         action = doc_page(ctx.args.page)
     }
 
-    # A disabled tool is not registered at all, so without MAN_CHECK it is
-    # absent from tools/list rather than listed and refused. Its action is not
-    # evaluated then, but its description is still required.
+    # A disabled tool is not registered at all, so without MAN_CHECK_PASSWORD it
+    # is absent from tools/list rather than listed and refused. Its action is
+    # not evaluated then, but its description is still required.
     tool "vcl_check" {
         disabled    = !checker
         description = "Check a Vinculum configuration without running it, and get back what `vinculum check` would report: that it is valid, or each error and warning with its line quoted. Call it on what you wrote before handing it over. Pass the text of one .vcl file; it is checked alone, so a block defined in another file of the same configuration is reported as missing — pass the files joined into one. A .vinit or .cty file cannot be checked. The check sees no environment variables, so write try(env.NAME, default) rather than env.NAME for anything the deployment sets; file functions exist but read an empty directory. At most 256 KB, and ten seconds."
@@ -291,7 +292,22 @@ server "mcp" "man" {
 server "http" "main" {
     listen = try(env.MAN_LISTEN, ":9000")
 
+    # The policy everything inherits, including whatever the site grows into.
+    # A route may replace it, and /mcp does when there is a checker behind it.
+    # An HCL ternary evaluates both branches, but each is a bare reference, so
+    # cond() is not needed. See auth.vcl for why this is not a const.
+    auth = try(env.MAN_PASSWORD, "") == "" ? auth.anonymous : auth.site
+
     handle "/mcp" {
         handler = server.man
+
+        # The site's policy until there is a checker behind this route, and the
+        # checker's from then on. Turning the checker on therefore closes the
+        # reference *over MCP*: the tools of one `server "mcp"` block are one
+        # list, so a second endpoint serving the reference anonymously would
+        # mean a second copy of every tool. The HTTP site keeps its own policy.
+        auth = checker ? auth.checker : (
+            try(env.MAN_PASSWORD, "") == "" ? auth.anonymous : auth.site
+        )
     }
 }

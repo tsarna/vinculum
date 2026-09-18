@@ -27,9 +27,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   See [functions.md](doc/functions.md#checking-a-configuration) for what is not
   fenced.
 
-  The example offers `vcl_check` only when `MAN_CHECK` is set. Otherwise it is
-  not registered, so a public endpoint does not list it. Its `write_vcl` prompt
-  points at whichever checker is available.
+  The example offers `vcl_check` only when `MAN_CHECK_PASSWORD` is set.
+  Otherwise it is not registered, so a public endpoint does not list it. Its
+  `write_vcl` prompt points at whichever checker is available.
+
+  The example is also deployable, and carries its authentication and its
+  documentation with it:
+  - `auth.vcl` holds two `auth "basic"` blocks, each switched on by its own
+    password variable. `MAN_PASSWORD` closes the reference; `MAN_CHECK_PASSWORD`
+    both offers the checker and puts that password in front of the MCP route, so
+    no setting offers a checker without one. Unset, routes say `auth.anonymous`
+    rather than being left with an empty policy, which keeps the startup warning
+    about unauthenticated routes meaningful.
+  - `docs.vinit` fetches `doc/` at boot with a `git` block, gated on
+    `MAN_DOC_FETCH` and pinned with `MAN_DOC_TAG`, so a container image that
+    carries only the binary can still serve the hand-written pages. The README
+    has the container invocation.
 
   For embedders:
   - `ConfigBuilder.WithEnvironment(environ)` replaces the environment `env.*`

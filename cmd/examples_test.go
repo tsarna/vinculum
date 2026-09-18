@@ -71,10 +71,12 @@ func TestExamplesAreValid(t *testing.T) {
 		// TestManSiteAnswersOverMCP drives the requests that do.
 		dir: "man-site",
 	}, {
-		// The private posture. A disabled tool is skipped before its action is
-		// looked at, so the public case above never parses vcl_check's.
+		// The private posture: both `auth` blocks enabled, and the checker
+		// offered. A disabled tool is skipped before its action is looked at,
+		// and a disabled auth block is not validated, so the public case above
+		// parses neither vcl_check's action nor either block's credentials.
 		dir: "man-site",
-		env: map[string]string{"MAN_CHECK": "1"},
+		env: map[string]string{"MAN_PASSWORD": "site-pw", "MAN_CHECK_PASSWORD": "check-pw"},
 	}, {
 		dir: "dns-zone-updater",
 		// Reads a credentials file it does not ship, and writes zone files

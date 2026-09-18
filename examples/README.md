@@ -58,6 +58,9 @@ describe an attribute the binary cannot parse. Demonstrates:
 - the `man::` functions — `man::page`, `man::index`, `man::apropos`,
   `man::synopsis` — which return the reference as Markdown from inside a config
   (see [functions.md](../doc/functions.md#the-reference-as-markdown-man))
+- `man::check`, behind a `vcl_check` tool, so an agent can find out whether what
+  it wrote loads — offered only when `MAN_CHECK_PASSWORD` is set, which is also
+  the password the route then demands
 - answering a miss as ordinary text rather than `mcp::error()`, with
   `coalesce()` at the call site, since every lookup returns `null` for "nothing
   is named that" and user functions reject null arguments
@@ -66,6 +69,10 @@ describe an attribute the binary cannot parse. Demonstrates:
   reference deliberately does not cover, behind a page-name guard because the
   endpoint is meant to be public
 - an `enum` param, keeping a value the action could not handle off the wire
+- one configuration with two postures, chosen by environment: `auth` blocks that
+  a password variable both switches on and supplies the credential for, and a
+  `.vinit` [`git` block](../doc/git.md) so a container fetches its own `doc/`
+  pages at boot
 
 Run it with `vinculum serve -f /path/to/vinculum examples/man-site/`. The `-f`
 flag points `vcl_doc` at a checkout, which is where it reads the hand-written
