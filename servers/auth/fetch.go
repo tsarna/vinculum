@@ -18,14 +18,16 @@ import (
 // provider is commonly a further network hop away and its discovery document
 // may be served by a cold path.
 //
-// A var rather than a const only so tests can shorten it; nothing outside this
-// package changes it.
-var authFetchTimeout = 10 * time.Second
+// These are the defaults each authenticator takes when it is built. A test
+// shortening the wait changes the authenticator it made, never these: a
+// resolution in flight outlives whatever triggered it, so a package var it read
+// at each use would be read by one test's leftover goroutine while the next
+// test wrote it.
+const authFetchTimeout = 10 * time.Second
 
 // authHTTPClient is shared by every outbound auth fetch so the timeout cannot
 // be forgotten at a call site. It is stateless apart from connection pooling,
-// which is exactly what should be shared. Read at each use, not captured, so
-// shortening the timeout above takes effect.
+// which is exactly what should be shared.
 var authHTTPClient = &http.Client{Timeout: authFetchTimeout}
 
 // resolveBackoffInitial and resolveBackoffMax bound how often a failed
