@@ -13,18 +13,18 @@ import (
 	"go.uber.org/zap"
 )
 
-// shortenAuthFetch swaps the package-wide fetch timeout (and the client built
-// from it) for the duration of one test, so a test for the timeout does not
-// have to wait the production ten seconds.
-func shortenAuthFetch(t *testing.T, d time.Duration) {
-	t.Helper()
-
-	oldTimeout, oldClient := authFetchTimeout, authHTTPClient
-	authFetchTimeout = d
-	authHTTPClient = &http.Client{Timeout: d}
-	t.Cleanup(func() {
-		authFetchTimeout, authHTTPClient = oldTimeout, oldClient
-	})
+// shortenAuthFetch gives one authenticator a shorter fetch timeout, and a
+// client of its own carrying it, so a test for the timeout does not have to
+// wait the production ten seconds.
+//
+// Per authenticator rather than package-wide: a resolution in flight outlives
+// whatever triggered it, so one test's leftover goroutine would be reading a
+// package var while the next test wrote it — a data race, and one that only
+// shows up on a machine slow enough for the first fetch to still be going.
+// Call it before anything starts a resolution.
+func shortenAuthFetch(a *oidcAuthenticator, d time.Duration) {
+	a.fetchTimeout = d
+	a.httpClient = &http.Client{Timeout: d}
 }
 
 // deadIssuerURL returns a URL that nothing is listening on: an httptest server
@@ -113,8 +113,6 @@ func TestOIDCMissingTokenStillGets401(t *testing.T) {
 // answers. Without a timeout on the fetch this hangs forever with no
 // diagnostic at all.
 func TestOIDCHungIssuerTimesOut(t *testing.T) {
-	shortenAuthFetch(t, 100*time.Millisecond)
-
 	block := make(chan struct{})
 	t.Cleanup(func() { close(block) })
 	hung := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
@@ -128,6 +126,7 @@ func TestOIDCHungIssuerTimesOut(t *testing.T) {
 	a := newTestOIDC(t, &oidcDefinition{
 		Issuer: hung.URL,
 	})
+	shortenAuthFetch(a, 100*time.Millisecond)
 
 	type result struct {
 		failure *AuthFailure

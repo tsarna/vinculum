@@ -59,6 +59,15 @@ type oidcAuthenticator struct {
 
 	logger *zap.Logger
 
+	// fetchTimeout and httpClient are how this authenticator talks to its
+	// issuer, taken from the package defaults when it is built and not written
+	// afterwards. They are per-authenticator rather than read from the package
+	// vars at each use so that a resolution in flight — which outlives whatever
+	// triggered it, and in a test outlives the test — reads nothing another
+	// test can be writing.
+	fetchTimeout time.Duration
+	httpClient   *http.Client
+
 	// ctx is cancelled by Stop. Everything with a lifetime — the JWKS cache's
 	// background refresher, any resolution attempt in flight — hangs off it, so
 	// shutdown does not leave goroutines fetching from an issuer.
@@ -232,8 +241,10 @@ func newOIDCAuthenticator(ac *oidcDefinition, evalCtx *hcl.EvalContext, logger *
 			jwa.RS256(): {},
 			jwa.ES256(): {},
 		},
-		clockSkew: 30 * time.Second,
-		logger:    logger,
+		clockSkew:    30 * time.Second,
+		logger:       logger,
+		fetchTimeout: authFetchTimeout,
+		httpClient:   authHTTPClient,
 	}
 	a.ctx, a.cancel = context.WithCancel(context.Background())
 
@@ -432,12 +443,12 @@ func (a *oidcAuthenticator) runAttempt(done chan struct{}) {
 
 // attemptResolve performs one full fetch: discovery if needed, then the JWKS.
 func (a *oidcAuthenticator) attemptResolve() (*oidcResolution, error) {
-	ctx, cancel := context.WithTimeout(a.ctx, authFetchTimeout)
+	ctx, cancel := context.WithTimeout(a.ctx, a.fetchTimeout)
 	defer cancel()
 
 	res := &oidcResolution{jwksURL: a.configuredJWKSURL}
 	if res.jwksURL == "" {
-		meta, err := fetchOIDCMetadata(ctx, a.issuer)
+		meta, err := fetchOIDCMetadata(ctx, a.httpClient, a.issuer)
 		if err != nil {
 			return nil, fmt.Errorf("auth oidc: fetching discovery document: %w", err)
 		}
@@ -451,7 +462,7 @@ func (a *oidcAuthenticator) attemptResolve() (*oidcResolution, error) {
 	// Register performs the first fetch and waits for it — handed a context
 	// that only cancels, an unreachable JWKS endpoint blocks here forever.
 	cacheCtx, cacheCancel := context.WithCancel(a.ctx)
-	cache, err := jwk.NewCache(cacheCtx, httprc.NewClient(httprc.WithHTTPClient(authHTTPClient)))
+	cache, err := jwk.NewCache(cacheCtx, httprc.NewClient(httprc.WithHTTPClient(a.httpClient)))
 	if err != nil {
 		cacheCancel()
 		return nil, fmt.Errorf("auth oidc: creating JWKS cache: %w", err)
@@ -645,14 +656,15 @@ func (a *oidcAuthenticator) permittedKeys(keySet jwk.Set) jwk.Set {
 	return permitted
 }
 
-// fetchOIDCMetadata retrieves the OIDC discovery document from the issuer.
-func fetchOIDCMetadata(ctx context.Context, issuer string) (*OIDCMetadata, error) {
+// fetchOIDCMetadata retrieves the OIDC discovery document from the issuer,
+// over the caller's client so that the timeout is the caller's too.
+func fetchOIDCMetadata(ctx context.Context, client *http.Client, issuer string) (*OIDCMetadata, error) {
 	discoveryURL := strings.TrimSuffix(issuer, "/") + "/.well-known/openid-configuration"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("building request for %s: %w", discoveryURL, err)
 	}
-	resp, err := authHTTPClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("GET %s: %w", discoveryURL, err)
 	}
