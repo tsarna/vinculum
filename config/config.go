@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -24,6 +25,12 @@ type ConfigBuilder struct {
 	pluginPath    string
 	testing       bool
 	everyFeature  bool
+	// environ replaces the process environment as the source of env.*, when
+	// non-nil. See WithEnvironment.
+	environ []string
+	// maxCallDepth bounds user function recursion, when positive. See
+	// WithMaxCallDepth.
+	maxCallDepth int
 	// files holds every source file Build() parsed (.vinit, .vcl, .cty),
 	// keyed by filename, so diagnostics can be rendered with the offending
 	// line quoted. It is kept on the builder rather than the Config because
@@ -207,6 +214,9 @@ type Config struct {
 	// what decides whether a function's documented features are its own. Nil
 	// for a Config not made by Build.
 	pluginFuncNames map[string]bool
+	// environ is what Environ returns in place of the process environment,
+	// when non-nil.
+	environ []string
 
 	// Health aggregates readiness for the process: the boot and drain gates,
 	// every component that reports whether it is serving, and the `check`
@@ -328,6 +338,35 @@ func (c *ConfigBuilder) WithTesting(testing bool) *ConfigBuilder {
 	return c
 }
 
+// WithEnvironment makes env.* reflect environ, in os.Environ's KEY=value form,
+// rather than the environment of the process doing the building. A non-nil
+// empty slice gives a config no environment at all, which is what a build of
+// submitted text wants: a diagnostic can quote a value, so a config that is not
+// the operator's must not be able to reach the operator's secrets through one.
+// It applies to .vcl evaluation only; a .vinit file still sees the process.
+func (c *ConfigBuilder) WithEnvironment(environ []string) *ConfigBuilder {
+	c.environ = environ
+	return c
+}
+
+// WithMaxCallDepth makes a `function` block that recurses more than depth
+// calls deep fail with an error rather than overflow the goroutine's stack,
+// which in Go is fatal to the whole process and cannot be recovered. Zero, the
+// default, sets no limit.
+//
+// It is meant for building text that is not the operator's, and it changes one
+// other thing to make the limit meaningful. A user function normally evaluates
+// its body once to learn its return type and again to return the value, so a
+// call n levels deep costs 2^n evaluations and a recursion that terminates can
+// still run for longer than anyone will wait. A limited function reports a
+// dynamic return type instead, so the cost is linear. A config built this way
+// is for checking rather than for running: the depth is counted per config,
+// not per call chain, so concurrent calls would share it.
+func (c *ConfigBuilder) WithMaxCallDepth(depth int) *ConfigBuilder {
+	c.maxCallDepth = depth
+	return c
+}
+
 // Files returns the source files parsed by the most recent Build(), keyed by
 // filename, for rendering that Build's diagnostics with the offending line
 // quoted (hcl.NewDiagnosticTextWriter takes exactly this map). It is populated
@@ -362,6 +401,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		BaseDir:            cb.features["readfiles"],
 		WriteDir:           cb.features["writefiles"],
 		probeAllFeatures:   cb.everyFeature,
+		environ:            cb.environ,
 		Testing:            cb.testing,
 		Constants:          make(map[string]cty.Value),
 		Health:             NewHealth(userLogger),
@@ -455,7 +495,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 
 	evalCtxFn := func() *hcl.EvalContext { return config.evalCtx }
 
-	functions, nonFunctionBodies, addDiags := config.ExtractUserFunctions(bodies)
+	functions, nonFunctionBodies, addDiags := extractUserFunctions(bodies, config.evalCtx, cb.maxCallDepth)
 	diags = diags.Extend(addDiags)
 	if diags.HasErrors() {
 		return nil, diags
@@ -577,8 +617,11 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		}
 	}
 
+	// From here on, a failure releases what processing built before returning
+	// no Config: a bus has already started its goroutine, and a caller given
+	// nil has nothing to tear down.
 	if diags.HasErrors() {
-		return nil, diags
+		return config.discardFailed(diags)
 	}
 
 	// Every block has been processed, so a handler can now check things that are
@@ -590,7 +633,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 		diags = diags.Extend(blockHandlers[blockType].FinishProcessing(config))
 	}
 	if diags.HasErrors() {
-		return nil, diags
+		return config.discardFailed(diags)
 	}
 
 	// Every metrics backend a block could declare now exists, so the health
@@ -598,7 +641,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	// only registers a callback — nothing is measured until a collector asks.
 	diags = diags.Extend(config.registerHealthMetrics())
 	if diags.HasErrors() {
-		return nil, diags
+		return config.discardFailed(diags)
 	}
 
 	// Everything that resolves a name has now resolved it, so the namespace an
@@ -607,7 +650,7 @@ func (cb *ConfigBuilder) Build() (*Config, hcl.Diagnostics) {
 	// instead of here.
 	diags = diags.Extend(config.checkDeferredReferences(blocks))
 	if diags.HasErrors() {
-		return nil, diags
+		return config.discardFailed(diags)
 	}
 
 	config.Logger.Info("Config built successfully")
@@ -622,7 +665,16 @@ func (c *Config) EvalCtx() *hcl.EvalContext {
 
 // ExtractUserFunctions wraps the functions package ExtractUserFunctions
 func (c *Config) ExtractUserFunctions(bodies []hcl.Body) (map[string]function.Function, []hcl.Body, hcl.Diagnostics) {
-	return extractUserFunctions(bodies, c.evalCtx)
+	return extractUserFunctions(bodies, c.evalCtx, 0)
+}
+
+// Environ is the environment env.* reflects, in os.Environ's KEY=value form:
+// the process environment, unless the config was built WithEnvironment.
+func (c *Config) Environ() []string {
+	if c.environ != nil {
+		return c.environ
+	}
+	return os.Environ()
 }
 
 // GetFunctions builds the function map from all registered function plugins,

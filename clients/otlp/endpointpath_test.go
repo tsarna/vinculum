@@ -51,7 +51,8 @@ func exportOnce(t *testing.T, endpointAttrs string) []string {
 
 	src := fmt.Sprintf(`
 client "otlp" "default" {
-    service_name = "test-service"
+    service_name       = "test-service"
+    include_go_metrics = false
     %s
 }
 `, fmt.Sprintf(endpointAttrs, srv.URL))
@@ -61,6 +62,8 @@ client "otlp" "default" {
 
 	oc := c.OtlpClients["default"]
 	require.NotNil(t, oc)
+	// A client exports nothing until it has started.
+	require.NoError(t, oc.(cfg.Startable).Start())
 
 	ctx := context.Background()
 

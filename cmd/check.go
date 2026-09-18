@@ -81,16 +81,7 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	cfg, diags := configBuilder.Build()
 
 	if cfg != nil {
-		// Nothing was started, so draining is a no-op here — but teardown runs
-		// in one order everywhere, so a Drainable that acquires something at
-		// construction still gets its Drain call.
-		drain(cfg, logger, config.DefaultShutdownTimeout)
-		for i := len(cfg.Stoppables) - 1; i >= 0; i-- {
-			cfg.Stoppables[i].Stop() //nolint:errcheck
-		}
-		for _, b := range cfg.Buses {
-			b.Stop() //nolint:errcheck
-		}
+		cfg.Discard()
 	}
 
 	if checkFormat == "json" {

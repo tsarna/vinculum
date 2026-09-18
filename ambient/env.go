@@ -7,8 +7,8 @@ import (
 )
 
 func init() {
-	cfg.RegisterAmbientProvider("env", func(_ *cfg.Config) cty.Value {
-		return hclutil.EnvObject()
+	cfg.RegisterAmbientProvider("env", func(c *cfg.Config) cty.Value {
+		return hclutil.EnvObjectFrom(c.Environ())
 	}, cfg.WithNamespaceSchema(envNamespace))
 }
 
