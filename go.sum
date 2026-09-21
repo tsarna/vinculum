@@ -299,8 +299,8 @@ github.com/tsarna/vinculum-kafka v0.15.0 h1:nzPa+4oePf2u/b6//1KUY8FqMgm39uBCTXYn
 github.com/tsarna/vinculum-kafka v0.15.0/go.mod h1:vQNVKeCwBg7+y0kGhYRgrybkpN8P0YetT09NPQZIZzg=
 github.com/tsarna/vinculum-mqtt v0.12.1 h1:iWAp0SykMFtPGXLdOWk5nW5XHIu7KHdYY8BVupwECa8=
 github.com/tsarna/vinculum-mqtt v0.12.1/go.mod h1:DmGbIBUAubb1YFQ+wFkLpPN+HD3sPeJWwlZNxv0xUj4=
-github.com/tsarna/vinculum-rabbitmq v0.9.0 h1:7ea/VD/7+YQpQgdVabQ0spOQk3s9w+Sh+ISbSE3No2Y=
-github.com/tsarna/vinculum-rabbitmq v0.9.0/go.mod h1:TdWZPvtf8oWA2xjUKAeIevqGp6DHXXLMaKUOG2VcWZM=
+github.com/tsarna/vinculum-rabbitmq v0.10.0 h1:iS0VAVul/wxf8mNirAo9lzKnrlhkXlVRUgpqMOfzCyo=
+github.com/tsarna/vinculum-rabbitmq v0.10.0/go.mod h1:TdWZPvtf8oWA2xjUKAeIevqGp6DHXXLMaKUOG2VcWZM=
 github.com/tsarna/vinculum-redis v0.9.0 h1:oxcKO3orOdxp7jWJ/0W7gC8oFxdY8u86nUxDuEEMUkw=
 github.com/tsarna/vinculum-redis v0.9.0/go.mod h1:m5CzpMF3F14JdsP3W0iGdAFgm2UrruZGXlRWMXXdFhs=
 github.com/tsarna/vinculum-sns v0.3.0 h1:ZGlD0OiC6RqiemLPDkrq3EBoCSb8zaeAMz8vbjZwQy8=
