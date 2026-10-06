@@ -26,7 +26,6 @@ require (
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lestrrat-go/httprc/v3 v3.0.6
 	github.com/lestrrat-go/jwx/v3 v3.3.0
-	github.com/lestrrat-go/jwx/v4 v4.5.0
 	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/prometheus/client_golang v1.24.1
@@ -57,7 +56,7 @@ require (
 	github.com/tsarna/vinculum-sqs v0.7.0
 	github.com/tsarna/vinculum-vws v0.14.1
 	github.com/tsarna/vinculum-wire v0.5.0
-	github.com/twmb/franz-go v1.22.0
+	github.com/twmb/franz-go v1.22.1
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260914031441-1623827d1042
 	github.com/twmb/franz-go/plugin/kotel v1.7.1
 	github.com/yosida95/uritemplate/v3 v3.0.2
