@@ -57,7 +57,7 @@ require (
 	github.com/tsarna/vinculum-vws v0.14.1
 	github.com/tsarna/vinculum-wire v0.5.0
 	github.com/twmb/franz-go v1.22.1
-	github.com/twmb/franz-go/pkg/kfake v0.0.0-20260914031441-1623827d1042
+	github.com/twmb/franz-go/pkg/kfake v0.0.0-20261007040850-d3792b34935a
 	github.com/twmb/franz-go/plugin/kotel v1.7.1
 	github.com/yosida95/uritemplate/v3 v3.0.2
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
@@ -128,7 +128,6 @@ require (
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/kixorz/suncalc v1.0.0 // indirect
 	github.com/klauspost/compress v1.20.0 // indirect
-	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.4 // indirect
 	github.com/lestrrat-go/dsig v1.4.0 // indirect
 	github.com/lestrrat-go/dsig-secp256k1 v1.0.0 // indirect
