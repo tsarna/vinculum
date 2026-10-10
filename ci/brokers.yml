@@ -16,8 +16,16 @@
 #   set -a; . ci/rabbitmq.env; set +a
 #   go test -race -tags integration ./clients/rabbitmq/...
 #
-# Ports are published to localhost, so only one of these can run at a time per
-# machine — which is all any one job needs.
+# Ports are published on the loopback interface only, so a broker and its known
+# credentials are not reachable from the network — and only one of these can run
+# at a time per machine, which is all any one job needs.
+
+# Named, because compose otherwise takes the project name from this file's
+# directory, and every repository that follows this layout calls it ci/. Two
+# projects with one name are one project: `up` in one repository replaces the
+# other's broker with its own, and `down` in one takes the other's broker with it
+# or fails on the network they share.
+name: vinculum-ci
 
 services:
   rabbitmq:
@@ -26,17 +34,18 @@ services:
     # the log harder to read across runs.
     hostname: vinculum-rabbitmq
     ports:
-      - "5672:5672" # amqp
-      - "5671:5671" # amqps
-      - "15672:15672" # management API
+      - "127.0.0.1:5672:5672" # amqp
+      - "127.0.0.1:5671:5671" # amqps
+      - "127.0.0.1:15672:15672" # management API
     volumes:
       - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
       - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
       - ./rabbitmq/certs:/etc/rabbitmq/certs:ro
-    # The vhost is the last thing to appear: it comes from the definitions file,
-    # which is imported after the listeners are up. Checking for it is what makes
-    # `--wait` mean "provisioned", rather than "the port answers" — a test that
-    # starts between those two sees its credentials rejected.
+    # The check ends by looking for the vhost from the definitions file, so that
+    # `--wait` means "provisioned" rather than "a port answers". The management
+    # API listens before that file is imported — only the AMQP and AMQPS
+    # listeners wait for it — so a management call that arrived on a port
+    # answering alone could find no vhost and no users.
     healthcheck:
       test:
         [
