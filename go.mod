@@ -28,7 +28,7 @@ require (
 	github.com/lestrrat-go/jwx/v3 v3.3.0
 	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	github.com/prometheus/client_golang v1.24.1
+	github.com/prometheus/client_golang v1.25.0
 	github.com/rabbitmq/amqp091-go v1.15.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/robfig/cron/v3 v3.0.1
@@ -127,7 +127,7 @@ require (
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/kixorz/suncalc v1.0.0 // indirect
-	github.com/klauspost/compress v1.20.0 // indirect
+	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.4 // indirect
 	github.com/lestrrat-go/dsig v1.4.0 // indirect
 	github.com/lestrrat-go/dsig-secp256k1 v1.0.0 // indirect
@@ -139,10 +139,10 @@ require (
 	github.com/nathan-osman/go-sunrise v1.1.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.30 // indirect
 	github.com/pjbgf/sha1cd v0.7.0 // indirect
-	github.com/prometheus/client_model v0.6.2 // indirect
-	github.com/prometheus/common v0.70.1 // indirect
+	github.com/prometheus/client_model v0.6.3 // indirect
+	github.com/prometheus/common v0.72.0 // indirect
 	github.com/prometheus/otlptranslator v1.0.0 // indirect
-	github.com/prometheus/procfs v0.21.1 // indirect
+	github.com/prometheus/procfs v0.22.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
@@ -159,7 +159,7 @@ require (
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
 	go.uber.org/atomic v1.12.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/oauth2 v0.36.0 // indirect
+	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260819154853-08b0e4226688 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688 // indirect
