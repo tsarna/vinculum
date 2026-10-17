@@ -73,7 +73,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0
 	golang.org/x/crypto v0.57.0
 	golang.org/x/net v0.59.0
-	golang.org/x/sys v0.48.0
+	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.46.0
 	google.golang.org/protobuf v1.36.12
 )
