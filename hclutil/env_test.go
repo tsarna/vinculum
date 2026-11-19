@@ -20,6 +20,7 @@ func TestEnvObjectFromKeepsRealNames(t *testing.T) {
 		"EMPTY=",
 		"WITH_EQUALS=a=b",
 		"=C:=C:\\dir",
+		"=empty-name",
 		"NOSEP",
 		"",
 	})
@@ -34,6 +35,7 @@ func TestEnvObjectFromKeepsRealNames(t *testing.T) {
 		"EMPTY":       cty.StringVal(""),
 		"WITH_EQUALS": cty.StringVal("a=b"),
 		"=C:":         cty.StringVal("C:\\dir"),
+		"":            cty.StringVal("empty-name"),
 	}, env.AsValueMap())
 }
 

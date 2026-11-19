@@ -20,7 +20,8 @@ func EnvObject() cty.Value {
 //
 // The separator is searched for from the second byte, so a name that begins
 // with "=" — Windows lists per-drive working directories as "=C:=C:\dir" —
-// keeps it. When a name appears more than once the first entry wins, as it
+// keeps it; an entry with no later separator, such as "=value", has the
+// empty name. When a name appears more than once the first entry wins, as it
 // does for os.Getenv.
 func EnvObjectFrom(environ []string) cty.Value {
 	envMap := make(map[string]cty.Value)
@@ -28,11 +29,14 @@ func EnvObjectFrom(environ []string) cty.Value {
 		if envVar == "" {
 			continue
 		}
-		i := strings.IndexByte(envVar[1:], '=')
-		if i < 0 {
+		var name, value string
+		if i := strings.IndexByte(envVar[1:], '='); i >= 0 {
+			name, value = envVar[:i+1], envVar[i+2:]
+		} else if envVar[0] == '=' {
+			name, value = "", envVar[1:]
+		} else {
 			continue
 		}
-		name, value := envVar[:i+1], envVar[i+2:]
 		if _, seen := envMap[name]; seen {
 			continue
 		}
