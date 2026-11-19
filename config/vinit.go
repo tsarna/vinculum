@@ -103,7 +103,7 @@ func vinitEvalContext() *hcl.EvalContext {
 //
 // The second group is what puts `try()` and `can()` here, and they belong here
 // more than anywhere else — `env` is the only namespace a .vinit has, and an
-// environment variable that is not set is not an attribute of it, so `try(env.X,
+// environment variable that is not set is not a key of it, so `try(env.X,
 // "")` is how a bootstrap block reads an optional one. The rest of the group
 // (typeof, cond, switch, error, assert) is pure and host-agnostic, which is what
 // makes it safe to evaluate before anything else exists.

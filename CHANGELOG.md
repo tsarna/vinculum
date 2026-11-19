@@ -1019,6 +1019,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The count and the state now change together. Watchers are still notified
   after the lock is released, so a hook may call back into the counter.
 
+- **`env` no longer lets one variable shadow another** ([#268](https://github.com/tsarna/vinculum/issues/268)).
+  Names were rewritten into identifiers, so `A.B` and `A_B` both became
+  `env.A_B`, and the empty name, invalid bytes and the shell's `_` all became
+  `env._`. Whichever came last in the environment won. `env` is now a map of
+  strings keyed by the real names, so collisions cannot happen:
+  - `env.HOME`, `try(env.PORT, "8080")` and `lookup(env, "PORT", "8080")` work
+    as before. Any other name is read by index: `env["A.B"]`.
+  - Non-ASCII names such as `env.café` now resolve.
+  - On Windows, `=C:`-style entries keep their names.
+  - Reading an unset variable now fails with "Missing map element" rather
+    than "Unsupported attribute".
+
 - **Building a config without running it no longer reaches the network.** This
   affects `vinculum check`, and anything else that builds without starting.
   - `client "redis"` with `min_idle_conns` dialed its address while the block

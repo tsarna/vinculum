@@ -7,51 +7,39 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// EnvObject returns a cty object whose attributes are the current
-// process's environment variables. Variable names are sanitized to be
-// valid HCL attribute names: any character not in [A-Za-z0-9_-] (or
-// not in [A-Za-z_] for the first character) is replaced with an
-// underscore. An empty name becomes "_". An empty environment returns
-// cty.EmptyObjectVal.
+// EnvObject returns a cty map of strings holding the current process's
+// environment variables, keyed by their real names. Names are not
+// sanitized: `env.HOME` reads a valid identifier with attribute syntax, and
+// `env["A.B"]` reaches any other. An empty environment returns an empty map.
 func EnvObject() cty.Value {
 	return EnvObjectFrom(os.Environ())
 }
 
 // EnvObjectFrom is EnvObject over the given environment, in os.Environ's
 // KEY=value form, rather than the process's.
+//
+// The separator is searched for from the second byte, so a name that begins
+// with "=" — Windows lists per-drive working directories as "=C:=C:\dir" —
+// keeps it. When a name appears more than once the first entry wins, as it
+// does for os.Getenv.
 func EnvObjectFrom(environ []string) cty.Value {
 	envMap := make(map[string]cty.Value)
 	for _, envVar := range environ {
-		parts := strings.SplitN(envVar, "=", 2)
-		if len(parts) != 2 {
+		if envVar == "" {
 			continue
 		}
-		envMap[sanitizeEnvVarName(parts[0])] = cty.StringVal(parts[1])
+		i := strings.IndexByte(envVar[1:], '=')
+		if i < 0 {
+			continue
+		}
+		name, value := envVar[:i+1], envVar[i+2:]
+		if _, seen := envMap[name]; seen {
+			continue
+		}
+		envMap[name] = cty.StringVal(value)
 	}
 	if len(envMap) == 0 {
-		return cty.EmptyObjectVal
+		return cty.MapValEmpty(cty.String)
 	}
-	return cty.ObjectVal(envMap)
-}
-
-// sanitizeEnvVarName converts an environment variable name into a valid
-// HCL attribute name. HCL attribute names start with a letter or
-// underscore and contain only letters, digits, underscores, and hyphens.
-func sanitizeEnvVarName(name string) string {
-	if name == "" {
-		return "_"
-	}
-	var b strings.Builder
-	for i, r := range name {
-		valid := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_'
-		if i > 0 {
-			valid = valid || (r >= '0' && r <= '9') || r == '-'
-		}
-		if valid {
-			b.WriteRune(r)
-		} else {
-			b.WriteRune('_')
-		}
-	}
-	return b.String()
+	return cty.MapVal(envMap)
 }

@@ -99,7 +99,7 @@ Reads as the condition's current state with `get()`, and is watchable: a reactiv
 
 Environment variables of the running process.
 
-`env.HOME` is the value of the `HOME` environment variable. Only variables that are actually set are present, so reading an unset one is an error — write `try(env.PORT, "8080")` for a fallback. A name containing characters HCL does not accept in an attribute name has them replaced with underscores.
+`env.HOME` is the value of the `HOME` environment variable. Only variables that are actually set are present, so reading an unset one is an error — write `try(env.PORT, "8080")` or `lookup(env, "PORT", "8080")` for a fallback. `env` is a map keyed by the variables' real names, so a name that is not a valid identifier is read by index: `env["A.B"]`.
 
 #### `fsm`
 

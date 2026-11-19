@@ -385,6 +385,14 @@ func (b *schemaBuilder) providerNamespace(e ambientEntry) *SchemaNamespace {
 		return out
 	}
 	ty := val.Type()
+	// A map's keys are data rather than language, so it can only stand behind a
+	// namespace whose members are free, and none of them can be described.
+	if ty.IsMapType() && ns.FreeMembers {
+		if len(ns.Members) > 0 {
+			b.problemf("namespace %s: provider returned %s, whose members cannot be described", e.name, ty.FriendlyName())
+		}
+		return out
+	}
 	if !ty.IsObjectType() {
 		b.problemf("namespace %s: provider returned %s, not an object", e.name, ty.FriendlyName())
 		return out
