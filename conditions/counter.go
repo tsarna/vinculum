@@ -77,8 +77,10 @@ func (c *CounterCondition) Reset(ctx context.Context) error {
 		c.expiryTimer.Stop()
 		c.expiryTimer = nil
 	}
+	notify := c.sm.applyClear(ctx)
 	c.mu.Unlock()
-	return c.sm.Clear(ctx)
+	notify.fire()
+	return nil
 }
 
 // Clear implements richcty.Clearable. For counters there is no `input =` to
@@ -108,6 +110,11 @@ func (c *CounterCondition) Increment(ctx context.Context, args []cty.Value) (cty
 	return cty.NumberIntVal(cur), nil
 }
 
+// The count and the state machine change under c.mu together, so the state
+// always reflects the count a reader sees and concurrent deltas reach the
+// state machine in the order they were applied to the count. Watchers are
+// notified after c.mu is released because they may call back into the
+// counter.
 func (c *CounterCondition) applyDelta(ctx context.Context, delta int64) {
 	if c.window > 0 {
 		c.applyWindowedDelta(ctx, delta)
@@ -119,27 +126,26 @@ func (c *CounterCondition) applyDelta(ctx context.Context, delta int64) {
 		c.count = 0
 	}
 	matched := c.matchedLocked()
+	notify := c.sm.applyRawInput(ctx, matched)
 	c.mu.Unlock()
+	notify.fire()
 
-	if !matched {
-		c.sm.SetRawInput(ctx, false)
-		return
-	}
-
-	c.sm.SetRawInput(ctx, true)
-	if !c.rollover {
+	if !matched || !c.rollover {
 		return
 	}
 	// Rollover: snap count back to initial. If the post-reset count no
 	// longer satisfies the preset comparison, push false to emit the pulse
 	// edge (suppressed by latch inside the state machine when configured).
+	// This is a separate step so watchers of the rising edge see the counter
+	// active.
 	c.mu.Lock()
 	c.count = c.initial
-	stillMatched := c.matchedLocked()
-	c.mu.Unlock()
-	if !stillMatched {
-		c.sm.SetRawInput(ctx, false)
+	notify = pendingNotify{}
+	if !c.matchedLocked() {
+		notify = c.sm.applyRawInput(ctx, false)
 	}
+	c.mu.Unlock()
+	notify.fire()
 }
 
 // applyWindowedDelta is the windowed-mode counterpart to applyDelta. Positive
@@ -165,9 +171,9 @@ func (c *CounterCondition) applyWindowedDelta(ctx context.Context, delta int64) 
 	}
 	c.count = int64(len(c.events))
 	c.armExpiryLocked(now)
-	matched := c.matchedLocked()
+	notify := c.sm.applyRawInput(ctx, c.matchedLocked())
 	c.mu.Unlock()
-	c.sm.SetRawInput(ctx, matched)
+	notify.fire()
 }
 
 // pruneLocked drops events older than `now - window` from the FIFO front.
@@ -221,9 +227,9 @@ func (c *CounterCondition) onWindowExpire() {
 	c.mu.Lock()
 	c.pruneLocked(now)
 	c.armExpiryLocked(now)
-	matched := c.matchedLocked()
+	notify := c.sm.applyRawInput(context.Background(), c.matchedLocked())
 	c.mu.Unlock()
-	c.sm.SetRawInput(context.Background(), matched)
+	notify.fire()
 }
 
 // matchedLocked returns whether the current count satisfies the preset
