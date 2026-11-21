@@ -30,11 +30,23 @@ func get_client_threshold(ctx: ctx, client_id) {
     })).body.threshold_information
 }
 
-// Registration status of every SIP account.
+// Registration status of every SIP account. Only accounts that ARE registered
+// appear in the result, so this list alone cannot tell you that an account has
+// gone away — pair it with get_subaccounts() for the full roster.
 func get_all_registrations(ctx: ctx) {
     return http::must(http::get(ctx, client.voipms, "?method=getRegistrationStatus", {
         as = "json"
     })).body.registrations
+}
+
+// Every SIP sub-account on the reseller account, registered or not. This is the
+// roster the registration scrape needs in order to report a 0: a gauge that is
+// only ever set to 1 latches at 1 forever, because there is no way to remove a
+// labeled child once it exists.
+func get_subaccounts(ctx: ctx) {
+    return http::must(http::get(ctx, client.voipms, "?method=getSubAccounts", {
+        as = "json"
+    })).body.accounts
 }
 
 // A single client sub-account's balance, including call statistics.
