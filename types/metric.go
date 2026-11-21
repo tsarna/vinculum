@@ -136,8 +136,9 @@ type GaugeMetric struct {
 	attrKeys []attribute.Key
 	mu       sync.RWMutex
 	richcty.WatchableMixin
-	noLabelVal float64            // cached value for unlabeled get
-	labelVals  map[string]float64 // key = attrSetKey, cached for labeled get
+	noLabelVal  float64            // cached value for unlabeled get
+	noLabelSeen bool               // has the unlabeled series ever been written?
+	labelVals   map[string]float64 // key = attrSetKey, cached for labeled get
 }
 
 func NewGaugeMetric(inst metric.Float64UpDownCounter, attrKeys []attribute.Key) *GaugeMetric {
@@ -183,11 +184,18 @@ func (m *GaugeMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, err
 		if m.labelVals == nil {
 			m.labelVals = make(map[string]float64)
 		}
-		old := m.labelVals[key]
+		old, seen := m.labelVals[key]
 		m.labelVals[key] = f
 		m.mu.Unlock()
 		delta := f - old
-		if delta != 0 {
+		// Always Add on the first write for an attribute set, even when the
+		// delta works out to zero. The gauge is emulated with an
+		// UpDownCounter, which only materializes a time series once it has
+		// been Added to, so a gauge whose FIRST value is 0 would otherwise
+		// never be exported at all -- it would be indistinguishable from an
+		// account/host/queue that does not exist, which is exactly the
+		// distinction a zero-valued gauge exists to make.
+		if delta != 0 || !seen {
 			m.inst.Add(ctx, delta, metric.WithAttributes(kvs...))
 		}
 		m.NotifyAll(ctx, m, cty.NumberFloatVal(old), value)
@@ -195,10 +203,12 @@ func (m *GaugeMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, err
 	}
 	m.mu.Lock()
 	old := m.noLabelVal
+	seen := m.noLabelSeen
 	m.noLabelVal = f
+	m.noLabelSeen = true
 	m.mu.Unlock()
 	delta := f - old
-	if delta != 0 {
+	if delta != 0 || !seen {
 		m.inst.Add(ctx, delta)
 	}
 	m.NotifyAll(ctx, m, cty.NumberFloatVal(old), value)
@@ -252,8 +262,9 @@ type CounterMetric struct {
 	attrKeys []attribute.Key
 	mu       sync.Mutex
 	richcty.WatchableMixin
-	noLabelVal float64            // cached for unlabeled get/set
-	labelVals  map[string]float64 // key = attrSetKey, cached for labeled set
+	noLabelVal  float64            // cached for unlabeled get/set
+	noLabelSeen bool               // has the unlabeled series ever been written?
+	labelVals   map[string]float64 // key = attrSetKey, cached for labeled set
 }
 
 func NewCounterMetric(inst metric.Float64Counter, attrKeys []attribute.Key) *CounterMetric {
@@ -296,31 +307,37 @@ func (m *CounterMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, e
 		if m.labelVals == nil {
 			m.labelVals = make(map[string]float64)
 		}
-		old := m.labelVals[key]
+		old, seen := m.labelVals[key]
 		delta := f - old
 		newVal := old
-		if delta > 0 {
+		if delta > 0 || !seen {
 			m.labelVals[key] = f
 			newVal = f
 		}
 		m.mu.Unlock()
-		if delta > 0 {
-			m.inst.Add(ctx, delta, metric.WithAttributes(kvs...))
+		// A counter only moves forward, but the first write must still reach
+		// the instrument even when it is 0 -- otherwise a counter that is
+		// legitimately zero is indistinguishable from one that does not
+		// exist. Adding 0 materializes the series without advancing it.
+		if delta > 0 || !seen {
+			m.inst.Add(ctx, max(delta, 0), metric.WithAttributes(kvs...))
 		}
 		m.NotifyAll(ctx, m, cty.NumberFloatVal(old), cty.NumberFloatVal(newVal))
 		return value, nil
 	}
 	m.mu.Lock()
 	old := m.noLabelVal
+	seen := m.noLabelSeen
 	delta := f - old
 	newVal := old
-	if delta > 0 {
+	if delta > 0 || !seen {
 		m.noLabelVal = f
 		newVal = f
 	}
+	m.noLabelSeen = true
 	m.mu.Unlock()
-	if delta > 0 {
-		m.inst.Add(ctx, delta)
+	if delta > 0 || !seen {
+		m.inst.Add(ctx, max(delta, 0))
 	}
 	m.NotifyAll(ctx, m, cty.NumberFloatVal(old), cty.NumberFloatVal(newVal))
 	return value, nil
@@ -528,6 +545,7 @@ type ComputedGaugeMetric struct {
 	inst   metric.Float64UpDownCounter
 	mu     sync.Mutex
 	cached float64
+	seen   bool // has a poll ever reached the instrument?
 }
 
 func NewComputedGaugeMetric(inst metric.Float64UpDownCounter, expr hcl.Expression, scopeFn PollScopeFunc, logger *zap.Logger, interval time.Duration) *ComputedGaugeMetric {
@@ -548,8 +566,12 @@ func (m *ComputedGaugeMetric) poll(ctx context.Context) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delta := f - m.cached
+	seen := m.seen
 	m.cached = f
-	if delta != 0 {
+	m.seen = true
+	// Same first-write rule as GaugeMetric.Set: a computed gauge whose first
+	// polled value is 0 must still materialize its series.
+	if delta != 0 || !seen {
 		m.inst.Add(pollCtx, delta)
 	}
 }

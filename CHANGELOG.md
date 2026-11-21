@@ -990,6 +990,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A `metric "gauge"` or `metric "counter"` whose first value is `0` is now
+  exported instead of being silently absent.** Both are emulated on cumulative
+  OpenTelemetry instruments by caching the previous value and adding the delta.
+  A first `set()` of `0` produced a delta of `0` against the zero-valued cache,
+  the `Add` was skipped, and the instrument never materialized the series at
+  all — so the metric was *missing* rather than zero.
+
+  That is the one distinction a zero-valued gauge exists to make, and losing it
+  breaks exactly the monitoring built on top of it: `== 0` alert rules never
+  fire, `sum()` panels read short, and `absent()` rules cannot tell "nothing is
+  registered" from "the exporter is dead". A gauge that reached `0` by going
+  `1 → 0` always worked, which made the failure look intermittent — only
+  entities that were `0` from the very first scrape vanished.
+
+  The first write for an attribute set now always reaches the instrument, even
+  when the delta is `0`. Counters stay monotonic: materializing at `0` adds
+  nothing and a later decrease is still ignored. `metric "gauge"` with a
+  `value` expression (computed gauges) had the same defect on its first poll
+  and is fixed with it.
+
 - **Building a config without running it no longer reaches the network.** This
   affects `vinculum check`, and anything else that builds without starting.
   - `client "redis"` with `min_idle_conns` dialed its address while the block
