@@ -1,29 +1,37 @@
 // Scrape SIP account registration status and set a labeled gauge per account.
-// get_all_registrations() and get_subaccounts() are siblings in this namespace,
-// so they are called by their bare names.
+// get_subaccounts() and get_registration_status() are siblings in this
+// namespace, so they are called by their bare names.
 //
-// The scrape is driven by the sub-account ROSTER, not by the registration list.
-// getRegistrationStatus only returns accounts that are currently registered, so
-// a loop over it can only ever write 1s — and because a labeled gauge child
-// cannot be removed once created, an account that deregisters would keep
-// exporting its last value of 1 forever. Walking the roster instead means every
-// known account gets an explicit 1 or 0 on every scrape, which is what makes
-// `== 0` alerting and a "how many are registered" sum possible at all.
+// The scrape walks the sub-account ROSTER and asks about each account
+// individually, rather than asking once for "everything registered" and
+// setting a 1 per hit. Two reasons, and both of them were live bugs:
+//
+//   1. getRegistrationStatus is per-account. With no `account` parameter it
+//      returns an aggregate with no `registrations` key, so the old
+//      list-shaped call threw as soon as nothing was registered — the scrape
+//      failed entirely at exactly the moment it had something to report.
+//   2. A labeled gauge child cannot be removed once created, so a loop that
+//      only ever writes 1 can never say "this account went away". Walking the
+//      roster means every known account gets an explicit 1 or 0 every pass,
+//      which is what makes `== 0` alerting and a "how many are registered"
+//      sum possible at all.
+//
+// This costs one API call per account per scrape on top of the roster call.
+// With a handful of accounts and the 4m interval in voipms-sip.vcl, that is
+// nothing, and it is the only shape the API actually supports.
 namespace voipms
 
 func scrape_sip_accounts(ctx: ctx) {
-    var registrations = get_all_registrations(ctx)
     var accounts = get_subaccounts(ctx)
 
     for acct in accounts {
         var labels = {account_id = acct.account}
         var registered = 0
-        for reg in registrations {
-            if reg.account == acct.account {
-                registered = 1
-                break
-            }
+        if get_registration_status(ctx, acct.account) == "yes" {
+            registered = 1
         }
+        // Log the label set and the verdict only. `acct` holds the plaintext
+        // SIP password — see the warning on get_subaccounts().
         log::info("sip_account", {labels = labels, registered = registered})
         set(metric.voipms_sipaccount_registered, registered, labels)
     }

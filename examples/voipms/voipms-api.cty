@@ -30,19 +30,35 @@ func get_client_threshold(ctx: ctx, client_id) {
     })).body.threshold_information
 }
 
-// Registration status of every SIP account. Only accounts that ARE registered
-// appear in the result, so this list alone cannot tell you that an account has
-// gone away — pair it with get_subaccounts() for the full roster.
-func get_all_registrations(ctx: ctx) {
+// Whether one SIP sub-account currently has a device registered, as the raw
+// "yes"/"no" string the API returns.
+//
+// getRegistrationStatus is a PER-ACCOUNT method and the `account` parameter is
+// not optional in any useful sense. Called without it, it answers with an
+// aggregate that carries no `registrations` key at all:
+//
+//     {"status":"success","rerouted":0,"from_server_pop":0,"registered":"no"}
+//
+// Reading `.registrations` off that throws "This object does not have an
+// attribute named registrations" — which is exactly what the previous
+// get_all_registrations() did, and why the scrape died outright whenever
+// nothing happened to be registered. `registered` is always present, both
+// with and without the parameter, so this is the field to trust.
+func get_registration_status(ctx: ctx, account_id) {
     return http::must(http::get(ctx, client.voipms, "?method=getRegistrationStatus", {
-        as = "json"
-    })).body.registrations
+        as = "json", query = {account = account_id}
+    })).body.registered
 }
 
 // Every SIP sub-account on the reseller account, registered or not. This is the
-// roster the registration scrape needs in order to report a 0: a gauge that is
+// roster the registration scrape walks in order to report a 0: a gauge that is
 // only ever set to 1 latches at 1 forever, because there is no way to remove a
 // labeled child once it exists.
+//
+// WARNING: each entry carries that sub-account's SIP `password` in plaintext,
+// along with its caller-ID number. Never log this response, and never return it
+// anywhere it might be logged — take the fields you need (`account`) and drop
+// the rest. A log shipper will happily persist the whole thing for months.
 func get_subaccounts(ctx: ctx) {
     return http::must(http::get(ctx, client.voipms, "?method=getSubAccounts", {
         as = "json"
