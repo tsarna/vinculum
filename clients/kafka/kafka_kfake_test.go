@@ -28,6 +28,25 @@ import (
 // the returned function when it needs the shutdown to happen at a particular
 // moment — as the commit-mode tests below do, where the commit a consumer
 // makes on its way out of the group is the thing under test.
+//
+// The returned function runs the same teardown phases, in the same order, as
+// serve.go: drain, then quiesce the message pipeline, then stop. That matters
+// to every test here that asserts on what the next consumer is handed, because
+// the phases do different jobs and the one in the middle is the one a
+// `queue_size` receiver depends on.
+//
+// `queue_size` puts an async queue between the consumer and the action, so
+// `OnEvent` returns once the record is queued and the settler travels on to the
+// queue's goroutine. Nothing in Drain or Stop waits for that goroutine —
+// Drain's contract is dispatch, and the channel Stop waits on belongs to the
+// poll loop, which has already returned. What waits for it is quiesce, whose
+// `Close` on an async queue "waits for its goroutine to finish the message it
+// is running". Only once that has happened is the record settled, and only then
+// can Stop leave the group without committing an offset whose action failed.
+//
+// Stopping straight from a running config skips that phase and races the
+// queue's worker, which is what made TestKfakeAutoBehindAQueueStill...
+// flaky under CI load — see issue #333.
 func startConfig(t *testing.T, src string) (*cfg.Config, func()) {
 	t.Helper()
 
@@ -41,6 +60,12 @@ func startConfig(t *testing.T, src string) (*cfg.Config, func()) {
 	var once sync.Once
 	stop := func() {
 		once.Do(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), cfg.DefaultShutdownTimeout)
+			defer cancel()
+			for i := len(config.Drainables) - 1; i >= 0; i-- {
+				_ = config.Drainables[i].Drain(ctx)
+			}
+			quiesce(config)
 			for i := len(config.Stoppables) - 1; i >= 0; i-- {
 				_ = config.Stoppables[i].Stop()
 			}
@@ -49,6 +74,66 @@ func startConfig(t *testing.T, src string) (*cfg.Config, func()) {
 	t.Cleanup(stop)
 
 	return config, stop
+}
+
+// quiesceInterval is how often the pipeline is resampled while it empties,
+// matching serve.go.
+const quiesceInterval = 25 * time.Millisecond
+
+// quiesceBudget bounds the sampling, and is deliberately far below serve.go's
+// ten seconds. Some tests here never settle their record on purpose — see
+// TestKfakeManualCommitsNothingWhenTheActionSettlesNothing — so the receiver's
+// unsettled count never reaches zero and the wait can only ever end by
+// expiring. Spending the production budget on that costs ten seconds per such
+// test and buys nothing.
+//
+// Shortening it is safe because the sampling is not the part that closes the
+// race: Close is. A queue's Close waits for its goroutine exactly, however long
+// the action takes, and runs whether or not the wait above it timed out. What
+// the budget bounds is only the inexact half.
+const quiesceBudget = 2 * time.Second
+
+// quiesce mirrors serve.go's third teardown phase: wait for every in-flight
+// holder to report empty, then close the ones that can be closed.
+//
+// Two consecutive empty readings, because a depth of zero does not prove
+// quiescence — the last message may be off the queue and still running. The
+// closes afterwards are what make it exact: an async queue's Close waits for
+// its goroutine.
+func quiesce(config *cfg.Config) {
+	if len(config.InFlight) == 0 {
+		return
+	}
+
+	pending := func() int {
+		total := 0
+		for _, h := range config.InFlight {
+			total += h.Pending()
+		}
+		return total
+	}
+
+	deadline := time.Now().Add(quiesceBudget)
+	for readings := 0; readings < 2; {
+		if pending() == 0 {
+			readings++
+			if readings == 2 {
+				break
+			}
+		} else {
+			readings = 0
+			if time.Now().After(deadline) {
+				break
+			}
+		}
+		time.Sleep(quiesceInterval)
+	}
+
+	for i := len(config.InFlight) - 1; i >= 0; i-- {
+		if close := config.InFlight[i].Close; close != nil {
+			_ = close()
+		}
+	}
 }
 
 // captureSubscriber records the baggage on the context of the first event it
