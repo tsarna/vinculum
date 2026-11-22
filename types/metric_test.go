@@ -22,10 +22,7 @@ func newTestMeter(t *testing.T) otelmetric.Meter {
 
 func newTestGaugeMetric(t *testing.T) *GaugeMetric {
 	t.Helper()
-	m := newTestMeter(t)
-	inst, err := m.Float64UpDownCounter("test_gauge")
-	require.NoError(t, err)
-	return NewGaugeMetric(inst, []attribute.Key{})
+	return NewGaugeMetric([]attribute.Key{}, 0)
 }
 
 func newTestCounterMetric(t *testing.T) *CounterMetric {

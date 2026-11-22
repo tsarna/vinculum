@@ -29,8 +29,60 @@ metric "gauge" "active_jobs" {
     help        = "Number of currently active jobs"
     label_names = ["queue", "priority"]   # optional
     namespace   = "myapp"                 # optional
+    stale_after = "12m"                   # optional; see below
 }
 ```
+
+A gauge holds its own value and is reported to the backend when the backend
+asks for it, so `set()` records the value you give it exactly. It is emitted as
+an OpenTelemetry **Gauge**, and a Prometheus scrape renders it as a Prometheus
+gauge.
+
+> **Changed in 0.46.0.** A gauge used to be emulated on an OTel
+> `UpDownCounter`, with `set()` applying the difference from the previous value.
+> It is now an observable instrument that reports the value itself. A Prometheus
+> scrape is unaffected — the exporter rendered both forms as a Prometheus gauge
+> — but the OTLP wire type changes from a non-monotonic cumulative `Sum` to a
+> `Gauge`, which an OTLP-native consumer will see. The old form could not
+> withdraw a series at all, which is why `stale_after` arrives with it.
+
+### Withdrawing a series: `stale_after`
+
+By default a gauge's series lives forever once written. For a gauge that is
+one-per-thing — per account, per device, per queue — that is usually wrong: when
+the thing goes away, the series does not, and keeps reporting whatever it last
+said. A panel built on it shows a stale truth, and `absent()` can never fire,
+because something *is* there.
+
+`stale_after` puts a time limit on that. A label set not written within the
+window stops being reported, and the series simply ends:
+
+```hcl
+metric "gauge" "sipaccount_registered" {
+    help        = "Whether each SIP account has a device registered"
+    label_names = ["account_id"]
+    stale_after = "12m"
+}
+```
+
+Anything that writes the metric renews it, `set()` and `increment()` alike. Pick
+a window comfortably longer than the thing doing the writing — for a scrape loop,
+a small multiple of its interval, as above for a 4-minute scrape. A window
+shorter than the write period withdraws the series between writes and makes it
+flap.
+
+A series that has gone stale is treated as gone, not as hidden: `get()` reads
+`0`, and an `increment()` starts a fresh series from `0` rather than resuming the
+old total. Writing the same label set again brings the series back.
+
+This is deliberately a timeout rather than an explicit removal call. An exporter
+that cleared its series and then refilled them would have a window — however
+short — in which a collection could land on the empty map and export a gap.
+Letting entries age out has no such race, and needs no bookkeeping in the VCL.
+
+`stale_after` is a gauge-only setting. Writing it on a `counter` or a
+`histogram` is a configuration error: a counter that vanished and restarted
+would break `rate()` for everything reading it.
 
 ## Counter
 
@@ -57,9 +109,17 @@ metric "histogram" "job_duration_seconds" {
 
 ## Common Attributes
 
-All three types decode the same body, so this one table covers them. The only
-attribute that is not universal is `buckets`, which nothing but a `histogram`
-buckets with — a gauge or counter accepts it and ignores it.
+All three types decode the same body, so this one table covers them. Two
+attributes are not universal, and the table below is rendered from the
+`histogram` variant, so it describes each from that type's point of view:
+
+- `buckets` means something only to a `histogram`. A gauge or counter accepts
+  it and ignores it.
+- `stale_after` means something only to a `gauge`, and is documented under
+  [Gauge](#withdrawing-a-series-stale_after) above. On a counter or histogram
+  it is a configuration error rather than a silent no-op, because a silently
+  ignored `stale_after` would leave a monitoring gap with nothing to show for
+  it.
 
 <!-- vinculum:begin block-attrs metric histogram level=3 -->
 
@@ -71,6 +131,7 @@ buckets with — a gauge or counter accepts it and ignores it.
 | `label_names` | list |  |  | Names of the metric's dynamic labels. |
 | `namespace` | string |  |  | Prefix for the metric name. |
 | `server` | expression (metrics-ref) |  |  | Metrics backend to register with. |
+| `stale_after` | string |  |  | Not supported by this metric type. |
 | `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
 | `value` | expression (action-expression) |  |  | Expression polled to produce the metric's value. |
 
@@ -100,6 +161,10 @@ Emitted as `<namespace>.<name>` in OTel, underscored in Prometheus.
 **`server`**
 
 A `server "metrics"` or `client "otlp"` block. Uses the default backend when omitted.
+
+**`stale_after`**
+
+Withdrawing a series that has stopped being updated is a `gauge` thing; a counter that vanished and restarted would break `rate()`. Setting it here is a configuration error, not a silent no-op.
 
 **`tracing`**
 
@@ -204,6 +269,8 @@ is metric-only.
 
 #### Type Safety
 
+- Calling `set` on a gauge records the value itself, so a gauge reports exactly what it was last set to.
+- Calling `get` on a gauge series that has aged out under `stale_after` returns `0`, the same as one that was never written.
 - Calling `set` on a counter applies delta semantics: only positive differences are forwarded to Prometheus (the counter never decreases). If the supplied value is less than the last set value, the call is a no-op.
 - Calling `observe` on a gauge or counter is a runtime error.
 - Calling `get` on a histogram is a runtime error.
@@ -304,7 +371,7 @@ own goroutine.
 
 | Type | What the expression computes | Behaviour |
 |------|------------------------------|-----------|
-| `gauge` | Current gauge value | Reported as-is at each poll |
+| `gauge` | Current gauge value | The most recent polled value is reported as-is |
 | `counter` | Current total value | Only positive deltas are forwarded; Prometheus detects resets automatically |
 | `histogram` | A single observation value | One observation is recorded per poll |
 
@@ -320,6 +387,27 @@ step aside:
   observation alongside the polled ones.
 
 A Prometheus scrape sees the most recently polled value, not a fresh evaluation.
+
+### `stale_after` on a computed gauge
+
+A poll that fails — a broken expression, an upstream that stopped answering —
+leaves the last good value in place, and the metric goes on asserting it. Adding
+`stale_after` bounds how long that can go on for: once no poll has succeeded
+within the window, the metric stops reporting and `get()` reads `0`.
+
+```hcl
+metric "gauge" "upstream_queue_depth" {
+    help              = "Depth reported by the upstream API"
+    computed_interval = "30s"
+    stale_after       = "3m"
+    value             = http::get(ctx, "https://upstream/stats").body.depth
+}
+```
+
+Without it, a computed gauge reports its last successful poll indefinitely.
+Either can be the right choice — a value that changes slowly is still roughly
+true an hour later, while a queue depth is not — so the default is to keep
+reporting and say nothing, and `stale_after` is how you ask for the other one.
 
 ### Counter resets
 

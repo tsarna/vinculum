@@ -14,13 +14,20 @@ import (
 
 // Regression tests for a gauge/counter whose FIRST value is 0.
 //
-// Both are emulated on top of cumulative OTel instruments by tracking the
-// previous value and Adding the delta. A first write of 0 produces a delta of
-// 0 against the zero-valued cache, so the Add used to be skipped entirely and
-// the instrument never materialized the series. The metric was then absent
-// rather than zero -- indistinguishable from a thing that does not exist,
-// which defeats the whole point of a zero-valued gauge (and silently breaks
-// `== 0` alerting, `sum()` panels and `absent()` rules built on it).
+// Both used to be emulated on top of cumulative OTel instruments by tracking
+// the previous value and Adding the delta. A first write of 0 produces a delta
+// of 0 against the zero-valued cache, so the Add was skipped entirely and the
+// instrument never materialized the series. The metric was then absent rather
+// than zero -- indistinguishable from a thing that does not exist, which
+// defeats the whole point of a zero-valued gauge (and silently breaks `== 0`
+// alerting, `sum()` panels and `absent()` rules built on it).
+//
+// A gauge no longer works that way at all: it is observable and reports its
+// map, in which 0 is just a value like any other, so the bug is now structurally
+// impossible rather than guarded against. The gauge cases below are kept
+// anyway -- they describe behaviour that must hold however it is implemented,
+// and they are the regression that matters most to the alerting built on it.
+// The counter is still delta-emulated and still needs its `seen` flag.
 
 func collectInto(t *testing.T, reader sdkmetric.Reader) metricdata.ResourceMetrics {
 	t.Helper()
@@ -56,28 +63,18 @@ func pointFor(pts []metricdata.DataPoint[float64], key, val string) (metricdata.
 }
 
 func TestGaugeMetric_FirstValueZeroIsExported(t *testing.T) {
-	reader := sdkmetric.NewManualReader()
-	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
-	inst, err := mp.Meter("test").Float64UpDownCounter("zero_gauge")
-	require.NoError(t, err)
-	m := NewGaugeMetric(inst, []attribute.Key{})
+	m, reader := newObservedGauge(t, "zero_gauge", nil, 0)
 
-	_, err = m.Set(context.Background(), []cty.Value{cty.NumberIntVal(0)})
+	_, err := m.Set(context.Background(), []cty.Value{cty.NumberIntVal(0)})
 	require.NoError(t, err)
 
-	pts := sumPoints(t, collectInto(t, reader), "zero_gauge")
+	pts := gaugePoints(t, collectInto(t, reader), "zero_gauge")
 	require.Len(t, pts, 1, "a gauge set to 0 must still be exported, not absent")
 	assert.Equal(t, 0.0, pts[0].Value)
 }
 
 func TestGaugeMetric_FirstValueZeroIsExported_Labeled(t *testing.T) {
-	reader := sdkmetric.NewManualReader()
-	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
-	inst, err := mp.Meter("test").Float64UpDownCounter("zero_gauge_labeled")
-	require.NoError(t, err)
-	m := NewGaugeMetric(inst, []attribute.Key{"which"})
+	m, reader := newObservedGauge(t, "zero_gauge_labeled", []attribute.Key{"which"}, 0)
 
 	labels := func(v string) cty.Value {
 		return cty.ObjectVal(map[string]cty.Value{"which": cty.StringVal(v)})
@@ -85,12 +82,12 @@ func TestGaugeMetric_FirstValueZeroIsExported_Labeled(t *testing.T) {
 
 	// "zero" is written 0 first; "one" is written 1. Before the fix only
 	// "one" ever appeared.
-	_, err = m.Set(context.Background(), []cty.Value{cty.NumberIntVal(0), labels("zero")})
+	_, err := m.Set(context.Background(), []cty.Value{cty.NumberIntVal(0), labels("zero")})
 	require.NoError(t, err)
 	_, err = m.Set(context.Background(), []cty.Value{cty.NumberIntVal(1), labels("one")})
 	require.NoError(t, err)
 
-	pts := sumPoints(t, collectInto(t, reader), "zero_gauge_labeled")
+	pts := gaugePoints(t, collectInto(t, reader), "zero_gauge_labeled")
 	require.Len(t, pts, 2, "both attribute sets must be exported")
 
 	zero, ok := pointFor(pts, "which", "zero")
@@ -104,19 +101,14 @@ func TestGaugeMetric_FirstValueZeroIsExported_Labeled(t *testing.T) {
 
 // A gauge that goes 0 -> 5 -> 0 must report 0 at the end, not stay at 5.
 func TestGaugeMetric_ZeroAfterNonZeroStillTracks(t *testing.T) {
-	reader := sdkmetric.NewManualReader()
-	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
-	inst, err := mp.Meter("test").Float64UpDownCounter("round_trip")
-	require.NoError(t, err)
-	m := NewGaugeMetric(inst, []attribute.Key{})
+	m, reader := newObservedGauge(t, "round_trip", nil, 0)
 
 	for _, v := range []int64{0, 5, 0} {
-		_, err = m.Set(context.Background(), []cty.Value{cty.NumberIntVal(v)})
+		_, err := m.Set(context.Background(), []cty.Value{cty.NumberIntVal(v)})
 		require.NoError(t, err)
 	}
 
-	pts := sumPoints(t, collectInto(t, reader), "round_trip")
+	pts := gaugePoints(t, collectInto(t, reader), "round_trip")
 	require.Len(t, pts, 1)
 	assert.Equal(t, 0.0, pts[0].Value)
 }

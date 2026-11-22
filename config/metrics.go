@@ -260,6 +260,16 @@ var bucketsUnused = map[string]AttrMeta{
 	},
 }
 
+// staleAfterGaugeOnly is the `stale_after` documentation for the two types
+// that reject it. Unlike `buckets`, it is a configuration error rather than
+// something quietly ignored — see the check in Process for why.
+var staleAfterGaugeOnly = map[string]AttrMeta{
+	"stale_after": {
+		Summary: "Not supported by this metric type.",
+		Doc:     "Withdrawing a series that has stopped being updated is a `gauge` thing; a counter that vanished and restarted would break `rate()`. Setting it here is a configuration error, not a silent no-op.",
+	},
+}
+
 var metricAttrs = map[string]AttrMeta{
 	"help": {
 		Summary: "Human-readable description of the metric.",
@@ -294,6 +304,13 @@ var metricAttrs = map[string]AttrMeta{
 		Hint:    HintDuration,
 		Default: "15s",
 	},
+	"stale_after": {
+		Summary: "How long a series survives without being written.",
+		Doc: "Gauges only. A label set not written within this window stops being reported, so the series ends instead of reporting its last value forever. " +
+			"Set it comfortably longer than whatever writes the metric — for a scrape loop, a small multiple of its interval — since a window shorter than the write period withdraws the series between writes. " +
+			"Omitted, series never expire.",
+		Hint: HintDuration,
+	},
 	"tracing": {
 		Summary: TracingAttr.Summary,
 		Doc:     TracingAttr.Doc + " Each poll of `value` runs in a `metric.poll` span, so whatever the expression does is traced beneath it. Only meaningful together with `value`.",
@@ -314,11 +331,11 @@ reported through a ` + "`server \"metrics\"`" + ` (Prometheus pull) or ` + "`cli
 		"counter": metricVariant(
 			"A monotonically increasing value.",
 			"Supports `increment()`, `get()`, and `set()` (as a delta). Names conventionally end in `_total`.",
-			"metric.md#counter", bucketsUnused),
+			"metric.md#counter", MergeAttrs(bucketsUnused, staleAfterGaugeOnly)),
 		"histogram": metricVariant(
 			"Sample observations bucketed by value.",
 			"Supports `observe()`. Bucket boundaries are set with `buckets`.",
-			"metric.md#histogram", nil),
+			"metric.md#histogram", staleAfterGaugeOnly),
 	},
 }
 
@@ -387,6 +404,7 @@ type MetricDefinition struct {
 	Server           hcl.Expression `hcl:"server,optional"`
 	Value            hcl.Expression `hcl:"value,optional"`
 	ComputedInterval *string        `hcl:"computed_interval,optional"`
+	StaleAfter       *string        `hcl:"stale_after,optional"`
 	Tracing          hcl.Expression `hcl:"tracing,optional"`
 	DefRange         hcl.Range      `hcl:",def_range"`
 }
@@ -549,6 +567,49 @@ func (h *MetricBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 		computedInterval = d
 	}
 
+	// stale_after is a gauge-only setting, and an error rather than a quiet
+	// no-op on the other two types. `buckets` sets the opposite precedent --
+	// all three types decode this one struct, so a gauge accepts and ignores
+	// it -- but the cases are not alike. An ignored `buckets` costs nothing,
+	// whereas someone who writes stale_after on a counter has asked for a
+	// series to stop being reported and would get no sign that it never will.
+	//
+	// It is also not a thing a counter could be given later: a counter that
+	// vanishes and restarts is hostile to rate(), which is why counters were
+	// deliberately left on the cumulative instrument.
+	var staleAfter time.Duration
+	if def.StaleAfter != nil {
+		if kind != "gauge" {
+			return hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "stale_after on a non-gauge metric",
+				Detail:   fmt.Sprintf("stale_after withdraws a series that has stopped being updated, which only a gauge can do. Remove it from this %s.", kind),
+				Subject:  def.DefRange.Ptr(),
+			}}
+		}
+		d, err := time.ParseDuration(*def.StaleAfter)
+		if err != nil {
+			return hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "Invalid stale_after",
+				Detail:   fmt.Sprintf("stale_after: %s", err),
+				Subject:  def.DefRange.Ptr(),
+			}}
+		}
+		// Zero would read as "expire immediately" and mean "never expire",
+		// which is the default anyway; say so rather than accept a value whose
+		// obvious reading is the opposite of its effect.
+		if d <= 0 {
+			return hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "Invalid stale_after",
+				Detail:   fmt.Sprintf("stale_after must be positive, got %q. Omit it entirely for series that never expire.", *def.StaleAfter),
+				Subject:  def.DefRange.Ptr(),
+			}}
+		}
+		staleAfter = d
+	}
+
 	// Only a computed metric evaluates anything at runtime, so only it needs a
 	// poll scope. Resolving tracing for an imperative metric would be a config
 	// error about a facility it never uses.
@@ -565,23 +626,34 @@ func (h *MetricBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 
 	switch kind {
 	case "gauge":
-		inst, err := meter.Float64UpDownCounter(fullName, metric.WithDescription(def.Help))
-		if err != nil {
+		// A gauge is an observable instrument: the vinculum-side value is the
+		// source of truth and the SDK pulls it at collection, rather than the
+		// metric being an accumulation of deltas pushed into an
+		// UpDownCounter. That is what lets a series end -- see GaugeMetric --
+		// and so what makes stale_after possible.
+		var callback metric.Float64Callback
+		if isComputed {
+			m := types.NewComputedGaugeMetric(def.Value, pollScope, config.UserLogger, computedInterval, staleAfter)
+			starter := &computedMetricStarter{startFn: m.Start}
+			config.Startables = append(config.Startables, starter)
+			config.Stoppables = append(config.Stoppables, starter)
+			capsule = types.NewMetricCapsule(m)
+			callback = m.Collect
+		} else {
+			m := types.NewGaugeMetric(attrKeys, staleAfter)
+			capsule = types.NewMetricCapsule(m)
+			callback = m.Collect
+		}
+		if _, err := meter.Float64ObservableGauge(fullName,
+			metric.WithDescription(def.Help),
+			metric.WithFloat64Callback(callback),
+		); err != nil {
 			return hcl.Diagnostics{{
 				Severity: hcl.DiagError,
 				Summary:  "Failed to create gauge metric",
 				Detail:   err.Error(),
 				Subject:  def.DefRange.Ptr(),
 			}}
-		}
-		if isComputed {
-			m := types.NewComputedGaugeMetric(inst, def.Value, pollScope, config.UserLogger, computedInterval)
-			starter := &computedMetricStarter{startFn: m.Start}
-			config.Startables = append(config.Startables, starter)
-			config.Stoppables = append(config.Stoppables, starter)
-			capsule = types.NewMetricCapsule(m)
-		} else {
-			capsule = types.NewMetricCapsule(types.NewGaugeMetric(inst, attrKeys))
 		}
 
 	case "counter":
