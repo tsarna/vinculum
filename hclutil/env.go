@@ -24,7 +24,7 @@ func EnvObject() cty.Value {
 // empty name. When a name appears more than once the first entry wins, as it
 // does for os.Getenv.
 func EnvObjectFrom(environ []string) cty.Value {
-	envMap := make(map[string]cty.Value)
+	envMap := make(map[string]cty.Value, len(environ))
 	for _, envVar := range environ {
 		if envVar == "" {
 			continue
