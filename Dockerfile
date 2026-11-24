@@ -23,7 +23,7 @@
 #   docker build -t vinculum --build-arg VINCULUM_REF=v0.37.0 .
 
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM golang:1.26-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 # gcc + musl-dev provide the C toolchain cgo needs (a plugin host must be
 # cgo/dynamically linked to dlopen plugins). git is needed to fetch the
