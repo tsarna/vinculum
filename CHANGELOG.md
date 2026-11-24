@@ -1010,6 +1010,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `value` expression (computed gauges) had the same defect on its first poll
   and is fixed with it.
 
+- **A `condition "counter"` no longer reports a count its state hasn't caught
+  up with.** `increment()` and `decrement()` updated the count and then, after
+  releasing the counter's lock, the state. A reader could see the count at
+  `preset` with the counter still `inactive`, and two concurrent calls could
+  reach the state in the opposite order to the count, leaving a non-latched
+  counter `active` below its preset (or `inactive` at it) until the next call.
+  The count and the state now change together. Watchers are still notified
+  after the lock is released, so a hook may call back into the counter.
+
 - **Building a config without running it no longer reaches the network.** This
   affects `vinculum check`, and anything else that builds without starting.
   - `client "redis"` with `min_idle_conns` dialed its address while the block

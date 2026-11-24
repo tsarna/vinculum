@@ -3,11 +3,14 @@ package conditions
 import (
 	"context"
 	_ "embed"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	richcty "github.com/tsarna/rich-cty-types"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -385,4 +388,95 @@ func TestCounterStartActiveUnlatchedReconciles(t *testing.T) {
 
 	assert.Equal(t, "inactive", stateMust(t, cond),
 		"unlatched start_active yields to count reconcile")
+}
+
+// A goroutine that sees the count reach the preset must also see the state
+// machine's response to it. Before increments updated both under one lock,
+// the count could be read at the preset while the state was still inactive,
+// which is what made TestComposition flaky.
+func TestCounterStateKeepsUpWithCount(t *testing.T) {
+	ctx := context.Background()
+	for round := 0; round < 5000; round++ {
+		c := newTestCounter(3, 0, false, false, true)
+		var wg sync.WaitGroup
+		for i := 0; i < 3; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, _ = c.Increment(ctx, nil)
+			}()
+		}
+		for {
+			if cnt, _ := c.Count(ctx); cnt == 3 {
+				break
+			}
+			runtime.Gosched()
+		}
+		require.Equal(t, "active", stateMust(t, c), "round %d: count at preset", round)
+		wg.Wait()
+	}
+}
+
+// Concurrent increments and decrements must leave the state matching the
+// final count, whatever order they ran in.
+func TestCounterConcurrentDeltasSettleOnFinalCount(t *testing.T) {
+	ctx := context.Background()
+	for round := 0; round < 200; round++ {
+		c := newTestCounter(3, 2, false, false, false)
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				delta := int64(1)
+				if i%2 == 1 {
+					delta = -1
+				}
+				_, _ = c.Increment(ctx, []cty.Value{cty.NumberIntVal(delta)})
+			}(i)
+		}
+		wg.Wait()
+		cnt, _ := c.Count(ctx)
+		want := "inactive"
+		if cnt >= 3 {
+			want = "active"
+		}
+		require.Equal(t, want, stateMust(t, c), "round %d: count %d", round, cnt)
+	}
+}
+
+// reenteringWatcher calls back into the counter it watches, as a hook or a
+// synchronous reactive expression can.
+type reenteringWatcher struct {
+	c      *CounterCondition
+	counts []int64
+}
+
+func (w *reenteringWatcher) OnChange(ctx context.Context, _ richcty.Watchable, _, _ cty.Value) {
+	cnt, _ := w.c.Count(ctx)
+	w.counts = append(w.counts, cnt)
+	if cnt >= w.c.preset {
+		_, _ = w.c.Increment(ctx, []cty.Value{cty.NumberIntVal(-1)})
+	}
+}
+
+func TestCounterWatcherMayCallBackIntoCounter(t *testing.T) {
+	c := newTestCounter(2, 0, false, false, false)
+	w := &reenteringWatcher{c: c}
+	c.Watch(w)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = c.Increment(context.Background(), nil)
+		_, _ = c.Increment(context.Background(), nil)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("watcher calling back into the counter deadlocked")
+	}
+
+	assert.Equal(t, []int64{2, 1}, w.counts, "rising edge at preset, then falling edge after the watcher's decrement")
+	assert.Equal(t, "inactive", stateMust(t, c))
 }

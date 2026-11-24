@@ -135,19 +135,37 @@ func (sm *StateMachine) Bootstrap() {
 // SetRawInput drives the state machine from the subtype's pre-filtered boolean
 // input signal. ctx is forwarded to watcher notifications.
 func (sm *StateMachine) SetRawInput(ctx context.Context, value bool) {
+	sm.applyRawInput(ctx, value).fire()
+}
+
+// pendingNotify is an output transition whose watcher notification has been
+// held back. The zero value notifies nobody.
+type pendingNotify struct {
+	sm            *StateMachine
+	ctx           context.Context
+	before, after bool
+}
+
+func (n pendingNotify) fire() {
+	if n.sm != nil && n.before != n.after {
+		n.sm.notifyAll(n.ctx, cty.BoolVal(n.before), cty.BoolVal(n.after))
+	}
+}
+
+// applyRawInput is SetRawInput without the notification, which it returns
+// instead. A subtype calls it under its own lock so that its state and the
+// state machine's change together, then fires the notification once it has
+// released that lock, since a watcher may call back into the subtype.
+func (sm *StateMachine) applyRawInput(ctx context.Context, value bool) pendingNotify {
 	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	if sm.rawInput == value {
-		sm.mu.Unlock()
-		return
+		return pendingNotify{}
 	}
 	sm.rawInput = value
 	before := sm.outputLocked()
 	sm.onInputChangeLocked(value)
-	after := sm.outputLocked()
-	sm.mu.Unlock()
-	if before != after {
-		sm.notifyAll(ctx, cty.BoolVal(before), cty.BoolVal(after))
-	}
+	return pendingNotify{sm: sm, ctx: ctx, before: before, after: sm.outputLocked()}
 }
 
 // onInputChangeLocked evaluates the input edge against the current state.
@@ -470,7 +488,15 @@ func (sm *StateMachine) SetInhibited(ctx context.Context, inhibited bool) {
 // cancels any pending state, releases any latch, and (for subtypes backing
 // them onto this machine) stops timers. Safe to call in any state.
 func (sm *StateMachine) Clear(ctx context.Context) error {
+	sm.applyClear(ctx).fire()
+	return nil
+}
+
+// applyClear is Clear without the notification, which it returns instead.
+// See applyRawInput.
+func (sm *StateMachine) applyClear(ctx context.Context) pendingNotify {
 	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	before := sm.outputLocked()
 	sm.cancelPendingLocked()
 	sm.cancelTimeoutLocked()
@@ -484,10 +510,5 @@ func (sm *StateMachine) Clear(ctx context.Context) error {
 	// natural state flow, not an externally-forced reset).
 	sm.rawInput = false
 	sm.state = StateInactive
-	after := sm.outputLocked()
-	sm.mu.Unlock()
-	if before != after {
-		sm.notifyAll(ctx, cty.BoolVal(before), cty.BoolVal(after))
-	}
-	return nil
+	return pendingNotify{sm: sm, ctx: ctx, before: before, after: sm.outputLocked()}
 }
