@@ -22,7 +22,8 @@ func EnvObject() cty.Value {
 // with "=" — Windows lists per-drive working directories as "=C:=C:\dir" —
 // keeps it; an entry with no later separator, such as "=value", has the
 // empty name. When a name appears more than once the first entry wins, as it
-// does for os.Getenv.
+// does for os.Getenv. cty keys maps by NFC-normalized strings, so names that
+// differ only in Unicode composition count as the same name.
 func EnvObjectFrom(environ []string) cty.Value {
 	envMap := make(map[string]cty.Value, len(environ))
 	for _, envVar := range environ {
@@ -37,6 +38,7 @@ func EnvObjectFrom(environ []string) cty.Value {
 		} else {
 			continue
 		}
+		name = cty.NormalizeString(name)
 		if _, seen := envMap[name]; seen {
 			continue
 		}

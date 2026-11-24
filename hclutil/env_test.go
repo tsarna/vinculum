@@ -44,6 +44,13 @@ func TestEnvObjectFromFirstDuplicateWins(t *testing.T) {
 	assert.Equal(t, cty.StringVal("first"), env.Index(cty.StringVal("X")))
 }
 
+func TestEnvObjectFromFirstOfEquivalentUnicodeNamesWins(t *testing.T) {
+	for range 20 {
+		env := EnvObjectFrom([]string{"caf\u00e9=composed", "cafe\u0301=decomposed"})
+		assert.Equal(t, map[string]cty.Value{"caf\u00e9": cty.StringVal("composed")}, env.AsValueMap())
+	}
+}
+
 func TestEnvObjectFromEmpty(t *testing.T) {
 	assert.True(t, EnvObjectFrom(nil).RawEquals(cty.MapValEmpty(cty.String)))
 	assert.True(t, EnvObjectFrom([]string{"NOSEP"}).RawEquals(cty.MapValEmpty(cty.String)))
