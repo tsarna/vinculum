@@ -283,6 +283,29 @@ func TestNamespaceProviderMisbehaviour(t *testing.T) {
 			"namespace fixture: provider returned string, not an object")
 	})
 
+	t.Run("a map needs free members", func(t *testing.T) {
+		registerFixtureNamespace(t, "fixture", cty.MapValEmpty(cty.String),
+			NamespaceSchema{Summary: "Fixture."})
+
+		assert.Contains(t, fixtureProblems(t, SchemaGenOptions{}),
+			"namespace fixture: provider returned map of string, not an object")
+	})
+
+	t.Run("a map with free members", func(t *testing.T) {
+		registerFixtureNamespace(t, "fixture", cty.MapVal(map[string]cty.Value{"A.B": cty.StringVal("x")}),
+			NamespaceSchema{Summary: "Fixture.", FreeMembers: true})
+
+		assert.Empty(t, fixtureProblems(t, SchemaGenOptions{}))
+	})
+
+	t.Run("a map cannot describe members", func(t *testing.T) {
+		registerFixtureNamespace(t, "fixture", cty.MapVal(map[string]cty.Value{"A": cty.StringVal("x")}),
+			NamespaceSchema{Summary: "Fixture.", FreeMembers: true, Members: map[string]MemberMeta{"A": {Summary: "A."}}})
+
+		assert.Contains(t, fixtureProblems(t, SchemaGenOptions{}),
+			"namespace fixture: provider returned map of string, whose members cannot be described")
+	})
+
 	t.Run("panics", func(t *testing.T) {
 		withCleanAmbientProviders(t)
 		ambientProviders = append(ambientProviders, ambientEntry{
