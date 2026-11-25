@@ -47,12 +47,19 @@ import (
 // Stopping straight from a running config skips that phase and races the
 // queue's worker, which is what made TestKfakeAutoBehindAQueueStill...
 // flaky under CI load — see issue #333.
-func startConfig(t *testing.T, src string) (*cfg.Config, func()) {
+//
+// beforeStart runs after the buses are up and before any client starts, which
+// is where a test subscribes when its topic already holds records: a consumer
+// started first can deliver them before the subscription exists.
+func startConfig(t *testing.T, src string, beforeStart ...func(*cfg.Config)) (*cfg.Config, func()) {
 	t.Helper()
 
 	config, diags := cfg.NewConfig().WithSources([]byte(src)).WithLogger(zap.NewNop()).Build()
 	require.False(t, diags.HasErrors(), diags.Error())
 
+	for _, f := range beforeStart {
+		f(config)
+	}
 	for _, s := range config.Startables {
 		require.NoError(t, s.Start())
 	}
@@ -372,9 +379,10 @@ client "kafka" "k" {
 }
 `, addr)
 
-	second, _ := startConfig(t, replay)
 	got := &firstMessageSubscriber{got: make(chan string, 1)}
-	require.NoError(t, second.Buses["main"].Subscribe(context.Background(), "in", got))
+	startConfig(t, replay, func(second *cfg.Config) {
+		require.NoError(t, second.Buses["main"].Subscribe(context.Background(), "in", got))
+	})
 
 	produce("B")
 
@@ -566,9 +574,10 @@ client "kafka" "k" {
 }
 `, addr)
 
-	second, _ := startConfig(t, replay)
 	got := &firstMessageSubscriber{got: make(chan string, 1)}
-	require.NoError(t, second.Buses["main"].Subscribe(context.Background(), "in", got))
+	startConfig(t, replay, func(second *cfg.Config) {
+		require.NoError(t, second.Buses["main"].Subscribe(context.Background(), "in", got))
+	})
 
 	produce("k6", `"MARKER"`)
 
