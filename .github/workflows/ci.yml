@@ -35,6 +35,6 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
-    uses: tsarna/ci-shared/.github/workflows/ci-gate.yml@fd9cd914a2756f173c1175462225c4d09c34479b # v1.0.2
+    uses: tsarna/ci-shared/.github/workflows/ci-gate.yml@f4059662328f9421ba8d57c7f9b31d37918011b0 # v1.0.3
     with:
       needs: ${{ toJSON(needs) }}
