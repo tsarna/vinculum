@@ -19,3 +19,22 @@ jobs:
   # pull request runs. Change them there.
   checks:
     uses: ./.github/workflows/checks.yml
+
+  # One check for branch protection to require, instead of the individual jobs:
+  # the gate is *handed* this workflow's results (`toJSON(needs)`), so adding or
+  # renaming a job here never means editing a protection rule again. It is also
+  # where a red Renovate PR gets handed to a Devin session -- as a sibling job,
+  # never a dependency of the gate, so it cannot affect this check's conclusion.
+  # Definition and the full list of handoff preconditions: tsarna/ci-shared.
+  ci-success:
+    name: CI Success
+    if: always()
+    needs: [checks]
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+      id-token: write
+    uses: tsarna/ci-shared/.github/workflows/ci-gate.yml@f4059662328f9421ba8d57c7f9b31d37918011b0 # v1.0.3
+    with:
+      needs: ${{ toJSON(needs) }}
