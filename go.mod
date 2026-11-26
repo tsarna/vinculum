@@ -35,7 +35,7 @@ require (
 	github.com/sashabaranov/go-openai v1.43.0
 	github.com/sosodev/duration v1.4.0
 	github.com/spf13/cobra v1.10.2
-	github.com/spf13/pflag v1.0.10
+	github.com/spf13/pflag v1.1.0
 	github.com/stretchr/testify v1.12.1
 	github.com/tsarna/barcode-cty-func v0.2.0
 	github.com/tsarna/functy v0.15.0
