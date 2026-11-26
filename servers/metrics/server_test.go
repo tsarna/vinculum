@@ -358,6 +358,30 @@ func TestMetricStaleAfterMustBeAPositiveDuration(t *testing.T) {
 	assert.Contains(t, metricBodyDiags(t, `    stale_after = "-1m"`), "must be positive")
 }
 
+// A computed gauge is written by its own poll loop, so a window no longer than
+// the interval is provably always broken: the value expires before the next
+// poll can replace it, and the series flaps on every scrape. This is the one
+// case the config can see for itself, so it refuses rather than shipping a
+// metric that looks like a broken exporter.
+func TestMetricStaleAfterMustOutlastComputedInterval(t *testing.T) {
+	const computed = `    value = 1
+    computed_interval = "10s"
+`
+	assert.Contains(t, metricBodyDiags(t, computed+`    stale_after = "10s"`),
+		"stale_after shorter than computed_interval")
+	assert.Contains(t, metricBodyDiags(t, computed+`    stale_after = "5s"`),
+		"stale_after shorter than computed_interval")
+
+	// The interval defaults to 15s, so an omitted one is still checked.
+	assert.Contains(t, metricBodyDiags(t, "    value = 1\n"+`    stale_after = "15s"`),
+		"stale_after shorter than computed_interval")
+
+	// Longer is the configuration the attribute is for, and an imperative
+	// gauge has no interval to outlast.
+	assert.Empty(t, metricBodyDiags(t, computed+`    stale_after = "30s"`))
+	assert.Empty(t, metricBodyDiags(t, `    stale_after = "1s"`))
+}
+
 // --- Prometheus exposition ---
 
 // A gauge is now an observable instrument rather than a non-monotonic

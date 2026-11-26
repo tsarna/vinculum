@@ -80,6 +80,18 @@ that cleared its series and then refilled them would have a window — however
 short — in which a collection could land on the empty map and export a gap.
 Letting entries age out has no such race, and needs no bookkeeping in the VCL.
 
+One consequence of that choice: **going stale does not notify watchers.** A
+`watch` on the metric is told about writes, and expiry is not a write — there is
+no moment at which it happens. Staleness is a question asked at read time, and
+the only place it is currently materialised is collection, which is driven by
+whoever is scraping. Notifying from there would make a `watch` fire as a side
+effect of a scrape, at a cadence set by the scraper, and never fire at all if
+nothing scrapes. So a watcher holds the last value it was sent until the label
+set is written again, at which point it is notified of `0 → new` — because the
+expired value is already gone as far as `get()` is concerned. If you need to
+react to a thing disappearing, read the gauge on your own schedule rather than
+watching it.
+
 `stale_after` is a gauge-only setting. Writing it on a `counter` or a
 `histogram` is a configuration error: a counter that vanished and restarted
 would break `rate()` for everything reading it.
@@ -131,7 +143,7 @@ attributes are not universal, and the table below is rendered from the
 | `label_names` | list |  |  | Names of the metric's dynamic labels. |
 | `namespace` | string |  |  | Prefix for the metric name. |
 | `server` | expression (metrics-ref) |  |  | Metrics backend to register with. |
-| `stale_after` | string |  |  | Not supported by this metric type. |
+| `stale_after` | string (duration) |  |  | Not supported by this metric type. |
 | `tracing` | expression (tracing-ref) |  |  | Where to report traces. |
 | `value` | expression (action-expression) |  |  | Expression polled to produce the metric's value. |
 
@@ -408,6 +420,14 @@ Without it, a computed gauge reports its last successful poll indefinitely.
 Either can be the right choice — a value that changes slowly is still roughly
 true an hour later, while a queue depth is not — so the default is to keep
 reporting and say nothing, and `stale_after` is how you ask for the other one.
+
+The window has to be longer than `computed_interval`, and the config refuses it
+otherwise. At a window no longer than the interval the value is always already
+expired by the time the next poll could replace it, so the series would be
+withdrawn between every pair of polls and flap on every scrape. Only that
+provably broken case is rejected; how much room a window needs above the
+interval depends on how long the poll itself can take, which is why the example
+above gives a 30-second poll three minutes — enough to miss five in a row.
 
 ### Counter resets
 

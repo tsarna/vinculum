@@ -118,6 +118,27 @@ func TestGaugeMetric_IncrementAccumulates(t *testing.T) {
 	assert.Equal(t, 5.0, pts[0].Value)
 }
 
+// store reuses the attribute.Set already held under a key instead of rebuilding
+// it, so a rewritten series must still be reported under its own labels, and
+// two label sets must not bleed into one another however often either is
+// rewritten.
+func TestGaugeMetric_RewritingASeriesKeepsItsLabels(t *testing.T) {
+	m, reader := newObservedGauge(t, "labelled", []attribute.Key{"account"}, 0)
+	for i, acct := range []string{"a", "b", "a", "b", "a"} {
+		_, err := m.Set(context.Background(), []cty.Value{cty.NumberIntVal(int64(i)), labelsFor("account", acct)})
+		require.NoError(t, err)
+	}
+
+	byAccount := map[string]float64{}
+	for _, pt := range gaugePoints(t, collectInto(t, reader), "labelled") {
+		v, ok := pt.Attributes.Value("account")
+		require.True(t, ok, "series lost its label")
+		assert.Equal(t, 1, pt.Attributes.Len(), "series grew an attribute it was never given")
+		byAccount[v.AsString()] = pt.Value
+	}
+	assert.Equal(t, map[string]float64{"a": 4, "b": 3}, byAccount)
+}
+
 // --- stale_after ---
 
 // fakeClock drives staleness without sleeping.

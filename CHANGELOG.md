@@ -638,12 +638,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   It is deliberately a timeout rather than an explicit removal call: an exporter
   that cleared and refilled its series would have a window, however short, in
   which a collection could land on the empty map and export a gap. Ageing out
-  has no such race.
+  has no such race. One consequence is that going stale does not notify
+  watchers — expiry is not a write, and there is no moment at which it happens.
+  A `watch` holds the last value it was sent until the label set is written
+  again, and is then told of `0 → new`.
 
   `stale_after` is gauge-only, and a configuration error on a `counter` or a
   `histogram` rather than a silent no-op — a counter that vanished and restarted
   would break `rate()`, and someone who asks for a series to be withdrawn and is
-  quietly ignored has a monitoring gap with nothing to show for it.
+  quietly ignored has a monitoring gap with nothing to show for it. On a
+  computed gauge it must also be longer than `computed_interval`: at a window no
+  longer than the interval, the value is always already expired by the time the
+  next poll could replace it, so the series would flap on every scrape.
 
 ### Changed
 

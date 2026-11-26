@@ -263,10 +263,16 @@ var bucketsUnused = map[string]AttrMeta{
 // staleAfterGaugeOnly is the `stale_after` documentation for the two types
 // that reject it. Unlike `buckets`, it is a configuration error rather than
 // something quietly ignored — see the check in Process for why.
+//
+// MergeAttrs replaces whole entries rather than merging their fields, so the
+// Hint has to be restated here; without it the common attribute table, which
+// renders from the histogram variant, would show stale_after as a bare string
+// next to computed_interval's "string (duration)".
 var staleAfterGaugeOnly = map[string]AttrMeta{
 	"stale_after": {
 		Summary: "Not supported by this metric type.",
 		Doc:     "Withdrawing a series that has stopped being updated is a `gauge` thing; a counter that vanished and restarted would break `rate()`. Setting it here is a configuration error, not a silent no-op.",
+		Hint:    HintDuration,
 	},
 }
 
@@ -605,6 +611,26 @@ func (h *MetricBlockHandler) Process(config *Config, block *hcl.Block) hcl.Diagn
 				Summary:  "Invalid stale_after",
 				Detail:   fmt.Sprintf("stale_after must be positive, got %q. Omit it entirely for series that never expire.", *def.StaleAfter),
 				Subject:  def.DefRange.Ptr(),
+			}}
+		}
+		// A computed gauge is written by its own poll loop, so the config knows
+		// both numbers and can see when they cannot work together: at a window
+		// no longer than the interval, the value is always already expired by
+		// the time the next poll replaces it, and the series is withdrawn
+		// between every pair of polls. That flaps on every scrape and reads as
+		// a broken exporter rather than a broken config.
+		//
+		// Only the provably-impossible case is rejected. How much margin a
+		// window needs above the interval depends on how variable the poll is,
+		// which is not something the config can know.
+		if isComputed && d <= computedInterval {
+			return hcl.Diagnostics{{
+				Severity: hcl.DiagError,
+				Summary:  "stale_after shorter than computed_interval",
+				Detail: fmt.Sprintf(
+					"stale_after is %s but value is only polled every %s, so the series would expire between every pair of polls and flap on every scrape. Set stale_after to a small multiple of computed_interval.",
+					d, computedInterval),
+				Subject: def.DefRange.Ptr(),
 			}}
 		}
 		staleAfter = d

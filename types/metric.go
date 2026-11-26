@@ -130,9 +130,14 @@ func LabelNamesToAttrKeys(names []string) []attribute.Key {
 // --- GaugeMetric ---
 
 // gaugeEntry is one live series of a gauge: its value, the attributes to
-// report it under, and when it was last written. The attribute.Set is built
-// once here rather than at every collection, because collection is the hot
-// path the SDK drives and a write is comparatively rare.
+// report it under, and when it was last written. Holding the attribute.Set
+// here keeps it out of collection, which is driven by the SDK and must not
+// rebuild one set per series per scrape.
+//
+// It is built once per series, not once per write: see store, which reuses
+// the set already held under the key. That is sound because attrSetKey is a
+// lossless encoding of the label values -- attributesFromCtyObject admits
+// exactly the declared keys as strings -- so an equal key means an equal set.
 type gaugeEntry struct {
 	value float64
 	attrs attribute.Set
@@ -199,6 +204,24 @@ func (m *GaugeMetric) live(key string) float64 {
 		return 0
 	}
 	return e.value
+}
+
+// store writes a labeled series, reusing the attribute.Set already held under
+// the key rather than building a new one on every write -- an equal key means
+// an equal set, for the reason given on gaugeEntry. A series rewritten once
+// per scrape interval, which is the ordinary case, therefore allocates and
+// sorts its attributes once rather than forever.
+//
+// The caller holds mu.
+func (m *GaugeMetric) store(key string, kvs []attribute.KeyValue, f float64) {
+	if m.labelVals == nil {
+		m.labelVals = make(map[string]gaugeEntry)
+	}
+	e, ok := m.labelVals[key]
+	if !ok {
+		e.attrs = attribute.NewSet(kvs...)
+	}
+	m.labelVals[key] = gaugeEntry{value: f, attrs: e.attrs, at: m.now()}
 }
 
 // liveNoLabel is live() for the unlabeled series.
@@ -274,11 +297,8 @@ func (m *GaugeMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, err
 		}
 		key := attrSetKey(kvs, m.attrKeys)
 		m.mu.Lock()
-		if m.labelVals == nil {
-			m.labelVals = make(map[string]gaugeEntry)
-		}
 		old := m.live(key)
-		m.labelVals[key] = gaugeEntry{value: f, attrs: attribute.NewSet(kvs...), at: m.now()}
+		m.store(key, kvs, f)
 		m.mu.Unlock()
 		m.NotifyAll(ctx, m, cty.NumberFloatVal(old), value)
 		return value, nil
@@ -305,12 +325,9 @@ func (m *GaugeMetric) Increment(ctx context.Context, args []cty.Value) (cty.Valu
 		}
 		key := attrSetKey(kvs, m.attrKeys)
 		m.mu.Lock()
-		if m.labelVals == nil {
-			m.labelVals = make(map[string]gaugeEntry)
-		}
 		old := m.live(key)
 		cur := old + f
-		m.labelVals[key] = gaugeEntry{value: cur, attrs: attribute.NewSet(kvs...), at: m.now()}
+		m.store(key, kvs, cur)
 		m.mu.Unlock()
 		m.NotifyAll(ctx, m, cty.NumberFloatVal(old), cty.NumberFloatVal(cur))
 		return cty.NumberFloatVal(cur), nil
