@@ -610,7 +610,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   key: an `auth "custom"` action returning an object that sets it is now an error
   rather than having its value silently overwritten.
 
+- **`stale_after` on a `metric "gauge"`** puts a time limit on a series. A label
+  set not written within the window stops being reported, so a gauge that is
+  one-per-thing — per account, per device, per queue — stops asserting a value
+  for a thing that has gone away.
+
+  Without it, the series lives forever: the panel shows a stale truth and
+  `absent()` can never fire, because something *is* there. Anything that writes
+  the metric renews it, `set()` and `increment()` alike, so a window set to a
+  small multiple of whatever does the writing needs no bookkeeping in the VCL
+  at all:
+
+  ```hcl
+  metric "gauge" "sipaccount_registered" {
+      help        = "Whether each SIP account has a device registered"
+      label_names = ["account_id"]
+      stale_after = "12m"            # a 4m scrape loop
+  }
+  ```
+
+  A stale series is gone rather than hidden: `get()` reads `0`, and
+  `increment()` starts a fresh series from `0` instead of resuming the old
+  total. Writing the label set again brings it back. On a computed gauge the
+  window applies to the last *successful* poll, so an expression that has
+  started failing stops reporting a value that is no longer true.
+
+  It is deliberately a timeout rather than an explicit removal call: an exporter
+  that cleared and refilled its series would have a window, however short, in
+  which a collection could land on the empty map and export a gap. Ageing out
+  has no such race. One consequence is that going stale does not notify
+  watchers — expiry is not a write, and there is no moment at which it happens.
+  A `watch` holds the last value it was sent until the label set is written
+  again, and is then told of `0 → new`.
+
+  `stale_after` is gauge-only, and a configuration error on a `counter` or a
+  `histogram` rather than a silent no-op — a counter that vanished and restarted
+  would break `rate()`, and someone who asks for a series to be withdrawn and is
+  quietly ignored has a monitoring gap with nothing to show for it. On a
+  computed gauge it must also be longer than `computed_interval`: at a window no
+  longer than the interval, the value is always already expired by the time the
+  next poll could replace it, so the series would flap on every scrape.
+
 ### Changed
+
+- **A `metric "gauge"` is now an observable instrument, and reports a real
+  Gauge.** It used to be emulated on a `Float64UpDownCounter`: `set()` computed
+  the difference from the previous value and `Add`ed it. Every awkwardness
+  gauges had was downstream of that one choice.
+
+  The value a gauge holds is now its own, and the SDK reads it at collection.
+  Consequences:
+
+  - A series can end. Nothing could un-`Add` from a cumulative instrument, so
+    the best a departing thing could do was report 0 forever — a very different
+    claim from being gone. This is what `stale_after` (below) is built on.
+  - `set()` records the value, so a long-lived gauge no longer drifts by the
+    accumulated float error of a thousand deltas.
+  - The OTLP wire type is `Gauge` rather than `Sum{IsMonotonic:false,
+    Cumulative}`, and the emulation is no longer silently wrong under delta
+    temporality.
+
+  **A Prometheus scrape is unchanged** — the OTel→Prometheus bridge renders a
+  non-monotonic Sum and a Gauge identically, which is asserted by test — so
+  dashboards and alerts reading one through `server "metrics"` need no changes.
+  An OTLP-native consumer does see the new type. A computed gauge (one with
+  `value = ...`) changes the same way, so that `metric "gauge"` is one wire
+  type either way; its write no longer happens inside the poll span, so it can
+  no longer carry an exemplar.
 
 - **Searching the reference ranks an exact name first.** In `vinculum man -k`,
   the REPL's `:apropos` and the new `man::apropos`, a name that is exactly a

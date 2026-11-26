@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -287,16 +288,17 @@ metric "gauge" "foo_bar" {
 // computed_interval-without-value was advertised and unenforced: the metric
 // looked configured to poll itself and never did.
 
-// metricBodyDiags builds a config with one gauge carrying the given body and
-// returns the error text, or "" when it is accepted.
-func metricBodyDiags(t *testing.T, body string) string {
+// metricKindBodyDiags builds a config with one metric of the given kind
+// carrying the given body, and returns the error text, or "" when it is
+// accepted.
+func metricKindBodyDiags(t *testing.T, kind, body string) string {
 	t.Helper()
 	vcl := []byte(`
 server "metrics" "main" {
     listen = "127.0.0.1:19093"
 }
 
-metric "gauge" "g" {
+metric "` + kind + `" "g" {
     help = "h"
 ` + body + `
 }
@@ -306,6 +308,12 @@ metric "gauge" "g" {
 		return ""
 	}
 	return diags.Error()
+}
+
+// metricBodyDiags is metricKindBodyDiags for the common case, a gauge.
+func metricBodyDiags(t *testing.T, body string) string {
+	t.Helper()
+	return metricKindBodyDiags(t, "gauge", body)
 }
 
 func TestMetricComputedIntervalRequiresValue(t *testing.T) {
@@ -324,4 +332,112 @@ func TestMetricLabelNamesAndValueAreExclusive(t *testing.T) {
 	// Either alone is fine.
 	assert.Empty(t, metricBodyDiags(t, `    label_names = ["q"]`))
 	assert.Empty(t, metricBodyDiags(t, `    value = 1`))
+}
+
+// --- stale_after ---
+
+func TestMetricStaleAfterIsGaugeOnly(t *testing.T) {
+	assert.Empty(t, metricKindBodyDiags(t, "gauge", `    stale_after = "5m"`))
+
+	// On the other two it is an error rather than a silent no-op: someone who
+	// writes it has asked for a series to be withdrawn, and ignoring it would
+	// leave them with a monitoring gap and no sign of one.
+	for _, kind := range []string{"counter", "histogram"} {
+		assert.Contains(t, metricKindBodyDiags(t, kind, `    stale_after = "5m"`),
+			"stale_after on a non-gauge metric", "kind %q", kind)
+	}
+}
+
+func TestMetricStaleAfterMustBeAPositiveDuration(t *testing.T) {
+	assert.Contains(t, metricBodyDiags(t, `    stale_after = "soon"`), "Invalid stale_after")
+
+	// Zero reads as "expire immediately" but would mean "never expire", which
+	// is the default. Rejecting it is kinder than honouring the opposite of
+	// the obvious reading.
+	assert.Contains(t, metricBodyDiags(t, `    stale_after = "0s"`), "must be positive")
+	assert.Contains(t, metricBodyDiags(t, `    stale_after = "-1m"`), "must be positive")
+}
+
+// A computed gauge is written by its own poll loop, so a window no longer than
+// the interval is provably always broken: the value expires before the next
+// poll can replace it, and the series flaps on every scrape. This is the one
+// case the config can see for itself, so it refuses rather than shipping a
+// metric that looks like a broken exporter.
+func TestMetricStaleAfterMustOutlastComputedInterval(t *testing.T) {
+	const computed = `    value = 1
+    computed_interval = "10s"
+`
+	assert.Contains(t, metricBodyDiags(t, computed+`    stale_after = "10s"`),
+		"stale_after shorter than computed_interval")
+	assert.Contains(t, metricBodyDiags(t, computed+`    stale_after = "5s"`),
+		"stale_after shorter than computed_interval")
+
+	// The interval defaults to 15s, so an omitted one is still checked.
+	assert.Contains(t, metricBodyDiags(t, "    value = 1\n"+`    stale_after = "15s"`),
+		"stale_after shorter than computed_interval")
+
+	// Longer is the configuration the attribute is for, and an imperative
+	// gauge has no interval to outlast.
+	assert.Empty(t, metricBodyDiags(t, computed+`    stale_after = "30s"`))
+	assert.Empty(t, metricBodyDiags(t, `    stale_after = "1s"`))
+}
+
+// --- Prometheus exposition ---
+
+// A gauge is now an observable instrument rather than a non-monotonic
+// cumulative Sum. The OTel→Prometheus bridge is supposed to render both as a
+// Prometheus gauge, which is the claim that makes this change invisible to
+// every existing dashboard and alert. Worth asserting rather than assuming.
+func TestMetricBlockGauge_ScrapesAsAPrometheusGauge(t *testing.T) {
+	c, diags := cfg.NewConfig().WithSources(standaloneVCL).WithLogger(zap.NewNop()).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	ms := c.MetricsServers["main"].(*metricsserver.MetricsServer)
+
+	mv, err := types.GetMetricFromCapsule(c.Constants["metric"].GetAttr("temperature"))
+	require.NoError(t, err)
+	settable := mv.(interface {
+		Set(ctx context.Context, args []cty.Value) (cty.Value, error)
+	})
+	_, err = settable.Set(context.Background(), []cty.Value{cty.NumberFloatVal(42.5)})
+	require.NoError(t, err)
+
+	text := scrape(t, ms)
+	assert.Contains(t, text, "# TYPE temperature gauge")
+	// Every series carries the exporter's otel_scope_* labels, so match the
+	// name and the value around them rather than the whole line.
+	assert.Regexp(t, `\ntemperature\{[^}]*\} 42\.5\n`, text)
+}
+
+//go:embed testdata/stale.vcl
+var staleVCL []byte
+
+// End-to-end: a labeled series that stops being written disappears from the
+// scrape, instead of reporting its last value forever. This is the behaviour
+// the whole change exists for.
+//
+// It uses a real clock -- the test hook that avoids sleeping is unexported --
+// with a 50ms window and a wait several times longer. Only the "it is gone"
+// direction is asserted, so a slow machine can only make the test more
+// certainly right, never flaky.
+func TestMetricBlockGauge_StaleAfterWithdrawsTheSeries(t *testing.T) {
+	c, diags := cfg.NewConfig().WithSources(staleVCL).WithLogger(zap.NewNop()).Build()
+	require.False(t, diags.HasErrors(), diags.Error())
+	ms := c.MetricsServers["main"].(*metricsserver.MetricsServer)
+
+	mv, err := types.GetMetricFromCapsule(c.Constants["metric"].GetAttr("registered"))
+	require.NoError(t, err)
+	settable := mv.(interface {
+		Set(ctx context.Context, args []cty.Value) (cty.Value, error)
+	})
+	_, err = settable.Set(context.Background(), []cty.Value{
+		cty.NumberIntVal(1),
+		cty.ObjectVal(map[string]cty.Value{"account": cty.StringVal("a1")}),
+	})
+	require.NoError(t, err)
+
+	assert.Contains(t, scrape(t, ms), `registered{account="a1"`)
+
+	time.Sleep(300 * time.Millisecond)
+	assert.NotContains(t, scrape(t, ms), `registered{account="a1"`,
+		"a series nothing has written for 6x stale_after must be gone")
 }

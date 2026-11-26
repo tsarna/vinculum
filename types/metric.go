@@ -129,23 +129,139 @@ func LabelNamesToAttrKeys(names []string) []attribute.Key {
 
 // --- GaugeMetric ---
 
-// GaugeMetric implements richcty.Gettable, richcty.Settable, richcty.Incrementable, richcty.Watchable.
-// Uses OTel Float64UpDownCounter with delta tracking to support absolute Set().
-type GaugeMetric struct {
-	inst     metric.Float64UpDownCounter
-	attrKeys []attribute.Key
-	mu       sync.RWMutex
-	richcty.WatchableMixin
-	noLabelVal  float64            // cached value for unlabeled get
-	noLabelSeen bool               // has the unlabeled series ever been written?
-	labelVals   map[string]float64 // key = attrSetKey, cached for labeled get
+// gaugeEntry is one live series of a gauge: its value, the attributes to
+// report it under, and when it was last written. Holding the attribute.Set
+// here keeps it out of collection, which is driven by the SDK and must not
+// rebuild one set per series per scrape.
+//
+// It is built once per series, not once per write: see store, which reuses
+// the set already held under the key. That is sound because attrSetKey is a
+// lossless encoding of the label values -- attributesFromCtyObject admits
+// exactly the declared keys as strings -- so an equal key means an equal set.
+type gaugeEntry struct {
+	value float64
+	attrs attribute.Set
+	at    time.Time
 }
 
-func NewGaugeMetric(inst metric.Float64UpDownCounter, attrKeys []attribute.Key) *GaugeMetric {
-	return &GaugeMetric{inst: inst, attrKeys: attrKeys}
+// GaugeMetric implements richcty.Gettable, richcty.Settable, richcty.Incrementable, richcty.Watchable.
+//
+// The map below is the gauge's truth, not a cache of it. The metric is an OTel
+// Float64ObservableGauge and Collect reports whatever the map holds at the
+// moment the SDK asks for it; set() and increment() do nothing but write the
+// map.
+//
+// That inversion is the point. A gauge used to be emulated on a
+// Float64UpDownCounter by Adding the difference from the previous value, which
+// made a series something that could be created and never withdrawn -- the
+// best available was to drive it to 0 and leave it reporting 0 forever, which
+// is a very different claim from "this thing is gone". An entry that is not in
+// the map is simply not observed, so a series can end, which is what
+// staleAfter is built on. Setting the value outright also means a long-lived
+// gauge no longer accumulates the float error of a thousand deltas, and the
+// wire type is a real Gauge rather than a non-monotonic cumulative Sum.
+type GaugeMetric struct {
+	attrKeys   []attribute.Key
+	staleAfter time.Duration // 0 = series never expire
+	mu         sync.Mutex
+	richcty.WatchableMixin
+	noLabelVal  float64               // the unlabeled series
+	noLabelSeen bool                  // ...has it ever been written?
+	noLabelAt   time.Time             // ...and when
+	labelVals   map[string]gaugeEntry // key = attrSetKey
+
+	// now is time.Now, replaced in tests. Staleness is the only behaviour here
+	// that depends on the clock, and exercising it with real sleeps would mean
+	// choosing between a flaky margin and a slow test.
+	now func() time.Time
+}
+
+// NewGaugeMetric builds a gauge. A staleAfter of 0 means series never expire,
+// which is how every gauge behaved before stale_after existed.
+//
+// It takes no instrument: the caller registers Collect as the callback of a
+// Float64ObservableGauge, and the SDK pulls from here.
+func NewGaugeMetric(attrKeys []attribute.Key, staleAfter time.Duration) *GaugeMetric {
+	return &GaugeMetric{attrKeys: attrKeys, staleAfter: staleAfter, now: time.Now}
 }
 
 func (m *GaugeMetric) metricValue() {}
+
+// expired reports whether a series last written at `at` has aged out.
+func (m *GaugeMetric) expired(at, now time.Time) bool {
+	return m.staleAfter > 0 && now.Sub(at) >= m.staleAfter
+}
+
+// live is the current value of a labeled series: 0 when it has never been
+// written or has aged out, which are deliberately the same answer. A stale
+// series is gone, not merely unreported -- so an increment() after one expires
+// starts a new series from 0 rather than silently resuming the old total.
+//
+// The caller holds mu.
+func (m *GaugeMetric) live(key string) float64 {
+	e, ok := m.labelVals[key]
+	if !ok || m.expired(e.at, m.now()) {
+		return 0
+	}
+	return e.value
+}
+
+// store writes a labeled series, reusing the attribute.Set already held under
+// the key rather than building a new one on every write -- an equal key means
+// an equal set, for the reason given on gaugeEntry. A series rewritten once
+// per scrape interval, which is the ordinary case, therefore allocates and
+// sorts its attributes once rather than forever.
+//
+// The caller holds mu.
+func (m *GaugeMetric) store(key string, kvs []attribute.KeyValue, f float64) {
+	if m.labelVals == nil {
+		m.labelVals = make(map[string]gaugeEntry)
+	}
+	e, ok := m.labelVals[key]
+	if !ok {
+		e.attrs = attribute.NewSet(kvs...)
+	}
+	m.labelVals[key] = gaugeEntry{value: f, attrs: e.attrs, at: m.now()}
+}
+
+// liveNoLabel is live() for the unlabeled series.
+//
+// The caller holds mu.
+func (m *GaugeMetric) liveNoLabel() float64 {
+	if !m.noLabelSeen || m.expired(m.noLabelAt, m.now()) {
+		return 0
+	}
+	return m.noLabelVal
+}
+
+// Collect reports every live series. It implements metric.Float64Callback and
+// is registered as the callback of the metric's Float64ObservableGauge.
+//
+// Expired entries are dropped here rather than by a timer: collection is the
+// only moment at which staleness has any observable consequence, and pruning
+// in place keeps a map keyed by unbounded label values from becoming a slow
+// leak.
+func (m *GaugeMetric) Collect(_ context.Context, o metric.Float64Observer) error {
+	now := m.now()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.noLabelSeen {
+		if m.expired(m.noLabelAt, now) {
+			m.noLabelSeen, m.noLabelVal = false, 0
+		} else {
+			o.Observe(m.noLabelVal)
+		}
+	}
+	for key, e := range m.labelVals {
+		if m.expired(e.at, now) {
+			delete(m.labelVals, key)
+			continue
+		}
+		o.Observe(e.value, metric.WithAttributeSet(e.attrs))
+	}
+	return nil
+}
 
 // --- richcty.Gettable ---
 func (m *GaugeMetric) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
@@ -155,13 +271,13 @@ func (m *GaugeMetric) Get(_ context.Context, args []cty.Value) (cty.Value, error
 			return cty.NilVal, fmt.Errorf("get: %w", err)
 		}
 		key := attrSetKey(kvs, m.attrKeys)
-		m.mu.RLock()
-		defer m.mu.RUnlock()
-		return cty.NumberFloatVal(m.labelVals[key]), nil
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return cty.NumberFloatVal(m.live(key)), nil
 	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return cty.NumberFloatVal(m.noLabelVal), nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return cty.NumberFloatVal(m.liveNoLabel()), nil
 }
 
 // --- richcty.Settable ---
@@ -181,36 +297,16 @@ func (m *GaugeMetric) Set(ctx context.Context, args []cty.Value) (cty.Value, err
 		}
 		key := attrSetKey(kvs, m.attrKeys)
 		m.mu.Lock()
-		if m.labelVals == nil {
-			m.labelVals = make(map[string]float64)
-		}
-		old, seen := m.labelVals[key]
-		m.labelVals[key] = f
+		old := m.live(key)
+		m.store(key, kvs, f)
 		m.mu.Unlock()
-		delta := f - old
-		// Always Add on the first write for an attribute set, even when the
-		// delta works out to zero. The gauge is emulated with an
-		// UpDownCounter, which only materializes a time series once it has
-		// been Added to, so a gauge whose FIRST value is 0 would otherwise
-		// never be exported at all -- it would be indistinguishable from an
-		// account/host/queue that does not exist, which is exactly the
-		// distinction a zero-valued gauge exists to make.
-		if delta != 0 || !seen {
-			m.inst.Add(ctx, delta, metric.WithAttributes(kvs...))
-		}
 		m.NotifyAll(ctx, m, cty.NumberFloatVal(old), value)
 		return value, nil
 	}
 	m.mu.Lock()
-	old := m.noLabelVal
-	seen := m.noLabelSeen
-	m.noLabelVal = f
-	m.noLabelSeen = true
+	old := m.liveNoLabel()
+	m.noLabelVal, m.noLabelSeen, m.noLabelAt = f, true, m.now()
 	m.mu.Unlock()
-	delta := f - old
-	if delta != 0 || !seen {
-		m.inst.Add(ctx, delta)
-	}
 	m.NotifyAll(ctx, m, cty.NumberFloatVal(old), value)
 	return value, nil
 }
@@ -229,23 +325,18 @@ func (m *GaugeMetric) Increment(ctx context.Context, args []cty.Value) (cty.Valu
 		}
 		key := attrSetKey(kvs, m.attrKeys)
 		m.mu.Lock()
-		if m.labelVals == nil {
-			m.labelVals = make(map[string]float64)
-		}
-		old := m.labelVals[key]
-		m.labelVals[key] += f
-		cur := m.labelVals[key]
+		old := m.live(key)
+		cur := old + f
+		m.store(key, kvs, cur)
 		m.mu.Unlock()
-		m.inst.Add(ctx, f, metric.WithAttributes(kvs...))
 		m.NotifyAll(ctx, m, cty.NumberFloatVal(old), cty.NumberFloatVal(cur))
 		return cty.NumberFloatVal(cur), nil
 	}
 	m.mu.Lock()
-	old := m.noLabelVal
-	m.noLabelVal += f
-	cur := m.noLabelVal
+	old := m.liveNoLabel()
+	cur := old + f
+	m.noLabelVal, m.noLabelSeen, m.noLabelAt = cur, true, m.now()
 	m.mu.Unlock()
-	m.inst.Add(ctx, f)
 	m.NotifyAll(ctx, m, cty.NumberFloatVal(old), cty.NumberFloatVal(cur))
 	return cty.NumberFloatVal(cur), nil
 }
@@ -540,18 +631,27 @@ func startPolling(ctx context.Context, interval time.Duration, poll func(context
 // ComputedGaugeMetric implements richcty.Gettable and Startable.
 // Its value is derived by evaluating a stored hcl.Expression on a polling
 // interval. set() and increment() are not supported.
+//
+// Like GaugeMetric it is an observable instrument: poll writes the cache and
+// Collect reports it. That keeps `metric "gauge"` one wire type whether or not
+// it has a `value`, and it gives staleAfter something to mean here too -- an
+// expression that has started failing stops reporting a value that is no
+// longer true, rather than holding the last good one indefinitely.
 type ComputedGaugeMetric struct {
 	computedEval
-	inst   metric.Float64UpDownCounter
-	mu     sync.Mutex
-	cached float64
-	seen   bool // has a poll ever reached the instrument?
+	staleAfter time.Duration // 0 = the value never expires
+	mu         sync.Mutex
+	cached     float64
+	seen       bool // has a poll ever produced a value?
+	at         time.Time
+	now        func() time.Time // time.Now, replaced in tests
 }
 
-func NewComputedGaugeMetric(inst metric.Float64UpDownCounter, expr hcl.Expression, scopeFn PollScopeFunc, logger *zap.Logger, interval time.Duration) *ComputedGaugeMetric {
+func NewComputedGaugeMetric(expr hcl.Expression, scopeFn PollScopeFunc, logger *zap.Logger, interval, staleAfter time.Duration) *ComputedGaugeMetric {
 	return &ComputedGaugeMetric{
 		computedEval: computedEval{kind: "gauge", expr: expr, scopeFn: scopeFn, logger: logger, interval: interval},
-		inst:         inst,
+		staleAfter:   staleAfter,
+		now:          time.Now,
 	}
 }
 
@@ -559,21 +659,40 @@ func (m *ComputedGaugeMetric) metricValue() {}
 func (m *ComputedGaugeMetric) isComputed()  {}
 
 func (m *ComputedGaugeMetric) poll(ctx context.Context) {
-	pollCtx, f, ok := m.evaluate(ctx)
+	_, f, ok := m.evaluate(ctx)
 	if !ok {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delta := f - m.cached
-	seen := m.seen
-	m.cached = f
-	m.seen = true
-	// Same first-write rule as GaugeMetric.Set: a computed gauge whose first
-	// polled value is 0 must still materialize its series.
-	if delta != 0 || !seen {
-		m.inst.Add(pollCtx, delta)
+	m.cached, m.seen, m.at = f, true, m.now()
+}
+
+// stale reports whether the last successful poll has aged out.
+//
+// The caller holds mu.
+func (m *ComputedGaugeMetric) stale() bool {
+	return m.staleAfter > 0 && m.now().Sub(m.at) >= m.staleAfter
+}
+
+// Collect reports the last polled value, if there is one that is still
+// current. It implements metric.Float64Callback.
+//
+// Nothing is observed before the first successful poll, so a metric declared
+// but never yet computed is absent rather than reporting a zero it has no
+// grounds for.
+func (m *ComputedGaugeMetric) Collect(_ context.Context, o metric.Float64Observer) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.seen {
+		return nil
 	}
+	if m.stale() {
+		m.seen, m.cached = false, 0
+		return nil
+	}
+	o.Observe(m.cached)
+	return nil
 }
 
 // Start launches the polling goroutine. Implements config.Startable.
@@ -584,6 +703,9 @@ func (m *ComputedGaugeMetric) Start(ctx context.Context) {
 func (m *ComputedGaugeMetric) Get(_ context.Context, args []cty.Value) (cty.Value, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if !m.seen || m.stale() {
+		return cty.NumberFloatVal(0), nil
+	}
 	return cty.NumberFloatVal(m.cached), nil
 }
 

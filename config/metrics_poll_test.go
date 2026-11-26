@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/tsarna/vinculum/types"
-	"go.opentelemetry.io/otel/metric"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,11 +81,11 @@ func TestComputedMetricEvalErrorGoesToUserLogger(t *testing.T) {
 	// poll, forever — which is exactly the case that used to print a stacktrace
 	// pointing into types/metric.go.
 	m := types.NewComputedGaugeMetric(
-		noopFloat64UpDownCounter{},
 		parseExpr(t, `no_such_thing`),
 		config.metricPollScope("broken", nil),
 		config.UserLogger,
 		time.Hour,
+		0,
 	)
 	m.Start(context.Background())
 
@@ -99,8 +98,3 @@ func TestComputedMetricEvalErrorGoesToUserLogger(t *testing.T) {
 	assert.Empty(t, entry.Stack, "a VCL error must not carry a Go stacktrace")
 	assert.False(t, entry.Caller.Defined, "nor a Go caller")
 }
-
-// noopFloat64UpDownCounter records nothing; the test is about the eval path.
-type noopFloat64UpDownCounter struct{ metric.Float64UpDownCounter }
-
-func (noopFloat64UpDownCounter) Add(context.Context, float64, ...metric.AddOption) {}
