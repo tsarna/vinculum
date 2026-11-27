@@ -1,4 +1,4 @@
-// get() is declared by rich-cty-types' registered externs, so defining it here
+// get() is declared by richcty's registered externs, so defining it here
 // would make that declaration a lie. Build must reject this.
 func get(thing) {
     return thing

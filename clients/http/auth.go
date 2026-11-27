@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	timecty "github.com/tsarna/time-cty-funcs"
+	timecty "github.com/tsarna/ctyx/timecty"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 )

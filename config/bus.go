@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
-	richcty "github.com/tsarna/rich-cty-types"
+	richcty "github.com/tsarna/ctyx/richcty"
 	bus "github.com/tsarna/vinculum-bus"
 	"github.com/zclconf/go-cty/cty"
 )

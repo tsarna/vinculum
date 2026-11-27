@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	timecty "github.com/tsarna/time-cty-funcs"
+	timecty "github.com/tsarna/ctyx/timecty"
 	"github.com/tsarna/vinculum/ambient"
 	"github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/platform"

@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	richcty "github.com/tsarna/rich-cty-types"
-	timecty "github.com/tsarna/time-cty-funcs"
+	richcty "github.com/tsarna/ctyx/richcty"
+	timecty "github.com/tsarna/ctyx/timecty"
 	"github.com/zclconf/go-cty/cty"
 	"go.uber.org/zap"
 )

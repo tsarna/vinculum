@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"reflect"
 
-	bytescty "github.com/tsarna/bytes-cty-type"
-	"github.com/tsarna/go2cty2go"
+	bytescty "github.com/tsarna/ctyx/bytescty"
+	"github.com/tsarna/ctyx/go2cty2go"
 	wire "github.com/tsarna/vinculum-wire"
 	"github.com/zclconf/go-cty/cty"
 )

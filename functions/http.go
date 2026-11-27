@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	bytescty "github.com/tsarna/bytes-cty-type"
-	richcty "github.com/tsarna/rich-cty-types"
-	urlcty "github.com/tsarna/url-cty-funcs"
+	bytescty "github.com/tsarna/ctyx/bytescty"
+	richcty "github.com/tsarna/ctyx/richcty"
+	urlcty "github.com/tsarna/ctyx/urlcty"
 	clientshttp "github.com/tsarna/vinculum/clients/http"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"

@@ -158,6 +158,7 @@ doc/            User-facing documentation
 | `github.com/hashicorp/hcl/v2/gohcl` | Decode HCL bodies into Go structs |
 | `github.com/zclconf/go-cty` | Type system for HCL expression evaluation |
 | `github.com/hashicorp/go-cty-funcs` | Standard library functions for cty |
+| `github.com/tsarna/ctyx` | cty extensions: rich capsule types and function sets (`richcty`, `go2cty2go`, `bytescty`, `urlcty`, `timecty`, `geocty`, `randcty`, `sqidcty`, `barcodecty`) |
 | `github.com/tsarna/vinculum-bus` | Core event bus (MQTT-style pub/sub) |
 | `github.com/tsarna/vinculum-vws` | Vinculum WebSocket protocol |
 | `github.com/tsarna/hcl-jqfunc` | JQ function support in HCL |
@@ -169,6 +170,7 @@ doc/            User-facing documentation
 | `github.com/spf13/cobra` | CLI |
 
 ### Related repos (also in `~/src/`)
+- `ctyx` — the cty extension packages (nine of them, one module)
 - `vinculum-bus` — the event bus library
 - `vinculum-vws` — the VWS WebSocket protocol library
 - `hcl-jqfunc` — HCL JQ function integration
@@ -509,8 +511,8 @@ for contexts.
 
 | VCL Type | Object type var | Capsule type var | Source |
 |---|---|---|---|
-| `bytes` | `bytescty.BytesObjectType` | `bytescty.BytesCapsuleType` | [github.com/tsarna/bytes-cty-type](https://github.com/tsarna/bytes-cty-type) (wired in `functions/bytes.go`) |
-| URL object | `urlcty.URLObjectType` | `urlcty.URLCapsuleType` | [github.com/tsarna/url-cty-funcs](https://github.com/tsarna/url-cty-funcs) |
+| `bytes` | `bytescty.BytesObjectType` | `bytescty.BytesCapsuleType` | [github.com/tsarna/ctyx/bytescty](https://github.com/tsarna/ctyx) (wired in `functions/bytes.go`) |
+| URL object | `urlcty.URLObjectType` | `urlcty.URLCapsuleType` | [github.com/tsarna/ctyx/urlcty](https://github.com/tsarna/ctyx) |
 
 **How to implement a new rich object type:**
 

@@ -3,7 +3,7 @@ package functions
 import (
 	"fmt"
 
-	"github.com/tsarna/go2cty2go"
+	"github.com/tsarna/ctyx/go2cty2go"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"

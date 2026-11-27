@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	bytescty "github.com/tsarna/bytes-cty-type"
-	richcty "github.com/tsarna/rich-cty-types"
-	urlcty "github.com/tsarna/url-cty-funcs"
+	bytescty "github.com/tsarna/ctyx/bytescty"
+	richcty "github.com/tsarna/ctyx/richcty"
+	urlcty "github.com/tsarna/ctyx/urlcty"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

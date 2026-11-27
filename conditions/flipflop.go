@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"sync"
 
-	richcty "github.com/tsarna/rich-cty-types"
+	richcty "github.com/tsarna/ctyx/richcty"
 
 	"github.com/hashicorp/hcl/v2"
 	cfg "github.com/tsarna/vinculum/config"

@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	bytescty "github.com/tsarna/bytes-cty-type"
-	timecty "github.com/tsarna/time-cty-funcs"
+	bytescty "github.com/tsarna/ctyx/bytescty"
+	timecty "github.com/tsarna/ctyx/timecty"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"google.golang.org/protobuf/reflect/protoreflect"

@@ -3,7 +3,7 @@ package functions
 import (
 	"testing"
 
-	bytescty "github.com/tsarna/bytes-cty-type"
+	bytescty "github.com/tsarna/ctyx/bytescty"
 	wire "github.com/tsarna/vinculum-wire"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"

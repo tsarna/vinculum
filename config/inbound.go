@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/tsarna/go2cty2go"
+	"github.com/tsarna/ctyx/go2cty2go"
 	"github.com/tsarna/vinculum/hclutil"
 )
 

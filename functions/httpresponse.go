@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	timecty "github.com/tsarna/time-cty-funcs"
+	timecty "github.com/tsarna/ctyx/timecty"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/types"
 	"github.com/zclconf/go-cty/cty"

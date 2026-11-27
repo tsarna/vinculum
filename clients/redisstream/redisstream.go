@@ -11,7 +11,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/tsarna/go2cty2go"
+	"github.com/tsarna/ctyx/go2cty2go"
 	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum-redis/stream"
 	wire "github.com/tsarna/vinculum-wire"

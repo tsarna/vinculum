@@ -11,8 +11,8 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	goredis "github.com/redis/go-redis/v9"
-	bytescty "github.com/tsarna/bytes-cty-type"
-	richcty "github.com/tsarna/rich-cty-types"
+	bytescty "github.com/tsarna/ctyx/bytescty"
+	richcty "github.com/tsarna/ctyx/richcty"
 	wire "github.com/tsarna/vinculum-wire"
 	redisclient "github.com/tsarna/vinculum/clients/redis"
 	cfg "github.com/tsarna/vinculum/config"

@@ -1,13 +1,13 @@
 package functions
 
 import (
-	barcodecty "github.com/tsarna/barcode-cty-func"
-	geocty "github.com/tsarna/geo-cty-funcs"
-	randcty "github.com/tsarna/rand-cty-funcs"
-	richcty "github.com/tsarna/rich-cty-types"
-	sqidcty "github.com/tsarna/sqid-cty-funcs"
-	timecty "github.com/tsarna/time-cty-funcs"
-	urlcty "github.com/tsarna/url-cty-funcs"
+	barcodecty "github.com/tsarna/ctyx/barcodecty"
+	geocty "github.com/tsarna/ctyx/geocty"
+	randcty "github.com/tsarna/ctyx/randcty"
+	richcty "github.com/tsarna/ctyx/richcty"
+	sqidcty "github.com/tsarna/ctyx/sqidcty"
+	timecty "github.com/tsarna/ctyx/timecty"
+	urlcty "github.com/tsarna/ctyx/urlcty"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty/function"
 )

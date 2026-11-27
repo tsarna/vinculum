@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"time"
 
-	richcty "github.com/tsarna/rich-cty-types"
+	richcty "github.com/tsarna/ctyx/richcty"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 )
