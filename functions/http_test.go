@@ -15,8 +15,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	bytescty "github.com/tsarna/bytes-cty-type"
-	richcty "github.com/tsarna/rich-cty-types"
+	bytescty "github.com/tsarna/ctyx/bytescty"
+	richcty "github.com/tsarna/ctyx/richcty"
 	clientshttp "github.com/tsarna/vinculum/clients/http"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/types"

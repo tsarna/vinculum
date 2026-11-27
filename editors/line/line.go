@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
-	richcty "github.com/tsarna/rich-cty-types"
+	richcty "github.com/tsarna/ctyx/richcty"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"

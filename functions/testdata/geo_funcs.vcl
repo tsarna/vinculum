@@ -1,4 +1,4 @@
-// End-to-end smoke tests for geo-cty-funcs integration.
+// End-to-end smoke tests for geocty integration.
 // Each assert block verifies one function category.
 
 // --- Point construction and formatting ---

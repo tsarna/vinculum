@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	bytescty "github.com/tsarna/bytes-cty-type"
+	bytescty "github.com/tsarna/ctyx/bytescty"
 	"github.com/zclconf/go-cty/cty"
 )
 

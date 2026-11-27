@@ -3,7 +3,7 @@ package protobuf
 import (
 	"fmt"
 
-	bytescty "github.com/tsarna/bytes-cty-type"
+	bytescty "github.com/tsarna/ctyx/bytescty"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
 	"google.golang.org/protobuf/proto"

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	richcty "github.com/tsarna/rich-cty-types"
+	richcty "github.com/tsarna/ctyx/richcty"
 
 	"github.com/zclconf/go-cty/cty"
 )

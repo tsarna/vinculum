@@ -9,7 +9,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	bytescty "github.com/tsarna/bytes-cty-type"
+	bytescty "github.com/tsarna/ctyx/bytescty"
 	"github.com/tsarna/vinculum/clients/rediskv"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"

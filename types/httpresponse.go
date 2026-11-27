@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"reflect"
 
-	bytescty "github.com/tsarna/bytes-cty-type"
-	richcty "github.com/tsarna/rich-cty-types"
+	bytescty "github.com/tsarna/ctyx/bytescty"
+	richcty "github.com/tsarna/ctyx/richcty"
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
 )

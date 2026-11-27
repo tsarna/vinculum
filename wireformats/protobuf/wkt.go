@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tsarna/go2cty2go"
-	timecty "github.com/tsarna/time-cty-funcs"
+	"github.com/tsarna/ctyx/go2cty2go"
+	timecty "github.com/tsarna/ctyx/timecty"
 	"github.com/zclconf/go-cty/cty"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/reflect/protoreflect"

@@ -136,7 +136,7 @@ Vinculum is built on top of several standalone Go libraries that can be used ind
 | [vinculum-wire](https://github.com/tsarna/vinculum-wire) | Pluggable wire-format system (`auto`, `json`, protobuf, …) for converting between Go values and byte sequences, used by Vinculum's clients and servers |
 | [functy](https://github.com/tsarna/functy) | The functy (`.cty`) language — a small imperative language whose values are cty values and whose expressions are HCL, with functions, typed locals, control flow, and structured errors |
 
-Vinculum also relies on several smaller standalone HCL/cty helper libraries: [go2cty2go](https://github.com/tsarna/go2cty2go), [hcl-jqfunc](https://github.com/tsarna/hcl-jqfunc), [go-structdiff](https://github.com/tsarna/go-structdiff), [rich-cty-types](https://github.com/tsarna/rich-cty-types), [bytes-cty-type](https://github.com/tsarna/bytes-cty-type), [url-cty-funcs](https://github.com/tsarna/url-cty-funcs), [time-cty-funcs](https://github.com/tsarna/time-cty-funcs), [rand-cty-funcs](https://github.com/tsarna/rand-cty-funcs), [sqid-cty-funcs](https://github.com/tsarna/sqid-cty-funcs), [geo-cty-funcs](https://github.com/tsarna/geo-cty-funcs), and [barcode-cty-func](https://github.com/tsarna/barcode-cty-func).
+Vinculum also relies on several smaller standalone HCL/cty helper libraries: [ctyx](https://github.com/tsarna/ctyx) — which provides the `richcty`, `go2cty2go`, `bytescty`, `urlcty`, `timecty`, `geocty`, `randcty`, `sqidcty` and `barcodecty` packages — plus [hcl-jqfunc](https://github.com/tsarna/hcl-jqfunc) and [go-structdiff](https://github.com/tsarna/go-structdiff).
 
 ## License
 

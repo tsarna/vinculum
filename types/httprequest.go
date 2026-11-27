@@ -9,10 +9,10 @@ import (
 	"reflect"
 	"strings"
 
-	bytescty "github.com/tsarna/bytes-cty-type"
-	richcty "github.com/tsarna/rich-cty-types"
-	timecty "github.com/tsarna/time-cty-funcs"
-	urlcty "github.com/tsarna/url-cty-funcs"
+	bytescty "github.com/tsarna/ctyx/bytescty"
+	richcty "github.com/tsarna/ctyx/richcty"
+	timecty "github.com/tsarna/ctyx/timecty"
+	urlcty "github.com/tsarna/ctyx/urlcty"
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
 )

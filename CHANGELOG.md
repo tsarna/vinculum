@@ -945,6 +945,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   skew, audience mismatch, unknown signing keys, malformed and absent bearer tokens, the
   explicit `jwks_url` path that skips discovery, and the config errors above.
 
+- **The nine cty helper libraries are now one module, `github.com/tsarna/ctyx`.**
+  `rich-cty-types`, `go2cty2go`, `rand-cty-funcs`, `url-cty-funcs`,
+  `bytes-cty-type`, `time-cty-funcs`, `sqid-cty-funcs`, `geo-cty-funcs` and
+  `barcode-cty-func` were nine repositories and nine modules; they are now nine
+  packages of one, named for the package in each case — `ctyx/richcty`,
+  `ctyx/go2cty2go`, `ctyx/randcty`, and so on. Package names and contents are
+  unchanged, so this is import paths and `go.mod`: nine `require` lines become
+  one.
+
+  Nothing in VCL changes. No type name, function name, namespace or `ctx` field
+  is affected — the functy type registry names types `url`, `bytes`, `time`,
+  `duration`, `geopoint` and so on, none of which was ever derived from an
+  import path. The one piece of user-visible text that moves is the filename
+  each package reports for its embedded functy externs, which appears in
+  extern-collision diagnostics: `rich-cty-types/externs.cty` is now
+  `ctyx/richcty/externs.cty`.
+
+  `vinculum-fsm` v0.9.0 and `hcl-jqfunc` v0.1.5 move with it, and must: a module
+  path change makes the old and new copies of a package distinct types, and
+  `richcty.Watchable` is `Watch(w Watcher)` / `Unwatch(w Watcher)`, whose
+  `Watcher` is package-local. An fsm built against the old `rich-cty-types`
+  compiles perfectly against a migrated vinculum and then fails at runtime with
+  `value of type fsm is not watchable`.
+
+  Why: a single `go-cty` bump used to cost nine Renovate pull requests, nine
+  tag-and-release cycles and nine `require` bumps here, in dependency order,
+  because `barcode-cty-func` → `bytes-cty-type` → `rich-cty-types` forbade doing
+  them in parallel. It is now one of each.
+
 ### Removed
 
 - **`bus.main` is no longer implicit. Every bus is declared.** A configuration

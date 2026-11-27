@@ -10,7 +10,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/sosodev/duration"
-	timecty "github.com/tsarna/time-cty-funcs"
+	timecty "github.com/tsarna/ctyx/timecty"
 	bus "github.com/tsarna/vinculum-bus"
 	"github.com/tsarna/vinculum/hclutil"
 	"github.com/zclconf/go-cty/cty"

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/tsarna/go2cty2go"
+	"github.com/tsarna/ctyx/go2cty2go"
 	bus "github.com/tsarna/vinculum-bus"
 	mqttclient "github.com/tsarna/vinculum-mqtt/client"
 	mqttpublisher "github.com/tsarna/vinculum-mqtt/publisher"

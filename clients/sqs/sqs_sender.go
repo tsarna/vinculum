@@ -9,7 +9,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/hashicorp/hcl/v2"
-	"github.com/tsarna/go2cty2go"
+	"github.com/tsarna/ctyx/go2cty2go"
 	sqssender "github.com/tsarna/vinculum-sqs/sender"
 	wire "github.com/tsarna/vinculum-wire"
 	awsclient "github.com/tsarna/vinculum/clients/aws"

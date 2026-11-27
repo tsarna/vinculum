@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/tsarna/go2cty2go"
+	"github.com/tsarna/ctyx/go2cty2go"
 	bus "github.com/tsarna/vinculum-bus"
 	kconsumer "github.com/tsarna/vinculum-kafka/consumer"
 	kproducer "github.com/tsarna/vinculum-kafka/producer"

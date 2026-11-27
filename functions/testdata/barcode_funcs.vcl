@@ -1,4 +1,4 @@
-// End-to-end smoke tests for barcode-cty-func integration.
+// End-to-end smoke tests for barcodecty integration.
 
 const {
     qr_default  = barcode("qr", "https://example.com")

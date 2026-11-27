@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	bytescty "github.com/tsarna/bytes-cty-type"
-	"github.com/tsarna/go2cty2go"
-	timecty "github.com/tsarna/time-cty-funcs"
+	bytescty "github.com/tsarna/ctyx/bytescty"
+	"github.com/tsarna/ctyx/go2cty2go"
+	timecty "github.com/tsarna/ctyx/timecty"
 	"github.com/zclconf/go-cty/cty"
 )
 

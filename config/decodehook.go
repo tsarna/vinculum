@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/hashicorp/hcl/v2"
-	bytescty "github.com/tsarna/bytes-cty-type"
+	bytescty "github.com/tsarna/ctyx/bytescty"
 	wire "github.com/tsarna/vinculum-wire"
 	"github.com/tsarna/vinculum/hclutil"
 	"go.uber.org/zap"

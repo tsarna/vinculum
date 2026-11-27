@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	timecty "github.com/tsarna/time-cty-funcs"
+	timecty "github.com/tsarna/ctyx/timecty"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/tsarna/vinculum/platform"
 	"github.com/tsarna/vinculum/version"

@@ -11,7 +11,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	openailib "github.com/sashabaranov/go-openai"
-	richcty "github.com/tsarna/rich-cty-types"
+	richcty "github.com/tsarna/ctyx/richcty"
 	"github.com/tsarna/vinculum/clients/llm"
 	cfg "github.com/tsarna/vinculum/config"
 	"github.com/zclconf/go-cty/cty"
