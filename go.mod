@@ -57,7 +57,7 @@ require (
 	github.com/tsarna/vinculum-vws v0.14.1
 	github.com/tsarna/vinculum-wire v0.5.0
 	github.com/twmb/franz-go v1.22.3
-	github.com/twmb/franz-go/pkg/kfake v0.0.0-20261124225310-6c9261d4443a
+	github.com/twmb/franz-go/pkg/kfake v0.0.0-20261127044302-899cc3164d3c
 	github.com/twmb/franz-go/plugin/kotel v1.7.1
 	github.com/yosida95/uritemplate/v3 v3.0.2
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0
@@ -148,7 +148,7 @@ require (
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/sqids/sqids-go v0.4.1 // indirect
-	github.com/twmb/franz-go/pkg/kmsg v1.15.1 // indirect
+	github.com/twmb/franz-go/pkg/kmsg v1.15.2 // indirect
 	github.com/valyala/fastjson v1.6.10 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
